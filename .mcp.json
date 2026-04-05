@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "screw-agents": {
+      "command": "uv",
+      "args": ["run", "screw-agents", "serve"],
+      "cwd": "."
+    }
+  }
+}
