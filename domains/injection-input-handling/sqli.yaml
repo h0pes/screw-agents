@@ -1,0 +1,809 @@
+# domains/injection-input-handling/sqli.yaml
+# SQL Injection Agent Definition — screw-agents v1.0.0
+# Generated from 16 research files covering Tiers 1-4 of KNOWLEDGE_SOURCES.md
+# Research date: 2026-04-05
+
+meta:
+  name: sqli
+  display_name: "SQL Injection Reviewer"
+  domain: injection-input-handling
+  version: "1.0.0"
+  last_updated: "2026-04-05"
+
+  cwes:
+    primary: CWE-89
+    related:
+      - CWE-564   # Hibernate/HQL injection
+      - CWE-566   # Authorization bypass via user-controlled SQL key
+      - CWE-943   # Improper neutralization in data query logic (parent — covers NoSQL, Cypher, LDAP)
+
+  capec:
+    - CAPEC-66    # SQL Injection
+    - CAPEC-7     # Blind SQL Injection
+    - CAPEC-108   # Command execution through SQL Injection (xp_cmdshell, COPY, lo_export)
+    - CAPEC-109   # ORM Injection
+
+  owasp:
+    top10: "A05:2025 - Injection"
+    asvs:
+      - "1.2.4"   # ASVS v5.0 — parameterized queries, ORMs, or equivalent protection
+    testing_guide: "WSTG-INPV-05"
+
+  sans_top25:
+    rank: 3
+    score: 35.88
+    year: 2024
+
+  sources:
+    # Tier 1 — Normative Standards
+    - url: "https://cwe.mitre.org/data/definitions/89.html"
+      last_checked: "2026-04-05"
+    - url: "https://cwe.mitre.org/data/definitions/564.html"
+      last_checked: "2026-04-05"
+    - url: "https://capec.mitre.org/data/definitions/66.html"
+      last_checked: "2026-04-05"
+    - url: "https://owasp.org/Top10/2025/A05_2025-Injection/"
+      last_checked: "2026-04-05"
+    - url: "https://asvs.dev/v5.0.0/V1-Encoding-and-Sanitization/"
+      last_checked: "2026-04-05"
+    # Tier 2 — OWASP Methodology
+    - url: "https://owasp.org/www-project-code-review-guide/assets/OWASP_Code_Review_Guide_v2.pdf"
+      last_checked: "2026-04-05"
+    - url: "https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/07-Input_Validation_Testing/05-Testing_for_SQL_Injection"
+      last_checked: "2026-04-05"
+    - url: "https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html"
+      last_checked: "2026-04-05"
+    - url: "https://cheatsheetseries.owasp.org/cheatsheets/Query_Parameterization_Cheat_Sheet.html"
+      last_checked: "2026-04-05"
+    # Tier 3a — SAST Tool Rules
+    - url: "https://semgrep.dev/p/sql-injection"
+      last_checked: "2026-04-05"
+    - url: "https://codeql.github.com/codeql-query-help/javascript/js-sql-injection/"
+      last_checked: "2026-04-05"
+    # Tier 3b — Real-World Intelligence
+    - url: "https://portswigger.net/web-security/sql-injection/cheat-sheet"
+      last_checked: "2026-04-05"
+    - url: "https://claroty.com/team82/research/js-on-security-off-abusing-json-based-sql-to-bypass-waf"
+      last_checked: "2026-04-05"
+    - url: "https://phrack.org/issues/71/8_md"
+      last_checked: "2026-04-05"
+    # Tier 4 — LLM Security Tools
+    - url: "https://github.com/anthropics/claude-code-security-review"
+      last_checked: "2026-04-05"
+    - url: "https://github.com/Sw4mpf0x/code-review-prompts"
+      last_checked: "2026-04-05"
+    - url: "https://github.com/trailofbits/skills"
+      last_checked: "2026-04-05"
+
+core_prompt: |
+  You are a SQL injection specialist performing security code review. Your goal is to find
+  code paths where attacker-controlled data reaches SQL execution points without proper
+  parameterization.
+
+  ## The Fundamental Question
+
+  Does user-controlled data reach a SQL execution point without parameterization?
+
+  Answer this through three-phase analysis:
+
+  **Phase 1 — Context Research:** Identify the ORM, database driver, and framework. Determine
+  existing parameterized query patterns in the codebase. Understand the data access layer
+  architecture. Check for framework-provided protections (Django ORM, LINQ, Prisma query builder).
+
+  **Phase 2 — Data Flow Tracing (Source → Sink):** Identify all user input entry points (sources).
+  Trace data flow to SQL construction/execution points (sinks). Check for sanitization, validation,
+  or parameterization along the path. Distinguish attacker-controlled from server-controlled data.
+  Do not flag server-controlled sources (config values, env vars, hardcoded constants, enums).
+
+  **Phase 3 — Vulnerability Assessment:** Confirm exploitability — can the injection alter query
+  logic? Assess impact by exploitation class (see below). Verify no upstream mitigation invalidates
+  the finding. Before reporting, restate your precise vulnerability claim — if you cannot articulate
+  it coherently, it is likely a false positive.
+
+  ## SQL Injection Exploitation Classes
+
+  Understanding how an injection can be exploited determines severity and impact:
+
+  **In-Band (Classic):** Results returned directly in the application response.
+  - UNION-based: Attacker appends UNION SELECT to extract data from other tables.
+    Requires knowing column count and compatible types.
+  - Error-based: Database error messages leak data (e.g., CAST/CONVERT type coercion errors,
+    extractvalue/updatexml in MySQL, raise_application_error in Oracle).
+
+  **Blind (Inferential):** No visible output — attacker infers data from behavioral differences.
+  - Boolean-based: Application returns different content for true vs. false conditions.
+    Character-by-character extraction via SUBSTRING/ASCII comparisons.
+  - Time-based: Response delay signals true/false. Uses SLEEP() (MySQL), WAITFOR DELAY (MSSQL),
+    pg_sleep() (PostgreSQL), dbms_pipe.receive_message (Oracle). Slower but works when no
+    visible response difference exists.
+
+  **Out-of-Band (OOB):** Data exfiltrated via external channel — DNS lookups (load_file + INTO
+  OUTFILE, xp_dirtree, UTL_HTTP), HTTP requests (xxe in Oracle). Requires network egress from
+  the database server. Often combined with blind techniques when time-based is too slow.
+
+  **Second-Order:** Payload stored safely via parameterized INSERT, then retrieved and used
+  unsafely in a later query in a different code path. The store-then-retrieve boundary is the
+  critical detection signal. Academic consensus: effective detection remains an open research
+  problem.
+
+  **Structural (Identifier Injection):** User input in ORDER BY, GROUP BY, table name, or column
+  name positions. These CANNOT be parameterized — only allowlist validation protects them.
+  Exploitation is typically limited to blind techniques (boolean/time-based via conditional errors).
+
+  All classes except in-band are harder to detect via testing but equally dangerous in code review.
+  Even SELECT-only injections can escalate to RCE on PostgreSQL (Phrack #71: lo_import/lo_export
+  filenode manipulation → ssl_passphrase_command/archive_command).
+
+  ## Source Classification
+
+  **Attacker-controlled (investigate):**
+  HTTP request parameters, query strings, POST body, JSON body, HTTP headers (User-Agent, Referer,
+  X-Forwarded-For, Cookie, Host), URL path segments, file uploads, file import data (CSV/Excel),
+  GraphQL query arguments (especially orderBy, sortBy, filter), WebSocket messages, SQS/Kafka
+  message payloads, database content from other users (second-order), LLM-generated SQL from user
+  prompts (text-to-SQL pipelines), Lambda/serverless event parameters.
+
+  **Server-controlled (do not flag):**
+  Environment variables, hardcoded constants, config file values, enum values, code-defined
+  mappings (e.g., sort field allowlists), framework-generated internal queries.
+
+  ## Sink Identification by Language
+
+  **Python:** cursor.execute(), cursor.executemany() (DB-API 2.0 — psycopg2, sqlite3,
+  mysql-connector, asyncpg); Model.objects.raw(), RawSQL(), .extra(where=[...]),
+  .extra(select={...}) (Django); session.execute(text(...)), session.scalars(text(...)),
+  engine.execute() (SQLAlchemy 1.x/2.0); asyncpg.Connection.fetch/execute/fetchrow/fetchval.
+
+  **Java:** Statement.executeQuery/execute/executeUpdate (JDBC); Connection.prepareStatement()
+  with concatenated SQL string (false parameterization trap); Session.createQuery/createSQLQuery/
+  createNativeQuery (Hibernate/JPA); EntityManager.createQuery/createNativeQuery (JPA);
+  JdbcTemplate.query/queryForObject/update/execute (Spring); MyBatis ${} interpolation (vs safe #{}).
+
+  **JavaScript/TypeScript:** client.query/pool.query (pg, mysql, mysql2); sequelize.query(),
+  Sequelize.literal() (Sequelize); knex.raw(), .whereRaw(), .orderByRaw() (Knex);
+  prisma.$queryRawUnsafe(), prisma.$executeRawUnsafe() (Prisma — NO SAST tool covers this);
+  sql.raw() (Drizzle — NO SAST tool covers this); Prisma.raw() inside tagged templates
+  (bypasses safe API).
+
+  **Go:** db.Query/QueryRow/Exec/Prepare + Context variants (database/sql); db.Raw/Where/Order/
+  Group/Having with fmt.Sprintf (GORM); sqlx.Get/Select/MustExec (sqlx).
+
+  **Ruby:** .where/.order/.group/.having/.joins/.from/.pluck/.select with string args (ActiveRecord);
+  find_by_sql(), connection.execute(), Arel.sql() (ActiveRecord).
+
+  **PHP:** mysqli_query(), $pdo->query/exec(), pg_query() (native); DB::raw(), ->whereRaw/
+  selectRaw/orderByRaw (Laravel); $wpdb->query() without $wpdb->prepare() (WordPress).
+
+  **C#/.NET:** SqlCommand, OleDbCommand, OdbcCommand (System.Data); Database.ExecuteSqlRaw(),
+  FromSqlRaw() with concatenation (EF Core); Dapper SqlMapper.Query/Execute.
+
+  ## The String Interpolation Pattern (Universal)
+
+  The core vulnerability is one of four string interpolation methods reaching a SQL sink:
+  concatenation ("..." + var), format strings ("..." % var / String.format / fmt.Sprintf),
+  interpolation (f"...{var}" / $"...{var}" / "...#{var}" / "...$var"), template literals
+  (`...${var}...`). Detect any of these within or flowing into any SQL sink listed above.
+
+  ## ORM Escape Hatch Patterns
+
+  Every ORM has raw SQL APIs that developers misuse. These are the primary modern SQLi vector:
+
+  Django: .raw(f"..."), .extra(where=[f"..."]), RawSQL(f"..."), cursor.execute(f"..."),
+  values(f"data__{user_key}") (CVE-2024-42005).
+  SQLAlchemy: text(f"..."), session.execute(f"...").
+  Hibernate: session.createQuery("..." + input), use_sql_comments=true (CVE-2020-25638).
+  ActiveRecord: .where("...#{input}"), .order(input), .annotate(input) (CVE-2023-22794).
+  Sequelize: sequelize.query(`...`), Sequelize.literal(input), replacements + where combo
+  (CVE-2023-25813).
+  Prisma: $queryRawUnsafe(`...`), $executeRawUnsafe(`...`), Prisma.raw(input) in tagged template.
+  Drizzle: sql.raw(`...`).
+  GORM: db.Raw(fmt.Sprintf(...)), db.Order(input) (CVE-2024-35181/82).
+  Eloquent: DB::raw($input), DB::select("...$input").
+  EF Core: ExecuteSqlRaw("..." + input), FromSqlRaw("..." + input).
+  Querydsl: pathBuilder.get(userInput) in orderBy (CVE-2024-49203).
+  MyBatis: ${input} in XML mappers or @Select annotations (vs safe #{input}).
+
+  ## Structural Injection (Non-Parameterizable)
+
+  Parameterized queries protect VALUES only. These elements cannot be parameterized:
+  ORDER BY / GROUP BY columns, table and column names, sort direction (ASC/DESC), schema names,
+  LIMIT/OFFSET in some ORMs. Any user input flowing to these positions without allowlist
+  validation is vulnerable. Real CVEs: CVE-2024-49203, CVE-2024-35181/82, CVE-2024-37843,
+  CVE-2021-35042.
+
+  ## TP vs FP Criteria
+
+  **True positive signals:** String interpolation/concatenation reaches SQL execution with
+  attacker-controlled data; no parameterization between source and sink; no whitelist for
+  structural elements; ORM escape hatch with user input; $queryRawUnsafe or sql.raw() with
+  template literals.
+
+  **False positive signals:** ORM query builder used properly (.filter(), .where(col: val));
+  parameterized query with placeholders (?, %s, :name, $1); string concat of compile-time
+  constants only; tagged template literals in Prisma $queryRaw or Drizzle sql; test/fixture
+  code with hardcoded values; migration SQL with no runtime input; FromSqlInterpolated in
+  EF Core (safe despite interpolation syntax); fmt.Sprintf with %d/%f only (integer/float,
+  not %s).
+
+  ## Severity Assessment
+
+  **Critical:** Unauthenticated SQLi on internet-facing endpoint + database runs as sysadmin/sa
+  (enables xp_cmdshell RCE). MSSQL with xp_cmdshell enabled. PostgreSQL with superuser
+  privileges (Phrack #71 escalation). multiStatements=true in connection string.
+  **High:** Authenticated SQLi with access to sensitive data (PII, credentials, financial).
+  In-band or error-based exploitation possible. UNION-based data extraction feasible.
+  **Medium:** Blind-only SQLi requiring time-based extraction. Limited data exposure.
+  Read-only database account. Structural injection in ORDER BY (information disclosure via
+  boolean inference).
+  **Low:** SQLi in admin-only functionality behind strong authentication. Test/staging
+  environments. Internal tools with trusted users only.
+
+  ## Amplifying Factors
+
+  Flag these configuration/connection issues that amplify any SQLi finding:
+  - multiStatements=true in database connection string (enables stacked queries)
+  - PreferQueryMode=SIMPLE in PostgreSQL JDBC URL (CVE-2024-1597 — bypasses parameterization)
+  - MSSQL connection with sa or sysadmin credentials (enables xp_cmdshell)
+  - PDO::ATTR_EMULATE_PREPARES = true (emulated prepares vulnerable with multi-byte charsets)
+
+detection_heuristics:
+  high_confidence:
+    # Python
+    - id: py-dbapi-fstring
+      pattern: "f-string or %-formatting or .format() inside cursor.execute() / cursor.executemany()"
+      languages: [python]
+      example: "cursor.execute(f\"SELECT * FROM users WHERE id = {user_id}\")"
+    - id: py-django-raw-interp
+      pattern: "Model.objects.raw() with f-string, %-formatting, .format(), or + concatenation"
+      languages: [python]
+      example: "User.objects.raw(f\"SELECT * FROM auth_user WHERE name = '{name}'\")"
+    - id: py-django-extra-interp
+      pattern: ".extra(where=[...]) or .extra(select={...}) with string interpolation"
+      languages: [python]
+      example: "qs.extra(where=[f\"col = '{user_input}'\"])"
+    - id: py-sqlalchemy-text-interp
+      pattern: "text() or session.execute() with f-string / concatenation"
+      languages: [python]
+      example: "session.execute(text(f\"SELECT * FROM t WHERE id = {uid}\"))"
+    # Java
+    - id: java-stmt-concat
+      pattern: "Statement.executeQuery/execute/executeUpdate with string concatenation"
+      languages: [java]
+      example: "stmt.executeQuery(\"SELECT * FROM users WHERE id = \" + userId)"
+    - id: java-prepstmt-preconcat
+      pattern: "PreparedStatement created with pre-concatenated SQL (no bind variables)"
+      languages: [java]
+      example: "conn.prepareStatement(\"SELECT * FROM users WHERE id = '\" + id + \"'\")"
+    - id: java-hql-concat
+      pattern: "session.createQuery() / createNativeQuery() with string concatenation"
+      languages: [java]
+      example: "session.createQuery(\"FROM User WHERE name = '\" + input + \"'\")"
+    - id: java-mybatis-dollar
+      pattern: "MyBatis ${} interpolation in XML mappers or @Select annotations"
+      languages: [java]
+      example: "@Select(\"SELECT * FROM ${tableName} WHERE id = #{id}\")"
+    # JavaScript/TypeScript
+    - id: js-driver-template
+      pattern: "Template literal in any DB driver query() / execute() call"
+      languages: [javascript, typescript]
+      example: "db.query(`SELECT * FROM users WHERE id = ${req.params.id}`)"
+    - id: js-prisma-rawunsafe
+      pattern: "$queryRawUnsafe() or $executeRawUnsafe() with any interpolation"
+      languages: [javascript, typescript]
+      example: "prisma.$queryRawUnsafe(`SELECT * FROM \"User\" WHERE id = ${userId}`)"
+    - id: js-prisma-raw-bypass
+      pattern: "Prisma.raw(userInput) inside a tagged template (bypasses safe API)"
+      languages: [javascript, typescript]
+      example: "prisma.$queryRaw`SELECT * FROM users WHERE name = ${Prisma.raw(input)}`"
+    - id: js-drizzle-raw
+      pattern: "sql.raw() in Drizzle ORM with any interpolation"
+      languages: [javascript, typescript]
+      example: "db.execute(sql.raw(`SELECT * FROM users WHERE id = ${id}`))"
+    - id: js-sequelize-literal
+      pattern: "Sequelize.literal() with user-controlled argument"
+      languages: [javascript, typescript]
+      example: "Model.findAll({ order: Sequelize.literal(req.query.sort) })"
+    # Go
+    - id: go-sprintf-query
+      pattern: "fmt.Sprintf() flowing into db.Query/QueryRow/Exec or sqlx equivalents"
+      languages: [go]
+      example: "db.Query(fmt.Sprintf(\"SELECT * FROM users WHERE id = '%s'\", id))"
+    - id: go-gorm-raw-sprintf
+      pattern: "GORM db.Raw() with fmt.Sprintf or string concatenation"
+      languages: [go]
+      example: "db.Raw(fmt.Sprintf(\"SELECT * FROM t WHERE id = %s\", id))"
+    - id: go-gorm-order
+      pattern: "GORM db.Order() with user-controlled string (ORDER BY cannot be parameterized)"
+      languages: [go]
+      example: "db.Order(r.URL.Query().Get(\"sort\")).Find(&users)"
+    # Ruby
+    - id: rb-ar-where-interp
+      pattern: "ActiveRecord .where() with Ruby string interpolation"
+      languages: [ruby]
+      example: "User.where(\"email LIKE '%#{params[:search]}%'\")"
+    - id: rb-ar-order-param
+      pattern: "ActiveRecord .order() with user-controlled parameter"
+      languages: [ruby]
+      example: "Post.order(params[:sort])"
+    # PHP
+    - id: php-query-interp
+      pattern: "mysqli_query / $pdo->query / pg_query with variable interpolation or concatenation"
+      languages: [php]
+      example: "mysqli_query($conn, \"SELECT * FROM users WHERE id = $id\")"
+    - id: php-wpdb-no-prepare
+      pattern: "$wpdb->query/get_results/get_var without $wpdb->prepare()"
+      languages: [php]
+      example: "$wpdb->get_results(\"SELECT * FROM {$wpdb->prefix}users WHERE id = $id\")"
+    # C#
+    - id: cs-sqlcmd-interp
+      pattern: "SqlCommand / OleDbCommand with string interpolation or concatenation"
+      languages: [csharp]
+      example: "new SqlCommand($\"SELECT * FROM users WHERE id = {id}\", conn)"
+    - id: cs-ef-raw-concat
+      pattern: "ExecuteSqlRaw / FromSqlRaw with string concatenation or String.Format"
+      languages: [csharp]
+      example: "context.Database.ExecuteSqlRaw(\"DELETE FROM Users WHERE Name = '\" + name + \"'\")"
+
+  medium_confidence:
+    - id: any-orderby-user-input
+      pattern: "ORDER BY / sort field derived from user input without allowlist validation"
+      languages: [python, java, javascript, typescript, go, ruby, php, csharp]
+      note: "ORDER BY cannot be parameterized. Allowlist is the only protection."
+      cves: ["CVE-2024-49203", "CVE-2024-35181", "CVE-2024-35182", "CVE-2021-35042"]
+    - id: any-table-column-interp
+      pattern: "Table or column name derived from user input without allowlist"
+      languages: [python, java, javascript, typescript, go, ruby, php, csharp]
+    - id: any-graphql-orderby
+      pattern: "GraphQL resolver constructing SQL from orderBy/sortBy/filter arguments"
+      languages: [javascript, typescript, python, java]
+      cves: ["CVE-2024-37843"]
+    - id: any-file-import-sql
+      pattern: "CSV/Excel file import building INSERT/UPDATE SQL from parsed field data"
+      languages: [python, java, javascript, typescript, php, csharp]
+    - id: py-django-jsonfield
+      pattern: "Django values() / values_list() with user-controlled JSON key lookups"
+      languages: [python]
+      cves: ["CVE-2024-42005"]
+    - id: rb-ar-annotate
+      pattern: "ActiveRecord annotate() or optimizer_hints() with user input"
+      languages: [ruby]
+      cves: ["CVE-2023-22794"]
+    - id: java-hibernate-comments
+      pattern: "Hibernate with use_sql_comments=true and user-controlled query parameters"
+      languages: [java]
+      cves: ["CVE-2020-25638"]
+    - id: js-sequelize-replace-where
+      pattern: "Sequelize query with both replacements and where options combined"
+      languages: [javascript, typescript]
+      cves: ["CVE-2023-25813"]
+    - id: any-multi-statements
+      pattern: "multiStatements=true in database connection string (enables stacked queries)"
+      languages: [javascript, typescript, python, java, go, php]
+      note: "Amplifies any SQLi to stacked queries — flag as configuration risk."
+    - id: any-simple-query-mode
+      pattern: "PreferQueryMode=SIMPLE in PostgreSQL JDBC connection URL"
+      languages: [java]
+      cves: ["CVE-2024-1597"]
+      note: "CVSS 10.0 — bypasses parameterization under specific conditions."
+    - id: any-sysadmin-conn
+      pattern: "Database connection using sa, root, or sysadmin credentials from application code"
+      languages: [python, java, javascript, typescript, go, ruby, php, csharp]
+      note: "Enables xp_cmdshell RCE on MSSQL, superuser escalation on PostgreSQL."
+    - id: any-llm-text-to-sql
+      pattern: "LLM text-to-SQL pipeline — LangChain SQLDatabaseChain, LlamaIndex NLSQLTableQueryEngine, Vanna AI, or custom NL-to-SQL"
+      languages: [python, javascript, typescript]
+      cves: ["CVE-2024-5565", "CVE-2024-8309"]
+      note: "Prompt injection → malicious SQL generation. Detection tools drop from ~98% to 60% accuracy on LLM-generated queries."
+
+  context_required:
+    - id: any-raw-method-check
+      pattern: "ORM .raw() / .execute() / $queryRaw methods — check whether parameterized"
+      languages: [python, java, javascript, typescript, go, ruby, php, csharp]
+      note: "Many raw query APIs accept both safe (parameterized) and unsafe (concatenated) forms."
+    - id: any-stored-proc-dynamic
+      pattern: "Stored procedure calls — check if procedure internally uses dynamic SQL"
+      languages: [python, java, csharp, php]
+      note: "Look for sp_execute, EXEC('...' + @param) inside the stored procedure body."
+    - id: any-second-order
+      pattern: "Async/background worker reading stored data for query construction"
+      languages: [python, java, javascript, typescript, go, ruby, php, csharp]
+      note: "Data crosses a store-then-retrieve boundary. Flag GDPR exports, user-configurable sort settings, dashboard widgets."
+    - id: any-interservice-data
+      pattern: "Inter-service data used in SQL without re-validation at trust boundary"
+      languages: [python, java, javascript, typescript, go]
+      note: "Microservice boundary — data from another service should not be trusted for SQL construction."
+    - id: any-config-sql
+      pattern: "Configuration-sourced values used in SQL — verify the configuration source"
+      languages: [python, java, javascript, typescript, go, ruby, php, csharp]
+      note: "Usually safe, but if config is user-editable (e.g., admin panel), it becomes a source."
+    - id: any-pdo-emulated
+      pattern: "PDO with ATTR_EMULATE_PREPARES = true and multi-byte character set"
+      languages: [php]
+      note: "Emulated prepares can be vulnerable with GBK/Big5/Shift_JIS character sets."
+
+bypass_techniques:
+  - name: "Second-Order Injection"
+    description: "Payload stored safely via parameterized INSERT, then retrieved and used unsafely in a later query in a different code path."
+    detection_hint: "Track data across store-then-retrieve boundaries. Flag async/background jobs reading stored data for SQL. Flag GDPR export features, user-configurable sort/filter settings, dashboard widget configurations."
+    cves: ["CVE-2024-45378", "CVE-2020-35700", "CVE-2024-0685", "CVE-2024-7857"]
+    amplifier: "multiStatements=true in connection string dramatically amplifies impact."
+
+  - name: "ORM Escape Hatch Misuse"
+    description: "Developers assume ORM protects them, then use raw query methods (.raw(), .extra(), $queryRawUnsafe(), sql.raw()) with string interpolation."
+    detection_hint: "Search for ORM raw query APIs combined with any of the four string interpolation patterns."
+    examples:
+      django: ".raw(f'...'), .extra(where=[f'...']), RawSQL(f'...'), values(f'data__{user_key}')"
+      sqlalchemy: "text(f'...'), session.execute(f'...')"
+      hibernate: "createQuery('...' + input)"
+      activerecord: ".where('...#{input}'), .order(input), .annotate(input)"
+      sequelize: "sequelize.query(`...`), Sequelize.literal(input)"
+      prisma: "$queryRawUnsafe(`...`), $executeRawUnsafe(`...`), Prisma.raw(input)"
+      drizzle: "sql.raw(`...`)"
+      gorm: "db.Raw(fmt.Sprintf(...)), db.Order(input)"
+      ef_core: "ExecuteSqlRaw('...' + input), FromSqlRaw('...' + input)"
+    cves: ["CVE-2024-42005", "CVE-2023-22794", "CVE-2023-25813", "CVE-2020-25638", "CVE-2024-49203"]
+
+  - name: "Structural / Identifier Injection"
+    description: "User input in ORDER BY, GROUP BY, table name, or column name positions. Cannot be parameterized — only allowlist validation protects."
+    detection_hint: "Any user input flowing to non-value SQL positions. Exploitation limited to blind techniques but still dangerous."
+    research: "Ligatti et al. 'SQL-Identifier Injection Attacks' (USF); OWASP ASVS v5.0 explicit caveat."
+    cves: ["CVE-2024-49203", "CVE-2024-35181", "CVE-2024-35182", "CVE-2024-37843", "CVE-2021-35042"]
+
+  - name: "JSON-Based WAF Bypass"
+    description: "JSON operators create SQL tautologies that bypass WAF signature matching. Affected Palo Alto, AWS WAF, Cloudflare, F5, Imperva before patches."
+    detection_hint: "JSON operators (->, ->>, ?, @>, <@, JSON_EXTRACT, JSON_VALUE, json_contains) in dynamically constructed SQL."
+    research: "Claroty Team82 (2022)"
+    payloads:
+      postgresql: "'{'b':2}'::jsonb <@ '{\"a\":1,\"b\":2}'::jsonb"
+      mysql: "JSON_EXTRACT('{\"id\":14}','$.name')='Aztalan'"
+      mssql: "JSON_VALUE('{\"a\":\"1\"}','$.a')='1'"
+
+  - name: "Protocol-Level Query Smuggling"
+    description: "Integer overflow in database wire protocol message size fields (32-bit wraps at 4GB) causes message boundary corruption, injecting arbitrary SQL."
+    detection_hint: "Flag pgx driver versions before 4.18.2/5.5.4. Flag endpoints accepting unbounded input size."
+    research: "Paul Gerste (SonarSource), DEF CON 32, PortSwigger Top 10 2024 #2."
+    cves: ["CVE-2024-27304"]
+
+  - name: "SELECT-Only PostgreSQL Escalation"
+    description: "SELECT-only injection escalated to superuser RCE via lo_import/lo_export file manipulation, filenode editing, and ssl_passphrase_command/archive_command modification."
+    detection_hint: "Any PostgreSQL injection — even SELECT-only — should be treated as potentially critical."
+    research: "Phrack Issue #71, August 2024."
+
+  - name: "WAF Evasion Techniques"
+    description: "Encoding tricks, comment-based obfuscation, keyword manipulation, and parsing discrepancies to bypass web application firewalls."
+    detection_hint: "Relevant for severity assessment — WAFs do not fix root cause. Code review should treat WAF-protected SQLi as still vulnerable."
+    techniques:
+      - "Inline comments as whitespace: SELECT/**/username/**/FROM/**/users"
+      - "MySQL version comments: /*!50000 UNION*/"
+      - "Mixed case: uNioN SeLecT"
+      - "Hex encoding: 0x61646D696E for 'admin'"
+      - "Double URL encoding: %2527 for '"
+      - "XML entity encoding: &#85;NION"
+      - "HTTP parameter pollution: ?id=1;select+1&id=2,3"
+      - "Non-standard whitespace: %09 (tab), %0a (newline), %0b (vtab)"
+    research: "WAFFLED (arXiv 2503.10846) — 1,207 bypasses across 5 major WAFs."
+
+  - name: "Driver/Connector Vulnerabilities"
+    description: "Parameterized queries bypassed by specific driver configurations or driver bugs."
+    detection_hint: "Flag PreferQueryMode=SIMPLE in JDBC URLs, multiStatements=true, PDO emulated prepares with multi-byte charsets."
+    cves: ["CVE-2024-1597", "CVE-2025-26794"]
+    details:
+      pgjdbc: "PreferQueryMode=SIMPLE enables injection through parameterized queries (CVSS 10.0)."
+      pdo: "ATTR_EMULATE_PREPARES=true vulnerable with GBK/Big5/Shift_JIS character sets."
+
+  - name: "AI/LLM-Mediated Injection"
+    description: "Prompt injection causes LLM to generate malicious SQL in text-to-SQL pipelines. User input → LLM prompt → generated SQL → database execution."
+    detection_hint: "Any text-to-SQL system using exec()/eval() on LLM output, or passing user input into prompts that generate queries. LangChain SQLDatabaseChain, LlamaIndex NLSQLTableQueryEngine, Vanna AI."
+    cves: ["CVE-2024-5565", "CVE-2024-8309"]
+    research: "Detection tools drop from ~98% to 60% accuracy on LLM-generated queries."
+
+  - name: "CSV/File Import Injection"
+    description: "SQL payloads embedded in CSV/Excel fields bypass web application input sanitization. File import functions construct SQL from parsed data."
+    detection_hint: "File import handlers that build INSERT/UPDATE SQL from parsed CSV/Excel data without parameterization."
+    research: "SECFORCE — CSV import to cmd.exe via CHAR() substitution for comma."
+
+remediation:
+  preferred: |
+    Use parameterized queries / prepared statements exclusively. Every language and framework
+    provides a safe mechanism:
+
+    Python (DB-API): cursor.execute("SELECT...WHERE id = %s", (user_id,))
+    Python (Django): Model.objects.filter(field=value) or Model.objects.raw("...%s", [value])
+    Python (SQLAlchemy): session.execute(text("...WHERE id = :id"), {"id": value})
+    Java (JDBC): PreparedStatement with ? placeholders and setString()/setInt()
+    Java (Hibernate): session.createQuery("...WHERE x = :p").setParameter("p", value)
+    Java (MyBatis): #{param} (NOT ${param})
+    Java (Spring): JdbcTemplate.queryForObject("...WHERE id = ?", new Object[]{id}, ...)
+    JS/TS (pg): client.query("SELECT...WHERE id = $1", [id])
+    JS/TS (Prisma): prisma.$queryRaw`SELECT...WHERE id = ${id}` (tagged template)
+    JS/TS (Drizzle): sql`SELECT...WHERE id = ${id}` (tagged template)
+    JS/TS (Knex): knex.raw("SELECT...WHERE id = ?", [id])
+    JS/TS (Sequelize): sequelize.query("...WHERE id = ?", { replacements: [id] })
+    Go (database/sql): db.Query("SELECT...WHERE id = $1", id)
+    Go (GORM): db.Where("id = ?", id).Find(&users)
+    Ruby (ActiveRecord): Model.where(field: value) or Model.where("field = ?", value)
+    PHP (PDO): $stmt = $pdo->prepare("...WHERE id = :id"); $stmt->execute(['id' => $id])
+    PHP (WordPress): $wpdb->prepare("...WHERE id = %d", $id)
+    C# (ADO.NET): cmd.Parameters.AddWithValue("@param", value)
+    C# (EF Core): context.Users.FromSqlInterpolated($"...WHERE id = {id}") or LINQ
+    Rust (sqlx): sqlx::query("...WHERE id = $1").bind(id)
+
+    For non-parameterizable elements (ORDER BY, table/column names): use allowlist validation.
+    Map user input to a fixed set of known-safe values.
+
+  common_mistakes:
+    - mistake: "Escaping or quoting user input instead of parameterizing"
+      why_insufficient: "OWASP: 'This methodology is fragile...we CANNOT guarantee it will prevent all SQL injections.' Bypass techniques exist for most escaping approaches including multi-byte character encoding attacks."
+
+    - mistake: "Denylist filtering (stripping SELECT, UNION, etc.)"
+      why_insufficient: "OWASP: 'Fundamentally flawed...trivial for an attacker to bypass.' Case mixing, encoding, comment insertion, and keyword nesting defeat denylist filters."
+
+    - mistake: "Building SQL string with concatenation THEN passing to PreparedStatement"
+      why_insufficient: "False parameterization — the SQL is already tainted before PreparedStatement wraps it. The ? placeholders are never used. Looks safe in code review but is fully vulnerable."
+
+    - mistake: "Parameterizing values but not identifiers (table/column names still concatenated)"
+      why_insufficient: "Parameterized queries only protect value positions. ORDER BY columns, table names, and schema names require allowlist validation."
+
+    - mistake: "Client-side validation only"
+      why_insufficient: "Attackers bypass by sending requests directly via curl, Burp Suite, or custom scripts. Server-side parameterization is mandatory."
+
+    - mistake: "PDO with ATTR_EMULATE_PREPARES = true"
+      why_insufficient: "Emulated prepares can be vulnerable with multi-byte character sets (GBK, Big5, Shift_JIS). Use native prepared statements."
+
+    - mistake: "Stored procedures with internal dynamic SQL"
+      why_insufficient: "The procedure body contains EXEC('SELECT...' + @param). Parameterized call to the procedure does not protect the internal concatenation."
+
+    - mistake: "Assuming ORM methods are always safe"
+      why_insufficient: "Every ORM has raw query escape hatches (.raw(), .extra(), $queryRawUnsafe(), sql.raw()). Developers use them for complex queries and often forget to parameterize."
+
+few_shot_examples:
+  vulnerable:
+    - language: python
+      label: "DB-API f-string injection"
+      code: |
+        def get_user(request):
+            user_id = request.GET.get('id')
+            cursor.execute(f"SELECT * FROM users WHERE id = {user_id}")
+            return cursor.fetchone()
+      explanation: "User input from request.GET directly interpolated into SQL via f-string. Attacker sends id=1 OR 1=1 to dump all users, or id=1; DROP TABLE users-- for stacked queries."
+
+    - language: python
+      label: "Django ORM raw() with interpolation"
+      code: |
+        def search_users(request):
+            query = request.GET.get('q')
+            users = User.objects.raw(
+                f"SELECT * FROM auth_user WHERE username LIKE '%{query}%'"
+            )
+            return render(request, 'results.html', {'users': users})
+      explanation: "f-string in Django raw(). Fix: User.objects.raw('SELECT * FROM auth_user WHERE username LIKE %s', ['%' + query + '%'])"
+
+    - language: java
+      label: "JDBC Statement concatenation"
+      code: |
+        String userId = request.getParameter("id");
+        String query = "SELECT * FROM users WHERE id = " + userId;
+        Statement stmt = connection.createStatement();
+        ResultSet rs = stmt.executeQuery(query);
+      explanation: "Classic concatenation with Statement. Fix: Use PreparedStatement with ? placeholder and setString(1, userId)."
+
+    - language: java
+      label: "False parameterization trap"
+      code: |
+        String name = request.getParameter("name");
+        String query = "SELECT * FROM users WHERE name = '" + name + "'";
+        PreparedStatement ps = conn.prepareStatement(query);
+        ResultSet rs = ps.executeQuery();
+      explanation: "Looks parameterized (PreparedStatement) but SQL is pre-concatenated. No bind variables. Fully vulnerable despite safe-looking API usage."
+
+    - language: javascript
+      label: "Prisma $queryRawUnsafe"
+      code: |
+        const userId = req.params.id;
+        const user = await prisma.$queryRawUnsafe(
+          `SELECT * FROM "User" WHERE id = ${userId}`
+        );
+      explanation: "$queryRawUnsafe does NOT parameterize — template literal is raw string concatenation. No SAST tool detects this. Fix: prisma.$queryRaw`SELECT * FROM \"User\" WHERE id = ${userId}` (tagged template)."
+
+    - language: javascript
+      label: "Prisma.raw() bypass of safe API"
+      code: |
+        const sortCol = req.query.sort;
+        const users = await prisma.$queryRaw`
+          SELECT * FROM "User" ORDER BY ${Prisma.raw(sortCol)}
+        `;
+      explanation: "Prisma.raw() explicitly opts out of parameterization inside an otherwise safe tagged template. Fix: Allowlist validation of sort column before use."
+
+    - language: go
+      label: "GORM Order injection"
+      code: |
+        sortField := r.URL.Query().Get("sort")
+        var users []User
+        db.Order(sortField).Find(&users)
+      explanation: "ORDER BY cannot be parameterized. User controls SQL structure. Fix: Validate sortField against allowlist of permitted column names."
+
+    - language: go
+      label: "database/sql with fmt.Sprintf"
+      code: |
+        id := r.URL.Query().Get("id")
+        query := fmt.Sprintf("SELECT * FROM users WHERE id = '%s'", id)
+        rows, err := db.Query(query)
+      explanation: "fmt.Sprintf with %s builds raw SQL string. Fix: db.Query('SELECT * FROM users WHERE id = $1', id)."
+
+    - language: ruby
+      label: "ActiveRecord string interpolation in where"
+      code: |
+        User.where("email LIKE '%#{params[:search]}%'")
+      explanation: "Ruby string interpolation inserts raw user input. Fix: User.where('email LIKE ?', \"%#{params[:search]}%\")"
+
+    - language: php
+      label: "WordPress missing prepare()"
+      code: |
+        $id = $_GET['id'];
+        $results = $wpdb->get_results(
+            "SELECT * FROM {$wpdb->prefix}users WHERE id = $id"
+        );
+      explanation: "Variable interpolated without prepare(). Fix: $wpdb->get_results($wpdb->prepare('SELECT * FROM {$wpdb->prefix}users WHERE id = %d', $id))"
+
+    - language: csharp
+      label: "EF Core ExecuteSqlRaw with String.Format"
+      code: |
+        string name = request.Query["name"];
+        context.Database.ExecuteSqlRaw(
+            string.Format("DELETE FROM Users WHERE Name = '{0}'", name));
+      explanation: "String.Format in ExecuteSqlRaw. Fix: context.Database.ExecuteSqlInterpolated($\"DELETE FROM Users WHERE Name = {name}\") — ExecuteSqlInterpolated auto-parameterizes."
+
+    - language: python
+      label: "Second-order injection"
+      code: |
+        # STEP 1: Safe storage (parameterized)
+        cursor.execute(
+            "INSERT INTO profiles (username, bio) VALUES (%s, %s)",
+            (username, bio)  # bio contains: "'; DROP TABLE users; --"
+        )
+
+        # STEP 2: Later, different function — VULNERABLE
+        cursor.execute(
+            "SELECT bio FROM profiles WHERE username = %s", (username,)
+        )
+        stored_bio = cursor.fetchone()[0]
+
+        # STEP 3: Stored value used unsafely
+        cursor.execute(
+            f"INSERT INTO reports (content) VALUES ('{stored_bio}')"
+        )
+      explanation: "Data crosses store-then-retrieve trust boundary. Step 1 is safe. Step 3 uses retrieved data as trusted — it is not. Fix: Parameterize step 3."
+
+  safe:
+    - language: python
+      label: "Django ORM filter (auto-parameterized)"
+      code: |
+        users = User.objects.filter(username__icontains=query)
+      explanation: "Django ORM query builder generates parameterized SQL internally. Never flag standard ORM methods."
+
+    - language: python
+      label: "DB-API parameterized query"
+      code: |
+        cursor.execute(
+            "SELECT * FROM users WHERE id = %s AND status = %s",
+            (user_id, 'active')
+        )
+      explanation: "Placeholders (%s) with tuple of values. Database driver handles escaping. Safe."
+
+    - language: java
+      label: "PreparedStatement with bind variables"
+      code: |
+        PreparedStatement pstmt = connection.prepareStatement(
+            "SELECT * FROM users WHERE username = ? AND password = ?");
+        pstmt.setString(1, username);
+        pstmt.setString(2, password);
+        ResultSet rs = pstmt.executeQuery();
+      explanation: "Proper PreparedStatement with ? placeholders and setString(). SQL structure is fixed at prepare time."
+
+    - language: javascript
+      label: "Prisma tagged template (auto-parameterized)"
+      code: |
+        const user = await prisma.$queryRaw`
+          SELECT * FROM "User" WHERE id = ${userId}
+        `;
+      explanation: "Tagged template in Prisma $queryRaw auto-parameterizes. The ${} is processed by the tag function, NOT JavaScript string interpolation. Safe."
+
+    - language: javascript
+      label: "Drizzle tagged template (auto-parameterized)"
+      code: |
+        const users = await db.execute(
+          sql`SELECT * FROM users WHERE id = ${userId}`
+        );
+      explanation: "Drizzle sql tagged template auto-parameterizes. Safe."
+
+    - language: go
+      label: "database/sql parameterized"
+      code: |
+        rows, err := db.Query(
+            "SELECT * FROM users WHERE id = $1 AND status = $2",
+            userID, "active",
+        )
+      explanation: "Positional placeholders ($1, $2) with separate arguments. Safe."
+
+    - language: go
+      label: "GORM parameterized Where"
+      code: |
+        db.Where("name = ?", userName).Find(&users)
+      explanation: "GORM placeholder (?) with separate argument. Safe. Contrast with db.Where(fmt.Sprintf(...)) which is vulnerable."
+
+    - language: python
+      label: "Allowlisted ORDER BY"
+      code: |
+        ALLOWED_SORT = {'name': 'user_name', 'date': 'created_at', 'email': 'email'}
+        sort_col = ALLOWED_SORT.get(request.args.get('sort'), 'user_name')
+        cursor.execute(f"SELECT * FROM users ORDER BY {sort_col}")
+      explanation: "User input mapped through allowlist dictionary. Only known-safe column names reach SQL. The f-string is safe because sort_col is server-controlled."
+
+    - language: csharp
+      label: "EF Core FromSqlInterpolated (safe despite $ syntax)"
+      code: |
+        var users = context.Users.FromSqlInterpolated(
+            $"SELECT * FROM Users WHERE Name = {name}"
+        );
+      explanation: "FromSqlInterpolated auto-parameterizes interpolated values. Despite the $ prefix looking like raw interpolation, EF Core extracts parameters. Safe. Contrast with FromSqlRaw which does NOT auto-parameterize."
+
+target_strategy:
+  scope: "function"
+  include_imports: true
+  include_type_defs: true
+  adaptive_depth:
+    small: "Deep analysis — trace all data flows, check all ORM usage (<20 files)"
+    medium: "Focus on data access layer, route handlers, DB driver imports (20-200 files)"
+    large: "Surgical — prioritize files with SQL keywords, raw query methods, dangerous APIs (200+ files)"
+  file_patterns:
+    - "**/*.py"
+    - "**/*.java"
+    - "**/*.js"
+    - "**/*.ts"
+    - "**/*.go"
+    - "**/*.rb"
+    - "**/*.php"
+    - "**/*.cs"
+    - "**/*.kt"
+    - "**/*.scala"
+    - "**/*.rs"
+    - "**/mybatis/**/*.xml"
+  relevance_signals:
+    # SQL keywords in strings
+    - "SELECT"
+    - "INSERT"
+    - "UPDATE"
+    - "DELETE"
+    - "CREATE TABLE"
+    - "DROP TABLE"
+    # Database driver/ORM imports
+    - "cursor.execute"
+    - "Statement"
+    - "PreparedStatement"
+    - "createQuery"
+    - "createNativeQuery"
+    - ".query("
+    - ".execute("
+    - "db.Query"
+    - "db.Raw"
+    - "db.Order"
+    - "knex.raw"
+    - "$queryRaw"
+    - "$executeRaw"
+    - "sql.raw"
+    - "Sequelize.literal"
+    - "objects.raw"
+    - ".extra("
+    - "RawSQL"
+    - "text("
+    - "find_by_sql"
+    - "Arel.sql"
+    - "DB::raw"
+    - "whereRaw"
+    - "orderByRaw"
+    - "$wpdb->query"
+    - "ExecuteSqlRaw"
+    - "FromSqlRaw"
+    - "SqlCommand"
+    - "JdbcTemplate"
+    - "fmt.Sprintf"

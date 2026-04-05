@@ -1,6 +1,9 @@
 # Research notes — local working material, not committed
 docs/research/
 
+# Claude Code local settings (permissions, preferences — not committed)
+.claude/settings.json
+
 # Python
 __pycache__/
 *.py[cod]
