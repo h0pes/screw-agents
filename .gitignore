@@ -1,8 +1,4 @@
-# Docs — kept local, not pushed to remote
-docs/PRD.md
-docs/DECISIONS.md
-docs/KNOWLEDGE_SOURCES.md
-docs/PROJECT_STATUS.md
+# Research notes — local working material, not committed
 docs/research/
 
 # Python
