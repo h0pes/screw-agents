@@ -74,6 +74,16 @@ meta:
       last_checked: "2026-04-05"
     - url: "https://github.com/trailofbits/skills"
       last_checked: "2026-04-05"
+    # Rust-specific sources
+    - url: "https://rustsec.org/advisories/RUSTSEC-2024-0363"
+      last_checked: "2026-04-06"
+      note: "sqlx protocol-level overflow (DEF CON 32)"
+    - url: "https://rustsec.org/advisories/RUSTSEC-2024-0365.html"
+      last_checked: "2026-04-06"
+      note: "diesel protocol-level overflow, fixed in 2.2.3"
+    - url: "https://docs.rs/sqlx/latest/sqlx/fn.query.html"
+      last_checked: "2026-04-06"
+      note: "sqlx query() documentation with injection warnings"
 
 core_prompt: |
   You are a SQL injection specialist performing security code review. Your goal is to find
@@ -177,6 +187,16 @@ core_prompt: |
   **C#/.NET:** SqlCommand, OleDbCommand, OdbcCommand (System.Data); Database.ExecuteSqlRaw(),
   FromSqlRaw() with concatenation (EF Core); Dapper SqlMapper.Query/Execute.
 
+  **Rust:** sqlx::query(&format!("...{}", input)) — format! into runtime query function;
+  sqlx::query_as::<_, T>(&format!("...")) — same with typed output;
+  diesel::sql_query(format!("...{}", input)) — Diesel raw SQL with format!;
+  Statement::from_string(backend, format!("...{}", input)) — SeaORM raw statement;
+  db.execute_unprepared(&format!("...{}", input)) — SeaORM unprepared execution;
+  conn.execute(&format!("...{}", input), []) — rusqlite with format!;
+  client.query(&format!("...{}", input), &[]) — tokio-postgres with format!.
+  Key distinction: sqlx::query!() MACRO (compile-time checked, always safe) vs sqlx::query()
+  FUNCTION (safe only with .bind() params). The format!() macro is the universal Rust footgun.
+
   ## The String Interpolation Pattern (Universal)
 
   The core vulnerability is one of four string interpolation methods reaching a SQL sink:
@@ -197,6 +217,15 @@ core_prompt: |
   (CVE-2023-25813).
   Prisma: $queryRawUnsafe(`...`), $executeRawUnsafe(`...`), Prisma.raw(input) in tagged template.
   Drizzle: sql.raw(`...`).
+  sqlx (Rust): sqlx::query(&format!("...{}", input)) — the query() function accepts &str,
+  making format!() tempting. Safe: sqlx::query("...$1").bind(input) or sqlx::query!() macro.
+  Diesel (Rust): diesel::sql_query(format!("...{}", input)) — raw SQL escape hatch. Safe:
+  query DSL users::table.filter(col.eq(val)). RUSTSEC-2024-0365: protocol overflow in diesel <= 2.2.2.
+  SeaORM (Rust): Statement::from_string(backend, format!("...")), execute_unprepared(). Safe:
+  Entity::find().filter(...), raw_sql!() macro, sea-query builder.
+  rusqlite (Rust): conn.execute(&format!("..."), []) — format! into execute. Safe:
+  conn.execute("...?1", params![val]).
+  RUSTSEC-2024-0363: sqlx <= 0.8.0 protocol-level overflow (DEF CON 32 research).
   GORM: db.Raw(fmt.Sprintf(...)), db.Order(input) (CVE-2024-35181/82).
   Eloquent: DB::raw($input), DB::select("...$input").
   EF Core: ExecuteSqlRaw("..." + input), FromSqlRaw("..." + input).
@@ -343,6 +372,27 @@ detection_heuristics:
       pattern: "ExecuteSqlRaw / FromSqlRaw with string concatenation or String.Format"
       languages: [csharp]
       example: "context.Database.ExecuteSqlRaw(\"DELETE FROM Users WHERE Name = '\" + name + \"'\")"
+    # Rust
+    - id: rs-sqlx-format
+      pattern: "sqlx::query() or sqlx::query_as() with format!() — the Rust footgun"
+      languages: [rust]
+      example: "sqlx::query(&format!(\"SELECT * FROM users WHERE name = '{}'\", input)).fetch_all(&pool).await"
+    - id: rs-diesel-sql-query-format
+      pattern: "diesel::sql_query() with format!() or string concatenation"
+      languages: [rust]
+      example: "diesel::sql_query(format!(\"SELECT * FROM users WHERE id = {}\", user_id)).load::<User>(&mut conn)"
+    - id: rs-seaorm-statement-format
+      pattern: "Statement::from_string() with format!() or string building"
+      languages: [rust]
+      example: "Statement::from_string(DbBackend::Postgres, format!(\"SELECT * FROM t WHERE id = {}\", id))"
+    - id: rs-rusqlite-format
+      pattern: "rusqlite conn.execute() / conn.query_row() with format!() string"
+      languages: [rust]
+      example: "conn.execute(&format!(\"DELETE FROM users WHERE name = '{}'\", name), [])"
+    - id: rs-tokio-postgres-format
+      pattern: "tokio-postgres client.query() / client.execute() with format!() string"
+      languages: [rust]
+      example: "client.query(&format!(\"SELECT * FROM users WHERE email = '{}'\", email), &[]).await"
 
   medium_confidence:
     - id: any-orderby-user-input
@@ -526,7 +576,13 @@ remediation:
     PHP (WordPress): $wpdb->prepare("...WHERE id = %d", $id)
     C# (ADO.NET): cmd.Parameters.AddWithValue("@param", value)
     C# (EF Core): context.Users.FromSqlInterpolated($"...WHERE id = {id}") or LINQ
-    Rust (sqlx): sqlx::query("...WHERE id = $1").bind(id)
+    Rust (sqlx): sqlx::query("...WHERE id = $1").bind(id) or sqlx::query!("...WHERE id = $1", id)
+    Rust (Diesel): users::table.filter(users::id.eq(id)) — query DSL is always safe
+    Rust (Diesel raw): diesel::sql_query("...WHERE id = $1").bind::<Text, _>(id)
+    Rust (SeaORM): Entity::find().filter(col.eq(id)) or raw_sql!(Postgres, "...WHERE id = {id}")
+    Rust (rusqlite): conn.execute("...WHERE id = ?1", params![id])
+    Rust (tokio-postgres): client.query("...WHERE id = $1", &[&id])
+    Note: sqlx::query!() macro (with !) validates SQL at COMPILE TIME — safest pattern in any language.
 
     For non-parameterizable elements (ORDER BY, table/column names): use allowlist validation.
     Map user input to a fixed set of known-safe values.
@@ -653,6 +709,49 @@ few_shot_examples:
             string.Format("DELETE FROM Users WHERE Name = '{0}'", name));
       explanation: "String.Format in ExecuteSqlRaw. Fix: context.Database.ExecuteSqlInterpolated($\"DELETE FROM Users WHERE Name = {name}\") — ExecuteSqlInterpolated auto-parameterizes."
 
+    - language: rust
+      label: "sqlx::query with format!() — the Rust footgun"
+      code: |
+        use axum::extract::Query;
+        use sqlx::PgPool;
+
+        async fn search(
+            Query(params): Query<HashMap<String, String>>,
+            pool: web::Data<PgPool>,
+        ) -> impl IntoResponse {
+            let name = params.get("name").unwrap();
+            let q = format!("SELECT * FROM users WHERE name = '{}'", name);
+            let users = sqlx::query_as::<_, User>(&q)
+                .fetch_all(pool.get_ref())
+                .await
+                .unwrap();
+            Json(users)
+        }
+      explanation: "format!() builds raw SQL string from user input, passed to sqlx::query(). Fix: sqlx::query_as!(User, \"SELECT * FROM users WHERE name = $1\", name) or sqlx::query(\"...WHERE name = $1\").bind(name)."
+
+    - language: rust
+      label: "Diesel sql_query with format!()"
+      code: |
+        use diesel::sql_query;
+
+        fn find_user(conn: &mut PgConnection, name: &str) -> QueryResult<Vec<User>> {
+            sql_query(format!(
+                "SELECT * FROM users WHERE name = '{}'", name
+            )).load::<User>(conn)
+        }
+      explanation: "diesel::sql_query() accepts raw SQL. format!() interpolates user input. Fix: Use Diesel query DSL — users::table.filter(users::name.eq(name)).load::<User>(conn), or sql_query(\"...WHERE name = $1\").bind::<Text, _>(name)."
+
+    - language: rust
+      label: "SeaORM Statement::from_string with format!()"
+      code: |
+        let name = req.param("name").unwrap();
+        let stmt = Statement::from_string(
+            DbBackend::Postgres,
+            format!("SELECT * FROM users WHERE name = '{}'", name),
+        );
+        let results = db.query_all(stmt).await?;
+      explanation: "Statement::from_string() with format!() — no parameterization. Fix: Use entity API User::find().filter(user::Column::Name.eq(name)) or raw_sql!() macro."
+
     - language: python
       label: "Second-order injection"
       code: |
@@ -739,6 +838,45 @@ few_shot_examples:
         cursor.execute(f"SELECT * FROM users ORDER BY {sort_col}")
       explanation: "User input mapped through allowlist dictionary. Only known-safe column names reach SQL. The f-string is safe because sort_col is server-controlled."
 
+    - language: rust
+      label: "sqlx::query!() macro — compile-time checked (SAFEST)"
+      code: |
+        let user = sqlx::query_as!(
+            User,
+            r#"SELECT id, name, email FROM users WHERE name = $1"#,
+            name
+        )
+        .fetch_optional(&pool)
+        .await?;
+      explanation: "sqlx::query!() macro validates SQL syntax and types at COMPILE TIME against the actual database schema. Parameters are always bound. This is the safest SQL pattern in any language — injection is structurally impossible."
+
+    - language: rust
+      label: "sqlx::query() with .bind() — runtime parameterized"
+      code: |
+        let users = sqlx::query("SELECT * FROM users WHERE name = $1 AND active = true")
+            .bind(&name)
+            .fetch_all(&pool)
+            .await?;
+      explanation: "sqlx::query() function with .bind() — parameterized at runtime. Safe. The key is that the SQL string is a literal with $1 placeholders, NOT built with format!()."
+
+    - language: rust
+      label: "Diesel query DSL (type-safe, auto-parameterized)"
+      code: |
+        let results = users::table
+            .filter(users::name.eq(&search_name))
+            .filter(users::active.eq(true))
+            .load::<User>(&mut conn)?;
+      explanation: "Diesel's query DSL generates parameterized SQL from Rust expressions. SQL structure is defined by the type system. Safe."
+
+    - language: rust
+      label: "SeaORM entity query (auto-parameterized)"
+      code: |
+        let users = User::find()
+            .filter(user::Column::Name.eq(&search_name))
+            .all(&db)
+            .await?;
+      explanation: "SeaORM entity API generates parameterized SQL. Safe. Contrast with Statement::from_string(format!(...)) which is vulnerable."
+
     - language: csharp
       label: "EF Core FromSqlInterpolated (safe despite $ syntax)"
       code: |
@@ -807,3 +945,12 @@ target_strategy:
     - "SqlCommand"
     - "JdbcTemplate"
     - "fmt.Sprintf"
+    # Rust database imports and dangerous patterns
+    - "sqlx::query"
+    - "diesel::sql_query"
+    - "Statement::from_string"
+    - "execute_unprepared"
+    - "rusqlite"
+    - "tokio_postgres"
+    - "sea_orm"
+    - "format!(\""
