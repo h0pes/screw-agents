@@ -1110,6 +1110,19 @@ This creates a **three-way feedback loop**: benchmark metrics + challenger disag
 - Synthesis into draft agent YAML definitions
 - Validation of CWE-1400 domain mapping against real codebases
 
+### Phase 0.5: Benchmark Infrastructure Sprint
+
+**Inserted after Phase 0 (not in the original PRD v0.4.3).** Phase 1 validation cannot rely on self-authored fixtures alone — we need real-CVE benchmarks with proper methodology. Originally, all benchmark work lived in Phase 5 (autoresearch); pulling the infrastructure subset forward to 0.5 means Phase 1 has a validation harness from day one, and Phase 5 can assume the harness exists and focus on the self-improvement loop.
+
+**The plan is in `docs/PHASE_0_5_PLAN.md`** (28 tasks, 178 steps). Summary of what it produces:
+- CWE-1400-native Python benchmark evaluator (ADR-013 — reject direct bentoo adoption due to CWE-1000 vs CWE-1400 taxonomy mismatch)
+- Ingested real-CVE datasets: `ossf-cve-benchmark` (218 JS/TS CVEs), `flawgarden/reality-check` (C#/Python/Java subsets), `go-sec-code-mutated` (Go SSTI via Sprig), `skf-labs-mutated` (Python Flask/Jinja2 SSTI), `CrossVul` (PHP/Ruby), `Vul4J` (Java precision), MoreFixes extract (29k+ CVEs via docker-compose Postgres dump)
+- PrimeVul methodology applied: deduplication via tree-sitter AST normalization, chronological splits, cross-project holdouts, pair-based evaluation
+- Central active-CWE registry (`benchmarks/scripts/_active_cwes.py`) so Phase 2+ agent expansion is a one-line change
+- Validation gates for Phase 1.7 documented (`docs/PHASE_0_5_VALIDATION_GATES.md`)
+
+**Rust corpus is deferred from Phase 0.5 to Phase 5 step 5.0** (ADR-014 — insufficient verified real Rust CVEs for Phase 1 injection CWEs; the deferral is hard-gated via triple-redundant tracking: ADR-014, PRD §12 step 5.0, `docs/PROJECT_STATUS.md` Deferred Obligations D-01).
+
 ### Phase 1: Core Infrastructure
 - Build MCP server skeleton (Python, FastAPI or stdio)
 - Implement agent registry (YAML loading → MCP tool registration, CWE-1400 domain structure)
