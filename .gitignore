@@ -1,5 +1,7 @@
 # Research notes — local working material, not committed
-docs/research/
+docs/research/*
+# Exception: benchmark research docs are canonical deliverables (Phase 0.5)
+!docs/research/benchmark-*.md
 
 # Claude Code local settings (permissions, preferences — not committed)
 .claude/settings.json
