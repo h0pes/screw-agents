@@ -35,7 +35,7 @@
 | 9 | Chronological + pair-based evaluation (`runner/primevul.py` cont.) | 8 | — |
 | 10 | CLI entry point (`runner/cli.py`, `runner/__main__.py`) | 5, 6, 7, 9 | 11 |
 | 11 | Markdown report generator (`runner/report.py`) | 4, 7 | 10 |
-| 12 | Reusable ingest harness base class (`scripts/ingest_base.py`) | 5 | — |
+| 12 | Reusable ingest harness base class + central active-CWE registry (`scripts/ingest_base.py`, `scripts/_active_cwes.py`) | 5 | — |
 | 13 | Ingest OpenSSF CVE benchmark (JS/TS, 218 CVEs) | 12 | 14-20 |
 | 14 | Ingest `reality-check` C# subset (9 XSS + 1 SQLi + 1 CmdI) | 12 | 13, 15-20 |
 | 15 | Ingest `reality-check` Python subset (4 XSS + CWE-94) | 12 | 13, 14, 16-20 |
@@ -85,6 +85,7 @@ benchmarks/
 │   └── cwe-1400-hierarchy.yaml        # Parsed output (committed)
 ├── scripts/
 │   ├── __init__.py
+│   ├── _active_cwes.py                # Task 12: central active-CWE registry (edit once per new agent)
 │   ├── extract_cwe_1400.py            # Task 3: MITRE XML → YAML
 │   ├── ingest_base.py                 # Task 12: reusable harness
 │   ├── ingest_ossf.py                 # Task 13
@@ -159,6 +160,7 @@ benchmarks/
 | `benchmarks/runner/cli.py` | `argparse`-based CLI: `run`, `list`, `validate` subcommands | 120 |
 | `benchmarks/runner/report.py` | `render_markdown(summary) → str`. Per-CWE, per-language breakdown tables, failure dump section | 130 |
 | `benchmarks/scripts/extract_cwe_1400.py` | One-time script: download MITRE XML, parse, emit YAML | 80 |
+| `benchmarks/scripts/_active_cwes.py` | Central active-CWE registry — single source of truth for the set of CWEs our agents currently cover. Imported by every ingest script. Update this file once per new agent. | 50 |
 | `benchmarks/scripts/ingest_base.py` | `IngestBase` abstract class: `clone()`, `extract_cases()`, `materialize()`, `write_manifest()` | 120 |
 
 **Estimated total hand-written Python:** ~1,200 lines core + ~800 lines ingest scripts (8 × 100 avg) + ~600 lines tests = ~2,600 lines. Within ADR-013's tradeoff envelope.
@@ -2733,13 +2735,17 @@ git commit -m "Phase 0.5 Task 11: Markdown report renderer"
 
 ---
 
-## Task 12: Reusable ingest harness base class (`benchmarks/scripts/ingest_base.py`)
+## Task 12: Reusable ingest harness base class + central active-CWE registry
 
 **Files:**
+- Create: `benchmarks/scripts/_active_cwes.py`
 - Create: `benchmarks/scripts/ingest_base.py`
+- Create: `benchmarks/tests/test_active_cwes.py`
 - Create: `benchmarks/tests/test_ingest_base.py`
 
-**Rationale:** Tasks 13-20 all follow the same pattern: download a dataset, parse its native format, convert to `BenchmarkCase` objects, write bentoo-sarif ground-truth files, and emit a manifest. DRY this into a single base class and make each ingest task a ~40-line subclass.
+**Rationale:** Tasks 13-22 all follow the same pattern: download a dataset, parse its native format, convert to `BenchmarkCase` objects, write bentoo-sarif ground-truth files, and emit a manifest. DRY this into a single base class and make each ingest task a ~40-line subclass.
+
+Additionally, **all ingest scripts share one concept: the set of CWEs we currently have agents for**. Phase 1 covers 5 CWEs (CWE-78/79/89/94/1336). Phase 2+ will add more. We centralize this list in `benchmarks/scripts/_active_cwes.py` so adding a new agent in Phase 2 is a **one-line edit** — no need to hunt down per-script filter constants. Every ingest script and the MoreFixes extractor imports from this module; tests verify the filter via this single source of truth.
 
 **Pattern:**
 ```python
@@ -2768,7 +2774,106 @@ class IngestBase(ABC):
         ...
 ```
 
-- [ ] **Step 1: Write failing tests**
+- [ ] **Step 1: Create the central active-CWE registry**
+
+```bash
+cat > benchmarks/scripts/_active_cwes.py <<'EOF'
+"""The set of CWEs currently covered by at least one screw-agents agent.
+
+This module is the single source of truth for the active CWE filter across
+all benchmark ingestion scripts and the MoreFixes extractor. Update this
+file when adding a new agent — every ingest script imports from here.
+
+Phase progression:
+- Phase 1 (current): 5 CWEs — SQLi, CmdI, SSTI/Code Injection, XSS
+- Phase 2+: Append new CWE strings as agents are authored.
+    The ingest scripts re-filter the already-downloaded datasets on each run,
+    so expanding the active set is a one-line change here + a re-run of the
+    ingest scripts.
+
+Why three forms?
+- ACTIVE_CWES — canonical "CWE-<id>" strings. Used by datasets with
+  string CWE columns (reality-check, OSSF, go-sec-code-mutated, vul4j).
+- ACTIVE_CWE_INTS — bare integers. Used by MoreFixes Postgres queries
+  that store CWE as an integer column.
+- ACTIVE_CWE_DIGITS — bare digit strings ("79" not "CWE-79"). Used by
+  CrossVul, whose directory layout is "CWE-<digits>/<cve-id>/".
+"""
+from __future__ import annotations
+
+
+# ---------------------------------------------------------------------------
+# Update this set when adding a new agent. Every other name below is derived.
+# ---------------------------------------------------------------------------
+ACTIVE_CWES: frozenset[str] = frozenset({
+    # Phase 1 — injection domain
+    "CWE-78",    # OS Command Injection (cmdi.yaml)
+    "CWE-79",    # Cross-Site Scripting (xss.yaml)
+    "CWE-89",    # SQL Injection (sqli.yaml)
+    "CWE-94",    # Code Injection — parent of CWE-1336 SSTI
+    "CWE-1336",  # Server-Side Template Injection (ssti.yaml)
+    # Phase 2+ additions go below this line, grouped by agent/domain:
+    # "CWE-22",   # Path Traversal — path_traversal.yaml
+    # "CWE-918",  # SSRF — ssrf.yaml
+    # "CWE-502",  # Insecure Deserialization — deserialization.yaml
+    # "CWE-611",  # XXE — xxe.yaml
+    # ...
+})
+
+
+# Derived forms — never edit these directly; they follow ACTIVE_CWES.
+ACTIVE_CWE_INTS: frozenset[int] = frozenset(
+    int(c.removeprefix("CWE-")) for c in ACTIVE_CWES
+)
+
+ACTIVE_CWE_DIGITS: frozenset[str] = frozenset(
+    str(n) for n in ACTIVE_CWE_INTS
+)
+EOF
+```
+
+- [ ] **Step 2: Write a smoke test for the registry**
+
+```bash
+cat > benchmarks/tests/test_active_cwes.py <<'EOF'
+"""Tests for the central active-CWE registry."""
+from benchmarks.scripts._active_cwes import (
+    ACTIVE_CWE_DIGITS,
+    ACTIVE_CWE_INTS,
+    ACTIVE_CWES,
+)
+
+
+def test_phase1_cwes_present():
+    for cwe in ("CWE-78", "CWE-79", "CWE-89", "CWE-94", "CWE-1336"):
+        assert cwe in ACTIVE_CWES
+
+
+def test_int_form_derived_from_string_form():
+    assert ACTIVE_CWE_INTS == {int(c.removeprefix("CWE-")) for c in ACTIVE_CWES}
+
+
+def test_digit_form_matches_int_form():
+    assert ACTIVE_CWE_DIGITS == {str(n) for n in ACTIVE_CWE_INTS}
+
+
+def test_sets_are_frozen():
+    # Guard against accidental mutation
+    import pytest
+    with pytest.raises((AttributeError, TypeError)):
+        ACTIVE_CWES.add("CWE-999")  # type: ignore[attr-defined]
+EOF
+```
+
+Run the smoke test:
+
+```bash
+uv run pytest benchmarks/tests/test_active_cwes.py -v
+```
+
+Expected: 4 tests PASS.
+
+- [ ] **Step 3: Write failing tests for the ingest base class**
 
 ```bash
 cat > benchmarks/tests/test_ingest_base.py <<'EOF'
@@ -2845,7 +2950,7 @@ def test_run_invokes_all_phases(tmp_path: Path):
 EOF
 ```
 
-- [ ] **Step 2: Run tests — verify import failure**
+- [ ] **Step 4: Run tests — verify import failure**
 
 ```bash
 uv run pytest benchmarks/tests/test_ingest_base.py -v
@@ -2853,7 +2958,7 @@ uv run pytest benchmarks/tests/test_ingest_base.py -v
 
 Expected: `ModuleNotFoundError: No module named 'benchmarks.scripts.ingest_base'`
 
-- [ ] **Step 3: Write the base class**
+- [ ] **Step 5: Write the base class**
 
 ```bash
 cat > benchmarks/scripts/ingest_base.py <<'EOF'
@@ -2961,7 +3066,7 @@ class IngestBase(ABC):
 EOF
 ```
 
-- [ ] **Step 4: Run tests — expect pass**
+- [ ] **Step 6: Run tests — expect pass**
 
 ```bash
 uv run pytest benchmarks/tests/test_ingest_base.py -v
@@ -2969,11 +3074,11 @@ uv run pytest benchmarks/tests/test_ingest_base.py -v
 
 Expected: 1 test PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add benchmarks/scripts/ingest_base.py benchmarks/tests/test_ingest_base.py
-git commit -m "Phase 0.5 Task 12: reusable ingest harness base class"
+git add benchmarks/scripts/_active_cwes.py benchmarks/scripts/ingest_base.py benchmarks/tests/test_active_cwes.py benchmarks/tests/test_ingest_base.py
+git commit -m "Phase 0.5 Task 12: reusable ingest harness + central active-CWE registry"
 ```
 
 ---
@@ -3001,13 +3106,14 @@ from pathlib import Path
 
 import pytest
 
-from benchmarks.scripts.ingest_ossf import OssfCveBenchmarkIngest, PHASE1_CWE_FILTER
+from benchmarks.scripts._active_cwes import ACTIVE_CWES
+from benchmarks.scripts.ingest_ossf import OssfCveBenchmarkIngest
 
 
 def test_cwe_filter_covers_phase1_targets():
     """We must filter for the four Phase 1 CWEs plus CWE-94 (SSTI parent)."""
     for cwe in ("CWE-79", "CWE-78", "CWE-89", "CWE-94", "CWE-1336"):
-        assert cwe in PHASE1_CWE_FILTER
+        assert cwe in ACTIVE_CWES
 
 
 def test_ingest_has_correct_dataset_name():
@@ -3041,10 +3147,8 @@ from benchmarks.runner.models import (
     FindingKind,
     Language,
 )
+from benchmarks.scripts._active_cwes import ACTIVE_CWES
 from benchmarks.scripts.ingest_base import IngestBase
-
-
-PHASE1_CWE_FILTER = {"CWE-78", "CWE-79", "CWE-89", "CWE-94", "CWE-1336"}
 
 
 class OssfCveBenchmarkIngest(IngestBase):
@@ -3099,11 +3203,11 @@ class OssfCveBenchmarkIngest(IngestBase):
         if isinstance(raw_cwes, str):
             raw_cwes = [raw_cwes]
         cwes = {_normalize_cwe(c) for c in raw_cwes}
-        phase1_cwes = cwes & PHASE1_CWE_FILTER
-        if not phase1_cwes:
+        active_cwes = cwes & ACTIVE_CWES
+        if not active_cwes:
             return None
 
-        canonical_cwe = sorted(phase1_cwes)[0]
+        canonical_cwe = sorted(active_cwes)[0]
 
         cve_id = meta.get("cve") or meta.get("cveId") or cve_dir.name
         project = meta.get("project") or meta.get("repo") or "unknown"
@@ -3251,16 +3355,14 @@ cat > benchmarks/tests/test_ingest_reality_check_csharp.py <<'EOF'
 """Tests for reality-check C# ingest."""
 from pathlib import Path
 
-from benchmarks.scripts.ingest_reality_check_csharp import (
-    PHASE1_CWE_FILTER,
-    RealityCheckCsharpIngest,
-)
+from benchmarks.scripts._active_cwes import ACTIVE_CWES
+from benchmarks.scripts.ingest_reality_check_csharp import RealityCheckCsharpIngest
 
 
 def test_phase1_filter_contains_expected_cwes():
     # C# reality-check has 9 XSS, 1 SQLi, 1 CmdI matching Phase 1
     for cwe in ("CWE-79", "CWE-89", "CWE-78"):
-        assert cwe in PHASE1_CWE_FILTER
+        assert cwe in ACTIVE_CWES
 
 
 def test_ingest_has_correct_metadata():
@@ -3295,10 +3397,8 @@ from benchmarks.runner.models import (
     Language,
 )
 from benchmarks.runner.sarif import load_bentoo_sarif
+from benchmarks.scripts._active_cwes import ACTIVE_CWES
 from benchmarks.scripts.ingest_base import IngestBase
-
-
-PHASE1_CWE_FILTER = {"CWE-78", "CWE-79", "CWE-89", "CWE-94", "CWE-1336"}
 
 
 class RealityCheckCsharpIngest(IngestBase):
@@ -3333,7 +3433,7 @@ class RealityCheckCsharpIngest(IngestBase):
 
     def _build_case(self, row: dict, repo_dir: Path) -> BenchmarkCase | None:
         cwe = _normalize_cwe(row.get("cwe", ""))
-        if cwe not in PHASE1_CWE_FILTER:
+        if cwe not in ACTIVE_CWES:
             return None
 
         project = row.get("project", "unknown")
@@ -3451,16 +3551,14 @@ cat > benchmarks/tests/test_ingest_reality_check_python.py <<'EOF'
 """Tests for reality-check Python ingest."""
 from pathlib import Path
 
-from benchmarks.scripts.ingest_reality_check_python import (
-    PHASE1_CWE_FILTER,
-    RealityCheckPythonIngest,
-)
+from benchmarks.scripts._active_cwes import ACTIVE_CWES
+from benchmarks.scripts.ingest_reality_check_python import RealityCheckPythonIngest
 
 
 def test_phase1_filter_contains_expected_cwes():
     # Python reality-check has 4 XSS + 1 CWE-94 matching Phase 1
-    assert "CWE-79" in PHASE1_CWE_FILTER
-    assert "CWE-94" in PHASE1_CWE_FILTER
+    assert "CWE-79" in ACTIVE_CWES
+    assert "CWE-94" in ACTIVE_CWES
 
 
 def test_ingest_has_correct_metadata():
@@ -3515,15 +3613,13 @@ cat > benchmarks/tests/test_ingest_reality_check_java.py <<'EOF'
 """Tests for reality-check Java ingest."""
 from pathlib import Path
 
-from benchmarks.scripts.ingest_reality_check_java import (
-    PHASE1_CWE_FILTER,
-    RealityCheckJavaIngest,
-)
+from benchmarks.scripts._active_cwes import ACTIVE_CWES
+from benchmarks.scripts.ingest_reality_check_java import RealityCheckJavaIngest
 
 
 def test_phase1_filter_contains_xss_and_cmdi():
-    assert "CWE-79" in PHASE1_CWE_FILTER
-    assert "CWE-78" in PHASE1_CWE_FILTER
+    assert "CWE-79" in ACTIVE_CWES
+    assert "CWE-78" in ACTIVE_CWES
 
 
 def test_ingest_has_correct_metadata():
@@ -3567,12 +3663,13 @@ cat > benchmarks/tests/test_ingest_go_sec_code.py <<'EOF'
 """Tests for go-sec-code-mutated ingest."""
 from pathlib import Path
 
-from benchmarks.scripts.ingest_go_sec_code import GoSecCodeIngest, PHASE1_CWE_FILTER
+from benchmarks.scripts._active_cwes import ACTIVE_CWES
+from benchmarks.scripts.ingest_go_sec_code import GoSecCodeIngest
 
 
 def test_covers_all_phase1_cwes():
     for cwe in ("CWE-78", "CWE-79", "CWE-89", "CWE-1336"):
-        assert cwe in PHASE1_CWE_FILTER
+        assert cwe in ACTIVE_CWES
 
 
 def test_ingest_metadata():
@@ -3604,10 +3701,8 @@ from benchmarks.runner.models import (
     Language,
 )
 from benchmarks.runner.sarif import load_bentoo_sarif
+from benchmarks.scripts._active_cwes import ACTIVE_CWES
 from benchmarks.scripts.ingest_base import IngestBase
-
-
-PHASE1_CWE_FILTER = {"CWE-78", "CWE-79", "CWE-89", "CWE-94", "CWE-1336"}
 
 
 class GoSecCodeIngest(IngestBase):
@@ -3636,8 +3731,8 @@ class GoSecCodeIngest(IngestBase):
 
     def _build_case(self, truth_path: Path, repo_dir: Path) -> BenchmarkCase | None:
         fail_findings = load_bentoo_sarif(truth_path)
-        phase1 = [f for f in fail_findings if f.cwe_id in PHASE1_CWE_FILTER]
-        if not phase1:
+        active = [f for f in fail_findings if f.cwe_id in ACTIVE_CWES]
+        if not active:
             return None
 
         # Derive a case ID from the directory path relative to repo root
@@ -3647,7 +3742,7 @@ class GoSecCodeIngest(IngestBase):
         pass_findings = [
             Finding(cwe_id=f.cwe_id, kind=FindingKind.PASS, cve_id=f.cve_id,
                     location=f.location, message=f.message)
-            for f in phase1
+            for f in active
         ]
 
         return BenchmarkCase(
@@ -3656,7 +3751,7 @@ class GoSecCodeIngest(IngestBase):
             language=Language.GO,
             vulnerable_version="HEAD",
             patched_version="HEAD-patched",
-            ground_truth=phase1 + pass_findings,
+            ground_truth=active + pass_findings,
             published_date=None,  # mutated synthetic — no real CVE date
             source_dataset=self.dataset_name,
         )
@@ -3719,11 +3814,12 @@ cat > benchmarks/tests/test_ingest_skf_labs.py <<'EOF'
 """Tests for skf-labs-mutated ingest."""
 from pathlib import Path
 
-from benchmarks.scripts.ingest_skf_labs import PHASE1_CWE_FILTER, SkfLabsIngest
+from benchmarks.scripts._active_cwes import ACTIVE_CWES
+from benchmarks.scripts.ingest_skf_labs import SkfLabsIngest
 
 
 def test_covers_ssti():
-    assert "CWE-1336" in PHASE1_CWE_FILTER
+    assert "CWE-1336" in ACTIVE_CWES
 
 
 def test_ingest_metadata():
@@ -3761,12 +3857,19 @@ cat > benchmarks/tests/test_ingest_crossvul.py <<'EOF'
 """Tests for CrossVul ingest."""
 from pathlib import Path
 
-from benchmarks.scripts.ingest_crossvul import CrossVulIngest, PHASE1_LANGUAGES
+from benchmarks.scripts._active_cwes import ACTIVE_CWE_DIGITS
+from benchmarks.scripts.ingest_crossvul import CROSSVUL_LANGUAGES, CrossVulIngest
 
 
 def test_targets_php_and_ruby():
-    assert "php" in PHASE1_LANGUAGES
-    assert "ruby" in PHASE1_LANGUAGES
+    assert "php" in CROSSVUL_LANGUAGES
+    assert "ruby" in CROSSVUL_LANGUAGES
+
+
+def test_filter_covers_phase1_cwe_digits():
+    # CrossVul uses bare digit directory names ("79", not "CWE-79")
+    for digit in ("79", "78", "89", "1336"):
+        assert digit in ACTIVE_CWE_DIGITS
 
 
 def test_ingest_metadata():
@@ -3804,11 +3907,14 @@ from benchmarks.runner.models import (
     FindingKind,
     Language,
 )
+from benchmarks.scripts._active_cwes import ACTIVE_CWE_DIGITS
 from benchmarks.scripts.ingest_base import IngestBase
 
 
-PHASE1_CWES = {"79", "78", "89", "94", "1336"}
-PHASE1_LANGUAGES = {"php", "ruby"}
+# CrossVul is a PHP/Ruby dataset — other languages are ingested from other
+# sources. If a future agent needs PHP/Ruby coverage for an additional CWE,
+# it's already covered because this ingest filters by ACTIVE_CWE_DIGITS.
+CROSSVUL_LANGUAGES = {"php", "ruby"}
 
 # Zenodo API record ID for CrossVul v2.1 (most recent as of 2026-04-09)
 ZENODO_RECORD = "4734050"
@@ -3845,7 +3951,7 @@ class CrossVulIngest(IngestBase):
             if not cwe_dir.is_dir():
                 continue
             cwe_id = _extract_cwe_id(cwe_dir.name)
-            if cwe_id not in PHASE1_CWES:
+            if cwe_id not in ACTIVE_CWE_DIGITS:
                 continue
             for cve_dir in cwe_dir.iterdir():
                 if not cve_dir.is_dir():
@@ -3967,12 +4073,13 @@ cat > benchmarks/tests/test_ingest_vul4j.py <<'EOF'
 """Tests for Vul4J ingest."""
 from pathlib import Path
 
-from benchmarks.scripts.ingest_vul4j import PHASE1_CWE_FILTER, Vul4JIngest
+from benchmarks.scripts._active_cwes import ACTIVE_CWES
+from benchmarks.scripts.ingest_vul4j import Vul4JIngest
 
 
 def test_filter_covers_phase1():
     for cwe in ("CWE-78", "CWE-79", "CWE-89"):
-        assert cwe in PHASE1_CWE_FILTER
+        assert cwe in ACTIVE_CWES
 
 
 def test_ingest_metadata():
@@ -4006,10 +4113,8 @@ from benchmarks.runner.models import (
     FindingKind,
     Language,
 )
+from benchmarks.scripts._active_cwes import ACTIVE_CWES
 from benchmarks.scripts.ingest_base import IngestBase
-
-
-PHASE1_CWE_FILTER = {"CWE-78", "CWE-79", "CWE-89", "CWE-94", "CWE-1336"}
 
 
 class Vul4JIngest(IngestBase):
@@ -4054,7 +4159,7 @@ class Vul4JIngest(IngestBase):
         # Row columns vary across forks; try common names.
         cwe_raw = row.get("cwe_id") or row.get("cwe") or row.get("CWE") or ""
         cwe_id = _normalize_cwe(cwe_raw)
-        if cwe_id not in PHASE1_CWE_FILTER:
+        if cwe_id not in ACTIVE_CWES:
             return None
 
         cve = row.get("cve_id") or row.get("cve") or row.get("CVE") or "UNKNOWN"
@@ -4328,22 +4433,23 @@ cat > benchmarks/tests/test_morefixes_extract.py <<'EOF'
 """Smoke tests for MoreFixes extract — no DB connection required."""
 from pathlib import Path
 
+from benchmarks.scripts._active_cwes import ACTIVE_CWE_INTS
 from benchmarks.scripts.morefixes_extract import (
+    MOREFIXES_LANGUAGES,
     MoreFixesExtractor,
-    PHASE1_CWES,
-    PHASE1_LANGUAGES,
     build_query,
 )
 
 
-def test_phase1_cwes_present():
+def test_phase1_cwes_present_in_active_set():
+    # MoreFixes queries use integer CWE IDs — ACTIVE_CWE_INTS is the source.
     for cwe in (79, 78, 89, 94, 1336):
-        assert cwe in PHASE1_CWES
+        assert cwe in ACTIVE_CWE_INTS
 
 
-def test_phase1_languages_all_present():
+def test_morefixes_languages_all_present():
     for lang in ("python", "javascript", "typescript", "java", "go", "ruby", "php", "csharp"):
-        assert lang in PHASE1_LANGUAGES
+        assert lang in MOREFIXES_LANGUAGES
 
 
 def test_build_query_has_cwe_and_language_filters():
@@ -4384,11 +4490,14 @@ from benchmarks.runner.models import (
     FindingKind,
     Language,
 )
+from benchmarks.scripts._active_cwes import ACTIVE_CWE_INTS
 from benchmarks.scripts.ingest_base import IngestBase
 
 
-PHASE1_CWES = {79, 78, 89, 94, 1336}
-PHASE1_LANGUAGES = {
+# Languages we extract from MoreFixes. Not centralized because this is the
+# only script that needs a language filter (other ingest scripts are
+# dataset-specific — their language is implicit).
+MOREFIXES_LANGUAGES = {
     "python", "javascript", "typescript", "java", "go", "ruby", "php", "csharp",
 }
 
@@ -4424,10 +4533,10 @@ LANGUAGE_MAP = {
 
 
 def build_query(min_score: int = 65) -> str:
-    """Produce the SQL query to extract Phase 1-relevant fixes."""
+    """Produce the SQL query to extract currently-active CWE fixes."""
     c = SCHEMA_CONFIG
-    cwe_list = ",".join(str(x) for x in sorted(PHASE1_CWES))
-    lang_list = ",".join(f"'{x}'" for x in sorted(PHASE1_LANGUAGES))
+    cwe_list = ",".join(str(x) for x in sorted(ACTIVE_CWE_INTS))
+    lang_list = ",".join(f"'{x}'" for x in sorted(MOREFIXES_LANGUAGES))
     return f"""
     SELECT
         f.{c["cve_id_column"]} AS cve_id,
