@@ -1145,15 +1145,33 @@ This creates a **three-way feedback loop**: benchmark metrics + challenger disag
 - **Feedback loop: generate agent improvement recommendations from exclusion data**
 
 ### Phase 5: Autoresearch & Self-Improvement
-- **Integrate SAST benchmark suites (reality-check, BenchmarkJava-mutated) as evaluation infrastructure**
-- **Build benchmark runner: automated agent evaluation with TPR/FPR/accuracy scoring**
-- **Implement autoresearch loop: mutate → evaluate → gate → log → repeat**
-- **On-demand mode (`/screw autoresearch sqli --iterations 20`)**
-- **Scheduled mode (nightly/weekly via cron/CI)**
-- **Research-triggered mode (new CVE ingestion → auto-propose YAML updates)**
-- **Human review gate: research reports with proposed YAML diffs and metric changes**
-- **Build CVE-based benchmark fixtures for languages with gaps (Rust via RustSec, TypeScript, Kotlin)**
-- **Experiment logging and history (`.screw/autoresearch/experiments.log`)**
+
+- **5.0 — Rust benchmark corpus construction from RustSec (blocked-in from Phase 0.5 per ADR-014).** *Phase 5 cannot close without this sub-step complete.*
+  - Manually curate the ~24 verified Rust CVE candidates identified in `docs/research/benchmark-tier4-rust-modern.md` (salvo, diesel, ammonia ×3, lettre, matrix-sdk-sqlite, comrak ×2, mdbook, pagefind, cargo, vaultwarden ×2, microbin, static-web-server, rustfs, deno_doc, gix-transport, starship, grep-cli/ripgrep, aliyundrive-webdav)
+  - Apply GHSA-authoritative CWE cross-reference (RustSec `categories` field is unreliable — conflates CWE-89/79/444/150/601/116)
+  - Filter out the ~14 data-race crates MITRE mislabeled as CWE-77 (kekbit, bunch, dces, lexer, syncpool, etc.)
+  - Build method-level ground-truth in bentoo-sarif format (kind: fail/pass, ruleId: CWE-<id>)
+  - Cover all then-active agents, not just the original 4 injection agents — by Phase 5 we will have memory safety, thread safety, crypto, and access-control agents whose CWE coverage aligns better with Rust's CVE distribution (256+ memory-class advisories, 84 DoS, 66 crypto-failure, 10 thread-safety)
+  - Hold out any advisory cited in an existing agent YAML from validation data (known case: diesel RUSTSEC-2024-0365 is referenced in `domains/injection-input-handling/sqli.yaml`)
+  - Apply PrimeVul methodology: deduplication, chronological splits, pair-based evaluation
+
+- **5.1 — Integrate SAST benchmark suites as evaluation infrastructure.** Extends the Phase 0.5 foundation: reality-check, BenchmarkJava-mutated, ossf-cve-benchmark, CrossVul, Vul4J, go-sec-code-mutated, skf-labs-mutated
+
+- **5.2 — Build automated benchmark runner** with TPR/FPR/accuracy scoring via the CWE-1400-native Python evaluator (ADR-013)
+
+- **5.3 — Implement autoresearch loop:** mutate → evaluate → gate → log → repeat (ADR-006)
+
+- **5.4 — On-demand autoresearch mode** (`/screw autoresearch sqli --iterations 20`)
+
+- **5.5 — Scheduled autoresearch mode** (nightly/weekly via cron/CI)
+
+- **5.6 — Research-triggered autoresearch mode** — new CVE ingestion triggers automatic YAML update proposals
+
+- **5.7 — Human review gate** — research reports with proposed YAML diffs and metric changes
+
+- **5.8 — Build CVE-based benchmark fixtures for remaining language gaps** (Kotlin, Swift, Elixir — anything not covered by Phase 0.5 or Phase 5.0)
+
+- **5.9 — Experiment logging and history** (`.screw/autoresearch/experiments.log`)
 
 ### Phase 6: Multi-LLM Challenger System
 - **Define provider-agnostic challenger interface (structured input/output contract)**

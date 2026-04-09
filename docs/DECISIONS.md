@@ -206,3 +206,85 @@ This document captures every significant design decision made during the archite
 **Decision:** Include the OWASP Code Review Guide v2 (2017) in Tier 2 knowledge sources despite its age.
 
 **Reasoning:** Unlike the OWASP Testing Guide (which covers external probing of running applications), the Code Review Guide teaches how to *read source code* and identify vulnerabilities — tracing data flow, identifying trust boundaries, assessing authorization logic by reading controllers. This is precisely what our agents do. The methodology chapters are timeless even though the specific framework examples (Java/C# circa 2017) are dated. The systematic approach to code-level review translates directly into agent instructions regardless of language or framework vintage.
+
+---
+
+## ADR-013: CWE-1400-Native Benchmark Evaluator (Reject Direct Bentoo Adoption)
+
+**Decision:** Build our own Python benchmark evaluator that is CWE-1400 native end-to-end. Adopt `flawgarden/bentoo`'s SARIF ground-truth format verbatim as input, but score and report in CWE-1400 — not in bentoo's CWE-1000 Research View. Keep bentoo as an optional external cross-check, not as the primary evaluator.
+
+**Context:** Phase 0.5 (Benchmark Infrastructure Sprint) requires a runner that measures TPR/FPR/precision/recall/F1 for each screw-agent against real-CVE benchmarks from the flawgarden ecosystem (reality-check, vulnomicon, go-sec-code-mutated, skf-labs-mutated), the OpenSSF JS/TS benchmark (ossf-cve-benchmark, 218 real CVEs — the single biggest data source for our Phase 1 XSS and CmdI agents), and multi-language CVE extraction via MoreFixes.
+
+`flawgarden/bentoo` is the natural candidate: it is the evaluator that drives flawgarden's own benchmark suite, it consumes `truth.sarif` ground-truth files in a clean SARIF 2.1.0 format, and it produces the exact metrics we need.
+
+**Alternatives considered:**
+
+1. **Adopt bentoo directly** — Use the Rust CLI as our evaluator. Consume its `summary.json` output and report it to users unchanged.
+   - Rejected because: bentoo's "broad CWE" scoring dimension maps findings through **CWE-1000 (Research View)**, not CWE-1400. A CWE-89 finding's CWE-1000 parent path is `CWE-707 → CWE-943 (Data Query Logic)`, but its CWE-1400 parent is `CWE-1406 (Injection category)`. These are structurally different hierarchies, not cosmetic renamings. Adopting bentoo directly would force a bidirectional CWE-1000 ↔ CWE-1400 translation layer at every surface where bentoo output meets the rest of the system: evaluator input, `summary.json` parsing, autoresearch experiment logging (ADR-006), challenger disagreement analysis (PRD §11.3), and finding output to screw.nvim.
+   - This **breaks the "universal join key" contract** established in ADR-002: "Every finding carries a CWE ID as universal join key." Two taxonomies in one system is the highest-probability route to subtle bugs in the autoresearch loop, where benchmark metrics silently disagree with what the agents were optimized for.
+   - Additional concerns: bentoo shipped a breaking `rule_id_match` change in July 2025; external Rust toolchain dependency conflicts with our `uv`-managed Python stack (ADR-011); our YAML-driven MCP server deliberately avoids non-Python runtime deps.
+
+2. **Adopt bentoo's format but hand-roll a CWE-1000 → CWE-1400 translator at the boundary** — Run bentoo, then translate its per-CWE summaries into CWE-1400 after the fact.
+   - Rejected because: this is strictly worse than option 1 — it keeps the external dependency AND adds a fragile translation layer. The translator has to walk two CWE hierarchies and handle asymmetric mappings (one CWE-1000 parent may correspond to multiple CWE-1400 categories and vice versa). Each bentoo upgrade risks silent translation drift.
+
+3. **Build our own Python evaluator, CWE-1400 native end-to-end** — Read bentoo-sarif ground-truth files (the input format is identical), walk the CWE-1400 hierarchy for parent/child traversal, compute the same metrics (TPR, FPR, precision, recall, F1, accuracy = TPR − FPR), emit `summary.json` in a bentoo-compatible schema so users can optionally run bentoo on the same ground truth as a cross-check.
+   - **Accepted.** ~600-1,000 lines of Python, pure stdlib plus our existing PyYAML and SARIF parser dependencies. Full control over scoring semantics. No taxonomy dissonance. Autoresearch (ADR-006), challenger (ADR-008), and FP learning (ADR-007) all see the same CWE-1400 hierarchy that the agents themselves reason about.
+
+**What we keep from flawgarden:**
+- **bentoo-sarif ground-truth format** — verbatim, as input. This is plain SARIF 2.1.0 with `kind: "fail"|"pass"`, `ruleId: "CWE-<id>"`, and method-level `logicalLocations`. Adopting it costs us nothing and lets us reuse reality-check's 338 existing ground-truth files directly.
+- **reality-check's Python CVE ingestion pipeline** — clone `reality-check/scripts/` into our `benchmarks/cve-ingest/`. This is the `bootstrap.sh → collect_cve_benchmark.py → build_and_clean_benchmark.py → markup_benchmark.py` pipeline that turns a CVE CSV into a materialized benchmark with ground-truth SARIF. Apache-2.0, direct reuse.
+- **bentoo as optional external cross-check** — our evaluator emits a bentoo-compatible `summary.json` so users can run `bentoo` against the same ground-truth benchmarks and compare results. If our numbers diverge from bentoo's, we investigate — but our CWE-1400 numbers are authoritative.
+
+**Tradeoff accepted:** We write and maintain ~600-1,000 lines of Python evaluator code instead of taking bentoo's battle-tested Rust CLI for free. This cost is real but bounded; the alternative (taxonomy dissonance everywhere) would be a continuous tax on every autoresearch iteration, every challenger comparison, every finding report, for the life of the project.
+
+**Related decisions:** ADR-002 (CWE-1400 as taxonomic backbone), ADR-006 (autoresearch pattern), ADR-008 (multi-LLM challenger), ADR-011 (uv as package manager).
+
+---
+
+## ADR-014: Rust Benchmark Corpus Deferred to Phase 5 (Hard Gate)
+
+**Decision:** Phase 0.5 (Benchmark Infrastructure Sprint) does NOT construct a Rust benchmark corpus from RustSec. The Rust corpus is deferred to Phase 5 (Autoresearch & Self-Improvement), where it becomes the first mandatory sub-step. Phase 5 cannot close without it.
+
+**Context:** Our Phase 1 agents (SQLi, CmdI, SSTI, XSS) target injection-class vulnerabilities. Rust is a memory-safe language: its CVE history is dominated by memory corruption (145 advisories), denial of service (84), crypto failures (66), and memory exposure (52). Direct grep of the 1,010-advisory RustSec database (cloned 2026-04-09) plus GHSA-authoritative CWE cross-reference yields the following counts for our four Phase 1 CWEs:
+
+| CWE | Name | Verified Rust advisories |
+|---|---|---|
+| CWE-79 | XSS | **16** (ammonia ×3, comrak ×2, salvo ×2, mdbook, pagefind, cargo, vaultwarden ×2, microbin, static-web-server, rustfs, deno_doc) |
+| CWE-77/78 | Command Injection | **5-8** (lettre, gix-transport, starship, grep-cli/ripgrep, aliyundrive-webdav, plus Deno runtime) |
+| CWE-89 | SQL Injection | **3** (matrix-sdk-sqlite, diesel, sqlx*) |
+| CWE-1336 | SSTI | **0 verified** (zebrad is a MITRE mislabel) |
+
+\* sqlx GHSA CWE field is empty; classification derived from shared root cause with diesel.
+
+**Total real-CVE seed: ~24 advisories across all 4 CWEs, one CWE with zero coverage.** This is not a statistically meaningful sample for benchmark-driven evaluation in the style of flawgarden/reality-check (165 Java CVEs, 16.5 person-months to construct), nor does it satisfy the PrimeVul methodology requirement for chronological and cross-project splits. Furthermore, the five Rust web frameworks we have deepest agent coverage for — axum, rocket, warp, poem, loco-rs — have **zero** matching advisories as of 2026-04-09.
+
+**Alternatives considered:**
+
+1. **Construct Rust benchmark in Phase 0.5 anyway** — Manually curate the ~24 candidates plus authored fixtures modeled on real Rust web framework patterns (Tera/MiniJinja/Askama/Handlebars-rust for SSTI), promote them to "primary Rust validation."
+   - Rejected because: the sample is too small to support the ≥70% TPR / ≤25% FPR validation gates proposed for Phase 1. Any number we report would be derived from fewer than 30 cases, some of which are already cited in agent YAMLs (hold-out conflicts). Calling such a number "Rust detection accuracy" would overstate confidence.
+
+2. **Defer Rust validation entirely, keep self-authored fixtures as smoke tests only** — The existing 14 vulnerable + 11 safe Rust fixtures in `benchmarks/fixtures/xss/`, `sqli/`, `cmdi/`, `ssti/` continue to validate MCP plumbing (agent can load a Rust file, run tree-sitter extraction, produce a finding) but do not claim detection accuracy. All Phase 1 benchmark reports explicitly say "Rust detection quality not benchmarked — see ADR-014."
+   - **Accepted.**
+
+**Why Phase 5 resolves this:** Phase 5 targets broader agent coverage beyond injection (memory safety, thread safety, crypto issues, access control, file handling). These align directly with the dominant Rust CVE categories: 256+ memory-class advisories, 84 DoS advisories, 66 crypto-failure advisories, 10 thread-safety advisories are all within scope of Phase 2-5 agents. By the time we reach Phase 5, the Rust corpus will be statistically meaningful across multiple CWEs, and the autoresearch loop has something to optimize against.
+
+**Triple-redundant tracking (this deferral must not be forgotten):**
+
+1. `docs/PROJECT_STATUS.md` carries a prominent "Deferred Obligations" section listing the Rust corpus with its owning phase and acceptance criteria.
+2. This ADR (ADR-014) is cross-referenced from `docs/DECISIONS.md` ADR-006 (autoresearch) and ADR-011 (uv package manager, which notes the Rust gap).
+3. `docs/PRD.md` §12 Phase 5 lists "5.0 — Rust benchmark corpus construction from RustSec (blocked-in from Phase 0.5 per ADR-014)" as the first sub-step, with the gating language "Phase 5 cannot close without this sub-step complete."
+
+Any of these three tripwires surfaces the obligation during Phase 5 kickoff. All three would have to be missed for the deferral to slip silently.
+
+**Phase 5 starting corpus (reference, from `docs/research/benchmark-tier4-rust-modern.md`):**
+1. **salvo** — GHSA-rjf8-2wcw-f6mp (reflected XSS) + GHSA-54m3-5fxr-2f3j (stored XSS), file:line at `serve-static/dir.rs:593/:581`, commit `16efeba312a274`
+2. **diesel** — RUSTSEC-2024-0365, CWE-89, `diesel/src/pg/connection/stmt/mod.rs#L36`, commit `ae82c4a5a133`. **Conflict flag:** already cited in `domains/injection-input-handling/sqli.yaml`; must be held out from training data if used for validation.
+3. **ammonia** — RUSTSEC-2021-0074, 2022-0003, 2025-0071 — three CVEs in one HTML-sanitizer library across 4 years, giving temporal regression coverage for mXSS.
+4. **lettre** — RUSTSEC-2020-0069, CWE-77, function-level `SendmailTransport::send`, commit `bbe7cc5381c5380b54fb8bbb4f77a3725917ff0b`.
+5. **matrix-sdk-sqlite** — RUSTSEC-2025-0043, CWE-89, canonical `format!("... WHERE id = '{}'", ...)` pattern in `SqliteEventCacheStore::find_event_with_relations`.
+
+**Critical methodology note for Phase 5:** RustSec's `categories = ["format-injection"]` label is unreliable — it conflates CWE-89, CWE-79, CWE-444, CWE-150, CWE-601, CWE-116. Always cross-reference via `gh api /advisories/GHSA-xxxx` for authoritative CWE classification. Benchmark ingestion must also filter out the ~14 data-race crates (kekbit, bunch, dces, lexer, syncpool, etc.) that MITRE mislabeled as CWE-77.
+
+**Tradeoff accepted:** Phase 1 ships without quantitative Rust detection claims. The agent YAMLs still carry deep Rust knowledge (load-bearing for users running scans on Rust code), but the evaluation gate does not include a "Rust TPR %" number. Users are informed explicitly.
+
+**Related decisions:** ADR-002 (CWE-1400), ADR-006 (autoresearch), ADR-013 (CWE-1400-native evaluator). Related PRD sections: §12 Phase 5, §11.3 autoresearch.
