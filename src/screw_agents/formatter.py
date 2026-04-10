@@ -9,6 +9,7 @@ Supports three output formats:
 from __future__ import annotations
 
 import json
+from collections import Counter
 from typing import Any
 
 from screw_agents.models import Finding
@@ -24,6 +25,8 @@ _SEVERITY_TO_SARIF_LEVEL: dict[str, str] = {
     "medium": "warning",
     "low": "note",
 }
+
+_SEVERITY_ORDER = ["critical", "high", "medium", "low"]
 
 
 def format_findings(
@@ -154,9 +157,163 @@ def _sarif_result(finding: Finding) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Markdown formatter (stub — implemented in next commit)
+# Markdown formatter
 # ---------------------------------------------------------------------------
 
 
 def _format_markdown(findings: list[Finding], metadata: dict[str, Any]) -> str:
-    raise NotImplementedError("Markdown formatter not yet implemented")
+    """Build a human-readable Markdown security scan report."""
+    lines: list[str] = []
+
+    # --- Header ---
+    lines.append("# Security Scan Report")
+    lines.append("")
+
+    target = metadata.get("target", "")
+    agents = metadata.get("agents", [])
+    timestamp = metadata.get("timestamp", "")
+
+    if target or agents or timestamp:
+        if target:
+            lines.append(f"**Target:** `{target}`")
+        if agents:
+            lines.append(f"**Agents:** {', '.join(agents)}")
+        if timestamp:
+            lines.append(f"**Scan date:** {timestamp}")
+        lines.append("")
+
+    # --- Summary ---
+    lines.append("## Summary")
+    lines.append("")
+
+    if not findings:
+        lines.append("No findings detected.")
+        return "\n".join(lines)
+
+    counts: Counter[str] = Counter(f.classification.severity for f in findings)
+    total = len(findings)
+
+    lines.append(f"**Total findings:** {total}")
+    lines.append("")
+    lines.append("| Severity | Count |")
+    lines.append("| -------- | ----- |")
+    for sev in _SEVERITY_ORDER:
+        count = counts.get(sev, 0)
+        if count:
+            lines.append(f"| {sev.capitalize()} | {count} |")
+    lines.append("")
+
+    # --- Findings Overview table ---
+    lines.append("## Findings Overview")
+    lines.append("")
+    lines.append("| ID | Severity | Confidence | Agent | CWE | File | Line |")
+    lines.append("| -- | -------- | ---------- | ----- | --- | ---- | ---- |")
+    for f in findings:
+        loc = f.location
+        cwe = f.classification.cwe
+        cwe_link = (
+            f"[{cwe}](https://cwe.mitre.org/data/definitions/{cwe.replace('CWE-', '')}.html)"
+        )
+        lines.append(
+            f"| {f.id} | {f.classification.severity.capitalize()} "
+            f"| {f.classification.confidence.capitalize()} "
+            f"| {f.agent} | {cwe_link} | `{loc.file}` | {loc.line_start} |"
+        )
+    lines.append("")
+
+    # --- Detailed Findings ---
+    lines.append("## Detailed Findings")
+    lines.append("")
+
+    for f in findings:
+        _append_finding_detail(lines, f)
+
+    return "\n".join(lines)
+
+
+def _append_finding_detail(lines: list[str], f: Finding) -> None:
+    """Append the detail section for a single finding."""
+    cwe = f.classification.cwe
+    cwe_url = f"https://cwe.mitre.org/data/definitions/{cwe.replace('CWE-', '')}.html"
+
+    lines.append(f"### {f.id} — {f.classification.cwe_name}")
+    lines.append("")
+
+    # Classification badge row
+    lines.append(
+        f"**Severity:** {f.classification.severity.upper()}  "
+        f"**Confidence:** {f.classification.confidence.capitalize()}  "
+        f"**CWE:** [{cwe}]({cwe_url})"
+    )
+    if f.classification.owasp_top10:
+        lines.append(f"**OWASP Top 10:2025:** {f.classification.owasp_top10}")
+    lines.append("")
+
+    # Location
+    loc = f.location
+    loc_line = f"**File:** `{loc.file}` **Line:** {loc.line_start}"
+    if loc.line_end is not None:
+        loc_line += f"–{loc.line_end}"
+    if loc.function:
+        loc_line += f"  **Function:** `{loc.function}`"
+    if loc.class_name:
+        loc_line += f"  **Class:** `{loc.class_name}`"
+    lines.append(loc_line)
+    lines.append("")
+
+    # Analysis
+    lines.append(f"**Description:** {f.analysis.description}")
+    lines.append("")
+    if f.analysis.impact:
+        lines.append(f"**Impact:** {f.analysis.impact}")
+        lines.append("")
+    if f.analysis.exploitability:
+        lines.append(f"**Exploitability:** {f.analysis.exploitability}")
+        lines.append("")
+
+    # Data flow table
+    if loc.data_flow is not None:
+        df = loc.data_flow
+        lines.append("**Data Flow:**")
+        lines.append("")
+        lines.append("| | Location | Expression |")
+        lines.append("| -- | -------- | ---------- |")
+        lines.append(f"| **Source** | `{df.source_location}` | `{df.source}` |")
+        lines.append(f"| **Sink** | `{df.sink_location}` | `{df.sink}` |")
+        lines.append("")
+
+    # Code snippet
+    if loc.code_snippet:
+        lines.append("**Code Snippet:**")
+        lines.append("")
+        lines.append("```")
+        lines.append(loc.code_snippet)
+        lines.append("```")
+        lines.append("")
+
+    # Remediation
+    lines.append(f"**Recommendation:** {f.remediation.recommendation}")
+    lines.append("")
+
+    if f.remediation.fix_code:
+        lines.append("**Fix:**")
+        lines.append("")
+        lines.append("```")
+        lines.append(f.remediation.fix_code)
+        lines.append("```")
+        lines.append("")
+
+    if f.remediation.references:
+        lines.append("**References:**")
+        lines.append("")
+        for ref in f.remediation.references:
+            lines.append(f"- {ref}")
+        lines.append("")
+
+    # False-positive reasoning
+    if f.analysis.false_positive_reasoning:
+        lines.append(f"**FP Reasoning:** {f.analysis.false_positive_reasoning}")
+        lines.append("")
+
+    lines.append("---")
+    lines.append("")

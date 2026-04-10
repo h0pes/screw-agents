@@ -130,3 +130,71 @@ def test_format_sarif_empty():
     output = format_findings([], format="sarif")
     sarif = json.loads(output)
     assert sarif["runs"][0]["results"] == []
+
+
+# === Markdown Tests ===
+
+def test_format_markdown_structure():
+    findings = [
+        _make_finding(id="sqli-001"),
+        _make_finding(
+            id="xss-001", agent="xss",
+            classification=FindingClassification(
+                cwe="CWE-79", cwe_name="XSS",
+                severity="medium", confidence="high",
+            ),
+            analysis=FindingAnalysis(description="Reflected XSS"),
+            remediation=FindingRemediation(recommendation="Encode output"),
+        ),
+    ]
+    output = format_findings(
+        findings,
+        format="markdown",
+        scan_metadata={"agents": ["sqli", "xss"], "target": "src/api/"},
+    )
+    assert "# Security Scan Report" in output
+    assert "## Summary" in output
+    assert "| Severity" in output
+    assert "| High" in output
+    assert "| Medium" in output
+    assert "## Findings Overview" in output
+    assert "sqli-001" in output
+    assert "xss-001" in output
+    assert "## Detailed Findings" in output
+    assert "CWE-89" in output
+    assert "CWE-79" in output
+
+
+def test_format_markdown_empty():
+    output = format_findings([], format="markdown")
+    assert "No findings" in output or "0" in output
+
+
+def test_format_markdown_with_data_flow():
+    finding = _make_finding(
+        location=FindingLocation(
+            file="test.py",
+            line_start=10,
+            data_flow=DataFlow(
+                source="request.args['id']",
+                source_location="test.py:10",
+                sink="cursor.execute(q)",
+                sink_location="test.py:15",
+            ),
+        ),
+    )
+    output = format_findings([finding], format="markdown")
+    assert "Source" in output
+    assert "Sink" in output
+    assert "request.args" in output
+
+
+def test_format_markdown_with_fix_code():
+    finding = _make_finding(
+        remediation=FindingRemediation(
+            recommendation="Use parameterized queries",
+            fix_code="cursor.execute('SELECT * FROM users WHERE id = %s', (uid,))",
+        ),
+    )
+    output = format_findings([finding], format="markdown")
+    assert "cursor.execute" in output
