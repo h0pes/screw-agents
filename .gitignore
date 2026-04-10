@@ -36,9 +36,6 @@ env/
 .DS_Store
 Thumbs.db
 
-# Project: downloaded benchmark suites (bootstrapped, not committed)
-benchmarks/suites/
-
 # Benchmark external datasets (large, downloaded, reproducible from manifests)
 benchmarks/external/**
 !benchmarks/external/.gitkeep
