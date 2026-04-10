@@ -1,0 +1,53 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {"driver": {"name": "screw-agents-mini-benchmark"}},
+      "results": [
+        {
+          "kind": "fail",
+          "message": {"text": "CVE-2024-99999"},
+          "ruleId": "CWE-89",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {"uri": "src/api/users.py"},
+                "region": {"startLine": 42, "endLine": 50}
+              },
+              "logicalLocations": [{"name": "get_user_by_id", "kind": "function"}]
+            }
+          ]
+        },
+        {
+          "kind": "pass",
+          "message": {"text": "CVE-2024-99999"},
+          "ruleId": "CWE-89",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {"uri": "src/api/users.py"},
+                "region": {"startLine": 42, "endLine": 54}
+              },
+              "logicalLocations": [{"name": "get_user_by_id", "kind": "function"}]
+            }
+          ]
+        },
+        {
+          "kind": "fail",
+          "message": {"text": "CVE-2024-99998"},
+          "ruleId": "CWE-79",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {"uri": "src/views/profile.py"},
+                "region": {"startLine": 100, "endLine": 115}
+              },
+              "logicalLocations": [{"name": "render_profile", "kind": "function"}]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
