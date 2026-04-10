@@ -82,3 +82,51 @@ def test_format_json_multiple_findings():
     output = format_findings(findings, format="json")
     parsed = json.loads(output)
     assert len(parsed) == 2
+
+
+# === SARIF Tests ===
+
+def test_format_sarif_structure():
+    findings = [_make_finding()]
+    output = format_findings(findings, format="sarif", scan_metadata={"agents": ["sqli"]})
+    sarif = json.loads(output)
+    assert sarif["$schema"] == "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json"
+    assert sarif["version"] == "2.1.0"
+    assert len(sarif["runs"]) == 1
+    run = sarif["runs"][0]
+    assert "tool" in run
+    assert "results" in run
+
+
+def test_format_sarif_results():
+    findings = [_make_finding()]
+    output = format_findings(findings, format="sarif", scan_metadata={"agents": ["sqli"]})
+    sarif = json.loads(output)
+    results = sarif["runs"][0]["results"]
+    assert len(results) == 1
+    r = results[0]
+    assert r["ruleId"] == "CWE-89"
+    assert r["level"] == "error"
+    assert r["message"]["text"] == "SQL injection via f-string"
+    locs = r["locations"]
+    assert len(locs) == 1
+    assert locs[0]["physicalLocation"]["artifactLocation"]["uri"] == "test.py"
+    assert locs[0]["physicalLocation"]["region"]["startLine"] == 10
+
+
+def test_format_sarif_severity_mapping():
+    finding_medium = _make_finding(
+        classification=FindingClassification(
+            cwe="CWE-79", cwe_name="XSS",
+            severity="medium", confidence="medium",
+        ),
+    )
+    output = format_findings([finding_medium], format="sarif")
+    sarif = json.loads(output)
+    assert sarif["runs"][0]["results"][0]["level"] == "warning"
+
+
+def test_format_sarif_empty():
+    output = format_findings([], format="sarif")
+    sarif = json.loads(output)
+    assert sarif["runs"][0]["results"] == []
