@@ -328,3 +328,23 @@ def _resolve_pull_request(target: dict) -> list[ResolvedCode]:
         "cwd": target.get("cwd", "."),
         "context_lines": target.get("context_lines", 10),
     })
+
+
+def filter_by_relevance(
+    codes: list[ResolvedCode],
+    relevance_signals: list[str],
+) -> list[ResolvedCode]:
+    """Filter resolved code chunks by agent relevance signals.
+
+    A file is kept if its content contains at least one signal string.
+    If signals is empty, all files pass through.
+    """
+    if not relevance_signals:
+        return codes
+
+    filtered = []
+    for code in codes:
+        content_lower = code.content.lower()
+        if any(signal.lower() in content_lower for signal in relevance_signals):
+            filtered.append(code)
+    return filtered

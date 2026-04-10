@@ -244,3 +244,38 @@ def test_resolve_pull_request(tmp_path):
     result = resolve_target(target)
     assert len(result) >= 1
     assert any("feature" in r.content for r in result)
+
+
+from screw_agents.resolver import filter_by_relevance
+
+
+def test_filter_by_relevance_keeps_matching(tmp_path):
+    f1 = tmp_path / "db.py"
+    f1.write_text("cursor.execute('SELECT * FROM users')\n")
+    f2 = tmp_path / "ui.py"
+    f2.write_text("print('hello')\n")
+
+    codes = [
+        ResolvedCode(file_path=str(f1), content=f1.read_text(), language="python"),
+        ResolvedCode(file_path=str(f2), content=f2.read_text(), language="python"),
+    ]
+    signals = ["cursor.execute", "SELECT"]
+    filtered = filter_by_relevance(codes, signals)
+    assert len(filtered) == 1
+    assert "db.py" in filtered[0].file_path
+
+
+def test_filter_by_relevance_empty_signals_passes_all(tmp_path):
+    f1 = tmp_path / "a.py"
+    f1.write_text("x = 1\n")
+    codes = [ResolvedCode(file_path=str(f1), content=f1.read_text(), language="python")]
+    filtered = filter_by_relevance(codes, [])
+    assert len(filtered) == 1
+
+
+def test_filter_by_relevance_no_matches_returns_empty(tmp_path):
+    f1 = tmp_path / "a.py"
+    f1.write_text("x = 1\n")
+    codes = [ResolvedCode(file_path=str(f1), content=f1.read_text(), language="python")]
+    filtered = filter_by_relevance(codes, ["subprocess", "os.system"])
+    assert len(filtered) == 0
