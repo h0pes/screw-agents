@@ -80,8 +80,11 @@ def get_language(name: str) -> Language:
     return Language(lang_func())
 
 
-@lru_cache(maxsize=None)
 def get_parser(name: str) -> Parser:
-    """Return a configured tree-sitter Parser for the given language."""
+    """Return a new tree-sitter Parser for the given language.
+
+    A new parser is created on each call because Parser objects are
+    stateful and not safe to share across concurrent requests.
+    """
     lang = get_language(name)
     return Parser(lang)

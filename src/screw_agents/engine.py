@@ -26,6 +26,14 @@ class ScanEngine:
     # Public API
     # ------------------------------------------------------------------
 
+    def list_domains(self) -> dict[str, int]:
+        """Return a mapping of domain names to agent counts."""
+        return self._registry.list_domains()
+
+    def list_agents(self, domain: str | None = None) -> list[dict]:
+        """Return agent metadata dicts, optionally filtered by domain."""
+        return self._registry.list_agents(domain=domain)
+
     def assemble_scan(
         self,
         agent_name: str,
@@ -242,7 +250,8 @@ class ScanEngine:
         heuristic_lines: list[str] = []
 
         high = heuristics.high_confidence
-        medium = heuristics.medium_confidence
+        # quick: high-confidence only; standard/deep: include medium; deep: also context_required
+        medium = [] if thoroughness == "quick" else heuristics.medium_confidence
         context_req = heuristics.context_required if thoroughness == "deep" else []
 
         if high:
@@ -263,8 +272,8 @@ class ScanEngine:
         if heuristic_lines:
             parts.append("## Detection Heuristics\n\n" + "\n".join(heuristic_lines))
 
-        # Bypass techniques
-        if agent.bypass_techniques:
+        # Bypass techniques — omitted for quick scans
+        if agent.bypass_techniques and thoroughness != "quick":
             bypass_lines = ["## Bypass Techniques to Watch For"]
             for bt in agent.bypass_techniques:
                 bypass_lines.append(f"**{bt.name}:** {bt.description}")
@@ -272,9 +281,9 @@ class ScanEngine:
                     bypass_lines.append(f"  Detection hint: {bt.detection_hint}")
             parts.append("\n".join(bypass_lines))
 
-        # Few-shot examples
-        vulnerable_examples = agent.few_shot_examples.vulnerable[:3]
-        safe_examples = agent.few_shot_examples.safe[:3]
+        # Few-shot examples — omitted for quick scans
+        vulnerable_examples = [] if thoroughness == "quick" else agent.few_shot_examples.vulnerable[:3]
+        safe_examples = [] if thoroughness == "quick" else agent.few_shot_examples.safe[:3]
 
         if vulnerable_examples or safe_examples:
             example_lines = ["## Examples"]
@@ -395,9 +404,10 @@ def _thoroughness_schema() -> dict[str, Any]:
     """JSON Schema for the 'thoroughness' parameter."""
     return {
         "type": "string",
-        "enum": ["standard", "deep"],
+        "enum": ["quick", "standard", "deep"],
         "description": (
-            "Scan depth. 'standard' includes high + medium confidence heuristics. "
+            "Scan depth. 'quick' includes high-confidence heuristics only. "
+            "'standard' includes high + medium confidence heuristics. "
             "'deep' also includes context-required heuristics."
         ),
         "default": "standard",

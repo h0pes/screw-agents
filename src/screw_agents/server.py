@@ -86,11 +86,16 @@ def _dispatch_tool(
     Raises:
         ValueError: If the tool name is unknown.
     """
+    # NOTE: output_format is accepted in the tool schema but not used in Phase 1.
+    # In Phase 1, scan tools return assembled prompts (knowledge + code) for Claude
+    # to analyze. Formatted output (JSON/SARIF/Markdown) happens after Claude returns
+    # findings, via the format_output tool (to be exposed in Phase 2).
+
     if name == "list_domains":
-        return engine._registry.list_domains()
+        return engine.list_domains()
 
     if name == "list_agents":
-        return engine._registry.list_agents(domain=args.get("domain"))
+        return engine.list_agents(domain=args.get("domain"))
 
     if name == "scan_domain":
         return engine.assemble_domain_scan(

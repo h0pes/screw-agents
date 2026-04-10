@@ -142,14 +142,12 @@ def _sarif_result(finding: Finding) -> dict[str, Any]:
         df = loc.data_flow
         result["relatedLocations"] = [
             {
-                "id": 1,
-                "message": {"text": f"Source: {df.source}"},
-                "physicalLocation": {"artifactLocation": {"uri": df.source_location}},
+                "id": 0,
+                "message": {"text": f"Source: {df.source} at {df.source_location}"},
             },
             {
-                "id": 2,
-                "message": {"text": f"Sink: {df.sink}"},
-                "physicalLocation": {"artifactLocation": {"uri": df.sink_location}},
+                "id": 1,
+                "message": {"text": f"Sink: {df.sink} at {df.sink_location}"},
             },
         ]
 
