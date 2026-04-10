@@ -94,6 +94,47 @@ Four benchmark research docs committed to `docs/research/benchmark-tier{1,2,3,4}
 - Rust benchmark corpus not yet built (deferred to Phase 5 step 5.0, see D-01)
 - Gates 2–4 in `docs/PHASE_0_5_VALIDATION_GATES.md` cannot be verified until real benchmark data is downloaded and ingested in Phase 1
 
+### Pre-Phase 1.1.7 Checklist: Benchmark Data Ingestion
+
+Before running the benchmark validation step (Phase 1.1.7), all ingest scripts must be executed to download and process real-CVE data. None of these ran during Phase 0.5 — the scripts are written and unit-tested, but the actual downloads were not performed.
+
+**Run in this order:**
+
+```bash
+# 1. Clone and ingest all datasets (each downloads its source on first run)
+uv run python -m benchmarks.scripts.ingest_ossf
+uv run python -m benchmarks.scripts.ingest_reality_check_csharp
+uv run python -m benchmarks.scripts.ingest_reality_check_python
+uv run python -m benchmarks.scripts.ingest_reality_check_java
+uv run python -m benchmarks.scripts.ingest_go_sec_code
+uv run python -m benchmarks.scripts.ingest_skf_labs
+uv run python -m benchmarks.scripts.ingest_crossvul
+uv run python -m benchmarks.scripts.ingest_vul4j
+
+# 2. MoreFixes (requires Docker — 16 GB download + Postgres container)
+bash benchmarks/scripts/deploy_morefixes.sh
+#    ^^^ IMPORTANT: After the DB is up, inspect the actual schema:
+#    docker compose -f benchmarks/external/morefixes/docker-compose.yml \
+#        exec morefixes-db psql -U morefixes -d morefixes -c "\dt"
+#    docker compose -f benchmarks/external/morefixes/docker-compose.yml \
+#        exec morefixes-db psql -U morefixes -d morefixes -c "\d fixes"
+#    docker compose -f benchmarks/external/morefixes/docker-compose.yml \
+#        exec morefixes-db psql -U morefixes -d morefixes -c "\d method_change"
+#    Then compare actual column names against SCHEMA_CONFIG in
+#    benchmarks/scripts/morefixes_extract.py — update if they differ.
+#    The column names in the script are SPECULATIVE (based on docs, not verified).
+uv run python -m benchmarks.scripts.morefixes_extract
+
+# 3. Apply dedup and splits across all ingested data
+uv run python -m benchmarks.scripts.apply_dedup
+uv run python -m benchmarks.scripts.apply_splits
+
+# 4. Generate mock agent output for smoke testing
+uv run python -m benchmarks.scripts.generate_mock_agent_output
+```
+
+**Expected result:** All manifests in `benchmarks/external/manifests/` report `case_count > 0`. The `_deduplicated.manifest.json` and split manifests are populated. The benchmark runner can now evaluate agents against real-CVE data.
+
 ---
 
 ## Phase 0.5 retrospective — Benchmark Infrastructure Sprint (complete)
