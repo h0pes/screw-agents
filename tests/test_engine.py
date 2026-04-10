@@ -103,3 +103,41 @@ def test_tool_definitions_json_schema_valid(engine):
         assert "properties" in schema
         if t["name"].startswith("scan_"):
             assert "target" in schema["properties"]
+
+
+def test_full_pipeline_sqli(engine, fixtures_dir):
+    """Integration: load sqli agent → resolve fixture → assemble → verify structure."""
+    vuln_dir = fixtures_dir / "sqli" / "vulnerable"
+    if not vuln_dir.exists():
+        pytest.skip("fixtures not found")
+
+    py_files = list(vuln_dir.glob("*.py"))
+    if not py_files:
+        pytest.skip("no Python fixtures")
+
+    target = {"type": "file", "path": str(py_files[0])}
+    result = engine.assemble_scan(agent_name="sqli", target=target)
+
+    assert result["agent_name"] == "sqli"
+    assert "SQL" in result["core_prompt"] or "sql" in result["core_prompt"].lower()
+    assert len(result["code"]) > 0
+    assert result["meta"]["cwe_primary"] == "CWE-89"
+    assert result["meta"]["domain"] == "injection-input-handling"
+
+
+def test_full_pipeline_domain_scan(engine, fixtures_dir):
+    """Integration: domain scan assembles prompts for all 4 agents."""
+    vuln_dir = fixtures_dir / "sqli" / "vulnerable"
+    py_files = list(vuln_dir.glob("*.py"))
+    if not py_files:
+        pytest.skip("no Python fixtures")
+
+    target = {"type": "file", "path": str(py_files[0])}
+    results = engine.assemble_domain_scan(
+        domain="injection-input-handling", target=target,
+    )
+    assert len(results) == 4
+    agent_names = {r["agent_name"] for r in results}
+    assert agent_names == {"sqli", "cmdi", "ssti", "xss"}
+    for r in results:
+        assert len(r["code"]) > 0
