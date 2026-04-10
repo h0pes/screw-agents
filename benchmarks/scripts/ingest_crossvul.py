@@ -9,6 +9,7 @@ from __future__ import annotations
 import sys
 import tarfile
 import urllib.request
+import zipfile
 from pathlib import Path
 
 from benchmarks.runner.models import (
@@ -24,33 +25,47 @@ from benchmarks.scripts.ingest_base import IngestBase
 
 CROSSVUL_LANGUAGES = {"php", "ruby"}
 ZENODO_RECORD = "4734050"
-TARBALL_URL = f"https://zenodo.org/record/{ZENODO_RECORD}/files/CrossVul.tar.gz"
+TARBALL_URL = f"https://zenodo.org/records/{ZENODO_RECORD}/files/dataset.zip"
 
 
 class CrossVulIngest(IngestBase):
     dataset_name = "crossvul"
-    source_url = f"https://zenodo.org/record/{ZENODO_RECORD}"
+    source_url = f"https://zenodo.org/records/{ZENODO_RECORD}"
 
     def ensure_downloaded(self) -> None:
-        extract_dir = self.download_dir / "CrossVul"
-        if extract_dir.exists():
-            print(f"  already extracted: {extract_dir}")
+        # Check any of the possible extraction directory names.
+        if self._find_crossvul_root() is not None:
+            print(f"  already extracted: {self._find_crossvul_root()}")
             return
 
-        tarball = self.download_dir / "CrossVul.tar.gz"
-        if not tarball.exists():
+        archive = self.download_dir / "dataset.zip"
+        if not archive.exists():
             print(f"  downloading {TARBALL_URL} ...")
-            urllib.request.urlretrieve(TARBALL_URL, tarball)
+            urllib.request.urlretrieve(TARBALL_URL, archive)
 
-        print(f"  extracting {tarball} ...")
-        with tarfile.open(tarball, "r:gz") as tf:
-            # filter="data" blocks absolute paths and .. traversal (Python 3.12+)
-            tf.extractall(self.download_dir, filter="data")
+        print(f"  extracting {archive} ...")
+        with zipfile.ZipFile(archive, "r") as zf:
+            zf.extractall(self.download_dir)
+
+    def _find_crossvul_root(self) -> Path | None:
+        """Locate the CrossVul root directory after extraction.
+
+        The zip may extract to CrossVul/, dataset/, or place CWE dirs directly.
+        """
+        for name in ("CrossVul", "dataset", "crossvul"):
+            candidate = self.download_dir / name
+            if candidate.is_dir():
+                return candidate
+        # Check if CWE dirs exist directly in download_dir
+        for child in self.download_dir.iterdir():
+            if child.is_dir() and child.name.upper().startswith("CWE"):
+                return self.download_dir
+        return None
 
     def extract_cases(self) -> list[BenchmarkCase]:
-        crossvul_root = self.download_dir / "CrossVul"
-        if not crossvul_root.exists():
-            raise RuntimeError(f"CrossVul not extracted to {crossvul_root}")
+        crossvul_root = self._find_crossvul_root()
+        if crossvul_root is None:
+            raise RuntimeError(f"CrossVul not extracted under {self.download_dir}")
 
         cases: list[BenchmarkCase] = []
         for cwe_dir in crossvul_root.iterdir():

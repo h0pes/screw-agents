@@ -63,7 +63,7 @@ class RealityCheckJavaIngest(IngestBase):
 
         markup_path = (
             repo_dir / "java" / "markup"
-            / project / f"{project}-{vul_version}" / "truth.sarif"
+            / project / vul_version / "truth.sarif"
         )
         if not markup_path.exists():
             print(f"  WARN: missing truth.sarif for {project} {vul_version}: {markup_path}")

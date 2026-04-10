@@ -49,26 +49,19 @@ class OssfCveBenchmarkIngest(IngestBase):
                 raise RuntimeError(f"Cannot locate CVEs dir under {repo_dir}")
 
         cases: list[BenchmarkCase] = []
-        for cve_dir in sorted(cves_dir.iterdir()):
-            if not cve_dir.is_dir():
-                continue
-            case = self._build_case(cve_dir)
+        for json_file in sorted(cves_dir.glob("*.json")):
+            case = self._build_case(json_file)
             if case is not None:
                 cases.append(case)
         return cases
 
-    def _build_case(self, cve_dir: Path) -> BenchmarkCase | None:
-        metadata_candidates = list(cve_dir.glob("*.json")) + [cve_dir / "metadata.json"]
-        metadata_path = next((p for p in metadata_candidates if p.exists()), None)
-        if metadata_path is None:
-            return None
-
+    def _build_case(self, json_file: Path) -> BenchmarkCase | None:
         try:
-            meta = json.loads(metadata_path.read_text())
+            meta = json.loads(json_file.read_text())
         except Exception:
             return None
 
-        raw_cwes = meta.get("cwe") or meta.get("cwes") or []
+        raw_cwes = meta.get("CWEs") or meta.get("cwe") or meta.get("cwes") or []
         if isinstance(raw_cwes, str):
             raw_cwes = [raw_cwes]
         cwes = {_normalize_cwe(c) for c in raw_cwes}
@@ -78,10 +71,20 @@ class OssfCveBenchmarkIngest(IngestBase):
 
         canonical_cwe = sorted(active_cwes)[0]
 
-        cve_id = meta.get("cve") or meta.get("cveId") or cve_dir.name
-        project = meta.get("project") or meta.get("repo") or "unknown"
+        cve_id = meta.get("CVE") or meta.get("cve") or meta.get("cveId") or json_file.stem
+        project = meta.get("repository") or meta.get("project") or meta.get("repo") or "unknown"
 
+        # The OSSF format uses prePatch.weaknesses for vulnerable locations
+        pre_patch = meta.get("prePatch") or {}
+        weaknesses = pre_patch.get("weaknesses") or []
         vulnerable_files = meta.get("vulnerable_files") or meta.get("vulnerableFiles") or []
+        if not vulnerable_files and weaknesses:
+            vulnerable_files = [
+                {"path": w.get("location", {}).get("file", "<unknown>"),
+                 "start_line": w.get("location", {}).get("line", 1),
+                 "end_line": w.get("location", {}).get("line", 1)}
+                for w in weaknesses
+            ]
         if not vulnerable_files:
             vulnerable_files = [{"path": meta.get("file", "<unknown>"),
                                  "start_line": meta.get("line", 1),
