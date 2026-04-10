@@ -1,0 +1,26 @@
+# MoreFixes Postgres deployment for screw-agents Phase 0.5
+# Automatically loads postgrescvedumper-2024-09-26.sql at container startup
+
+services:
+  morefixes-db:
+    image: postgres:18-alpine
+    container_name: morefixes-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: morefixes
+      POSTGRES_PASSWORD: morefixes
+      POSTGRES_DB: morefixes
+    ports:
+      - "54321:5432"
+    volumes:
+      - ./dump:/docker-entrypoint-initdb.d:ro
+      - morefixes_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U morefixes -d morefixes"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 120s
+
+volumes:
+  morefixes_data:

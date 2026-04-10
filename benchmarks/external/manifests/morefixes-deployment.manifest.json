@@ -1,0 +1,21 @@
+{
+  "dataset_name": "morefixes",
+  "source_zenodo": "https://doi.org/10.5281/zenodo.13983082",
+  "source_code": "https://github.com/JafarAkhondali/Morefixes",
+  "dump_file": "postgrescvedumper-2024-09-26.sql",
+  "deployment": {
+    "compose_file": "benchmarks/external/morefixes/docker-compose.yml",
+    "db_host": "localhost",
+    "db_port": 54321,
+    "db_name": "morefixes",
+    "db_user": "morefixes"
+  },
+  "schema_discovery_date": "2026-04-10",
+  "key_tables": {
+    "fixes": {"purpose": "CVE fix metadata with score column"},
+    "commits": {"purpose": "Commits with score >= 65 (filtered)"},
+    "file_change": {"purpose": "File-level code modifications"},
+    "method_change": {"purpose": "Method-level code modifications"}
+  },
+  "notes": "Column names for language/CWE vary by table — see extraction query in benchmarks/scripts/morefixes_extract.py for the canonical query"
+}

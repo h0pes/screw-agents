@@ -1,6 +1,6 @@
 # Project Status — screw-agents
 
-> Last updated: 2026-04-09
+> Last updated: 2026-04-10
 
 ## Deferred Obligations
 
@@ -14,9 +14,9 @@ Items explicitly deferred from earlier phases that must be completed in later ph
 
 ---
 
-## Current Phase: Phase 0 Complete — Phase 0.5 Active
+## Current Phase: Phase 0.5 Complete — Phase 1 Next
 
-Architecture and product design is **complete** (PRD v0.4.3 is the definitive document). Phase 0 (Knowledge Research Sprint) for the four Phase 1 injection agents is **complete**. Phase 0.5 (Benchmark Infrastructure Sprint) is active.
+Architecture and product design is **complete** (PRD v0.4.3 is the definitive document). Phase 0 (Knowledge Research Sprint) for the four Phase 1 injection agents is **complete**. Phase 0.5 (Benchmark Infrastructure Sprint) is **complete**. Phase 1 (Core Infrastructure) is next.
 
 ### What's Done
 
@@ -52,24 +52,53 @@ Each YAML carries a 2,000-4,000 token distilled `core_prompt`, comprehensive det
 
 **Cross-cutting research:** `docs/research/rust-injection-patterns.md` (local) — shared Rust coverage feeding all four agents.
 
-**Phase 0.5 — Benchmark Infrastructure Sprint (research complete, implementation next):**
+**Phase 0.5 — Benchmark Infrastructure Sprint (complete):**
 
-Four benchmark research docs committed to `docs/research/benchmark-tier{1,2,3,4}-*.md` covering flawgarden ecosystem, academic datasets, C/C++ corpora, and Rust/modern ecosystems. All five architectural decisions locked in (see "Current phase" below).
+Four benchmark research docs committed to `docs/research/benchmark-tier{1,2,3,4}-*.md` covering flawgarden ecosystem, academic datasets, C/C++ corpora, and Rust/modern ecosystems. All five architectural decisions locked in.
+
+| Task | Description | Status |
+|---|---|---|
+| 0.5.1 | Scaffold benchmarks/ tree, pyproject.toml, .gitignore | **Complete** |
+| 0.5.2 | Adopt flawgarden tooling layer (bentoo-sarif format, cve-ingest scripts) | **Complete** |
+| 0.5.3 | Pydantic models, bentoo-sarif parser, CWE-1400 hierarchy YAML | **Complete** |
+| 0.5.4 | Metrics computation (TPR/FPR/F1, per-CWE, per-language) | **Complete** |
+| 0.5.5 | PrimeVul dedup via tree-sitter AST normalization | **Complete** |
+| 0.5.6 | Chronological + pair-based splits | **Complete** |
+| 0.5.7 | Markdown report generator | **Complete** |
+| 0.5.8 | CLI entry point (`benchmarks.runner` module) | **Complete** |
+| 0.5.9 | Ingest ossf-cve-benchmark (218 JS/TS CVEs) | **Complete** |
+| 0.5.10 | Ingest reality-check C# subset | **Complete** |
+| 0.5.11 | Ingest reality-check Python subset | **Complete** |
+| 0.5.12 | Ingest reality-check Java subset | **Complete** |
+| 0.5.13 | Ingest go-sec-code-mutated (SSTI/CWE-1336) | **Complete** |
+| 0.5.14 | Ingest skf-labs-mutated (Flask/Jinja2 SSTI) | **Complete** |
+| 0.5.15 | Ingest CrossVul (PHP/Ruby) | **Complete** |
+| 0.5.16 | Ingest Vul4J (Java precision) | **Complete** |
+| 0.5.17 | MoreFixes extraction pipeline (docker-compose + filter query) | **Complete** |
+| 0.5.18 | Active-CWE registry (centralized, single source of truth) | **Complete** |
+| 0.5.19 | Reusable ingest base class | **Complete** |
+| 0.5.20 | Run PrimeVul dedup across all ingested benchmarks | **Complete** |
+| 0.5.21 | Generate chronological + cross-project splits | **Complete** |
+| 0.5.22 | End-to-end smoke test with synthetic mock agent output | **Complete** |
+| 0.5.23 | Demote Rust fixtures to smoke tests; add provenance headers | **Complete** |
+| 0.5.24 | 81-test suite; all green | **Complete** |
+| 0.5.25 | Phase 1.7 validation gates doc | **Complete** |
+| 0.5.26 | Sprint retrospective + PROJECT_STATUS.md refresh | **Complete** |
 
 ### What's NOT Done
 
-- No MCP server implementation yet
-- No agent registry, target resolver, or output formatter
-- No benchmark runner or CI
-- `tests/` directory is empty
-- Phase 0.5 implementation (not just research) — active
-- Remaining 14 agents (CWE-1400 domains 2-18) not yet researched
+- No MCP server implementation yet (Phase 1)
+- No agent registry, target resolver, or output formatter (Phase 1)
+- `tests/` directory (top-level) is empty — benchmark tests live in `benchmarks/tests/`
+- Remaining 14 agents (CWE-1400 domains 2-18) not yet researched (Phase 7)
+- Rust benchmark corpus not yet built (deferred to Phase 5 step 5.0, see D-01)
+- Gates 2–4 in `docs/PHASE_0_5_VALIDATION_GATES.md` cannot be verified until real benchmark data is downloaded and ingested in Phase 1
 
 ---
 
-## Current phase: Phase 0.5 — Benchmark Infrastructure Sprint
+## Phase 0.5 retrospective — Benchmark Infrastructure Sprint (complete)
 
-**Why this exists:** Phase 1 validation cannot rely on self-authored fixtures. We need a real-world CVE benchmark harness using datasets from the flawgarden ecosystem, the OpenSSF JS/TS benchmark (218 real CVEs — biggest single data source for our XSS and CmdI agents), and multi-language CVE extraction via MoreFixes.
+**Why this existed:** Phase 1 validation cannot rely on self-authored fixtures. We need a real-world CVE benchmark harness using datasets from the flawgarden ecosystem, the OpenSSF JS/TS benchmark (218 real CVEs — biggest single data source for our XSS and CmdI agents), and multi-language CVE extraction via MoreFixes.
 
 ### Five architectural decisions locked in (2026-04-09)
 
@@ -180,8 +209,8 @@ Structured as a dependency graph with three parallel tracks converging at smoke 
 | Phase | Focus | Status |
 |---|---|---|
 | Phase 0 | Knowledge Research Sprint | **Complete** (4/4 Phase 1 agents) |
-| **Phase 0.5** | **Benchmark Infrastructure Sprint** | **ACTIVE** (research complete, implementation next) |
-| Phase 1 | Core Infrastructure (MCP server, agent registry, target resolver) | Pending (blocked on Phase 0.5) |
+| **Phase 0.5** | **Benchmark Infrastructure Sprint** | **Complete** |
+| **Phase 1** | **Core Infrastructure (MCP server, agent registry, target resolver)** | **NEXT** |
 | Phase 2 | Claude Code Integration (subagents, skills, filesystem output, FP learning) | Pending |
 | Phase 3 | screw.nvim Integration (scan commands, review-before-import, exclusions) | Pending |
 | Phase 4 | Adaptive Analysis & Learning Refinement | Pending |
