@@ -9,23 +9,16 @@ Approach:
 """
 from __future__ import annotations
 
-import ctypes
 import hashlib
-import os
-import warnings
 from collections import defaultdict
-from functools import lru_cache
 from typing import Iterable
 
 from benchmarks.runner.models import BenchmarkCase, Language
+from screw_agents.treesitter import get_parser, SUPPORTED_LANGUAGES
 
-
-# tree-sitter-languages 1.10.x was compiled against tree-sitter 0.20.x but the
-# project depends on tree-sitter>=0.23 which changed the Python binding API.
-# We bypass the broken get_parser()/get_language() wrappers by loading the
-# bundled languages.so directly via ctypes and passing the raw pointer to the
-# new tree_sitter.Language constructor (deprecated but functional in 0.23–0.25).
-_TS_LANG_NAMES: dict[Language, str] = {
+# Language name mapping — bridges benchmarks/runner/models.py Language enum
+# to the canonical names used by screw_agents.treesitter.
+_LANG_TO_TS_NAME: dict[Language, str] = {
     Language.PYTHON: "python",
     Language.JAVASCRIPT: "javascript",
     Language.TYPESCRIPT: "typescript",
@@ -40,47 +33,15 @@ _TS_LANG_NAMES: dict[Language, str] = {
 }
 
 
-@lru_cache(maxsize=None)
-def _get_lang_lib():
-    """Load the tree-sitter-languages bundled languages.so once."""
-    import tree_sitter_languages as _tsl
-    ts_langs_path = os.path.dirname(_tsl.__file__)
-    return ctypes.CDLL(os.path.join(ts_langs_path, "languages.so"))
-
-
-@lru_cache(maxsize=None)
-def _get_language(ts_name: str):
-    """Return a tree_sitter.Language for the given grammar name."""
-    import tree_sitter
-
-    lib = _get_lang_lib()
-    fn = getattr(lib, f"tree_sitter_{ts_name}")
-    fn.restype = ctypes.c_void_p
-    ptr = fn()
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        return tree_sitter.Language(ptr)
-
-
-def _get_parser(language: Language):
-    """Return a configured tree_sitter.Parser for the given language."""
-    import tree_sitter
-
-    ts_name = _TS_LANG_NAMES.get(language)
-    if ts_name is None:
-        raise ValueError(f"No tree-sitter mapping for {language}")
-    lang = _get_language(ts_name)
-    parser = tree_sitter.Parser()
-    parser.language = lang
-    return parser
-
-
 def ast_normalize(code: str, language: Language) -> str:
     """Strip comments and normalize whitespace using tree-sitter.
 
     Walks CST, skips comment nodes, emits terminal token text separated by single spaces.
     """
-    parser = _get_parser(language)
+    ts_name = _LANG_TO_TS_NAME.get(language)
+    if ts_name is None:
+        return code  # unsupported language, return as-is
+    parser = get_parser(ts_name)
     tree = parser.parse(code.encode("utf-8"))
     tokens: list[str] = []
     _collect_tokens(tree.root_node, code.encode("utf-8"), tokens)
