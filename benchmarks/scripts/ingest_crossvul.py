@@ -44,7 +44,8 @@ class CrossVulIngest(IngestBase):
 
         print(f"  extracting {tarball} ...")
         with tarfile.open(tarball, "r:gz") as tf:
-            tf.extractall(self.download_dir)
+            # filter="data" blocks absolute paths and .. traversal (Python 3.12+)
+            tf.extractall(self.download_dir, filter="data")
 
     def extract_cases(self) -> list[BenchmarkCase]:
         crossvul_root = self.download_dir / "CrossVul"
