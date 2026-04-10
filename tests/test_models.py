@@ -100,3 +100,76 @@ def test_agent_definition_missing_detection_heuristics_fails():
     }
     with pytest.raises(Exception):
         AgentDefinition.model_validate(data)
+
+
+from screw_agents.models import (
+    Finding, FindingLocation, DataFlow, FindingClassification,
+    FindingAnalysis, FindingRemediation, FindingTriage,
+)
+
+
+def test_finding_location_minimal():
+    loc = FindingLocation(
+        file="src/api/users.py",
+        line_start=42,
+    )
+    assert loc.file == "src/api/users.py"
+    assert loc.data_flow is None
+
+
+def test_finding_location_with_data_flow():
+    loc = FindingLocation(
+        file="src/api/users.py",
+        line_start=42,
+        line_end=48,
+        function="get_user",
+        data_flow=DataFlow(
+            source="request.getParameter('username')",
+            source_location="UserController.java:42",
+            sink="stmt.executeQuery(query)",
+            sink_location="UserController.java:48",
+        ),
+    )
+    assert loc.data_flow.source == "request.getParameter('username')"
+
+
+def test_finding_complete():
+    finding = Finding(
+        id="sqli-001-abc123",
+        agent="sqli",
+        domain="injection-input-handling",
+        timestamp="2026-04-10T14:30:00Z",
+        location=FindingLocation(file="test.py", line_start=10),
+        classification=FindingClassification(
+            cwe="CWE-89",
+            cwe_name="SQL Injection",
+            severity="high",
+            confidence="high",
+        ),
+        analysis=FindingAnalysis(
+            description="SQL injection via f-string",
+            impact="Data exfiltration",
+            exploitability="Trivially exploitable",
+        ),
+        remediation=FindingRemediation(
+            recommendation="Use parameterized queries",
+        ),
+    )
+    assert finding.id == "sqli-001-abc123"
+    assert finding.triage.status == "pending"
+
+
+def test_finding_requires_location():
+    with pytest.raises(Exception):
+        Finding(
+            id="test",
+            agent="sqli",
+            domain="test",
+            timestamp="2026-01-01T00:00:00Z",
+            classification=FindingClassification(
+                cwe="CWE-89", cwe_name="SQLi",
+                severity="high", confidence="high",
+            ),
+            analysis=FindingAnalysis(description="test"),
+            remediation=FindingRemediation(recommendation="fix"),
+        )

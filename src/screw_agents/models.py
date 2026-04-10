@@ -139,3 +139,70 @@ class AgentDefinition(BaseModel):
     remediation: Remediation
     few_shot_examples: FewShotExamples = FewShotExamples()
     target_strategy: TargetStrategy = TargetStrategy()
+
+
+# ---------------------------------------------------------------------------
+# Finding Output Schema (PRD §8 + data_flow extension)
+# ---------------------------------------------------------------------------
+
+
+class DataFlow(BaseModel):
+    """Source-to-sink data flow tracing for injection findings."""
+
+    source: str
+    source_location: str = ""
+    sink: str
+    sink_location: str = ""
+
+
+class FindingLocation(BaseModel):
+    file: str
+    line_start: int
+    line_end: int | None = None
+    function: str | None = None
+    class_name: str | None = None
+    code_snippet: str | None = None
+    data_flow: DataFlow | None = None
+
+
+class FindingClassification(BaseModel):
+    cwe: str
+    cwe_name: str
+    capec: str | None = None
+    owasp_top10: str | None = None
+    severity: str  # critical, high, medium, low
+    confidence: str  # high, medium, low
+
+
+class FindingAnalysis(BaseModel):
+    description: str
+    impact: str = ""
+    exploitability: str = ""
+    false_positive_reasoning: str | None = None
+
+
+class FindingRemediation(BaseModel):
+    recommendation: str
+    fix_code: str | None = None
+    references: list[str] = []
+
+
+class FindingTriage(BaseModel):
+    status: str = "pending"
+    triaged_by: str | None = None
+    triaged_at: str | None = None
+    notes: str | None = None
+
+
+class Finding(BaseModel):
+    """A single scan finding — the core output unit."""
+
+    id: str
+    agent: str
+    domain: str
+    timestamp: str
+    location: FindingLocation
+    classification: FindingClassification
+    analysis: FindingAnalysis
+    remediation: FindingRemediation
+    triage: FindingTriage = FindingTriage()
