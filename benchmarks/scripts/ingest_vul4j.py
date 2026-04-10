@@ -38,6 +38,7 @@ class Vul4JIngest(IngestBase):
     def extract_cases(self) -> list[BenchmarkCase]:
         repo_dir = self.download_dir / "repo"
         candidates = [
+            repo_dir / "dataset" / "vul4j_dataset.csv",
             repo_dir / "vul4j" / "data" / "vulnerability_list.csv",
             repo_dir / "data" / "vulnerability_list.csv",
             repo_dir / "vul4j" / "data" / "vulnerability_data.csv",
@@ -64,8 +65,20 @@ class Vul4JIngest(IngestBase):
             return None
 
         cve = row.get("cve_id") or row.get("cve") or row.get("CVE") or "UNKNOWN"
-        project = row.get("project_id") or row.get("project") or row.get("repo") or "unknown"
-        files_raw = row.get("human_patch") or row.get("files") or row.get("modified_files") or ""
+        project = (
+            row.get("repo_slug")
+            or row.get("project_id")
+            or row.get("project")
+            or row.get("repo")
+            or "unknown"
+        )
+
+        # human_patch in vul4j_dataset.csv is a commit URL, not a file list.
+        # Use the failing_module or src column as a rough file indicator instead.
+        files_raw = row.get("files") or row.get("modified_files") or ""
+        human_patch = row.get("human_patch") or ""
+        if not files_raw and human_patch and not human_patch.startswith("http"):
+            files_raw = human_patch
 
         files = [p.strip() for p in files_raw.replace(",", ";").split(";") if p.strip()]
         if not files:
@@ -88,8 +101,8 @@ class Vul4JIngest(IngestBase):
             case_id=f"vul4j-{cve}",
             project=project,
             language=Language.JAVA,
-            vulnerable_version=row.get("buggy_commit") or "buggy",
-            patched_version=row.get("fixed_commit") or "fixed",
+            vulnerable_version=row.get("vul_id") or row.get("buggy_commit") or "buggy",
+            patched_version=(row.get("vul_id", "") + "-patched") if row.get("vul_id") else (row.get("fixed_commit") or "fixed"),
             ground_truth=fail_findings + pass_findings,
             published_date=None,
             source_dataset=self.dataset_name,

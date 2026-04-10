@@ -1,0 +1,68 @@
+{
+  "dataset_name": "reality-check-python",
+  "source_url": "https://github.com/flawgarden/reality-check",
+  "case_count": 6,
+  "ingested_at": "2026-04-10T17:45:32+00:00",
+  "cases": [
+    {
+      "case_id": "rc-python-Zope-CVE-2009-5145",
+      "project": "Zope",
+      "language": "python",
+      "vulnerable_version": "Zope-2.12.1",
+      "patched_version": "Zope-2.12.2",
+      "published_date": null,
+      "fail_count": 1,
+      "pass_count": 1
+    },
+    {
+      "case_id": "rc-python-devika-CVE-2024-5711",
+      "project": "devika",
+      "language": "python",
+      "vulnerable_version": "devika-4a62feb782accb1b2f67c387e73f7c80672529bb",
+      "patched_version": "devika-6acce21fb08c3d1123ef05df6a33912bf0ee77c2",
+      "published_date": null,
+      "fail_count": 24,
+      "pass_count": 24
+    },
+    {
+      "case_id": "rc-python-whoogle-search-CVE-2024-22417",
+      "project": "whoogle-search",
+      "language": "python",
+      "vulnerable_version": "whoogle-search-v0.8.3",
+      "patched_version": "whoogle-search-v0.8.4",
+      "published_date": null,
+      "fail_count": 8,
+      "pass_count": 8
+    },
+    {
+      "case_id": "rc-python-mlflow-CVE-2023-4033",
+      "project": "mlflow",
+      "language": "python",
+      "vulnerable_version": "mlflow-v2.5.0",
+      "patched_version": "mlflow-v2.6.0",
+      "published_date": null,
+      "fail_count": 3,
+      "pass_count": 9
+    },
+    {
+      "case_id": "rc-python-fava-CVE-2022-2514",
+      "project": "fava",
+      "language": "python",
+      "vulnerable_version": "fava-v1.21",
+      "patched_version": "fava-v1.22",
+      "published_date": null,
+      "fail_count": 3,
+      "pass_count": 3
+    },
+    {
+      "case_id": "rc-python-openapi-python-client-CVE-2020-15142",
+      "project": "openapi-python-client",
+      "language": "python",
+      "vulnerable_version": "openapi-python-client-v.0.5.2",
+      "patched_version": "openapi-python-client-v.0.5.3",
+      "published_date": null,
+      "fail_count": 20,
+      "pass_count": 20
+    }
+  ]
+}

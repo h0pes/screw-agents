@@ -7,16 +7,35 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 DUMP_DIR="$ROOT_DIR/external/morefixes/dump"
-DUMP_FILE="$DUMP_DIR/postgrescvedumper-2024-09-26.sql"
-ZENODO_URL="https://zenodo.org/record/13983082/files/postgrescvedumper-2024-09-26.sql"
+ZIP_FILE="$DUMP_DIR/postgrescvedumper.sql.zip"
+DUMP_FILE="$DUMP_DIR/postgrescvedumper.sql"
+ZENODO_URL="https://zenodo.org/api/records/13983082/files/postgrescvedumper.sql.zip/content"
 COMPOSE_FILE="$ROOT_DIR/external/morefixes/docker-compose.yml"
 
 mkdir -p "$DUMP_DIR"
 
 if [ ! -f "$DUMP_FILE" ]; then
-    echo "Downloading MoreFixes dump from $ZENODO_URL ..."
-    echo "(This is a 16 GB file — be patient)"
-    curl -L --output "$DUMP_FILE" "$ZENODO_URL"
+    if [ ! -f "$ZIP_FILE" ]; then
+        echo "Downloading MoreFixes dump from Zenodo ..."
+        echo "(This is a 3.5 GB zip — be patient)"
+        curl -L --output "$ZIP_FILE" "$ZENODO_URL"
+    else
+        echo "Zip already present: $ZIP_FILE"
+    fi
+
+    echo "Extracting SQL dump from zip ..."
+    unzip -o "$ZIP_FILE" -d "$DUMP_DIR"
+
+    # Find the extracted SQL file (name may vary)
+    EXTRACTED=$(find "$DUMP_DIR" -name '*.sql' -not -name '*.sql.zip' | head -1)
+    if [ -z "$EXTRACTED" ]; then
+        echo "ERROR: no .sql file found after extraction" >&2
+        exit 1
+    fi
+    if [ "$EXTRACTED" != "$DUMP_FILE" ]; then
+        mv "$EXTRACTED" "$DUMP_FILE"
+    fi
+    echo "SQL dump ready: $DUMP_FILE"
 else
     echo "Dump already present: $DUMP_FILE"
 fi
@@ -26,7 +45,7 @@ docker compose -f "$COMPOSE_FILE" up -d
 
 echo ""
 echo "Waiting for Postgres to finish loading the dump ..."
-echo "(First-time load may take 10-20 minutes for 16 GB.)"
+echo "(First-time load may take 10-20 minutes.)"
 
 for i in {1..120}; do
     if docker compose -f "$COMPOSE_FILE" exec -T morefixes-db pg_isready -U morefixes -d morefixes >/dev/null 2>&1; then

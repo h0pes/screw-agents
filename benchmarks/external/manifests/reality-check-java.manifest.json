@@ -1,0 +1,98 @@
+{
+  "dataset_name": "reality-check-java",
+  "source_url": "https://github.com/flawgarden/reality-check",
+  "case_count": 9,
+  "ingested_at": "2026-04-10T17:45:33+00:00",
+  "cases": [
+    {
+      "case_id": "rc-java-sling-org-apache-sling-xss-CVE-2017-15717",
+      "project": "sling-org-apache-sling-xss",
+      "language": "java",
+      "vulnerable_version": "sling-org-apache-sling-xss-org.apache.sling.xss-2.0.0",
+      "patched_version": "sling-org-apache-sling-xss-org.apache.sling.xss-2.0.10",
+      "published_date": null,
+      "fail_count": 3,
+      "pass_count": 3
+    },
+    {
+      "case_id": "rc-java-velocity-tools-CVE-2020-13959",
+      "project": "velocity-tools",
+      "language": "java",
+      "vulnerable_version": "velocity-tools-3.0",
+      "patched_version": "velocity-tools-3.1",
+      "published_date": null,
+      "fail_count": 1,
+      "pass_count": 1
+    },
+    {
+      "case_id": "rc-java-plexus-utils-CVE-2017-1000487",
+      "project": "plexus-utils",
+      "language": "java",
+      "vulnerable_version": "plexus-utils-plexus-utils-3.0.14",
+      "patched_version": "plexus-utils-plexus-utils-3.0.16",
+      "published_date": null,
+      "fail_count": 10,
+      "pass_count": 10
+    },
+    {
+      "case_id": "rc-java-cron-utils-CVE-2021-41269",
+      "project": "cron-utils",
+      "language": "java",
+      "vulnerable_version": "cron-utils-9.0.2",
+      "patched_version": "cron-utils-9.1.6",
+      "published_date": null,
+      "fail_count": 8,
+      "pass_count": 8
+    },
+    {
+      "case_id": "rc-java-hibernate-validator-CVE-2019-10219",
+      "project": "hibernate-validator",
+      "language": "java",
+      "vulnerable_version": "hibernate-validator-6.1.0.Alpha6",
+      "patched_version": "hibernate-validator-6.1.1.Final",
+      "published_date": null,
+      "fail_count": 2,
+      "pass_count": 2
+    },
+    {
+      "case_id": "rc-java-xstream-CVE-2020-26217",
+      "project": "xstream",
+      "language": "java",
+      "vulnerable_version": "xstream-XSTREAM_1_4_13",
+      "patched_version": "xstream-XSTREAM_1_4_15",
+      "published_date": null,
+      "fail_count": 7,
+      "pass_count": 7
+    },
+    {
+      "case_id": "rc-java-jjbpm-wbbpm-CVE-2013-6465",
+      "project": "jjbpm-wbbpm",
+      "language": "java",
+      "vulnerable_version": "jbpm-wb-6.1.0.Final",
+      "patched_version": "jbpm-wb-6.1.0.Beta1",
+      "published_date": null,
+      "fail_count": 2,
+      "pass_count": 2
+    },
+    {
+      "case_id": "rc-java-jsoup-CVE-2015-6748",
+      "project": "jsoup",
+      "language": "java",
+      "vulnerable_version": "jsoup-jsoup-1.8.1.a",
+      "patched_version": "jsoup-jsoup-1.8.3",
+      "published_date": null,
+      "fail_count": 1,
+      "pass_count": 1
+    },
+    {
+      "case_id": "rc-java-xstream-CVE-2020-26259",
+      "project": "xstream",
+      "language": "java",
+      "vulnerable_version": "xstream-XSTREAM_1_4_14",
+      "patched_version": "xstream-XSTREAM_1_4_15",
+      "published_date": null,
+      "fail_count": 5,
+      "pass_count": 5
+    }
+  ]
+}
