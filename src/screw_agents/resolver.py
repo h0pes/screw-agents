@@ -227,7 +227,28 @@ def _resolve_class(target: dict) -> list[ResolvedCode]:
 
 
 def _resolve_codebase(target: dict) -> list[ResolvedCode]:
-    raise NotImplementedError("codebase target — implemented in Task 10")
+    root = Path(target.get("root", "."))
+    exclude = target.get("exclude", [])
+    default_exclude = {"node_modules", ".venv", "venv", ".git", "__pycache__", "vendor", ".tox"}
+    exclude_set = default_exclude | set(exclude)
+
+    from screw_agents.treesitter import EXTENSION_MAP
+
+    results = []
+    for path in sorted(root.rglob("*")):
+        if not path.is_file():
+            continue
+        if any(ex in path.parts for ex in exclude_set):
+            continue
+        if path.suffix.lower() not in EXTENSION_MAP:
+            continue
+        content = path.read_text(encoding="utf-8", errors="replace")
+        results.append(ResolvedCode(
+            file_path=str(path),
+            content=content,
+            language=_detect_language(str(path)),
+        ))
+    return results
 
 
 def _resolve_git_diff(target: dict) -> list[ResolvedCode]:
@@ -285,8 +306,25 @@ def _parse_unified_diff(diff_text: str, cwd: str) -> list[ResolvedCode]:
 
 
 def _resolve_git_commits(target: dict) -> list[ResolvedCode]:
-    raise NotImplementedError("git_commits target — implemented in Task 10")
+    cwd = target.get("cwd", ".")
+    commit_range = target["range"]
+    context_lines = target.get("context_lines", 10)
+
+    result = subprocess.run(
+        ["git", "diff", f"-U{context_lines}", commit_range],
+        cwd=cwd, capture_output=True, text=True, check=True,
+    )
+
+    if not result.stdout.strip():
+        return []
+
+    return _parse_unified_diff(result.stdout, cwd)
 
 
 def _resolve_pull_request(target: dict) -> list[ResolvedCode]:
-    raise NotImplementedError("pull_request target — implemented in Task 10")
+    return _resolve_git_diff({
+        "base": target["base"],
+        "head": target["head"],
+        "cwd": target.get("cwd", "."),
+        "context_lines": target.get("context_lines", 10),
+    })

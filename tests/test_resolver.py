@@ -184,3 +184,63 @@ def test_resolve_git_diff_base_head(tmp_path):
     result = resolve_target(target)
     assert len(result) >= 1
     assert any("modified" in r.content for r in result)
+
+
+def test_resolve_codebase(tmp_path):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "app.py").write_text("x = 1\n")
+    (tmp_path / "src" / "util.js").write_text("const y = 2;\n")
+    (tmp_path / "node_modules").mkdir()
+    (tmp_path / "node_modules" / "pkg.js").write_text("ignored\n")
+
+    target = {
+        "type": "codebase",
+        "root": str(tmp_path),
+        "exclude": ["node_modules"],
+    }
+    result = resolve_target(target)
+    paths = {r.file_path for r in result}
+    assert any("app.py" in p for p in paths)
+    assert any("util.js" in p for p in paths)
+    assert not any("node_modules" in p for p in paths)
+
+
+def test_resolve_git_commits(tmp_path):
+    subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=tmp_path, capture_output=True, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=tmp_path, capture_output=True, check=True)
+
+    f = tmp_path / "app.py"
+    f.write_text("v1\n")
+    subprocess.run(["git", "add", "."], cwd=tmp_path, capture_output=True, check=True)
+    subprocess.run(["git", "commit", "-m", "v1"], cwd=tmp_path, capture_output=True, check=True)
+    c1 = subprocess.run(["git", "rev-parse", "HEAD"], cwd=tmp_path, capture_output=True, text=True, check=True).stdout.strip()
+
+    f.write_text("v2\n")
+    subprocess.run(["git", "add", "."], cwd=tmp_path, capture_output=True, check=True)
+    subprocess.run(["git", "commit", "-m", "v2"], cwd=tmp_path, capture_output=True, check=True)
+
+    target = {"type": "git_commits", "range": f"{c1}..HEAD", "cwd": str(tmp_path)}
+    result = resolve_target(target)
+    assert len(result) >= 1
+
+
+def test_resolve_pull_request(tmp_path):
+    subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=tmp_path, capture_output=True, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=tmp_path, capture_output=True, check=True)
+
+    f = tmp_path / "app.py"
+    f.write_text("main\n")
+    subprocess.run(["git", "add", "."], cwd=tmp_path, capture_output=True, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=tmp_path, capture_output=True, check=True)
+
+    subprocess.run(["git", "checkout", "-b", "feature"], cwd=tmp_path, capture_output=True, check=True)
+    f.write_text("feature\n")
+    subprocess.run(["git", "add", "."], cwd=tmp_path, capture_output=True, check=True)
+    subprocess.run(["git", "commit", "-m", "feature"], cwd=tmp_path, capture_output=True, check=True)
+
+    target = {"type": "pull_request", "base": "main", "head": "feature", "cwd": str(tmp_path)}
+    result = resolve_target(target)
+    assert len(result) >= 1
+    assert any("feature" in r.content for r in result)
