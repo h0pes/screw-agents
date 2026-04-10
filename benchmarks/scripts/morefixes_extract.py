@@ -16,6 +16,20 @@ Usage:
     # or with custom DSN:
     MOREFIXES_DSN="postgres://morefixes:morefixes@localhost:54321/morefixes" \
         uv run python -m benchmarks.scripts.morefixes_extract
+
+Actual MoreFixes schema (verified against postgrescvedumper-2024-09-26.sql):
+
+  fixes (cve_id, hash, repo_url, rel_type, score, extraction_status)
+  commits (hash, repo_url, author, committer, msg, committer_date, ...)
+  cwe_classification (cve_id, cwe_id)
+  file_change (file_change_id, hash, filename, programming_language, code_before, code_after, ...)
+  method_change (method_change_id, file_change_id, name, start_line, end_line, code, before_change, ...)
+
+Join path:
+  fixes.hash → commits.hash (commit metadata)
+  fixes.cve_id → cwe_classification.cve_id (CWE mapping)
+  fixes.hash → file_change.hash (file-level changes)
+  file_change.file_change_id → method_change.file_change_id (method-level changes)
 """
 from __future__ import annotations
 
@@ -48,11 +62,12 @@ MOREFIXES_LANGUAGES: frozenset[str] = frozenset({
     "ruby",
     "php",
     "csharp",
+    "c#",
 })
 
 # ---------------------------------------------------------------------------
 # Map MoreFixes language strings → our Language enum values.
-# MoreFixes stores languages as lowercase strings; some have aliases.
+# MoreFixes stores languages as lowercase strings in file_change.programming_language.
 # ---------------------------------------------------------------------------
 LANGUAGE_MAP: dict[str, Language] = {
     "python":     Language.PYTHON,
@@ -67,71 +82,47 @@ LANGUAGE_MAP: dict[str, Language] = {
     "c#":         Language.CSHARP,
 }
 
-# ---------------------------------------------------------------------------
-# Schema configuration — MoreFixes column names vary across tables.
-# Adjust here if a schema migration changes column names.
-# ---------------------------------------------------------------------------
-SCHEMA_CONFIG: dict[str, Any] = {
-    # fixes table
-    "fixes_table": "fixes",
-    "fixes_cve_col": "cve_id",
-    "fixes_score_col": "score",
-    # commits table
-    "commits_table": "commits",
-    "commits_hash_col": "hash",
-    "commits_repo_col": "repo",
-    "commits_language_col": "language",
-    "commits_cwe_col": "cwe",
-    "commits_date_col": "committer_date",
-    # method_change table
-    "method_change_table": "method_change",
-    "method_file_col": "file_name",
-    "method_name_col": "name",
-    "method_start_col": "start_line",
-    "method_end_col": "end_line",
-    "method_commit_col": "commit_hash",
-    # Minimum quality score threshold (0-100, MoreFixes confidence)
-    "min_score": 65,
-}
+# Minimum quality score threshold (0-100, MoreFixes confidence).
+MIN_SCORE = 65
 
 
-def build_query(min_score: int = 65) -> str:
+def build_query(min_score: int = MIN_SCORE) -> str:
     """Return the SQL string that extracts qualifying MoreFixes commits.
 
-    Filters applied:
-    - fixes.score >= min_score (quality gate)
-    - commits.cwe IN (active CWE integers)
-    - commits.language IN (MOREFIXES_LANGUAGES)
+    Join path (verified against actual schema):
+      fixes → cwe_classification (via cve_id) for CWE filtering
+      fixes → file_change (via hash) for language filtering + file info
+      file_change → method_change (via file_change_id) for method-level location
 
-    Returns a parameterised query with no interpolated values; callers must
-    pass parameters to the DB driver to avoid injection (% placeholders for
-    psycopg).
+    Filters:
+      fixes.score >= min_score (quality gate)
+      cwe_classification.cwe_id IN (active CWE strings like 'CWE-89')
+      file_change.programming_language IN (supported languages)
     """
-    cfg = SCHEMA_CONFIG
     cwe_placeholders = ", ".join(["%s"] * len(ACTIVE_CWE_INTS))
     lang_placeholders = ", ".join(["%s"] * len(MOREFIXES_LANGUAGES))
 
-    # IMPORTANT: These join conditions are SPECULATIVE — based on the documented
-    # MoreFixes schema. After deploying the DB (Task 21 Step 4), inspect the
-    # actual schema with \dt and \d <table> and update SCHEMA_CONFIG + this
-    # query to match the real column names and foreign key relationships.
     return f"""
 SELECT
-    f.{cfg['fixes_cve_col']}          AS cve_id,
-    f.{cfg['commits_cwe_col']}        AS cwe,
-    f.{cfg['commits_language_col']}   AS language,
-    f.{cfg['commits_repo_col']}       AS project,
-    f.{cfg['commits_date_col']}       AS published_date,
-    mc.{cfg['method_file_col']}       AS file_path,
-    mc.{cfg['method_name_col']}       AS method_name,
-    mc.{cfg['method_start_col']}      AS start_line,
-    mc.{cfg['method_end_col']}        AS end_line
-FROM {cfg['fixes_table']} f
-JOIN {cfg['method_change_table']} mc USING ({cfg['fixes_cve_col']})
-WHERE f.{cfg['fixes_score_col']} >= {min_score}
-  AND f.{cfg['commits_cwe_col']} IN ({cwe_placeholders})
-  AND lower(f.{cfg['commits_language_col']}) IN ({lang_placeholders})
-ORDER BY f.{cfg['fixes_cve_col']}, mc.{cfg['method_file_col']}, mc.{cfg['method_start_col']}
+    f.cve_id,
+    cw.cwe_id                        AS cwe,
+    fc.programming_language          AS language,
+    f.repo_url                       AS project,
+    c.committer_date                 AS published_date,
+    f.hash                           AS commit_hash,
+    fc.filename                      AS file_path,
+    mc.name                          AS method_name,
+    mc.start_line,
+    mc.end_line
+FROM fixes f
+JOIN cwe_classification cw ON cw.cve_id = f.cve_id
+JOIN commits c ON c.hash = f.hash
+JOIN file_change fc ON fc.hash = f.hash
+JOIN method_change mc ON mc.file_change_id = fc.file_change_id
+WHERE f.score >= {min_score}
+  AND cw.cwe_id IN ({cwe_placeholders})
+  AND lower(fc.programming_language) IN ({lang_placeholders})
+ORDER BY f.cve_id, fc.filename, mc.start_line
 """
 
 
@@ -173,11 +164,12 @@ class MoreFixesExtractor(IngestBase):
     def extract_cases(self) -> list[BenchmarkCase]:
         """Query MoreFixes and return one BenchmarkCase per CVE+repo pair."""
         conn = self._connect()
-        min_score: int = SCHEMA_CONFIG["min_score"]
-        query = build_query(min_score)
+        query = build_query(MIN_SCORE)
 
-        # Build ordered parameter list: CWE ints first, then language strings
-        cwe_params = sorted(ACTIVE_CWE_INTS)
+        # Build ordered parameter list: CWE strings first, then language strings.
+        # cwe_classification.cwe_id stores strings like "CWE-89", so we format
+        # ACTIVE_CWE_INTS into that form.
+        cwe_params = [f"CWE-{i}" for i in sorted(ACTIVE_CWE_INTS)]
         lang_params = sorted(MOREFIXES_LANGUAGES)
         params = cwe_params + lang_params
 
@@ -186,21 +178,20 @@ class MoreFixesExtractor(IngestBase):
             rows = cur.fetchall()
             col_names = [desc[0] for desc in cur.description]
 
-        # Group rows by (cve_id, repo, commit_hash) → one BenchmarkCase each
+        # Group rows by (cve_id, project) → one BenchmarkCase each
         from collections import defaultdict
-        groups: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
+        groups: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
         for raw_row in rows:
             row = dict(zip(col_names, raw_row))
             key = (
                 str(row.get("cve_id") or ""),
-                str(row.get("repo") or ""),
-                str(row.get("commit_hash") or ""),
+                str(row.get("project") or ""),
             )
             groups[key].append(row)
 
         cases: list[BenchmarkCase] = []
-        for (cve_id, repo, commit_hash), group_rows in groups.items():
-            case = self._rows_to_case(cve_id, repo, commit_hash, group_rows)
+        for (cve_id, project), group_rows in groups.items():
+            case = self._rows_to_case(cve_id, project, group_rows)
             if case is not None:
                 cases.append(case)
 
@@ -227,11 +218,10 @@ class MoreFixesExtractor(IngestBase):
     def _rows_to_case(
         self,
         cve_id: str,
-        repo: str,
-        commit_hash: str,
+        project: str,
         rows: list[dict[str, Any]],
     ) -> BenchmarkCase | None:
-        """Convert a group of DB rows (one commit, multiple methods) to a BenchmarkCase."""
+        """Convert a group of DB rows (one CVE+project, multiple methods) to a BenchmarkCase."""
         if not rows:
             return None
 
@@ -241,18 +231,20 @@ class MoreFixesExtractor(IngestBase):
         if language is None:
             return None  # unsupported language
 
-        raw_cwe = first.get("cwe")
+        raw_cwe = first.get("cwe") or ""
+        # cwe_classification.cwe_id is a string like "CWE-89"
+        cwe_id_str = str(raw_cwe)
         try:
-            cwe_int = int(raw_cwe) if raw_cwe is not None else None
+            cwe_int = int(cwe_id_str.replace("CWE-", "").replace("cwe-", ""))
         except (TypeError, ValueError):
-            cwe_int = None
+            return None
         if cwe_int not in ACTIVE_CWE_INTS:
             return None
 
-        cwe_id_str = f"CWE-{cwe_int}"
+        commit_hash = str(first.get("commit_hash") or "")
 
         # Parse commit date → published_date
-        raw_date = first.get("commit_date")
+        raw_date = first.get("published_date")
         published: date | None = None
         if raw_date is not None:
             try:
@@ -267,9 +259,9 @@ class MoreFixesExtractor(IngestBase):
         # Build ground truth from method_change rows
         ground_truth: list[Finding] = []
         for row in rows:
-            finding = self._row_to_case(row, cwe_id_str, cve_id)
-            if finding is not None:
-                ground_truth.extend(finding)
+            findings = self._row_to_findings(row, cwe_id_str, cve_id)
+            if findings is not None:
+                ground_truth.extend(findings)
 
         if not ground_truth:
             # Fallback: create a minimal file-level finding
@@ -296,12 +288,12 @@ class MoreFixesExtractor(IngestBase):
                 ),
             ]
 
-        safe_repo = (repo or "unknown").replace("/", "__")
-        case_id = f"morefixes-{cve_id or commit_hash[:12]}-{safe_repo}"
+        safe_project = (project or "unknown").replace("/", "__").replace(":", "_")
+        case_id = f"morefixes-{cve_id or commit_hash[:12]}-{safe_project}"
 
         return BenchmarkCase(
             case_id=case_id,
-            project=repo or "unknown",
+            project=project or "unknown",
             language=language,
             vulnerable_version=f"pre-{commit_hash[:12]}",
             patched_version=commit_hash[:12],
@@ -310,7 +302,7 @@ class MoreFixesExtractor(IngestBase):
             source_dataset=self.dataset_name,
         )
 
-    def _row_to_case(
+    def _row_to_findings(
         self,
         row: dict[str, Any],
         cwe_id_str: str,
@@ -320,11 +312,11 @@ class MoreFixesExtractor(IngestBase):
 
         Returns None if the row lacks sufficient location information.
         """
-        file_name = row.get("file_name")
+        file_path = row.get("file_path")
         start_line = row.get("start_line")
         end_line = row.get("end_line")
 
-        if not file_name or start_line is None:
+        if not file_path or start_line is None:
             return None
 
         try:
@@ -337,7 +329,7 @@ class MoreFixesExtractor(IngestBase):
             end = start
 
         location = CodeLocation(
-            file=str(file_name),
+            file=str(file_path),
             start_line=start,
             end_line=end,
             function_name=row.get("method_name") or None,
