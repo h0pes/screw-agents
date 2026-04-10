@@ -60,24 +60,56 @@ def _score_case(
 
     for truth in fail_truths:
         agent_vuln = _find_match(truth, vuln_findings, hierarchy, match_mode, consumed_vuln)
-        agent_patched = _find_match(truth, patched_findings, hierarchy, match_mode, consumed_patched)
+        # Use a temporary set so we only permanently consume the patched finding when
+        # it is actually paired with a matching vuln finding (i.e. we count FP for it).
+        tmp_consumed_patched = set(consumed_patched)
+        agent_patched = _find_match(truth, patched_findings, hierarchy, match_mode, tmp_consumed_patched)
         if agent_vuln is not None and agent_patched is None:
             tp += 1
         elif agent_vuln is not None and agent_patched is not None:
             fn += 1
             fp += 1
+            # Commit the patched consumption: the finding is now accounted for as FP.
+            consumed_patched.update(tmp_consumed_patched - consumed_patched)
         else:
+            # agent_vuln is None — patched finding (if any) is NOT consumed here;
+            # it will be handled by the pass_truths loop or the unconsumed loop below.
             fn += 1
 
+    # For PASS ground truths: TN only if the agent did NOT flag this location on the
+    # patched version.  We check ALL patched findings (not just unconsumed) because
+    # the question is "was the location flagged?" — if it was already consumed by the
+    # fail_truths loop above, the FP was already counted there; we must not add TN.
     for truth in pass_truths:
-        agent_patched = _find_match(truth, patched_findings, hierarchy, match_mode, consumed_patched)
-        if agent_patched is not None:
-            pass  # already counted in fail_truths loop
-        else:
+        was_flagged = any(
+            locations_match(truth.location, af.location)
+            and _cwe_match(af.cwe_id, truth.cwe_id, hierarchy, match_mode)
+            for af in patched_findings
+        )
+        if not was_flagged:
             tn += 1
+        # If was_flagged but already consumed by fail loop: FP already counted — nothing to do.
+        # If was_flagged and not yet consumed: count FP and consume so the loop below
+        # doesn't double-count it.
+        elif was_flagged:
+            for i, af in enumerate(patched_findings):
+                if i in consumed_patched:
+                    continue
+                if (locations_match(truth.location, af.location)
+                        and _cwe_match(af.cwe_id, truth.cwe_id, hierarchy, match_mode)):
+                    consumed_patched.add(i)
+                    fp += 1
+                    break
 
+    # Penalize unconsumed agent findings on vulnerable version.
     for i, f in enumerate(vuln_findings):
         if i in consumed_vuln:
+            continue
+        fp += 1
+
+    # Penalize unconsumed agent findings on patched version.
+    for i, f in enumerate(patched_findings):
+        if i in consumed_patched:
             continue
         fp += 1
 

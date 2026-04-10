@@ -87,6 +87,7 @@ def test_flagging_patched_counts_false_positive(hierarchy):
     overall = next(m for m in summary.metrics if m.cwe_id is None and m.language is None)
     assert overall.true_positives == 0
     assert overall.false_positives == 1
+    assert overall.true_negatives == 0
     assert overall.false_negatives == 1
 
 
@@ -115,6 +116,41 @@ def test_locations_match_line_overlap():
 
     d = CodeLocation(file="y.py", start_line=10, end_line=20)
     assert locations_match(a, d) is False
+
+
+def test_agent_flags_patched_only_is_fp(hierarchy):
+    """Agent flags the patched version but NOT the vulnerable version."""
+    cases = [_make_case("c1", "CWE-89", "a.py", (10, 15))]
+    runs_vuln = [AgentRun(case_id="c1", agent_name="inverse",
+                          findings=[], runtime_seconds=0.1)]
+    runs_patched = [AgentRun(case_id="c1", agent_name="inverse",
+                             findings=[_agent_find("c1", "CWE-89", "a.py", (10, 15))],
+                             runtime_seconds=0.1)]
+    summary = compute_metrics(cases, runs_vuln, runs_patched, hierarchy,
+                              agent_name="inverse", dataset="test")
+    overall = next(m for m in summary.metrics if m.cwe_id is None and m.language is None)
+    assert overall.true_positives == 0
+    assert overall.false_positives == 1
+    assert overall.true_negatives == 0
+    assert overall.false_negatives == 1
+
+
+def test_spurious_patched_finding_counts_fp(hierarchy):
+    """Agent reports a finding on patched version at an unrelated location."""
+    cases = [_make_case("c1", "CWE-89", "a.py", (10, 15))]
+    runs_vuln = [AgentRun(case_id="c1", agent_name="noisy",
+                          findings=[_agent_find("c1", "CWE-89", "a.py", (10, 15))],
+                          runtime_seconds=0.1)]
+    runs_patched = [AgentRun(case_id="c1", agent_name="noisy",
+                             findings=[_agent_find("c1", "CWE-89", "a.py", (100, 110))],
+                             runtime_seconds=0.1)]
+    summary = compute_metrics(cases, runs_vuln, runs_patched, hierarchy,
+                              agent_name="noisy", dataset="test")
+    overall = next(m for m in summary.metrics if m.cwe_id is None and m.language is None)
+    assert overall.true_positives == 1  # correctly flagged vuln, didn't flag patched at same loc
+    assert overall.false_positives == 1  # spurious finding at unrelated patched location
+    assert overall.true_negatives == 1  # pass truth not flagged
+    assert overall.false_negatives == 0
 
 
 def test_per_cwe_breakdown(hierarchy):
