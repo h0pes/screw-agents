@@ -75,6 +75,11 @@ def test_metric_set_accuracy_formula():
     assert m.tpr - m.fpr == pytest.approx(m.accuracy, abs=0.001)
 
 
+def test_code_location_rejects_inverted_lines():
+    with pytest.raises(ValidationError):
+        CodeLocation(file="x", start_line=20, end_line=5)
+
+
 def test_summary_round_trips_json():
     summary = Summary(
         run_id="test-run",

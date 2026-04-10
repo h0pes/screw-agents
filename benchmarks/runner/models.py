@@ -12,7 +12,7 @@ from datetime import date
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class Language(str, Enum):
@@ -49,6 +49,12 @@ class CodeLocation(BaseModel):
     end_line: int
     function_name: str | None = None
 
+    @model_validator(mode="after")
+    def check_line_order(self) -> "CodeLocation":
+        if self.start_line > self.end_line:
+            raise ValueError(f"start_line {self.start_line} > end_line {self.end_line}")
+        return self
+
 
 class Finding(BaseModel):
     """A single vulnerability finding — from ground truth OR from an agent."""
@@ -57,7 +63,7 @@ class Finding(BaseModel):
     location: CodeLocation
     cve_id: str | None = None          # e.g., "CVE-2024-12345"
     agent_name: str | None = None      # None for ground truth
-    confidence: float | None = None    # None for ground truth; 0.0-1.0 otherwise
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)    # None for ground truth; 0.0-1.0 otherwise
     message: str | None = None
 
 
@@ -78,7 +84,7 @@ class AgentRun(BaseModel):
     case_id: str
     agent_name: str
     findings: list[Finding]
-    runtime_seconds: float
+    runtime_seconds: float = Field(ge=0.0)
 
 
 class MetricSet(BaseModel):
@@ -92,10 +98,10 @@ class MetricSet(BaseModel):
     cwe_id: str | None = None          # None = aggregate across all CWEs
     language: Language | None = None   # None = aggregate across all languages
 
-    true_positives: int
-    false_positives: int
-    true_negatives: int
-    false_negatives: int
+    true_positives: int = Field(ge=0)
+    false_positives: int = Field(ge=0)
+    true_negatives: int = Field(ge=0)
+    false_negatives: int = Field(ge=0)
 
     tpr: float                         # recall on vulnerable versions
     fpr: float                         # false positive rate on patched versions
