@@ -147,16 +147,57 @@ async def run_stdio(domains_dir: Path | None = None) -> None:
 
 
 # ------------------------------------------------------------------
-# Transport: HTTP (stub — Task 17)
+# Transport: Streamable HTTP
 # ------------------------------------------------------------------
 
 
-async def run_http(domains_dir: Path | None = None, port: int = 8080) -> None:
-    """Run the MCP server over HTTP transport.
+def create_http_app(
+    domains_dir: Path | None = None, path: str = "/mcp"
+) -> "Starlette":
+    """Create a Starlette app serving the MCP server over Streamable HTTP.
 
-    Not yet implemented — see Task 17.
+    Args:
+        domains_dir: Optional override for the domains directory.
+        path: URL path for the MCP endpoint (default ``"/mcp"``).
+
+    Returns:
+        A :class:`starlette.applications.Starlette` application instance.
     """
-    raise NotImplementedError("HTTP transport is not yet implemented (Task 17)")
+    from starlette.applications import Starlette
+    from starlette.routing import Route
+
+    from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+
+    server, _ = create_server(domains_dir)
+
+    session_manager = StreamableHTTPSessionManager(
+        app=server,
+        stateless=True,
+    )
+
+    async def handle_mcp(scope, receive, send):  # type: ignore[no-untyped-def]
+        await session_manager.handle_request(scope, receive, send)
+
+    app = Starlette(
+        routes=[Route(path, endpoint=handle_mcp)],
+        lifespan=lambda _app: session_manager.run(),
+    )
+    return app
+
+
+async def run_http(domains_dir: Path | None = None, port: int = 8080) -> None:
+    """Run the MCP server over Streamable HTTP transport.
+
+    Args:
+        domains_dir: Optional override for the domains directory.
+        port: TCP port to listen on (default ``8080``).
+    """
+    import uvicorn
+
+    app = create_http_app(domains_dir)
+    config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="info")
+    uvi_server = uvicorn.Server(config)
+    await uvi_server.serve()
 
 
 # ------------------------------------------------------------------

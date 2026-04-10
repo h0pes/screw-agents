@@ -23,3 +23,9 @@ def test_server_tool_definitions(domains_dir):
     assert "list_agents" in names
     assert "scan_domain" in names
     assert "scan_full" in names
+
+
+def test_create_http_app(domains_dir):
+    from screw_agents.server import create_http_app
+    app = create_http_app(domains_dir)
+    assert app is not None
