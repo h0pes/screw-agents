@@ -9,14 +9,17 @@ Items explicitly deferred from earlier phases that must be completed in later ph
 | # | Item | Deferred from | Owning phase | Tracking ADR | Status |
 |---|---|---|---|---|---|
 | D-01 | Rust benchmark corpus from RustSec (~24 verified CVE candidates + synthetic SSTI fixtures) | Phase 0.5 | **Phase 5 (step 5.0)** — hard gate, Phase 5 cannot close without it | ADR-014 | **DEFERRED** |
+| D-02 | Gates G5-G7: detection rate validation against real-CVE benchmarks | Phase 1 (Task 20) | **Pre-Phase 2 gate** — must pass before Phase 2 begins | — | **DEFERRED** |
 
 **When returning to Phase 5:** The first step of Phase 5 is D-01 (Rust benchmark corpus construction). Verify this deferral is still valid by re-reading ADR-014 and `docs/research/benchmark-tier4-rust-modern.md`. Do not skip this step.
 
+**When starting Phase 2:** D-02 (Gates G5-G7) must pass first. See the "Phase 1.7 — Gates G5-G7" section below for the full procedure.
+
 ---
 
-## Current Phase: Phase 0.5 Complete — Phase 1 Next
+## Current Phase: Phase 1 Complete — G5-G7 Validation Then Phase 2
 
-Architecture and product design is **complete** (PRD v0.4.3 is the definitive document). Phase 0 (Knowledge Research Sprint) for the four Phase 1 injection agents is **complete**. Phase 0.5 (Benchmark Infrastructure Sprint) is **complete**. Phase 1 (Core Infrastructure) is next.
+Architecture and product design is **complete** (PRD v0.4.3 is the definitive document). Phase 0 (Knowledge Research) is **complete**. Phase 0.5 (Benchmark Infrastructure) is **complete**. Phase 1 (Core Infrastructure) is **complete** (PR #2 merged 2026-04-10). Gates G1-G4 pass. Gates G5-G7 (detection rate validation) are deferred to a dedicated session before Phase 2 begins (see D-02).
 
 ### What's Done
 
@@ -85,55 +88,108 @@ Four benchmark research docs committed to `docs/research/benchmark-tier{1,2,3,4}
 | 0.5.25 | Phase 1.7 validation gates doc | **Complete** |
 | 0.5.26 | Sprint retrospective + PROJECT_STATUS.md refresh | **Complete** |
 
+**Phase 1 — Core Infrastructure (complete, PR #2 merged 2026-04-10):**
+
+| Component | Module | Status |
+|---|---|---|
+| Shared tree-sitter | `src/screw_agents/treesitter.py` | **Complete** — 11 languages, individual grammar packages |
+| Pydantic models | `src/screw_agents/models.py` | **Complete** — YAML schema + finding output schema |
+| Agent registry | `src/screw_agents/registry.py` | **Complete** — YAML loading, validation, lookup |
+| Target resolver | `src/screw_agents/resolver.py` | **Complete** — all 9 target types from PRD §5 |
+| Output formatter | `src/screw_agents/formatter.py` | **Complete** — JSON, SARIF 2.1.0, Markdown |
+| Scan engine | `src/screw_agents/engine.py` | **Complete** — orchestrates registry + resolver + formatter |
+| MCP server | `src/screw_agents/server.py` | **Complete** — stdio + HTTP, dynamic tool registration |
+| Tests | `tests/` (72 tests) | **Complete** — all passing |
+| Benchmark ingest fixes | 8 scripts repaired | **Complete** — all scripts produce real data |
+| Benchmark data | 9 datasets, 3,877 cases post-dedup | **Complete** — G1-G4 pass |
+
+**Tree-sitter migration:** Replaced abandoned `tree-sitter-languages` (no maintainer since Feb 2024, no 3.14 wheels) with 11 individual grammar packages using stable ABI. Phase 0.5's ctypes hack in `primevul.py` replaced with shared module imports.
+
+**Benchmark ingest fixes applied during Phase 1:**
+- OSSF: iterate JSON files not directories
+- reality-check (C#/Python/Java): fix path construction (`{version}` already includes project prefix)
+- CrossVul: rewrite for actual `bad_*/good_*` file pair structure; Zenodo URL `/record/` → `/records/`, tarball → zip
+- Vul4J: add correct CSV path (`dataset/vul4j_dataset.csv`)
+- MoreFixes: Zenodo URL fix, zip extraction, `00-create-role.sql` for `postgrescvedumper` role, complete query rewrite for actual schema (CWE in `cwe_classification`, language in `file_change.programming_language`, join via `file_change_id`)
+
 ### What's NOT Done
 
-- No MCP server implementation yet (Phase 1)
-- No agent registry, target resolver, or output formatter (Phase 1)
-- `tests/` directory (top-level) is empty — benchmark tests live in `benchmarks/tests/`
+- **Gates G5-G7: detection rate validation** (see D-02 and section below) — infrastructure complete, actual benchmark run deferred
 - Remaining 14 agents (CWE-1400 domains 2-18) not yet researched (Phase 7)
 - Rust benchmark corpus not yet built (deferred to Phase 5 step 5.0, see D-01)
-- Gates 2–4 in `docs/PHASE_0_5_VALIDATION_GATES.md` cannot be verified until real benchmark data is downloaded and ingested in Phase 1
+- Claude Code integration: subagents, skills, filesystem output (Phase 2)
+- screw.nvim integration (Phase 3)
 
-### Pre-Phase 1.1.7 Checklist: Benchmark Data Ingestion
+### Benchmark Data Ingestion (complete as of Phase 1, 2026-04-10)
 
-Before running the benchmark validation step (Phase 1.1.7), all ingest scripts must be executed to download and process real-CVE data. None of these ran during Phase 0.5 — the scripts are written and unit-tested, but the actual downloads were not performed.
+All 9 ingest scripts have been run successfully. MoreFixes schema has been verified and extraction query corrected for the actual database schema. Dedup and splits applied.
 
-**Run in this order:**
+| Dataset | Cases | Notes |
+|---|---|---|
+| ossf-cve-benchmark | 118 | JS/TS CVEs with CWE-78/79/89/94 |
+| reality-check-csharp | 11 | CWE-78/79/89 |
+| reality-check-python | 6 | CWE-78/79/94 |
+| reality-check-java | 9 | CWE-78/79/94 |
+| go-sec-code-mutated | 1 | Monolithic repo, 159 CWE-89 findings in single case |
+| skf-labs-mutated | 1 | Monolithic repo, 367 CWE-89 findings in single case |
+| crossvul | 1,396 | PHP/Ruby bad/good file pairs |
+| vul4j | 7 | CWE-78/79 |
+| morefixes | 2,601 | Multi-language, MoreFixes Postgres extraction |
+| **After dedup** | **3,877** | 273 duplicates removed via PrimeVul AST normalization |
+| **Chrono split** | 3,753 train / 124 test | |
+| **Cross-project** | 1,482 projects | |
 
-```bash
-# 1. Clone and ingest all datasets (each downloads its source on first run)
-uv run python -m benchmarks.scripts.ingest_ossf
-uv run python -m benchmarks.scripts.ingest_reality_check_csharp
-uv run python -m benchmarks.scripts.ingest_reality_check_python
-uv run python -m benchmarks.scripts.ingest_reality_check_java
-uv run python -m benchmarks.scripts.ingest_go_sec_code
-uv run python -m benchmarks.scripts.ingest_skf_labs
-uv run python -m benchmarks.scripts.ingest_crossvul
-uv run python -m benchmarks.scripts.ingest_vul4j
+To reproduce (if data is lost): re-run all ingest scripts, then `apply_dedup` and `apply_splits`. MoreFixes requires Docker (`bash benchmarks/scripts/deploy_morefixes.sh` — includes 00-create-role.sql for the `postgrescvedumper` role).
 
-# 2. MoreFixes (requires Docker — 16 GB download + Postgres container)
-bash benchmarks/scripts/deploy_morefixes.sh
-#    ^^^ IMPORTANT: After the DB is up, inspect the actual schema:
-#    docker compose -f benchmarks/external/morefixes/docker-compose.yml \
-#        exec morefixes-db psql -U morefixes -d morefixes -c "\dt"
-#    docker compose -f benchmarks/external/morefixes/docker-compose.yml \
-#        exec morefixes-db psql -U morefixes -d morefixes -c "\d fixes"
-#    docker compose -f benchmarks/external/morefixes/docker-compose.yml \
-#        exec morefixes-db psql -U morefixes -d morefixes -c "\d method_change"
-#    Then compare actual column names against SCHEMA_CONFIG in
-#    benchmarks/scripts/morefixes_extract.py — update if they differ.
-#    The column names in the script are SPECULATIVE (based on docs, not verified).
-uv run python -m benchmarks.scripts.morefixes_extract
+---
 
-# 3. Apply dedup and splits across all ingested data
-uv run python -m benchmarks.scripts.apply_dedup
-uv run python -m benchmarks.scripts.apply_splits
+---
 
-# 4. Generate mock agent output for smoke testing
-uv run python -m benchmarks.scripts.generate_mock_agent_output
-```
+## Phase 1.7 — Gates G5-G7: Detection Rate Validation (D-02)
 
-**Expected result:** All manifests in `benchmarks/external/manifests/` report `case_count > 0`. The `_deduplicated.manifest.json` and split manifests are populated. The benchmark runner can now evaluate agents against real-CVE data.
+**Status:** Deferred. All infrastructure is in place. This section documents exactly what needs to happen before Phase 2 can begin.
+
+**Why deferred:** Running 3,877 benchmark cases through Claude via the MCP server requires: (a) API cost for each scan invocation, (b) orchestration to feed each case through the MCP server and collect findings, (c) scoring the findings against ground truth using the Phase 0.5 benchmark runner. This is a focused evaluation session, not an infrastructure task.
+
+**What exists (all complete):**
+- MCP server with 4 agents (scan_sqli, scan_cmdi, scan_ssti, scan_xss)
+- 9 benchmark datasets ingested: 3,877 cases after PrimeVul dedup
+- Benchmark runner (`benchmarks/runner/`) with TPR/FPR/F1 metrics, CWE-1400 scoring, Markdown reports
+- Validation gates defined in `docs/PHASE_0_5_VALIDATION_GATES.md`
+
+**Procedure to execute G5-G7:**
+
+1. **Build an orchestration script** that iterates each benchmark case, calls the appropriate MCP scan tool (via the engine's `assemble_scan()`), feeds the assembled prompt + code to Claude, and collects Claude's structured findings.
+
+2. **Convert findings to bentoo-sarif format** — each finding must become a SARIF result with `ruleId: CWE-<id>` and `kind: fail` at the reported location. Use `formatter.py`'s SARIF output.
+
+3. **Run the benchmark evaluator:**
+   ```bash
+   uv run python -m benchmarks.runner \
+       --agent-output <agent-sarif-dir> \
+       --ground-truth <manifest> \
+       --report-dir <output-dir>
+   ```
+
+4. **Check thresholds (G5):**
+
+   | Agent | Dataset | Metric | Threshold |
+   |---|---|---|---|
+   | xss | ossf-cve-benchmark (XSS subset) | TPR | >= 70% |
+   | xss | ossf-cve-benchmark (patched) | FPR | <= 25% |
+   | xss | reality-check-csharp (CWE-79) | TPR | >= 60% |
+   | xss | reality-check-python (CWE-79) | TPR | >= 60% |
+   | cmdi | ossf-cve-benchmark (CmdI subset) | TPR | >= 60% |
+   | cmdi | reality-check-java (CWE-78) | TPR | >= 50% |
+   | sqli | morefixes (CWE-89) | TPR | >= 50% |
+   | ssti | go-sec-code-mutated (CWE-1336) | TPR | >= 70% |
+   | ssti | skf-labs-mutated (CWE-1336) | TPR | >= 70% |
+
+5. **G6: Rust disclaimer** — verify the benchmark report explicitly states "Rust detection quality not benchmarked — see ADR-014."
+
+6. **G7: Failure dump** — for any threshold miss, the report must include the first 10 missed CVEs and false flags with file paths and expected vs actual findings.
+
+**If thresholds are not met:** This feeds into the autoresearch loop (Phase 5). Agents can be iteratively improved by adjusting their YAML detection heuristics and re-running the benchmarks. For Phase 1, a single pass is expected — thresholds were set conservatively (real-world SAST tools average 12.7% TPR on real CVEs per SMU paper; our 50-70% targets are ambitious but achievable with curated knowledge).
 
 ---
 
@@ -202,7 +258,7 @@ uv run python -m benchmarks.scripts.generate_mock_agent_output
 
 ---
 
-## Phase 1 — Core Infrastructure (blocked on Phase 0.5 completion)
+## Phase 1 — Core Infrastructure (complete, PR #2 merged 2026-04-10)
 
 Structured as a dependency graph with three parallel tracks converging at smoke test + benchmark validation:
 
@@ -250,9 +306,10 @@ Structured as a dependency graph with three parallel tracks converging at smoke 
 | Phase | Focus | Status |
 |---|---|---|
 | Phase 0 | Knowledge Research Sprint | **Complete** (4/4 Phase 1 agents) |
-| **Phase 0.5** | **Benchmark Infrastructure Sprint** | **Complete** |
-| **Phase 1** | **Core Infrastructure (MCP server, agent registry, target resolver)** | **NEXT** |
-| Phase 2 | Claude Code Integration (subagents, skills, filesystem output, FP learning) | Pending |
+| Phase 0.5 | Benchmark Infrastructure Sprint | **Complete** |
+| Phase 1 | Core Infrastructure (MCP server, agent registry, target resolver) | **Complete** (PR #2, 2026-04-10) |
+| **Phase 1.7** | **Gates G5-G7: Detection rate validation (D-02)** | **NEXT** |
+| Phase 2 | Claude Code Integration (subagents, skills, filesystem output, FP learning) | Blocked on G5-G7 |
 | Phase 3 | screw.nvim Integration (scan commands, review-before-import, exclusions) | Pending |
 | Phase 4 | Adaptive Analysis & Learning Refinement | Pending |
 | Phase 5 | Autoresearch & Self-Improvement — step 5.0 is D-01 (hard gate) | Pending |
