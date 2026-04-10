@@ -11,6 +11,26 @@ import glob as globlib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from screw_agents.treesitter import get_parser
+
+# tree-sitter node types for function/method definitions across languages.
+_FUNCTION_NODE_TYPES = {
+    "function_definition",      # Python
+    "function_declaration",     # JS, Go, C, C++
+    "method_definition",        # JS class methods, Ruby
+    "method_declaration",       # Java, C#
+    "function_item",            # Rust
+    "function",                 # PHP
+}
+
+_CLASS_NODE_TYPES = {
+    "class_definition",         # Python
+    "class_declaration",        # JS, Java, C#, C++
+    "class",                    # PHP, Ruby
+    "struct_item",              # Rust (closest equivalent)
+    "impl_item",                # Rust impl blocks
+}
+
 
 @dataclass
 class ResolvedCode:
@@ -140,14 +160,69 @@ def _resolve_lines(target: dict) -> list[ResolvedCode]:
     )]
 
 
-# Stub implementations — filled in by later tasks.
+def _find_named_node(content: str, language: str, name: str, node_types: set[str]):
+    """Walk the AST to find a node of the given types with the given name."""
+    parser = get_parser(language)
+    tree = parser.parse(content.encode("utf-8"))
+
+    def walk(node):
+        if node.type in node_types:
+            name_node = node.child_by_field_name("name")
+            if name_node and name_node.text.decode("utf-8") == name:
+                return node
+        for child in node.children:
+            result = walk(child)
+            if result is not None:
+                return result
+        return None
+
+    return walk(tree.root_node)
+
 
 def _resolve_function(target: dict) -> list[ResolvedCode]:
-    raise NotImplementedError("function target — implemented in Task 8")
+    path = target["file"]
+    name = target["name"]
+    content = _read_file(path)
+    lang = _detect_language(path)
+
+    if lang is None:
+        raise ValueError(f"Cannot detect language for {path}")
+
+    node = _find_named_node(content, lang, name, node_types=_FUNCTION_NODE_TYPES)
+    if node is None:
+        raise ValueError(f"Function {name!r} not found in {path}")
+
+    extracted = content.encode("utf-8")[node.start_byte:node.end_byte].decode("utf-8")
+    return [ResolvedCode(
+        file_path=path,
+        content=extracted,
+        language=lang,
+        line_start=node.start_point[0] + 1,
+        line_end=node.end_point[0] + 1,
+    )]
 
 
 def _resolve_class(target: dict) -> list[ResolvedCode]:
-    raise NotImplementedError("class target — implemented in Task 8")
+    path = target["file"]
+    name = target["name"]
+    content = _read_file(path)
+    lang = _detect_language(path)
+
+    if lang is None:
+        raise ValueError(f"Cannot detect language for {path}")
+
+    node = _find_named_node(content, lang, name, node_types=_CLASS_NODE_TYPES)
+    if node is None:
+        raise ValueError(f"Class {name!r} not found in {path}")
+
+    extracted = content.encode("utf-8")[node.start_byte:node.end_byte].decode("utf-8")
+    return [ResolvedCode(
+        file_path=path,
+        content=extracted,
+        language=lang,
+        line_start=node.start_point[0] + 1,
+        line_end=node.end_point[0] + 1,
+    )]
 
 
 def _resolve_codebase(target: dict) -> list[ResolvedCode]:

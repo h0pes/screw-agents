@@ -64,3 +64,60 @@ def test_resolve_unsupported_type():
     target = {"type": "unknown_type"}
     with pytest.raises(ValueError, match="Unsupported target type"):
         resolve_target(target)
+
+
+def test_resolve_function_target(tmp_path):
+    f = tmp_path / "example.py"
+    f.write_text(
+        "import os\n\n"
+        "def foo():\n"
+        "    return 1\n\n"
+        "def bar():\n"
+        "    return 2\n"
+    )
+    target = {"type": "function", "file": str(f), "name": "foo"}
+    result = resolve_target(target)
+    assert len(result) == 1
+    assert "def foo" in result[0].content
+    assert "def bar" not in result[0].content
+
+
+def test_resolve_function_not_found(tmp_path):
+    f = tmp_path / "example.py"
+    f.write_text("def foo():\n    pass\n")
+    target = {"type": "function", "file": str(f), "name": "nonexistent"}
+    with pytest.raises(ValueError, match="not found"):
+        resolve_target(target)
+
+
+def test_resolve_class_target(tmp_path):
+    f = tmp_path / "example.py"
+    f.write_text(
+        "class Foo:\n"
+        "    def method(self):\n"
+        "        pass\n\n"
+        "class Bar:\n"
+        "    pass\n"
+    )
+    target = {"type": "class", "file": str(f), "name": "Foo"}
+    result = resolve_target(target)
+    assert len(result) == 1
+    assert "class Foo" in result[0].content
+    assert "class Bar" not in result[0].content
+
+
+def test_resolve_function_javascript(tmp_path):
+    f = tmp_path / "example.js"
+    f.write_text(
+        "function greet(name) {\n"
+        "  return 'Hello ' + name;\n"
+        "}\n\n"
+        "function farewell() {\n"
+        "  return 'Bye';\n"
+        "}\n"
+    )
+    target = {"type": "function", "file": str(f), "name": "greet"}
+    result = resolve_target(target)
+    assert len(result) == 1
+    assert "greet" in result[0].content
+    assert "farewell" not in result[0].content
