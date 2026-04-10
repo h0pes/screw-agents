@@ -1,3 +1,9 @@
+// --- screw-agents smoke-test fixture (not for detection benchmarking) ---
+// Per ADR-014 (docs/DECISIONS.md), Rust benchmark corpus is DEFERRED to Phase 5.
+// This file verifies MCP plumbing + tree-sitter loading + agent-YAML resolution.
+// Detection accuracy against this file is NOT part of any Phase 1 validation gate.
+// Phase 5 corpus seed: docs/research/benchmark-tier4-rust-modern.md
+// -----------------------------------------------------------------------
 // Fixture: Safe Command::new with .arg() chain — Rust
 // Expected: TRUE NEGATIVE (must NOT be flagged)
 // CWE: CWE-78
