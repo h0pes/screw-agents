@@ -111,29 +111,27 @@ def build_query(min_score: int = 65) -> str:
     cwe_placeholders = ", ".join(["%s"] * len(ACTIVE_CWE_INTS))
     lang_placeholders = ", ".join(["%s"] * len(MOREFIXES_LANGUAGES))
 
+    # IMPORTANT: These join conditions are SPECULATIVE — based on the documented
+    # MoreFixes schema. After deploying the DB (Task 21 Step 4), inspect the
+    # actual schema with \dt and \d <table> and update SCHEMA_CONFIG + this
+    # query to match the real column names and foreign key relationships.
     return f"""
 SELECT
-    c.{cfg['commits_hash_col']}       AS commit_hash,
-    c.{cfg['commits_repo_col']}       AS repo,
-    c.{cfg['commits_language_col']}   AS language,
-    c.{cfg['commits_cwe_col']}        AS cwe,
-    c.{cfg['commits_date_col']}       AS commit_date,
     f.{cfg['fixes_cve_col']}          AS cve_id,
-    f.{cfg['fixes_score_col']}        AS score,
-    mc.{cfg['method_file_col']}       AS file_name,
+    f.{cfg['commits_cwe_col']}        AS cwe,
+    f.{cfg['commits_language_col']}   AS language,
+    f.{cfg['commits_repo_col']}       AS project,
+    f.{cfg['commits_date_col']}       AS published_date,
+    mc.{cfg['method_file_col']}       AS file_path,
     mc.{cfg['method_name_col']}       AS method_name,
     mc.{cfg['method_start_col']}      AS start_line,
     mc.{cfg['method_end_col']}        AS end_line
-FROM {cfg['commits_table']} c
-JOIN {cfg['fixes_table']} f
-    ON c.{cfg['commits_hash_col']} = f.{cfg['fixes_cve_col']}
-        OR c.{cfg['commits_repo_col']} = f.{cfg['fixes_cve_col']}
-LEFT JOIN {cfg['method_change_table']} mc
-    ON mc.{cfg['method_commit_col']} = c.{cfg['commits_hash_col']}
+FROM {cfg['fixes_table']} f
+JOIN {cfg['method_change_table']} mc USING ({cfg['fixes_cve_col']})
 WHERE f.{cfg['fixes_score_col']} >= {min_score}
-  AND c.{cfg['commits_cwe_col']} IN ({cwe_placeholders})
-  AND lower(c.{cfg['commits_language_col']}) IN ({lang_placeholders})
-ORDER BY c.{cfg['commits_hash_col']}, mc.{cfg['method_file_col']}
+  AND f.{cfg['commits_cwe_col']} IN ({cwe_placeholders})
+  AND lower(f.{cfg['commits_language_col']}) IN ({lang_placeholders})
+ORDER BY f.{cfg['fixes_cve_col']}, mc.{cfg['method_file_col']}, mc.{cfg['method_start_col']}
 """
 
 
