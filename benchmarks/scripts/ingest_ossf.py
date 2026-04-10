@@ -137,12 +137,18 @@ def _normalize_cwe(raw: str) -> str:
 def _parse_date(raw) -> date | None:
     if not raw:
         return None
-    for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%SZ"):
+    raw_str = str(raw).strip()
+    # Try full ISO formats first, then fall back to YYYY-MM-DD prefix
+    for fmt in ("%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
         try:
-            return datetime.strptime(str(raw)[: len(fmt)], fmt).date()
+            return datetime.strptime(raw_str, fmt).date()
         except ValueError:
             continue
-    return None
+    # Fall back: extract YYYY-MM-DD prefix from longer strings
+    try:
+        return datetime.strptime(raw_str[:10], "%Y-%m-%d").date()
+    except ValueError:
+        return None
 
 
 def main() -> int:
