@@ -1,0 +1,18 @@
+{
+  "dataset_name": "skf-labs-mutated",
+  "source_url": "https://github.com/flawgarden/skf-labs-mutated",
+  "case_count": 1,
+  "ingested_at": "2026-04-10T17:42:09+00:00",
+  "cases": [
+    {
+      "case_id": "skf-python-mutated",
+      "project": "python-mutated",
+      "language": "python",
+      "vulnerable_version": "HEAD",
+      "patched_version": "HEAD-patched",
+      "published_date": null,
+      "fail_count": 168,
+      "pass_count": 566
+    }
+  ]
+}

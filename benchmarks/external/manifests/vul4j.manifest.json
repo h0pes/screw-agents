@@ -1,0 +1,78 @@
+{
+  "dataset_name": "vul4j",
+  "source_url": "https://github.com/tuhh-softsec/vul4j",
+  "case_count": 7,
+  "ingested_at": "2026-04-10T17:45:34+00:00",
+  "cases": [
+    {
+      "case_id": "vul4j-CVE-2016-5394",
+      "project": "apache/sling",
+      "language": "java",
+      "vulnerable_version": "VUL4J-23",
+      "patched_version": "VUL4J-23-patched",
+      "published_date": null,
+      "fail_count": 1,
+      "pass_count": 1
+    },
+    {
+      "case_id": "vul4j-CVE-2017-15717",
+      "project": "apache/sling-org-apache-sling-xss",
+      "language": "java",
+      "vulnerable_version": "VUL4J-25",
+      "patched_version": "VUL4J-25-patched",
+      "published_date": null,
+      "fail_count": 1,
+      "pass_count": 1
+    },
+    {
+      "case_id": "vul4j-CVE-2016-2162",
+      "project": "apache/struts",
+      "language": "java",
+      "vulnerable_version": "VUL4J-34",
+      "patched_version": "VUL4J-34-patched",
+      "published_date": null,
+      "fail_count": 1,
+      "pass_count": 1
+    },
+    {
+      "case_id": "vul4j-CVE-2017-1000487",
+      "project": "codehaus-plexus/plexus-utils",
+      "language": "java",
+      "vulnerable_version": "VUL4J-42",
+      "patched_version": "VUL4J-42-patched",
+      "published_date": null,
+      "fail_count": 1,
+      "pass_count": 1
+    },
+    {
+      "case_id": "vul4j-CVE-2013-4378",
+      "project": "javamelody/javamelody",
+      "language": "java",
+      "vulnerable_version": "VUL4J-50",
+      "patched_version": "VUL4J-50-patched",
+      "published_date": null,
+      "fail_count": 1,
+      "pass_count": 1
+    },
+    {
+      "case_id": "vul4j-CVE-2015-6748",
+      "project": "jhy/jsoup",
+      "language": "java",
+      "vulnerable_version": "VUL4J-59",
+      "patched_version": "VUL4J-59-patched",
+      "published_date": null,
+      "fail_count": 1,
+      "pass_count": 1
+    },
+    {
+      "case_id": "vul4j-CVE-2016-10006",
+      "project": "nahsra/antisamy",
+      "language": "java",
+      "vulnerable_version": "VUL4J-60",
+      "patched_version": "VUL4J-60-patched",
+      "published_date": null,
+      "fail_count": 1,
+      "pass_count": 1
+    }
+  ]
+}
