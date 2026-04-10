@@ -95,7 +95,8 @@ def _rehydrate_case(
     try:
         language = Language(lang_str)
     except ValueError:
-        language = Language.PYTHON  # fallback
+        print(f"  WARN: unknown language {lang_str!r} for case {case_id}, skipping")
+        return None
 
     return BenchmarkCase(
         case_id=case_id,
