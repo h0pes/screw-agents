@@ -46,6 +46,7 @@ packages = ["src/screw_agents"]
 
 [dependency-groups]
 dev = [
+    "psycopg[binary]>=3.1",
     "pytest>=8.0",
     "pytest-cov>=5.0",
     "tree-sitter-languages>=1.10",
