@@ -1,7 +1,7 @@
 view_id: CWE-1400
 view_name: Comprehensive Categorization
 source_url: https://cwe.mitre.org/data/xml/views/1400.xml.zip
-extracted_at: '2026-04-10T06:57:06+00:00'
+extracted_at: '2026-04-10T07:01:32+00:00'
 node_count: 966
 view_members:
 - CWE-1396
@@ -290,8 +290,6 @@ nodes:
     name: Invokable Control Element in Multi-Thread Context with non-Final Static Storable or Member Element
     abstraction: Base
     parents:
-    - CWE-662
-    - CWE-662
     - CWE-662
     - CWE-1401
     children: []
@@ -626,7 +624,6 @@ nodes:
     abstraction: Variant
     parents:
     - CWE-820
-    - CWE-662
     - CWE-662
     - CWE-1401
     children: []
@@ -1082,8 +1079,6 @@ nodes:
     parents:
     - CWE-787
     - CWE-119
-    - CWE-787
-    - CWE-787
     - CWE-20
     - CWE-1399
     children: []
@@ -1175,7 +1170,6 @@ nodes:
     abstraction: Base
     parents:
     - CWE-787
-    - CWE-787
     - CWE-119
     - CWE-1399
     children: []
@@ -1234,7 +1228,6 @@ nodes:
     abstraction: Base
     parents:
     - CWE-74
-    - CWE-74
     - CWE-1409
     children: []
   CWE-1239:
@@ -1242,7 +1235,6 @@ nodes:
     name: Improper Zeroization of Hardware Register
     abstraction: Variant
     parents:
-    - CWE-226
     - CWE-226
     - CWE-1416
     children: []
@@ -1340,9 +1332,6 @@ nodes:
     name: Out-of-bounds Read
     abstraction: Base
     parents:
-    - CWE-119
-    - CWE-119
-    - CWE-119
     - CWE-119
     - CWE-1399
     children: []
@@ -1656,7 +1645,6 @@ nodes:
     abstraction: Base
     parents:
     - CWE-20
-    - CWE-20
     - CWE-1406
     children: []
   CWE-1285:
@@ -1806,7 +1794,6 @@ nodes:
     parents:
     - CWE-240
     - CWE-119
-    - CWE-119
     - CWE-1407
     children: []
   CWE-1300:
@@ -1814,7 +1801,6 @@ nodes:
     name: Improper Protection of Physical Side Channels
     abstraction: Base
     parents:
-    - CWE-203
     - CWE-203
     - CWE-1417
     children: []
@@ -1856,9 +1842,6 @@ nodes:
     name: Incorrect Calculation of Buffer Size
     abstraction: Base
     parents:
-    - CWE-682
-    - CWE-682
-    - CWE-682
     - CWE-682
     - CWE-1399
     children: []
@@ -2013,7 +1996,6 @@ nodes:
     abstraction: Base
     parents:
     - CWE-1357
-    - CWE-1357
     - CWE-664
     - CWE-1415
     children: []
@@ -2022,7 +2004,6 @@ nodes:
     name: Remanent Data Readable after Memory Erase
     abstraction: Variant
     parents:
-    - CWE-1301
     - CWE-1301
     - CWE-1416
     children: []
@@ -2048,7 +2029,6 @@ nodes:
     name: Inefficient Regular Expression Complexity
     abstraction: Base
     parents:
-    - CWE-407
     - CWE-407
     - CWE-1416
     children: []
@@ -2098,7 +2078,6 @@ nodes:
     abstraction: Base
     parents:
     - CWE-668
-    - CWE-668
     - CWE-20
     - CWE-1399
     children: []
@@ -2115,7 +2094,6 @@ nodes:
     name: Information Exposure through Microarchitectural State after Transient Execution
     abstraction: Base
     parents:
-    - CWE-226
     - CWE-226
     - CWE-1416
     children: []
@@ -2285,7 +2263,6 @@ nodes:
     abstraction: Base
     parents:
     - CWE-1420
-    - CWE-1420
     - CWE-1416
     children: []
   CWE-1422:
@@ -2293,7 +2270,6 @@ nodes:
     name: Exposure of Sensitive Information caused by Incorrect Data Forwarding during Transient Execution
     abstraction: Base
     parents:
-    - CWE-1420
     - CWE-1420
     - CWE-1416
     children: []
@@ -2303,7 +2279,6 @@ nodes:
       Transient Execution
     abstraction: Base
     parents:
-    - CWE-1420
     - CWE-1420
     - CWE-1416
     children: []
@@ -2641,7 +2616,6 @@ nodes:
     abstraction: Base
     parents:
     - CWE-706
-    - CWE-706
     - CWE-1416
     children: []
   CWE-179:
@@ -2733,7 +2707,6 @@ nodes:
     abstraction: Base
     parents:
     - CWE-682
-    - CWE-682
     - CWE-20
     - CWE-1408
     children: []
@@ -2742,7 +2715,6 @@ nodes:
     name: Integer Underflow (Wrap or Wraparound)
     abstraction: Base
     parents:
-    - CWE-682
     - CWE-682
     - CWE-1408
     children: []
@@ -2760,7 +2732,6 @@ nodes:
     abstraction: Base
     parents:
     - CWE-682
-    - CWE-682
     - CWE-1408
     children: []
   CWE-194:
@@ -2768,8 +2739,6 @@ nodes:
     name: Unexpected Sign Extension
     abstraction: Variant
     parents:
-    - CWE-681
-    - CWE-681
     - CWE-681
     - CWE-1416
     children: []
@@ -2779,8 +2748,6 @@ nodes:
     abstraction: Variant
     parents:
     - CWE-681
-    - CWE-681
-    - CWE-681
     - CWE-1416
     children: []
   CWE-196:
@@ -2789,8 +2756,6 @@ nodes:
     abstraction: Variant
     parents:
     - CWE-681
-    - CWE-681
-    - CWE-681
     - CWE-1416
     children: []
   CWE-197:
@@ -2798,8 +2763,6 @@ nodes:
     name: Numeric Truncation Error
     abstraction: Base
     parents:
-    - CWE-681
-    - CWE-681
     - CWE-681
     - CWE-1416
     children: []
@@ -2849,7 +2812,6 @@ nodes:
     abstraction: Base
     parents:
     - CWE-200
-    - CWE-200
     - CWE-1417
     children: []
   CWE-204:
@@ -2898,7 +2860,6 @@ nodes:
     abstraction: Base
     parents:
     - CWE-200
-    - CWE-200
     - CWE-755
     - CWE-1417
     children: []
@@ -2923,7 +2884,6 @@ nodes:
     name: Improper Removal of Sensitive Information Before Storage or Transfer
     abstraction: Base
     parents:
-    - CWE-669
     - CWE-669
     - CWE-1416
     children: []
@@ -2964,7 +2924,6 @@ nodes:
     name: Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')
     abstraction: Base
     parents:
-    - CWE-706
     - CWE-706
     - CWE-1404
     children: []
@@ -3039,8 +2998,6 @@ nodes:
     name: Relative Path Traversal
     abstraction: Base
     parents:
-    - CWE-22
-    - CWE-22
     - CWE-22
     - CWE-1404
     children: []
@@ -3198,7 +3155,6 @@ nodes:
     - CWE-705
     - CWE-755
     - CWE-703
-    - CWE-703
     - CWE-1410
     children: []
   CWE-25:
@@ -3223,7 +3179,6 @@ nodes:
     name: Unchecked Return Value
     abstraction: Base
     parents:
-    - CWE-754
     - CWE-754
     - CWE-1405
     children: []
@@ -3266,8 +3221,6 @@ nodes:
     name: Use of Hard-coded Password
     abstraction: Variant
     parents:
-    - CWE-798
-    - CWE-798
     - CWE-798
     - CWE-1396
     children: []
@@ -3381,7 +3334,6 @@ nodes:
     abstraction: Base
     parents:
     - CWE-754
-    - CWE-754
     - CWE-271
     - CWE-1396
     children: []
@@ -3399,7 +3351,6 @@ nodes:
     name: Incorrect Default Permissions
     abstraction: Base
     parents:
-    - CWE-732
     - CWE-732
     - CWE-1396
     children: []
@@ -3449,7 +3400,6 @@ nodes:
     abstraction: Base
     parents:
     - CWE-732
-    - CWE-732
     - CWE-1396
     children: []
   CWE-282:
@@ -3481,7 +3431,6 @@ nodes:
     abstraction: Class
     parents:
     - CWE-284
-    - CWE-284
     - CWE-1396
     children: []
   CWE-286:
@@ -3497,7 +3446,6 @@ nodes:
     name: Improper Authentication
     abstraction: Class
     parents:
-    - CWE-284
     - CWE-284
     - CWE-1396
     children: []
@@ -3566,7 +3514,6 @@ nodes:
     name: Improper Certificate Validation
     abstraction: Base
     parents:
-    - CWE-287
     - CWE-287
     - CWE-1396
     children: []
@@ -3670,7 +3617,6 @@ nodes:
     abstraction: Base
     parents:
     - CWE-287
-    - CWE-287
     - CWE-1396
     children: []
   CWE-307:
@@ -3722,7 +3668,6 @@ nodes:
     name: Cleartext Storage of Sensitive Information
     abstraction: Base
     parents:
-    - CWE-311
     - CWE-311
     - CWE-922
     - CWE-1402
@@ -3781,7 +3726,6 @@ nodes:
     abstraction: Base
     parents:
     - CWE-311
-    - CWE-311
     - CWE-1402
     children: []
   CWE-32:
@@ -3797,8 +3741,6 @@ nodes:
     name: Use of Hard-coded Cryptographic Key
     abstraction: Variant
     parents:
-    - CWE-798
-    - CWE-798
     - CWE-798
     - CWE-1396
     children: []
@@ -3891,7 +3833,6 @@ nodes:
     abstraction: Base
     parents:
     - CWE-330
-    - CWE-330
     - CWE-1414
     children: []
   CWE-332:
@@ -3925,7 +3866,6 @@ nodes:
     abstraction: Base
     parents:
     - CWE-330
-    - CWE-330
     - CWE-1414
     children: []
   CWE-336:
@@ -3949,7 +3889,6 @@ nodes:
     name: Use of Cryptographically Weak Pseudo-Random Number Generator (PRNG)
     abstraction: Base
     parents:
-    - CWE-330
     - CWE-330
     - CWE-1414
     children: []
@@ -4023,7 +3962,6 @@ nodes:
     abstraction: Class
     parents:
     - CWE-345
-    - CWE-345
     - CWE-284
     - CWE-1411
     children: []
@@ -4032,7 +3970,6 @@ nodes:
     name: Improper Verification of Cryptographic Signature
     abstraction: Base
     parents:
-    - CWE-345
     - CWE-345
     - CWE-1402
     children: []
@@ -4083,7 +4020,6 @@ nodes:
     abstraction: Compound
     parents:
     - CWE-345
-    - CWE-345
     - CWE-1411
     children: []
   CWE-353:
@@ -4099,7 +4035,6 @@ nodes:
     name: Improper Validation of Integrity Check Value
     abstraction: Base
     parents:
-    - CWE-345
     - CWE-345
     - CWE-754
     - CWE-1411
@@ -4143,8 +4078,6 @@ nodes:
     abstraction: Base
     parents:
     - CWE-22
-    - CWE-22
-    - CWE-22
     - CWE-1404
     children: []
   CWE-360:
@@ -4186,7 +4119,6 @@ nodes:
     parents:
     - CWE-362
     - CWE-662
-    - CWE-662
     - CWE-1401
     children: []
   CWE-367:
@@ -4194,7 +4126,6 @@ nodes:
     name: Time-of-check Time-of-use (TOCTOU) Race Condition
     abstraction: Base
     parents:
-    - CWE-362
     - CWE-362
     - CWE-1401
     children: []
@@ -4211,9 +4142,6 @@ nodes:
     name: Divide By Zero
     abstraction: Base
     parents:
-    - CWE-682
-    - CWE-682
-    - CWE-682
     - CWE-682
     - CWE-1408
     children: []
@@ -4312,7 +4240,6 @@ nodes:
     abstraction: Compound
     parents:
     - CWE-610
-    - CWE-610
     - CWE-1396
     children: []
   CWE-385:
@@ -4354,7 +4281,6 @@ nodes:
     parents:
     - CWE-754
     - CWE-703
-    - CWE-703
     - CWE-1405
     children: []
   CWE-392:
@@ -4364,7 +4290,6 @@ nodes:
     parents:
     - CWE-755
     - CWE-684
-    - CWE-703
     - CWE-703
     - CWE-1412
     children: []
@@ -4436,7 +4361,6 @@ nodes:
     abstraction: Variant
     parents:
     - CWE-772
-    - CWE-404
     - CWE-404
     - CWE-1399
     children: []
@@ -4555,8 +4479,6 @@ nodes:
     - CWE-825
     - CWE-1341
     - CWE-672
-    - CWE-672
-    - CWE-672
     - CWE-666
     - CWE-1399
     children: []
@@ -4566,8 +4488,6 @@ nodes:
     abstraction: Variant
     parents:
     - CWE-825
-    - CWE-672
-    - CWE-672
     - CWE-672
     - CWE-1399
     children: []
@@ -4629,7 +4549,6 @@ nodes:
     abstraction: Base
     parents:
     - CWE-862
-    - CWE-862
     - CWE-288
     - CWE-424
     - CWE-1396
@@ -4650,7 +4569,6 @@ nodes:
     abstraction: Base
     parents:
     - CWE-668
-    - CWE-668
     - CWE-1403
     children: []
   CWE-428:
@@ -4658,7 +4576,6 @@ nodes:
     name: Unquoted Search Path or Element
     abstraction: Base
     parents:
-    - CWE-668
     - CWE-668
     - CWE-1403
     children: []
@@ -4708,7 +4625,6 @@ nodes:
     name: Unrestricted Upload of File with Dangerous Type
     abstraction: Base
     parents:
-    - CWE-669
     - CWE-669
     - CWE-1416
     children: []
@@ -4772,7 +4688,6 @@ nodes:
     name: Inconsistent Interpretation of HTTP Requests ('HTTP Request/Response Smuggling')
     abstraction: Base
     parents:
-    - CWE-436
     - CWE-436
     - CWE-1398
     children: []
@@ -4868,7 +4783,6 @@ nodes:
     parents:
     - CWE-909
     - CWE-665
-    - CWE-665
     - CWE-1416
     children: []
   CWE-457:
@@ -4878,7 +4792,6 @@ nodes:
     parents:
     - CWE-908
     - CWE-665
-    - CWE-665
     - CWE-1416
     children: []
   CWE-459:
@@ -4886,7 +4799,6 @@ nodes:
     name: Incomplete Cleanup
     abstraction: Base
     parents:
-    - CWE-404
     - CWE-404
     - CWE-1416
     children: []
@@ -4979,7 +4891,6 @@ nodes:
     abstraction: Base
     parents:
     - CWE-913
-    - CWE-913
     - CWE-610
     - CWE-20
     - CWE-1415
@@ -5031,7 +4942,6 @@ nodes:
     abstraction: Base
     parents:
     - CWE-710
-    - CWE-754
     - CWE-754
     - CWE-1412
     children: []
@@ -5181,7 +5091,6 @@ nodes:
     parents:
     - CWE-345
     - CWE-669
-    - CWE-669
     - CWE-1411
     children: []
   CWE-495:
@@ -5262,7 +5171,6 @@ nodes:
     name: Deserialization of Untrusted Data
     abstraction: Base
     parents:
-    - CWE-913
     - CWE-913
     - CWE-1415
     children: []
@@ -5544,7 +5452,6 @@ nodes:
     parents:
     - CWE-820
     - CWE-662
-    - CWE-662
     - CWE-1401
     children: []
   CWE-544:
@@ -5617,7 +5524,6 @@ nodes:
     name: Files or Directories Accessible to External Parties
     abstraction: Base
     parents:
-    - CWE-668
     - CWE-668
     - CWE-285
     - CWE-1403
@@ -5709,8 +5615,6 @@ nodes:
     abstraction: Variant
     parents:
     - CWE-89
-    - CWE-89
-    - CWE-89
     - CWE-1409
     children: []
   CWE-565:
@@ -5737,7 +5641,6 @@ nodes:
     abstraction: Base
     parents:
     - CWE-820
-    - CWE-662
     - CWE-662
     - CWE-1401
     children: []
@@ -5937,7 +5840,6 @@ nodes:
     abstraction: Base
     parents:
     - CWE-706
-    - CWE-706
     - CWE-1404
     children: []
   CWE-590:
@@ -5987,7 +5889,6 @@ nodes:
     abstraction: Variant
     parents:
     - CWE-595
-    - CWE-595
     - CWE-480
     - CWE-1397
     children: []
@@ -6028,7 +5929,6 @@ nodes:
     name: URL Redirection to Untrusted Site ('Open Redirect')
     abstraction: Base
     parents:
-    - CWE-610
     - CWE-610
     - CWE-1396
     children: []
@@ -6112,7 +6012,6 @@ nodes:
     abstraction: Base
     parents:
     - CWE-610
-    - CWE-610
     - CWE-1396
     children: []
   CWE-612:
@@ -6128,7 +6027,6 @@ nodes:
     name: Insufficient Session Expiration
     abstraction: Base
     parents:
-    - CWE-672
     - CWE-672
     - CWE-1396
     children: []
@@ -6227,8 +6125,6 @@ nodes:
     abstraction: Base
     parents:
     - CWE-77
-    - CWE-77
-    - CWE-77
     - CWE-1409
     children: []
   CWE-625:
@@ -6295,7 +6191,6 @@ nodes:
     name: Authorization Bypass Through User-Controlled Key
     abstraction: Base
     parents:
-    - CWE-863
     - CWE-863
     - CWE-284
     - CWE-1396
@@ -6522,9 +6417,6 @@ nodes:
     abstraction: Class
     parents:
     - CWE-662
-    - CWE-662
-    - CWE-662
-    - CWE-662
     - CWE-1401
     children: []
   CWE-668:
@@ -6620,7 +6512,6 @@ nodes:
     name: Incorrect Conversion between Numeric Types
     abstraction: Base
     parents:
-    - CWE-704
     - CWE-704
     - CWE-1416
     children: []
@@ -6974,8 +6865,6 @@ nodes:
     abstraction: Base
     parents:
     - CWE-404
-    - CWE-404
-    - CWE-404
     - CWE-1399
     children: []
   CWE-764:
@@ -6985,7 +6874,6 @@ nodes:
     parents:
     - CWE-667
     - CWE-675
-    - CWE-662
     - CWE-662
     - CWE-1401
     children: []
@@ -7029,7 +6917,6 @@ nodes:
     abstraction: Class
     parents:
     - CWE-74
-    - CWE-74
     - CWE-1409
     children: []
   CWE-770:
@@ -7039,7 +6926,6 @@ nodes:
     parents:
     - CWE-400
     - CWE-665
-    - CWE-400
     - CWE-1416
     children: []
   CWE-771:
@@ -7055,9 +6941,6 @@ nodes:
     name: Missing Release of Resource after Effective Lifetime
     abstraction: Base
     parents:
-    - CWE-404
-    - CWE-404
-    - CWE-404
     - CWE-404
     - CWE-1416
     children: []
@@ -7084,7 +6967,6 @@ nodes:
     parents:
     - CWE-772
     - CWE-404
-    - CWE-404
     - CWE-1416
     children: []
   CWE-776:
@@ -7092,7 +6974,6 @@ nodes:
     name: Improper Restriction of Recursive Entity References in DTDs ('XML Entity Expansion')
     abstraction: Base
     parents:
-    - CWE-674
     - CWE-674
     - CWE-405
     - CWE-1416
@@ -7128,8 +7009,6 @@ nodes:
     parents:
     - CWE-77
     - CWE-74
-    - CWE-77
-    - CWE-77
     - CWE-1409
     children: []
   CWE-780:
@@ -7189,8 +7068,6 @@ nodes:
     abstraction: Base
     parents:
     - CWE-119
-    - CWE-119
-    - CWE-119
     - CWE-1399
     children: []
   CWE-787:
@@ -7199,9 +7076,6 @@ nodes:
     abstraction: Base
     parents:
     - CWE-119
-    - CWE-119
-    - CWE-119
-    - CWE-119
     - CWE-1399
     children: []
   CWE-788:
@@ -7209,8 +7083,6 @@ nodes:
     name: Access of Memory Location After End of Buffer
     abstraction: Base
     parents:
-    - CWE-119
-    - CWE-119
     - CWE-119
     - CWE-1399
     children: []
@@ -7227,7 +7099,6 @@ nodes:
     name: Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')
     abstraction: Base
     parents:
-    - CWE-74
     - CWE-74
     - CWE-1409
     children: []
@@ -7345,8 +7216,6 @@ nodes:
     abstraction: Base
     parents:
     - CWE-119
-    - CWE-119
-    - CWE-119
     - CWE-1399
     children: []
   CWE-806:
@@ -7387,8 +7256,6 @@ nodes:
     abstraction: Base
     parents:
     - CWE-662
-    - CWE-662
-    - CWE-662
     - CWE-1401
     children: []
   CWE-821:
@@ -7396,8 +7263,6 @@ nodes:
     name: Incorrect Synchronization
     abstraction: Base
     parents:
-    - CWE-662
-    - CWE-662
     - CWE-662
     - CWE-1401
     children: []
@@ -7407,8 +7272,6 @@ nodes:
     abstraction: Base
     parents:
     - CWE-119
-    - CWE-119
-    - CWE-119
     - CWE-1399
     children: []
   CWE-823:
@@ -7416,8 +7279,6 @@ nodes:
     name: Use of Out-of-range Pointer Offset
     abstraction: Base
     parents:
-    - CWE-119
-    - CWE-119
     - CWE-119
     - CWE-1399
     children: []
@@ -7427,9 +7288,6 @@ nodes:
     abstraction: Base
     parents:
     - CWE-119
-    - CWE-119
-    - CWE-119
-    - CWE-119
     - CWE-1399
     children: []
   CWE-825:
@@ -7437,8 +7295,6 @@ nodes:
     name: Expired Pointer Dereference
     abstraction: Base
     parents:
-    - CWE-119
-    - CWE-119
     - CWE-119
     - CWE-672
     - CWE-1399
@@ -7473,7 +7329,6 @@ nodes:
     name: Inclusion of Functionality from Untrusted Control Sphere
     abstraction: Base
     parents:
-    - CWE-669
     - CWE-669
     - CWE-1416
     children: []
@@ -7532,7 +7387,6 @@ nodes:
     abstraction: Base
     parents:
     - CWE-834
-    - CWE-834
     - CWE-1410
     children: []
   CWE-836:
@@ -7556,7 +7410,6 @@ nodes:
     name: Inappropriate Encoding for Output Context
     abstraction: Base
     parents:
-    - CWE-116
     - CWE-116
     - CWE-1407
     children: []
@@ -7597,7 +7450,6 @@ nodes:
     name: Access of Resource Using Incompatible Type ('Type Confusion')
     abstraction: Base
     parents:
-    - CWE-704
     - CWE-704
     - CWE-1416
     children: []
@@ -7651,8 +7503,6 @@ nodes:
     parents:
     - CWE-77
     - CWE-74
-    - CWE-77
-    - CWE-77
     - CWE-1409
     children: []
   CWE-89:
@@ -7686,7 +7536,6 @@ nodes:
     abstraction: Base
     parents:
     - CWE-665
-    - CWE-665
     - CWE-1416
     children: []
   CWE-909:
@@ -7695,7 +7544,6 @@ nodes:
     abstraction: Class
     parents:
     - CWE-665
-    - CWE-665
     - CWE-1416
     children: []
   CWE-91:
@@ -7703,7 +7551,6 @@ nodes:
     name: XML Injection (aka Blind XPath Injection)
     abstraction: Base
     parents:
-    - CWE-74
     - CWE-74
     - CWE-1409
     children: []
@@ -7773,8 +7620,6 @@ nodes:
     parents:
     - CWE-77
     - CWE-74
-    - CWE-77
-    - CWE-77
     - CWE-1409
     children: []
   CWE-918:
@@ -7791,7 +7636,6 @@ nodes:
     name: Improper Restriction of Power Consumption
     abstraction: Base
     parents:
-    - CWE-400
     - CWE-400
     - CWE-1416
     children: []
@@ -7824,7 +7668,6 @@ nodes:
     name: Improper Enforcement of Message Integrity During Transmission in a Communication Channel
     abstraction: Base
     parents:
-    - CWE-345
     - CWE-345
     - CWE-1411
     children: []
@@ -7875,7 +7718,6 @@ nodes:
     name: Improper Control of Generation of Code ('Code Injection')
     abstraction: Base
     parents:
-    - CWE-74
     - CWE-74
     - CWE-913
     - CWE-1409

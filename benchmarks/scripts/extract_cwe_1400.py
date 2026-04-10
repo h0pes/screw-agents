@@ -86,6 +86,11 @@ def parse_cwe_xml(xml_bytes: bytes) -> dict[str, Any]:
             for member in view.iter("{http://cwe.mitre.org/cwe-7}Has_Member"):
                 view_members.append(f"CWE-{member.get('CWE_ID')}")
 
+    # Deduplicate parent/child lists (MITRE XML repeats across views)
+    for node in nodes.values():
+        node["parents"] = list(dict.fromkeys(node["parents"]))
+        node["children"] = list(dict.fromkeys(node["children"]))
+
     return {
         "view_id": "CWE-1400",
         "view_name": "Comprehensive Categorization",
