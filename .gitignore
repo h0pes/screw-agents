@@ -1,3 +1,6 @@
+# Design specs — working material consumed during planning, not committed
+docs/specs/
+
 # Research notes — local working material, not committed
 docs/research/*
 # Exception: benchmark research docs are canonical deliverables (Phase 0.5)
