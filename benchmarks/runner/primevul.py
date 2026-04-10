@@ -133,3 +133,40 @@ def dedupe(cases: Iterable[BenchmarkCase]) -> list[BenchmarkCase]:
 
     result.sort(key=lambda c: c.case_id)
     return result
+
+
+from datetime import date
+
+
+def chronological_split(
+    cases: list[BenchmarkCase],
+    cutoff: date,
+) -> tuple[list[BenchmarkCase], list[BenchmarkCase]]:
+    """Split cases into (train, test) by published_date.
+
+    Cases with published_date < cutoff go to train.
+    Cases with published_date >= cutoff go to test.
+    Cases with no date default to train.
+    """
+    train: list[BenchmarkCase] = []
+    test: list[BenchmarkCase] = []
+    for case in cases:
+        if case.published_date is None or case.published_date < cutoff:
+            train.append(case)
+        else:
+            test.append(case)
+    return train, test
+
+
+def cross_project_split(
+    cases: list[BenchmarkCase],
+    holdout_project: str,
+) -> tuple[list[BenchmarkCase], list[BenchmarkCase]]:
+    """Hold out all cases from a single project.
+
+    Returns (train, test) where test contains every case whose project ==
+    holdout_project.
+    """
+    train = [c for c in cases if c.project != holdout_project]
+    test = [c for c in cases if c.project == holdout_project]
+    return train, test
