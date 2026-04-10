@@ -1,5 +1,7 @@
 """Tests for the target resolver."""
 
+import subprocess
+
 import pytest
 
 from screw_agents.resolver import resolve_target, ResolvedCode
@@ -121,3 +123,64 @@ def test_resolve_function_javascript(tmp_path):
     assert len(result) == 1
     assert "greet" in result[0].content
     assert "farewell" not in result[0].content
+
+
+def test_resolve_git_diff_unstaged(tmp_path):
+    """Test git_diff with uncommitted changes in a temp git repo."""
+    subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=tmp_path, capture_output=True, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=tmp_path, capture_output=True, check=True)
+
+    f = tmp_path / "app.py"
+    f.write_text("def safe():\n    return 1\n")
+    subprocess.run(["git", "add", "."], cwd=tmp_path, capture_output=True, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=tmp_path, capture_output=True, check=True)
+
+    f.write_text("def safe():\n    return 1\n\ndef vuln():\n    query = f'SELECT {x}'\n")
+
+    target = {"type": "git_diff", "cwd": str(tmp_path)}
+    result = resolve_target(target)
+    assert len(result) >= 1
+    assert any("vuln" in r.content for r in result)
+
+
+def test_resolve_git_diff_staged(tmp_path):
+    subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=tmp_path, capture_output=True, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=tmp_path, capture_output=True, check=True)
+
+    f = tmp_path / "app.py"
+    f.write_text("x = 1\n")
+    subprocess.run(["git", "add", "."], cwd=tmp_path, capture_output=True, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=tmp_path, capture_output=True, check=True)
+
+    f.write_text("x = 1\ny = 2\n")
+    subprocess.run(["git", "add", "."], cwd=tmp_path, capture_output=True, check=True)
+    f.write_text("x = 1\ny = 2\nz = 3\n")
+
+    target = {"type": "git_diff", "staged_only": True, "cwd": str(tmp_path)}
+    result = resolve_target(target)
+    assert len(result) >= 1
+    assert any("y = 2" in r.content for r in result)
+
+
+def test_resolve_git_diff_base_head(tmp_path):
+    subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=tmp_path, capture_output=True, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=tmp_path, capture_output=True, check=True)
+
+    f = tmp_path / "app.py"
+    f.write_text("original\n")
+    subprocess.run(["git", "add", "."], cwd=tmp_path, capture_output=True, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=tmp_path, capture_output=True, check=True)
+
+    base = subprocess.run(["git", "rev-parse", "HEAD"], cwd=tmp_path, capture_output=True, text=True, check=True).stdout.strip()
+
+    f.write_text("modified\n")
+    subprocess.run(["git", "add", "."], cwd=tmp_path, capture_output=True, check=True)
+    subprocess.run(["git", "commit", "-m", "change"], cwd=tmp_path, capture_output=True, check=True)
+
+    target = {"type": "git_diff", "base": base, "head": "HEAD", "cwd": str(tmp_path)}
+    result = resolve_target(target)
+    assert len(result) >= 1
+    assert any("modified" in r.content for r in result)

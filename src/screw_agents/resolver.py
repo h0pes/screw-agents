@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import fnmatch
 import glob as globlib
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -230,7 +231,57 @@ def _resolve_codebase(target: dict) -> list[ResolvedCode]:
 
 
 def _resolve_git_diff(target: dict) -> list[ResolvedCode]:
-    raise NotImplementedError("git_diff target — implemented in Task 9")
+    cwd = target.get("cwd", ".")
+    context_lines = target.get("context_lines", 10)
+
+    if "base" in target and "head" in target:
+        cmd = ["git", "diff", f"-U{context_lines}", f"{target['base']}...{target['head']}"]
+    elif target.get("staged_only"):
+        cmd = ["git", "diff", "--staged", f"-U{context_lines}"]
+    else:
+        cmd = ["git", "diff", f"-U{context_lines}"]
+
+    result = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, check=True)
+
+    if not result.stdout.strip():
+        return []
+
+    return _parse_unified_diff(result.stdout, cwd)
+
+
+def _parse_unified_diff(diff_text: str, cwd: str) -> list[ResolvedCode]:
+    """Parse unified diff output into ResolvedCode chunks per file."""
+    results = []
+    current_file = None
+    current_lines: list[str] = []
+
+    for line in diff_text.splitlines(keepends=True):
+        if line.startswith("diff --git"):
+            if current_file and current_lines:
+                results.append(ResolvedCode(
+                    file_path=current_file,
+                    content="".join(current_lines),
+                    language=_detect_language(current_file),
+                    metadata={"source": "git_diff"},
+                ))
+            current_lines = []
+            current_file = None
+        elif line.startswith("+++ b/"):
+            current_file = str(Path(cwd) / line[6:].strip())
+        elif line.startswith("--- "):
+            continue
+        elif current_file is not None:
+            current_lines.append(line)
+
+    if current_file and current_lines:
+        results.append(ResolvedCode(
+            file_path=current_file,
+            content="".join(current_lines),
+            language=_detect_language(current_file),
+            metadata={"source": "git_diff"},
+        ))
+
+    return results
 
 
 def _resolve_git_commits(target: dict) -> list[ResolvedCode]:
