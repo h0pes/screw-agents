@@ -59,7 +59,7 @@ select = ["E", "F", "W", "I", "S", "B", "UP"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "benchmarks/tests"]
-pythonpath = [".", "benchmarks"]
+pythonpath = ["."]
 
 [tool.mypy]
 python_version = "3.11"
