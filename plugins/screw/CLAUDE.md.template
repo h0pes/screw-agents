@@ -1,0 +1,28 @@
+## Security Review
+
+This project uses screw security agents via the screw-agents MCP server.
+
+### How to run scans
+
+- Ask naturally: "review src/api/ for injection vulnerabilities"
+- Or use the slash command: `/screw:scan <agent|domain|full> [target]`
+- Available agents: `sqli` (SQL injection), `cmdi` (command injection), `ssti` (template injection), `xss` (cross-site scripting)
+- Available domains: `injection` (runs all injection agents)
+- Use `full` for a comprehensive security review across all domains
+
+### Findings
+
+- Scan results are stored in `.screw/findings/` (JSON + Markdown reports)
+- Check existing findings before re-scanning to avoid duplicates
+- Use the screw MCP tools for analysis — don't attempt ad-hoc security review
+
+### False positives
+
+- Mark findings as false positives during review to improve future scans
+- Exclusions are stored in `.screw/learning/exclusions.yaml`
+- Exclusions are project-scoped and can be committed to share with the team
+
+### .screw/ directory
+
+- `.screw/findings/` — scan results (gitignored by default)
+- `.screw/learning/` — exclusion patterns (tracked by default)
