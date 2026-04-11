@@ -1,6 +1,6 @@
 # Project Status — screw-agents
 
-> Last updated: 2026-04-10
+> Last updated: 2026-04-11
 
 ## Deferred Obligations
 
@@ -9,7 +9,7 @@ Items explicitly deferred from earlier phases that must be completed in later ph
 | # | Item | Deferred from | Owning phase | Tracking ADR | Status |
 |---|---|---|---|---|---|
 | D-01 | Rust benchmark corpus from RustSec (~24 verified CVE candidates + synthetic SSTI fixtures) | Phase 0.5 | **Phase 5 (step 5.0)** — hard gate, Phase 5 cannot close without it | ADR-014 | **DEFERRED** |
-| D-02 | Gates G5-G7: detection rate validation against real-CVE benchmarks | Phase 1 (Task 20) | **Pre-Phase 2 gate** — must pass before Phase 2 begins | — | **DEFERRED** |
+| D-02 | Gates G5-G7: detection rate validation against real-CVE benchmarks | Phase 1 (Task 20) | **Pre-Phase 2 gate** — must pass before Phase 2 begins | — | **IN PROGRESS** — sample run complete (2026-04-11), pipeline validated, full run pending |
 
 **When returning to Phase 5:** The first step of Phase 5 is D-01 (Rust benchmark corpus construction). Verify this deferral is still valid by re-reading ADR-014 and `docs/research/benchmark-tier4-rust-modern.md`. Do not skip this step.
 
@@ -17,9 +17,9 @@ Items explicitly deferred from earlier phases that must be completed in later ph
 
 ---
 
-## Current Phase: Phase 1 Complete — G5-G7 Validation Then Phase 2
+## Current Phase: Phase 1.7 In Progress — G5-G7 Sample Run Complete, Full Run Pending
 
-Architecture and product design is **complete** (PRD v0.4.3 is the definitive document). Phase 0 (Knowledge Research) is **complete**. Phase 0.5 (Benchmark Infrastructure) is **complete**. Phase 1 (Core Infrastructure) is **complete** (PR #2 merged 2026-04-10). Gates G1-G4 pass. Gates G5-G7 (detection rate validation) are deferred to a dedicated session before Phase 2 begins (see D-02).
+Architecture and product design is **complete** (PRD v0.4.3 is the definitive document). Phase 0 (Knowledge Research) is **complete**. Phase 0.5 (Benchmark Infrastructure) is **complete**. Phase 1 (Core Infrastructure) is **complete** (PR #2 merged 2026-04-10). Gates G1-G4 pass. Phase 1.7 (G5-G7 detection rate validation) is **in progress** — sample run complete (2026-04-11), evaluation pipeline validated, full run pending.
 
 ### What's Done
 
@@ -114,7 +114,7 @@ Four benchmark research docs committed to `docs/research/benchmark-tier{1,2,3,4}
 
 ### What's NOT Done
 
-- **Gates G5-G7: detection rate validation** (see D-02 and section below) — infrastructure complete, actual benchmark run deferred
+- **Gates G5-G7: detection rate validation** (see D-02 and section below) — sample run complete 2026-04-11, full run pending
 - Remaining 14 agents (CWE-1400 domains 2-18) not yet researched (Phase 7)
 - Rust benchmark corpus not yet built (deferred to Phase 5 step 5.0, see D-01)
 - Claude Code integration: subagents, skills, filesystem output (Phase 2)
@@ -147,49 +147,99 @@ To reproduce (if data is lost): re-run all ingest scripts, then `apply_dedup` an
 
 ## Phase 1.7 — Gates G5-G7: Detection Rate Validation (D-02)
 
-**Status:** Deferred. All infrastructure is in place. This section documents exactly what needs to happen before Phase 2 can begin.
+**Status:** In progress. Evaluation pipeline complete, sample run complete (2026-04-11). Full run pending.
 
-**Why deferred:** Running 3,877 benchmark cases through Claude via the MCP server requires: (a) API cost for each scan invocation, (b) orchestration to feed each case through the MCP server and collect findings, (c) scoring the findings against ground truth using the Phase 0.5 benchmark runner. This is a focused evaluation session, not an infrastructure task.
+### What was built (2026-04-11)
 
-**What exists (all complete):**
-- MCP server with 4 agents (scan_sqli, scan_cmdi, scan_ssti, scan_xss)
-- 9 benchmark datasets ingested: 3,877 cases after PrimeVul dedup
-- Benchmark runner (`benchmarks/runner/`) with TPR/FPR/F1 metrics, CWE-1400 scoring, Markdown reports
-- Validation gates defined in `docs/PHASE_0_5_VALIDATION_GATES.md`
+| Component | Module | Description |
+|---|---|---|
+| Claude invoker | `benchmarks/runner/invoker.py` | `claude -p` subprocess wrapper with retry, backoff, JSON parsing |
+| Code extractor | `benchmarks/runner/code_extractor.py` | Per-dataset extraction (reality-check, CrossVul, monolithic repos) |
+| Gate checker | `benchmarks/runner/gate_checker.py` | G5 threshold evaluation, G6 Rust disclaimer, G7 failure dumps |
+| Gate report | `benchmarks/runner/report.py` | `render_gate_report()` with G5/G6/G7 Markdown sections |
+| Evaluator | `benchmarks/runner/evaluator.py` | Core orchestration: cases → code → prompts → Claude → findings → scoring |
+| CLI entry point | `benchmarks/scripts/run_gates.py` | `--mode sample/full`, `--resume`, `--timeout`, checkpoint/resume |
 
-**Procedure to execute G5-G7:**
+Evaluation uses `claude -p` via the user's Pro subscription (NOT API key — `ANTHROPIC_API_KEY` must be unset). Each case runs through `ScanEngine.assemble_scan()` to build a detection prompt from YAML agent knowledge, then Claude analyzes the code and returns structured JSON findings, which are scored against ground truth via pair-based evaluation.
 
-1. **Build an orchestration script** that iterates each benchmark case, calls the appropriate MCP scan tool (via the engine's `assemble_scan()`), feeds the assembled prompt + code to Claude, and collects Claude's structured findings.
+### Sample run results (run_id: 20260411-090433)
 
-2. **Convert findings to bentoo-sarif format** — each finding must become a SARIF result with `ruleId: CWE-<id>` and `kind: fail` at the reported location. Use `formatter.py`'s SARIF output.
+20 cases, 104 Claude calls, ~2 hours runtime. Datasets: CrossVul, reality-check (C#/Java/Python), go-sec-code-mutated, skf-labs-mutated.
 
-3. **Run the benchmark evaluator:**
-   ```bash
-   uv run python -m benchmarks.runner \
-       --agent-output <agent-sarif-dir> \
-       --ground-truth <manifest> \
-       --report-dir <output-dir>
-   ```
+**Detection rates by agent × dataset:**
 
-4. **Check thresholds (G5):**
+| Agent | Dataset | TPR | FPR | Precision | TP | FP | FN | Notes |
+|---|---|---|---|---|---|---|---|---|
+| **xss** | crossvul (PHP) | **100%** | 33% | 67% | 2 | 1 | 0 | Strong |
+| xss | reality-check-csharp | 0% | 0% | — | 0 | 0 | 1 | 1 case, 1 finding — sample too small |
+| xss | reality-check-java | 0% | 0% | — | 0 | 0 | 3 | 2 files timed out (300s) |
+| xss | reality-check-python | 0% | 0% | — | 0 | 0 | 1 | 1 case — sample too small |
+| **cmdi** | crossvul (PHP) | **50%** | 0% | 100% | 1 | 0 | 1 | Solid, zero FP |
+| cmdi | reality-check-csharp | 0% | 0% | — | 0 | 0 | 1 | 1 case |
+| cmdi | reality-check-java | **30%** | 61% | 21% | 3 | 11 | 7 | Detects but high FP rate |
+| cmdi | reality-check-python | **33%** | 53% | 10% | 1 | 9 | 2 | Detects but high FP rate |
+| **sqli** | crossvul (PHP) | **50%** | 0% | 100% | 1 | 0 | 1 | Solid, zero FP |
+| sqli | go-sec-code (Go) | **15%** | 11% | 25% | 10 | 30 | 58 | 10-file cap applied |
+| sqli | skf-labs (Python) | **5%** | 0.4% | **80%** | 8 | 2 | 160 | Low recall, very high precision |
+| sqli | reality-check-csharp | 0% | 4% | 0% | 0 | 1 | 25 | 10-file cap, NHibernate HQL |
+| ssti | crossvul (PHP CWE-94) | 0% | 0% | — | 0 | 0 | 3 | CWE-94 code injection, not template injection |
+| ssti | reality-check-java | 0% | 13% | 0% | 0 | 1 | 8 | CWE-94 / expression injection |
+| ssti | reality-check-python | 0% | 0% | — | 0 | 0 | 20 | CWE-22 in ground truth, SSTI agent mismatched |
 
-   | Agent | Dataset | Metric | Threshold |
-   |---|---|---|---|
-   | xss | ossf-cve-benchmark (XSS subset) | TPR | >= 70% |
-   | xss | ossf-cve-benchmark (patched) | FPR | <= 25% |
-   | xss | reality-check-csharp (CWE-79) | TPR | >= 60% |
-   | xss | reality-check-python (CWE-79) | TPR | >= 60% |
-   | cmdi | ossf-cve-benchmark (CmdI subset) | TPR | >= 60% |
-   | cmdi | reality-check-java (CWE-78) | TPR | >= 50% |
-   | sqli | morefixes (CWE-89) | TPR | >= 50% |
-   | ssti | go-sec-code-mutated (CWE-1336) | TPR | >= 70% |
-   | ssti | skf-labs-mutated (CWE-1336) | TPR | >= 70% |
+**G5 gate results (evaluated gates only):**
 
-5. **G6: Rust disclaimer** — verify the benchmark report explicitly states "Rust detection quality not benchmarked — see ADR-014."
+| Gate | Agent | Dataset | Threshold | Actual | Result |
+|---|---|---|---|---|---|
+| G5.3 | xss | reality-check-csharp | >= 60% | 0% | FAIL (1 case) |
+| G5.4 | xss | reality-check-python | >= 60% | 0% | FAIL (1 case) |
+| G5.6 | cmdi | reality-check-java | >= 50% | 30% | FAIL |
+| G5.7 | sqli | reality-check-csharp | >= 50% | 0% | FAIL |
 
-6. **G7: Failure dump** — for any threshold miss, the report must include the first 10 missed CVEs and false flags with file paths and expected vs actual findings.
+G6 (Rust disclaimer): **PASS**. G7: 4 failure dumps generated.
 
-**If thresholds are not met:** This feeds into the autoresearch loop (Phase 5). Agents can be iteratively improved by adjusting their YAML detection heuristics and re-running the benchmarks. For Phase 1, a single pass is expected — thresholds were set conservatively (real-world SAST tools average 12.7% TPR on real CVEs per SMU paper; our 50-70% targets are ambitious but achievable with curated knowledge).
+### Interpretation
+
+1. **Pipeline is validated.** End-to-end flow works: case loading → code extraction → prompt assembly → Claude invocation → finding parsing → pair-based scoring → gate checking → report generation. Checkpoint/resume works. The infrastructure is solid.
+
+2. **Detection quality is real but below G5 thresholds.** On CrossVul (inline code, PHP), agents show 50-100% TPR with high precision. On reality-check (large projects, multi-file), detection drops — partly due to line-number matching stringency, partly due to sample size (many gates had only 1 case).
+
+3. **G5 thresholds are not met in the sample.** This is expected — the sample is a pipeline validation with 1 case per gate. The full run with all cases per dataset would produce statistically meaningful numbers.
+
+4. **Key observations:**
+   - CmdI and SQLi detect vulnerabilities across languages (PHP, Java, Python, Go)
+   - XSS on CrossVul is excellent (100% TPR)
+   - SSTI agent struggles — CWE-94 (code injection) cases in CrossVul and reality-check don't align well with the SSTI agent's CWE-1336 focus
+   - High FP rates on reality-check suggest the agents flag more locations than ground truth expects, which is partially a scoring artifact (unconsumed agent findings count as FP)
+   - Some reality-check Java files timeout at 300s (very large source files)
+
+5. **go-sec-code and skf-labs contain CWE-89 (SQLi), not CWE-1336 (SSTI).** Gates G5.9 and G5.10 reference ssti/go-sec-code and ssti/skf-labs — these will never match because those datasets only contain SQLi ground truth. The gate definitions need correction for the full run.
+
+### Next steps for full run
+
+Before the full run, these items must be addressed:
+
+1. **Correct G5.9/G5.10 gate definitions** — go-sec-code and skf-labs are SQLi (CWE-89), not SSTI. Either update gate definitions to reference sqli agent, or find actual SSTI benchmark data.
+2. **Add ossf-cve-benchmark to the evaluation** — requires code extraction from npm packages (not yet implemented).
+3. **Add morefixes-extract** — requires Docker + Postgres for code extraction.
+4. **Consider increasing timeout** for large Java files, or pre-filtering files by size.
+5. **SSTI evaluation** — the SSTI agent (CWE-1336) has no real-CVE benchmark data. Current SSTI cases are CWE-94 (code injection), which is a parent CWE but a poor proxy for template injection.
+
+### How to run
+
+```bash
+# Sample run (20 cases, ~2 hours, validates pipeline)
+cd .worktrees/phase-1-7-gates
+unset ANTHROPIC_API_KEY  # CRITICAL: must use Pro subscription, not API key
+uv run python benchmarks/scripts/run_gates.py --mode sample --timeout 300 --log-level INFO
+
+# Resume an interrupted run
+uv run python benchmarks/scripts/run_gates.py --mode sample --timeout 300 --resume <run_id>
+
+# Full run (all filtered cases — not yet validated)
+uv run python benchmarks/scripts/run_gates.py --mode full --timeout 300
+```
+
+Results written to `benchmarks/results/<run_id>/` (gitignored).
 
 ---
 

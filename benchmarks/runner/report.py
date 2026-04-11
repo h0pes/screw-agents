@@ -84,3 +84,70 @@ def _write_methodology(out: StringIO, summary: Summary) -> None:
 
 def _pct(value: float) -> str:
     return f"{value * 100:.1f}%"
+
+
+def render_gate_report(
+    gate_results: list["GateResult"],
+    g6_passed: bool,
+    g7_dumps: dict[str, dict],
+) -> str:
+    """Render G5/G6/G7 gate results as Markdown."""
+    from benchmarks.runner.gate_checker import GateResult
+
+    out = StringIO()
+
+    # G5 results table
+    out.write("## G5: Detection Rate Gates\n\n")
+    out.write("| Gate | Agent | Dataset | Threshold | Actual | Result |\n")
+    out.write("|------|-------|---------|-----------|--------|--------|\n")
+    for r in gate_results:
+        actual_str = _pct(r.actual_value) if r.actual_value is not None else "N/A"
+        op = ">=" if r.comparison == "gte" else "<="
+        result_str = "PASS" if r.passed else "FAIL"
+        out.write(
+            f"| {r.gate_id} | {r.agent} | {r.dataset} | "
+            f"{op} {_pct(r.threshold)} | {actual_str} | {result_str} |\n"
+        )
+
+    passed = sum(1 for r in gate_results if r.passed)
+    total = len(gate_results)
+    out.write(f"\n**G5 overall: {passed}/{total} gates passed.**\n\n")
+
+    # G6 Rust disclaimer
+    out.write("## G6: Rust Disclaimer\n\n")
+    if g6_passed:
+        out.write("> Rust detection quality not benchmarked — see ADR-014. "
+                  "Rust corpus construction is deferred to Phase 5 (step 5.0).\n\n")
+        out.write("**G6: PASS**\n\n")
+    else:
+        out.write("**G6: FAIL** — Rust cases were included but should not have been. "
+                  "See ADR-014.\n\n")
+
+    # G7 failure dumps
+    if g7_dumps:
+        out.write("## G7: Failure Dumps\n\n")
+        for gate_id, dump in sorted(g7_dumps.items()):
+            out.write(f"### {gate_id}\n\n")
+            if dump.get("missed"):
+                out.write("**Missed vulnerabilities:**\n\n")
+                out.write("| CWE | CVE | File | Lines | Message |\n")
+                out.write("|-----|-----|------|-------|---------|\n")
+                for m in dump["missed"]:
+                    out.write(f"| {m['cwe_id']} | {m.get('cve_id', 'N/A')} | "
+                              f"{m['file']} | {m['start_line']}-{m['end_line']} | "
+                              f"{(m.get('message') or '')[:60]} |\n")
+                out.write("\n")
+            if dump.get("false_flags"):
+                out.write("**False flags (flagged on patched code):**\n\n")
+                out.write("| CWE | File | Lines | Message |\n")
+                out.write("|-----|------|-------|---------|\n")
+                for ff in dump["false_flags"]:
+                    out.write(f"| {ff['cwe_id']} | {ff['file']} | "
+                              f"{ff['start_line']}-{ff['end_line']} | "
+                              f"{(ff.get('message') or '')[:60]} |\n")
+                out.write("\n")
+    else:
+        out.write("## G7: Failure Dumps\n\nNo failure dumps required — "
+                  "all evaluated gates passed or were not run.\n\n")
+
+    return out.getvalue()

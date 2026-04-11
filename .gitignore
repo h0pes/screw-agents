@@ -39,6 +39,9 @@ env/
 .DS_Store
 Thumbs.db
 
+# Benchmark evaluation results (large, machine-generated)
+benchmarks/results/
+
 # Benchmark external datasets (large, downloaded, reproducible from manifests)
 benchmarks/external/**
 !benchmarks/external/.gitkeep
