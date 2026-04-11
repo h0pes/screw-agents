@@ -17,9 +17,9 @@ Items explicitly deferred from earlier phases that must be completed in later ph
 
 ---
 
-## Current Phase: Phase 1.7 Complete — Ready for Phase 2
+## Current Phase: Phase 2 Complete — Claude Code Integration
 
-Architecture and product design is **complete** (PRD v0.4.3 is the definitive document). Phase 0 (Knowledge Research) is **complete**. Phase 0.5 (Benchmark Infrastructure) is **complete**. Phase 1 (Core Infrastructure) is **complete** (PR #2 merged 2026-04-10). Gates G1-G4 pass. Phase 1.7 (G5-G7 detection rate validation) is **complete** — pipeline built and validated via sample run (2026-04-11, PR #3), full benchmark deferred to Phase 5 autoresearch. **Phase 2 (Claude Code Integration) is next.**
+Architecture and product design is **complete** (PRD v0.4.3 is the definitive document). Phase 0 (Knowledge Research) is **complete**. Phase 0.5 (Benchmark Infrastructure) is **complete**. Phase 1 (Core Infrastructure) is **complete** (PR #2 merged 2026-04-10). Gates G1-G4 pass. Phase 1.7 (G5-G7 detection rate validation) is **complete** — pipeline built and validated via sample run (2026-04-11, PR #3), full benchmark deferred to Phase 5 autoresearch. **Phase 2 (Claude Code Integration) is complete. Phase 3 (screw.nvim Integration) is next.**
 
 ### What's Done
 
@@ -112,12 +112,29 @@ Four benchmark research docs committed to `docs/research/benchmark-tier{1,2,3,4}
 - Vul4J: add correct CSV path (`dataset/vul4j_dataset.csv`)
 - MoreFixes: Zenodo URL fix, zip extraction, `00-create-role.sql` for `postgrescvedumper` role, complete query rewrite for actual schema (CWE in `cwe_classification`, language in `file_change.programming_language`, join via `file_change_id`)
 
+**Phase 2 — Claude Code Integration (complete, 2026-04-11):**
+
+| Task | Description | Status |
+|---|---|---|
+| 2.1 | Exclusion Pydantic models + FindingTriage update | **Complete** |
+| 2.2 | Learning module — exclusion storage + matching | **Complete** |
+| 2.3 | Engine — exclusion-aware assembly with project_root | **Complete** |
+| 2.4 | Server — format_output, record/check_exclusion MCP tools | **Complete** |
+| 2.5 | screw-sqli subagent (reference template) | **Complete** |
+| 2.6 | screw-cmdi, screw-ssti, screw-xss subagents | **Complete** |
+| 2.7 | screw-injection + screw-full-review orchestrators | **Complete** |
+| 2.8 | screw-review auto-invocation skill | **Complete** |
+| 2.9 | /screw:scan slash command | **Complete** |
+| 2.10 | CLAUDE.md template for user projects | **Complete** |
+| 2.11 | E2E smoke test checklist | **Complete** |
+
+New files: 15 (learning.py, test_learning.py, test_phase2_server.py, 6 subagent .md files, SKILL.md, scan.md, CLAUDE.md.template, PHASE_2_E2E_TEST.md). Modified files: 3 (models.py, engine.py, server.py). Test count: 120 (48 new).
+
 ### What's NOT Done
 
 - **Gates G5-G7: full benchmark run** — deferred to Phase 5 autoresearch; pipeline validated via sample run (2026-04-11)
 - Remaining 14 agents (CWE-1400 domains 2-18) not yet researched (Phase 7)
 - Rust benchmark corpus not yet built (deferred to Phase 5 step 5.0, see D-01)
-- Claude Code integration: subagents, skills, filesystem output (Phase 2)
 - screw.nvim integration (Phase 3)
 
 ### Benchmark Data Ingestion (complete as of Phase 1, 2026-04-10)
@@ -371,7 +388,7 @@ Structured as a dependency graph with three parallel tracks converging at smoke 
 | Phase 0.5 | Benchmark Infrastructure Sprint | **Complete** |
 | Phase 1 | Core Infrastructure (MCP server, agent registry, target resolver) | **Complete** (PR #2, 2026-04-10) |
 | Phase 1.7 | Gates G5-G7: Detection rate validation (D-02) | **Complete** (pipeline validated, PR #3, 2026-04-11) |
-| **Phase 2** | **Claude Code Integration (subagents, skills, filesystem output, FP learning)** | **NEXT** |
+| **Phase 2** | **Claude Code Integration (subagents, skills, filesystem output, FP learning)** | **Complete** (2026-04-11) |
 | Phase 3 | screw.nvim Integration (scan commands, review-before-import, exclusions) | Pending |
 | Phase 4 | Adaptive Analysis & Learning Refinement | Pending |
 | Phase 5 | Autoresearch & Self-Improvement — step 5.0 is D-01 (hard gate) | Pending |
