@@ -242,6 +242,109 @@ class ScanEngine:
                 ),
             })
 
+        # Phase 2: format_output
+        tools.append({
+            "name": "format_output",
+            "description": (
+                "Format scan findings as JSON, SARIF 2.1.0, or Markdown report. "
+                "Pass the structured findings array from your analysis."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "findings": {
+                        "type": "array",
+                        "description": "Array of Finding objects (see models.py Finding schema).",
+                    },
+                    "format": {
+                        "type": "string",
+                        "enum": ["json", "sarif", "markdown"],
+                        "description": "Output format.",
+                        "default": "json",
+                    },
+                    "scan_metadata": {
+                        "type": "object",
+                        "description": "Optional metadata (target, agents, timestamp) for report header.",
+                    },
+                },
+                "required": ["findings"],
+            },
+        })
+
+        # Phase 2: record_exclusion
+        tools.append({
+            "name": "record_exclusion",
+            "description": (
+                "Record a false positive exclusion in .screw/learning/exclusions.yaml. "
+                "Call this when the user marks a finding as a false positive."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "project_root": {
+                        "type": "string",
+                        "description": "Absolute path to the project root directory.",
+                    },
+                    "exclusion": {
+                        "type": "object",
+                        "description": "Exclusion data: agent, finding, reason, scope.",
+                        "properties": {
+                            "agent": {"type": "string"},
+                            "finding": {
+                                "type": "object",
+                                "properties": {
+                                    "file": {"type": "string"},
+                                    "line": {"type": "integer"},
+                                    "code_pattern": {"type": "string"},
+                                    "cwe": {"type": "string"},
+                                },
+                                "required": ["file", "line", "code_pattern", "cwe"],
+                            },
+                            "reason": {"type": "string"},
+                            "scope": {
+                                "type": "object",
+                                "properties": {
+                                    "type": {
+                                        "type": "string",
+                                        "enum": ["exact_line", "pattern", "function", "file", "directory"],
+                                    },
+                                    "pattern": {"type": "string"},
+                                    "path": {"type": "string"},
+                                    "name": {"type": "string"},
+                                },
+                                "required": ["type"],
+                            },
+                        },
+                        "required": ["agent", "finding", "reason", "scope"],
+                    },
+                },
+                "required": ["project_root", "exclusion"],
+            },
+        })
+
+        # Phase 2: check_exclusions
+        tools.append({
+            "name": "check_exclusions",
+            "description": (
+                "Load exclusions from .screw/learning/exclusions.yaml, "
+                "optionally filtered by agent name."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "project_root": {
+                        "type": "string",
+                        "description": "Absolute path to the project root directory.",
+                    },
+                    "agent": {
+                        "type": "string",
+                        "description": "Filter exclusions to this agent (optional).",
+                    },
+                },
+                "required": ["project_root"],
+            },
+        })
+
         return tools
 
     # ------------------------------------------------------------------
