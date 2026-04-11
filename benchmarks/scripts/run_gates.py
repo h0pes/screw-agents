@@ -78,16 +78,35 @@ def collect_cases(mode: str):
 
 
 def select_sample(cases, max_per_agent: int = 5):
-    """Select a representative sample: up to max_per_agent cases per agent."""
-    by_agent = defaultdict(list)
+    """Select a representative sample spread across datasets.
+
+    For each agent, picks up to 1 case per dataset (round-robin) until
+    max_per_agent is reached. This ensures coverage across datasets
+    rather than taking all cases from the alphabetically-first dataset.
+    """
+    by_agent: dict[str, dict[str, list]] = defaultdict(lambda: defaultdict(list))
     for case in cases:
         agent = map_case_to_agent(case)
         if agent:
-            by_agent[agent].append(case)
+            by_agent[agent][case.source_dataset].append(case)
 
     selected = []
-    for agent, agent_cases in by_agent.items():
-        selected.extend(agent_cases[:max_per_agent])
+    for agent, datasets in by_agent.items():
+        picked: list = []
+        # Round-robin across datasets
+        dataset_iters = {ds: iter(cs) for ds, cs in sorted(datasets.items())}
+        while len(picked) < max_per_agent and dataset_iters:
+            exhausted = []
+            for ds, it in dataset_iters.items():
+                if len(picked) >= max_per_agent:
+                    break
+                try:
+                    picked.append(next(it))
+                except StopIteration:
+                    exhausted.append(ds)
+            for ds in exhausted:
+                del dataset_iters[ds]
+        selected.extend(picked)
 
     return selected
 
