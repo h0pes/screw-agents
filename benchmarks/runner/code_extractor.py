@@ -34,6 +34,8 @@ _RC_LANG_DIRS = {
     "reality-check-java": "java",
 }
 
+_MAX_FILES_PER_CASE = 10  # cap to avoid excessive Claude calls for large cases
+
 
 def extract_code_for_case(
     case: BenchmarkCase,
@@ -65,14 +67,17 @@ def _extract_reality_check(
         raise FileNotFoundError(f"reality-check repo not found: {repo_dir}")
 
     version = case.vulnerable_version if variant == CodeVariant.VULNERABLE else case.patched_version
-    projects_dir = repo_dir / lang_subdir / "projects" / case.project / version
+    # reality-check stores bootstrapped projects under benchmark/, not projects/
+    projects_dir = repo_dir / lang_subdir / "benchmark" / case.project / version
 
     if not projects_dir.exists():
-        logger.warning("Version dir not found: %s", projects_dir)
+        logger.warning("Version dir not found: %s (run bootstrap.sh or download projects first)", projects_dir)
         return []
 
     kind = FindingKind.FAIL if variant == CodeVariant.VULNERABLE else FindingKind.PASS
-    truth_files = {f.location.file for f in case.ground_truth if f.kind == kind}
+    truth_files = sorted(
+        {f.location.file for f in case.ground_truth if f.kind == kind}
+    )
 
     results = []
     for rel_file in truth_files:
@@ -89,6 +94,9 @@ def _extract_reality_check(
             content=file_path.read_text(errors="replace"),
             language=case.language.value,
         ))
+        if len(results) >= _MAX_FILES_PER_CASE:
+            logger.info("Capped at %d files for reality-check case", _MAX_FILES_PER_CASE)
+            break
     return results
 
 
@@ -104,12 +112,16 @@ def _extract_crossvul(
     for f in case.ground_truth:
         if f.kind != kind:
             continue
-        if f.message:
+        if f.message and len(f.message) >= 50:
             results.append(ExtractedCode(
                 file_path=f.location.file,
                 content=f.message,
                 language=case.language.value,
             ))
+            continue
+        elif f.message:
+            logger.debug("Skipping CrossVul case with short content: %s (%d chars)",
+                         f.location.file, len(f.message))
             continue
         # Fallback: try to read from disk
         parts = case.case_id.split("-")
@@ -144,7 +156,9 @@ def _extract_monolithic(
     case: BenchmarkCase, variant: CodeVariant, ext_dir: Path,
 ) -> list[ExtractedCode]:
     """Extract from monolithic repos (go-sec-code, skf-labs).
-    No patched version available — return empty for PATCHED variant."""
+    No patched version available — return empty for PATCHED variant.
+    Caps at _MAX_FILES_PER_CASE to avoid excessive Claude calls.
+    """
     if variant == CodeVariant.PATCHED:
         return []
 
@@ -152,19 +166,36 @@ def _extract_monolithic(
     if not repo_dir.exists():
         raise FileNotFoundError(f"Monolithic repo not found: {repo_dir}")
 
-    fail_files = {f.location.file for f in case.ground_truth if f.kind == FindingKind.FAIL}
+    fail_files = sorted(
+        {f.location.file for f in case.ground_truth if f.kind == FindingKind.FAIL}
+    )
 
     results = []
     for rel_file in fail_files:
         file_path = repo_dir / rel_file
+        # Fallback: some repos (skf-labs) have an extra subdirectory
+        if not file_path.exists():
+            for subdir in repo_dir.iterdir():
+                if subdir.is_dir() and not subdir.name.startswith("."):
+                    candidate = subdir / rel_file
+                    if candidate.exists():
+                        file_path = candidate
+                        break
         if not file_path.exists():
             logger.warning("File not found in monolithic repo: %s", file_path)
             continue
+        content = file_path.read_text(errors="replace")
+        if len(content) < 50:
+            logger.debug("Skipping file with too-short content: %s (%d chars)", rel_file, len(content))
+            continue
         results.append(ExtractedCode(
             file_path=rel_file,
-            content=file_path.read_text(errors="replace"),
+            content=content,
             language=case.language.value,
         ))
+        if len(results) >= _MAX_FILES_PER_CASE:
+            logger.info("Capped at %d files for case %s", _MAX_FILES_PER_CASE, case.case_id)
+            break
     return results
 
 

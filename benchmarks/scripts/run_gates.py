@@ -267,20 +267,31 @@ def main(argv: list[str] | None = None) -> int:
 
     # Print summary
     print(f"\n=== Results (run_id: {evaluator.run_id}) ===\n")
-    passed = sum(1 for r in gate_results if r.passed)
-    total = len(gate_results)
+    evaluated = [r for r in gate_results if r.actual_value is not None]
+    skipped = [r for r in gate_results if r.actual_value is None]
+    passed = sum(1 for r in evaluated if r.passed)
+
     for r in gate_results:
-        status = "PASS" if r.passed else "FAIL"
-        actual = f"{r.actual_value:.1%}" if r.actual_value is not None else "N/A"
+        if r.actual_value is not None:
+            status = "PASS" if r.passed else "FAIL"
+            actual = f"{r.actual_value:.1%}"
+        else:
+            status = "SKIP"
+            actual = "N/A"
         op = ">=" if r.comparison == "gte" else "<="
         print(f"  {r.gate_id}: {status}  {r.agent}/{r.dataset}  {actual} ({op} {r.threshold:.0%})")
 
-    print(f"\nG5: {passed}/{total} gates passed")
+    print(f"\nG5: {passed}/{len(evaluated)} evaluated gates passed"
+          f" ({len(skipped)} skipped — dataset not in this run)")
     print(f"G6 (Rust disclaimer): {'PASS' if g6_passed else 'FAIL'}")
     print(f"G7 (Failure dumps): {len(g7_dumps)} dumps generated")
     print(f"\nFull report: {run_dir / 'gate_report.md'}")
 
-    return 0 if (passed == total and g6_passed) else 1
+    # Exit 0 if all EVALUATED gates pass (skipped gates don't block sample runs)
+    if not evaluated:
+        print("\nWARNING: No gates were evaluated. Check dataset coverage.")
+        return 1
+    return 0 if (passed == len(evaluated) and g6_passed) else 1
 
 
 if __name__ == "__main__":

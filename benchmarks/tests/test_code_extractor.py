@@ -22,12 +22,12 @@ from benchmarks.runner.models import (
 def tmp_reality_check(tmp_path):
     """Create a minimal reality-check directory structure."""
     repo = tmp_path / "reality-check-csharp" / "repo"
-    vuln_dir = repo / "csharp" / "projects" / "myproj" / "myproj-1.0.0"
+    vuln_dir = repo / "csharp" / "benchmark" / "myproj" / "myproj-1.0.0"
     vuln_dir.mkdir(parents=True)
-    (vuln_dir / "Controller.cs").write_text("public void Render() { Response.Write(input); }")
-    patch_dir = repo / "csharp" / "projects" / "myproj" / "myproj-1.0.1"
+    (vuln_dir / "Controller.cs").write_text("using System;\nnamespace MyApp {\n    public class Controller {\n        public void Render(string input) {\n            Response.Write(input); // XSS vulnerability\n        }\n    }\n}")
+    patch_dir = repo / "csharp" / "benchmark" / "myproj" / "myproj-1.0.1"
     patch_dir.mkdir(parents=True)
-    (patch_dir / "Controller.cs").write_text("public void Render() { Response.Write(Encode(input)); }")
+    (patch_dir / "Controller.cs").write_text("using System;\nnamespace MyApp {\n    public class Controller {\n        public void Render(string input) {\n            Response.Write(Encode(input)); // safe\n        }\n    }\n}")
     return tmp_path
 
 
@@ -54,8 +54,8 @@ def tmp_crossvul(tmp_path):
     """Create a minimal CrossVul directory structure."""
     cwe_dir = tmp_path / "crossvul" / "CWE-79" / "php"
     cwe_dir.mkdir(parents=True)
-    (cwe_dir / "bad_001.php").write_text("<?php echo $_GET['x']; ?>")
-    (cwe_dir / "good_001.php").write_text("<?php echo htmlspecialchars($_GET['x']); ?>")
+    (cwe_dir / "bad_001.php").write_text("<?php\nfunction render() {\n    $name = $_GET['x'];\n    echo $name; // XSS vulnerability\n}\n?>")
+    (cwe_dir / "good_001.php").write_text("<?php\nfunction render() {\n    $name = $_GET['x'];\n    echo htmlspecialchars($name); // safe\n}\n?>")
     return tmp_path
 
 
@@ -70,10 +70,10 @@ def crossvul_case():
         ground_truth=[
             Finding(cwe_id="CWE-79", kind=FindingKind.FAIL,
                     location=CodeLocation(file="bad_001.php", start_line=1, end_line=1),
-                    message="<?php echo $_GET['x']; ?>"),
+                    message="<?php\nfunction render() {\n    $name = $_GET['x'];\n    echo $name; // XSS vulnerability\n}\n?>"),
             Finding(cwe_id="CWE-79", kind=FindingKind.PASS,
                     location=CodeLocation(file="good_001.php", start_line=1, end_line=1),
-                    message="<?php echo htmlspecialchars($_GET['x']); ?>"),
+                    message="<?php\nfunction render() {\n    $name = $_GET['x'];\n    echo htmlspecialchars($name); // safe\n}\n?>"),
         ],
         source_dataset="crossvul",
     )
@@ -85,7 +85,7 @@ def tmp_gosec(tmp_path):
     repo = tmp_path / "go-sec-code-mutated" / "repo"
     vuln_file = repo / "cmd" / "sqli" / "main.go"
     vuln_file.parent.mkdir(parents=True)
-    vuln_file.write_text('db.Query("SELECT * FROM users WHERE id=" + id)')
+    vuln_file.write_text('package main\n\nimport "database/sql"\n\nfunc getUser(db *sql.DB, id string) {\n\tdb.Query("SELECT * FROM users WHERE id=" + id)\n}\n')
     return tmp_path
 
 
@@ -121,7 +121,7 @@ class TestExtractCodeForCase:
         patched = extract_code_for_case(crossvul_case, CodeVariant.PATCHED, tmp_crossvul)
         assert len(vuln) == 1
         assert "$_GET" in vuln[0].content
-        assert "echo" in vuln[0].content
+        assert "echo $name" in vuln[0].content
         assert len(patched) == 1
         assert "htmlspecialchars" in patched[0].content
 

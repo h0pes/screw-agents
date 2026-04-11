@@ -238,7 +238,9 @@ class Evaluator:
             return []
 
         all_findings: list[Finding] = []
-        for piece in code_pieces:
+        for i, piece in enumerate(code_pieces):
+            if i > 0:
+                time.sleep(self.config.invoker_config.throttle_delay)
             with tempfile.NamedTemporaryFile(mode="w", suffix=f".{piece.language}", delete=False) as tmp:
                 tmp.write(piece.content)
                 tmp_path = tmp.name
