@@ -173,3 +173,97 @@ def test_finding_requires_location():
             analysis=FindingAnalysis(description="test"),
             remediation=FindingRemediation(recommendation="fix"),
         )
+
+
+from screw_agents.models import (
+    Exclusion,
+    ExclusionFinding,
+    ExclusionInput,
+    ExclusionScope,
+    FindingTriage,
+)
+
+
+class TestExclusionModels:
+    def test_exclusion_scope_pattern(self):
+        scope = ExclusionScope(type="pattern", pattern="db.text_search(*)")
+        assert scope.type == "pattern"
+        assert scope.pattern == "db.text_search(*)"
+
+    def test_exclusion_scope_exact_line(self):
+        scope = ExclusionScope(type="exact_line", path="src/api.py")
+        assert scope.type == "exact_line"
+
+    def test_exclusion_scope_directory(self):
+        scope = ExclusionScope(type="directory", path="test/")
+        assert scope.type == "directory"
+
+    def test_exclusion_scope_function(self):
+        scope = ExclusionScope(type="function", path="src/api.py", name="get_user")
+        assert scope.type == "function"
+        assert scope.name == "get_user"
+
+    def test_exclusion_scope_file(self):
+        scope = ExclusionScope(type="file", path="src/generated.py")
+        assert scope.type == "file"
+
+    def test_exclusion_finding(self):
+        ef = ExclusionFinding(
+            file="src/api.py", line=42, code_pattern="db.text_search(*)", cwe="CWE-89"
+        )
+        assert ef.file == "src/api.py"
+        assert ef.line == 42
+
+    def test_exclusion_input(self):
+        ei = ExclusionInput(
+            agent="sqli",
+            finding=ExclusionFinding(
+                file="src/api.py", line=42, code_pattern="db.query(*)", cwe="CWE-89"
+            ),
+            reason="uses parameterized queries",
+            scope=ExclusionScope(type="pattern", pattern="db.query(*)"),
+        )
+        assert ei.agent == "sqli"
+        assert ei.reason == "uses parameterized queries"
+
+    def test_exclusion_full(self):
+        exc = Exclusion(
+            id="fp-2026-04-11-001",
+            created="2026-04-11T14:35:00Z",
+            agent="sqli",
+            finding=ExclusionFinding(
+                file="src/api.py", line=42, code_pattern="db.query(*)", cwe="CWE-89"
+            ),
+            reason="parameterized",
+            scope=ExclusionScope(type="pattern", pattern="db.query(*)"),
+            times_suppressed=0,
+            last_suppressed=None,
+        )
+        assert exc.id == "fp-2026-04-11-001"
+        assert exc.times_suppressed == 0
+
+    def test_exclusion_defaults(self):
+        exc = Exclusion(
+            id="fp-2026-04-11-001",
+            created="2026-04-11T14:35:00Z",
+            agent="sqli",
+            finding=ExclusionFinding(
+                file="src/api.py", line=42, code_pattern="db.query(*)", cwe="CWE-89"
+            ),
+            reason="safe",
+            scope=ExclusionScope(type="file", path="src/api.py"),
+        )
+        assert exc.times_suppressed == 0
+        assert exc.last_suppressed is None
+
+
+class TestFindingTriageExclusionFields:
+    def test_triage_default_not_excluded(self):
+        t = FindingTriage()
+        assert t.excluded is False
+        assert t.exclusion_ref is None
+
+    def test_triage_excluded(self):
+        t = FindingTriage(excluded=True, exclusion_ref="fp-2026-04-11-001")
+        assert t.excluded is True
+        assert t.exclusion_ref == "fp-2026-04-11-001"
