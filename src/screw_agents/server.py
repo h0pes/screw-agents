@@ -19,6 +19,8 @@ from mcp.server.lowlevel import Server, NotificationOptions
 from mcp.server.models import InitializationOptions
 
 from screw_agents.engine import ScanEngine
+from screw_agents.learning import load_exclusions, record_exclusion
+from screw_agents.models import ExclusionInput, Finding
 from screw_agents.registry import AgentRegistry
 
 logger = logging.getLogger(__name__)
@@ -86,28 +88,54 @@ def _dispatch_tool(
     Raises:
         ValueError: If the tool name is unknown.
     """
-    # NOTE: output_format is accepted in the tool schema but not used in Phase 1.
-    # In Phase 1, scan tools return assembled prompts (knowledge + code) for Claude
-    # to analyze. Formatted output (JSON/SARIF/Markdown) happens after Claude returns
-    # findings, via the format_output tool (to be exposed in Phase 2).
-
     if name == "list_domains":
         return engine.list_domains()
 
     if name == "list_agents":
         return engine.list_agents(domain=args.get("domain"))
 
+    # --- Phase 2: new tools ---
+
+    if name == "format_output":
+        findings_raw = args.get("findings", [])
+        output_format = args.get("format", "json")
+        scan_metadata = args.get("scan_metadata")
+        findings = [Finding(**f) for f in findings_raw]
+        formatted = engine.format_output(findings, output_format, scan_metadata)
+        return {"formatted": formatted}
+
+    if name == "record_exclusion":
+        project_root = Path(args["project_root"])
+        exc_data = args["exclusion"]
+        exc_input = ExclusionInput(**exc_data)
+        saved = record_exclusion(project_root, exc_input)
+        return {"exclusion": saved.model_dump()}
+
+    if name == "check_exclusions":
+        project_root = Path(args["project_root"])
+        agent_filter = args.get("agent")
+        all_exc = load_exclusions(project_root)
+        if agent_filter:
+            all_exc = [e for e in all_exc if e.agent == agent_filter]
+        return {"exclusions": [e.model_dump() for e in all_exc]}
+
+    # --- Scan tools (Phase 1 + Phase 2 project_root) ---
+
+    project_root = Path(args["project_root"]) if args.get("project_root") else None
+
     if name == "scan_domain":
         return engine.assemble_domain_scan(
             domain=args["domain"],
             target=args["target"],
             thoroughness=args.get("thoroughness", "standard"),
+            project_root=project_root,
         )
 
     if name == "scan_full":
         return engine.assemble_full_scan(
             target=args["target"],
             thoroughness=args.get("thoroughness", "standard"),
+            project_root=project_root,
         )
 
     # Per-agent scan tools: scan_{agent_name}
@@ -117,6 +145,7 @@ def _dispatch_tool(
             agent_name=agent_name,
             target=args["target"],
             thoroughness=args.get("thoroughness", "standard"),
+            project_root=project_root,
         )
 
     raise ValueError(f"Unknown tool: {name!r}")

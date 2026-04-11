@@ -8,9 +8,11 @@ format_findings() for output formatting.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from screw_agents.formatter import format_findings
+from screw_agents.learning import load_exclusions
 from screw_agents.models import AgentDefinition, Finding, HeuristicEntry
 from screw_agents.registry import AgentRegistry
 from screw_agents.resolver import ResolvedCode, filter_by_relevance, resolve_target
@@ -39,6 +41,7 @@ class ScanEngine:
         agent_name: str,
         target: dict[str, Any],
         thoroughness: str = "standard",
+        project_root: Path | None = None,
     ) -> dict[str, Any]:
         """Assemble a scan payload for a single agent.
 
@@ -47,6 +50,9 @@ class ScanEngine:
             target: Target spec dict (PRD §5 format).
             thoroughness: One of "standard", "deep". Controls which
                 heuristic tiers are included in the prompt.
+            project_root: Optional project root for exclusion loading.
+                When provided, exclusions from .screw/learning/exclusions.yaml
+                are filtered by agent and included in the payload.
 
         Returns:
             Dict with keys:
@@ -55,6 +61,7 @@ class ScanEngine:
                 - code: str         (formatted code context)
                 - resolved_files: list[str]
                 - meta: dict        (agent metadata summary)
+                - exclusions: list[dict]  (only when project_root is provided)
 
         Raises:
             ValueError: If agent_name is not registered.
@@ -75,7 +82,7 @@ class ScanEngine:
         prompt = self._build_prompt(agent, thoroughness)
         code_context = self._format_code_context(codes)
 
-        return {
+        result: dict[str, Any] = {
             "agent_name": agent_name,
             "core_prompt": prompt,
             "code": code_context,
@@ -88,12 +95,18 @@ class ScanEngine:
                 "cwe_related": agent.meta.cwes.related,
             },
         }
+        if project_root is not None:
+            all_exclusions = load_exclusions(project_root)
+            agent_exclusions = [e for e in all_exclusions if e.agent == agent_name]
+            result["exclusions"] = [e.model_dump() for e in agent_exclusions]
+        return result
 
     def assemble_domain_scan(
         self,
         domain: str,
         target: dict[str, Any],
         thoroughness: str = "standard",
+        project_root: Path | None = None,
     ) -> list[dict[str, Any]]:
         """Assemble scan payloads for every agent in a domain.
 
@@ -101,13 +114,14 @@ class ScanEngine:
             domain: Domain name (e.g. "injection-input-handling").
             target: Target spec dict.
             thoroughness: Passed through to assemble_scan.
+            project_root: Optional project root for exclusion loading.
 
         Returns:
             List of assemble_scan results, one per agent in the domain.
         """
         agents = self._registry.get_agents_by_domain(domain)
         return [
-            self.assemble_scan(a.meta.name, target, thoroughness)
+            self.assemble_scan(a.meta.name, target, thoroughness, project_root)
             for a in agents
         ]
 
@@ -115,18 +129,20 @@ class ScanEngine:
         self,
         target: dict[str, Any],
         thoroughness: str = "standard",
+        project_root: Path | None = None,
     ) -> list[dict[str, Any]]:
         """Assemble scan payloads for all registered agents.
 
         Args:
             target: Target spec dict.
             thoroughness: Passed through to assemble_scan.
+            project_root: Optional project root for exclusion loading.
 
         Returns:
             List of assemble_scan results for every registered agent.
         """
         return [
-            self.assemble_scan(name, target, thoroughness)
+            self.assemble_scan(name, target, thoroughness, project_root)
             for name in self._registry.agents
         ]
 
@@ -192,6 +208,7 @@ class ScanEngine:
                         "description": "Domain name (e.g. 'injection-input-handling').",
                     },
                     "thoroughness": _thoroughness_schema(),
+                    "project_root": _project_root_schema(),
                 },
             ),
         })
@@ -206,6 +223,7 @@ class ScanEngine:
                 extra_props={
                     "target": _target_schema(),
                     "thoroughness": _thoroughness_schema(),
+                    "project_root": _project_root_schema(),
                 },
             ),
         })
@@ -223,9 +241,113 @@ class ScanEngine:
                     extra_props={
                         "target": _target_schema(),
                         "thoroughness": _thoroughness_schema(),
+                        "project_root": _project_root_schema(),
                     },
                 ),
             })
+
+        # Phase 2: format_output
+        tools.append({
+            "name": "format_output",
+            "description": (
+                "Format scan findings as JSON, SARIF 2.1.0, or Markdown report. "
+                "Pass the structured findings array from your analysis."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "findings": {
+                        "type": "array",
+                        "description": "Array of Finding objects (see models.py Finding schema).",
+                    },
+                    "format": {
+                        "type": "string",
+                        "enum": ["json", "sarif", "markdown"],
+                        "description": "Output format.",
+                        "default": "json",
+                    },
+                    "scan_metadata": {
+                        "type": "object",
+                        "description": "Optional metadata (target, agents, timestamp) for report header.",
+                    },
+                },
+                "required": ["findings"],
+            },
+        })
+
+        # Phase 2: record_exclusion
+        tools.append({
+            "name": "record_exclusion",
+            "description": (
+                "Record a false positive exclusion in .screw/learning/exclusions.yaml. "
+                "Call this when the user marks a finding as a false positive."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "project_root": {
+                        "type": "string",
+                        "description": "Absolute path to the project root directory.",
+                    },
+                    "exclusion": {
+                        "type": "object",
+                        "description": "Exclusion data: agent, finding, reason, scope.",
+                        "properties": {
+                            "agent": {"type": "string"},
+                            "finding": {
+                                "type": "object",
+                                "properties": {
+                                    "file": {"type": "string"},
+                                    "line": {"type": "integer"},
+                                    "code_pattern": {"type": "string"},
+                                    "cwe": {"type": "string"},
+                                },
+                                "required": ["file", "line", "code_pattern", "cwe"],
+                            },
+                            "reason": {"type": "string"},
+                            "scope": {
+                                "type": "object",
+                                "properties": {
+                                    "type": {
+                                        "type": "string",
+                                        "enum": ["exact_line", "pattern", "function", "file", "directory"],
+                                    },
+                                    "pattern": {"type": "string"},
+                                    "path": {"type": "string"},
+                                    "name": {"type": "string"},
+                                },
+                                "required": ["type"],
+                            },
+                        },
+                        "required": ["agent", "finding", "reason", "scope"],
+                    },
+                },
+                "required": ["project_root", "exclusion"],
+            },
+        })
+
+        # Phase 2: check_exclusions
+        tools.append({
+            "name": "check_exclusions",
+            "description": (
+                "Load exclusions from .screw/learning/exclusions.yaml, "
+                "optionally filtered by agent name."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "project_root": {
+                        "type": "string",
+                        "description": "Absolute path to the project root directory.",
+                    },
+                    "agent": {
+                        "type": "string",
+                        "description": "Filter exclusions to this agent (optional).",
+                    },
+                },
+                "required": ["project_root"],
+            },
+        })
 
         return tools
 
@@ -382,6 +504,18 @@ def _format_heuristic_item(item: Any) -> str:
         prefix = f"{item_id}: " if item_id else ""
         return f"- {prefix}{pattern}{lang_str}"
     return f"- {item}"
+
+
+def _project_root_schema() -> dict[str, Any]:
+    """JSON Schema for the optional 'project_root' parameter."""
+    return {
+        "type": "string",
+        "description": (
+            "Absolute path to the project root directory. When provided, "
+            "exclusions from .screw/learning/exclusions.yaml are loaded "
+            "and included in the scan payload."
+        ),
+    }
 
 
 def _target_schema() -> dict[str, Any]:

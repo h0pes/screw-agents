@@ -192,6 +192,49 @@ class FindingTriage(BaseModel):
     triaged_by: str | None = None
     triaged_at: str | None = None
     notes: str | None = None
+    excluded: bool = False
+    exclusion_ref: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Exclusion Models (Phase 2 — persistent FP learning, spec §8)
+# ---------------------------------------------------------------------------
+
+
+class ExclusionScope(BaseModel):
+    """Scope rule for an exclusion — determines how broadly it applies."""
+
+    type: str  # "exact_line" | "pattern" | "function" | "file" | "directory"
+    pattern: str | None = None  # for "pattern" scope
+    path: str | None = None  # for "exact_line", "file", "directory", "function"
+    name: str | None = None  # for "function" scope
+
+
+class ExclusionFinding(BaseModel):
+    """The original finding that was marked as a false positive."""
+
+    file: str
+    line: int
+    code_pattern: str
+    cwe: str
+
+
+class ExclusionInput(BaseModel):
+    """Input for recording a new exclusion (subagent sends this)."""
+
+    agent: str
+    finding: ExclusionFinding
+    reason: str
+    scope: ExclusionScope
+
+
+class Exclusion(ExclusionInput):
+    """A stored exclusion with generated metadata."""
+
+    id: str
+    created: str  # ISO8601
+    times_suppressed: int = 0
+    last_suppressed: str | None = None
 
 
 class Finding(BaseModel):
