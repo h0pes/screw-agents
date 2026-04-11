@@ -50,6 +50,9 @@ class ScanEngine:
             target: Target spec dict (PRD §5 format).
             thoroughness: One of "standard", "deep". Controls which
                 heuristic tiers are included in the prompt.
+            project_root: Optional project root for exclusion loading.
+                When provided, exclusions from .screw/learning/exclusions.yaml
+                are filtered by agent and included in the payload.
 
         Returns:
             Dict with keys:
@@ -58,6 +61,7 @@ class ScanEngine:
                 - code: str         (formatted code context)
                 - resolved_files: list[str]
                 - meta: dict        (agent metadata summary)
+                - exclusions: list[dict]  (only when project_root is provided)
 
         Raises:
             ValueError: If agent_name is not registered.
