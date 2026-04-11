@@ -19,7 +19,7 @@ class InvokerConfig:
     max_retries: int = 3
     retry_delay: float = 2.0       # seconds, doubles each retry
     throttle_delay: float = 2.0    # seconds between calls
-    timeout: int = 120             # seconds per call
+    timeout: int = 300             # seconds per call
     max_turns: int = 1
 
 

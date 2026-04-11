@@ -256,6 +256,15 @@ class Evaluator:
                 result = invoke_claude(prompt, self.config.invoker_config)
                 if result.success:
                     findings = parse_findings_response(result.findings, agent_name)
+                    # Normalize file paths: Claude may echo the temp file path
+                    # instead of the intended file_path from the prompt.
+                    for f in findings:
+                        f.location = CodeLocation(
+                            file=piece.file_path,
+                            start_line=f.location.start_line,
+                            end_line=f.location.end_line,
+                            function_name=f.location.function_name,
+                        )
                     all_findings.extend(findings)
                 else:
                     logger.warning("Claude invocation failed for %s: %s", case.case_id, result.error)

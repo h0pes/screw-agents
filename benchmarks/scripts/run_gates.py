@@ -149,6 +149,10 @@ def main(argv: list[str] | None = None) -> int:
         help="Max retries per Claude call (default: 3)",
     )
     parser.add_argument(
+        "--timeout", type=int, default=300,
+        help="Timeout in seconds per Claude call (default: 300)",
+    )
+    parser.add_argument(
         "--log-level", choices=["DEBUG", "INFO", "WARNING"], default="INFO",
     )
     args = parser.parse_args(argv)
@@ -188,6 +192,7 @@ def main(argv: list[str] | None = None) -> int:
     invoker_config = InvokerConfig(
         throttle_delay=args.throttle,
         max_retries=args.max_retries,
+        timeout=args.timeout,
     )
     eval_config = EvalConfig(
         mode=args.mode,
