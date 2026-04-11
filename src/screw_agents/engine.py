@@ -8,9 +8,11 @@ format_findings() for output formatting.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from screw_agents.formatter import format_findings
+from screw_agents.learning import load_exclusions
 from screw_agents.models import AgentDefinition, Finding, HeuristicEntry
 from screw_agents.registry import AgentRegistry
 from screw_agents.resolver import ResolvedCode, filter_by_relevance, resolve_target
@@ -39,6 +41,7 @@ class ScanEngine:
         agent_name: str,
         target: dict[str, Any],
         thoroughness: str = "standard",
+        project_root: Path | None = None,
     ) -> dict[str, Any]:
         """Assemble a scan payload for a single agent.
 
@@ -75,7 +78,7 @@ class ScanEngine:
         prompt = self._build_prompt(agent, thoroughness)
         code_context = self._format_code_context(codes)
 
-        return {
+        result: dict[str, Any] = {
             "agent_name": agent_name,
             "core_prompt": prompt,
             "code": code_context,
@@ -88,12 +91,18 @@ class ScanEngine:
                 "cwe_related": agent.meta.cwes.related,
             },
         }
+        if project_root is not None:
+            all_exclusions = load_exclusions(project_root)
+            agent_exclusions = [e for e in all_exclusions if e.agent == agent_name]
+            result["exclusions"] = [e.model_dump() for e in agent_exclusions]
+        return result
 
     def assemble_domain_scan(
         self,
         domain: str,
         target: dict[str, Any],
         thoroughness: str = "standard",
+        project_root: Path | None = None,
     ) -> list[dict[str, Any]]:
         """Assemble scan payloads for every agent in a domain.
 
@@ -101,13 +110,14 @@ class ScanEngine:
             domain: Domain name (e.g. "injection-input-handling").
             target: Target spec dict.
             thoroughness: Passed through to assemble_scan.
+            project_root: Optional project root for exclusion loading.
 
         Returns:
             List of assemble_scan results, one per agent in the domain.
         """
         agents = self._registry.get_agents_by_domain(domain)
         return [
-            self.assemble_scan(a.meta.name, target, thoroughness)
+            self.assemble_scan(a.meta.name, target, thoroughness, project_root)
             for a in agents
         ]
 
@@ -115,18 +125,20 @@ class ScanEngine:
         self,
         target: dict[str, Any],
         thoroughness: str = "standard",
+        project_root: Path | None = None,
     ) -> list[dict[str, Any]]:
         """Assemble scan payloads for all registered agents.
 
         Args:
             target: Target spec dict.
             thoroughness: Passed through to assemble_scan.
+            project_root: Optional project root for exclusion loading.
 
         Returns:
             List of assemble_scan results for every registered agent.
         """
         return [
-            self.assemble_scan(name, target, thoroughness)
+            self.assemble_scan(name, target, thoroughness, project_root)
             for name in self._registry.agents
         ]
 
@@ -192,6 +204,7 @@ class ScanEngine:
                         "description": "Domain name (e.g. 'injection-input-handling').",
                     },
                     "thoroughness": _thoroughness_schema(),
+                    "project_root": _project_root_schema(),
                 },
             ),
         })
@@ -206,6 +219,7 @@ class ScanEngine:
                 extra_props={
                     "target": _target_schema(),
                     "thoroughness": _thoroughness_schema(),
+                    "project_root": _project_root_schema(),
                 },
             ),
         })
@@ -223,6 +237,7 @@ class ScanEngine:
                     extra_props={
                         "target": _target_schema(),
                         "thoroughness": _thoroughness_schema(),
+                        "project_root": _project_root_schema(),
                     },
                 ),
             })
@@ -382,6 +397,18 @@ def _format_heuristic_item(item: Any) -> str:
         prefix = f"{item_id}: " if item_id else ""
         return f"- {prefix}{pattern}{lang_str}"
     return f"- {item}"
+
+
+def _project_root_schema() -> dict[str, Any]:
+    """JSON Schema for the optional 'project_root' parameter."""
+    return {
+        "type": "string",
+        "description": (
+            "Absolute path to the project root directory. When provided, "
+            "exclusions from .screw/learning/exclusions.yaml are loaded "
+            "and included in the scan payload."
+        ),
+    }
 
 
 def _target_schema() -> dict[str, Any]:
