@@ -1,6 +1,6 @@
 # Project Status — screw-agents
 
-> Last updated: 2026-04-11
+> Last updated: 2026-04-12
 
 ## Deferred Obligations
 
@@ -13,7 +13,7 @@ Items explicitly deferred from earlier phases that must be completed in later ph
 
 **When returning to Phase 5:** The first step of Phase 5 is D-01 (Rust benchmark corpus construction). Verify this deferral is still valid by re-reading ADR-014 and `docs/research/benchmark-tier4-rust-modern.md`. Do not skip this step.
 
-**When starting Phase 2:** D-02 (Gates G5-G7) must pass first. See the "Phase 1.7 — Gates G5-G7" section below for the full procedure.
+**When starting Phase 5:** D-02 threshold optimization runs as part of the autoresearch loop. The benchmark pipeline is validated (PR #3).
 
 ---
 
@@ -112,7 +112,7 @@ Four benchmark research docs committed to `docs/research/benchmark-tier{1,2,3,4}
 - Vul4J: add correct CSV path (`dataset/vul4j_dataset.csv`)
 - MoreFixes: Zenodo URL fix, zip extraction, `00-create-role.sql` for `postgrescvedumper` role, complete query rewrite for actual schema (CWE in `cwe_classification`, language in `file_change.programming_language`, join via `file_change_id`)
 
-**Phase 2 — Claude Code Integration (complete, 2026-04-11):**
+**Phase 2 — Claude Code Integration (complete, PR #4 + PR #5, 2026-04-11/12):**
 
 | Task | Description | Status |
 |---|---|---|
@@ -126,9 +126,15 @@ Four benchmark research docs committed to `docs/research/benchmark-tier{1,2,3,4}
 | 2.8 | screw-review auto-invocation skill | **Complete** |
 | 2.9 | /screw:scan slash command | **Complete** |
 | 2.10 | CLAUDE.md template for user projects | **Complete** |
-| 2.11 | E2E smoke test checklist | **Complete** |
+| 2.11 | E2E smoke test checklist + results | **Complete** |
+| 2.12 | E2E defect fixes (D1-D5) — write_scan_results MCP tool | **Complete** (PR #5) |
 
-New files: 15 (learning.py, test_learning.py, test_phase2_server.py, 6 subagent .md files, SKILL.md, scan.md, CLAUDE.md.template, PHASE_2_E2E_TEST.md). Modified files: 3 (models.py, engine.py, server.py). Test count: 120 (48 new).
+PR #4 (2026-04-11): Initial implementation — 15 new files, 3 modified, 120 tests.
+PR #5 (2026-04-12): E2E defect fixes — `write_scan_results` MCP tool (`results.py`), all 6 subagent prompts rewritten, skill description expanded. 137 tests (17 new).
+
+**Key architectural change (PR #5):** `write_scan_results` MCP tool moves formatting, exclusion matching, directory creation, and file writing server-side. Subagent workflow reduced from 6 steps to 4. This was necessary because Claude Code subagents reliably execute 1-2 tool calls, not 5+ — the original multi-step file-writing workflow was architecturally incompatible with subagent behavior. See `docs/PHASE_2_E2E_RESULTS.md` for full test results and `docs/DECISIONS.md` ADR-015 for rationale.
+
+**E2E test results:** 8/8 PASS. Detection quality validated across all 4 agents: SQLi (36 findings/12 fixtures), XSS (40/14), CmdI (33/10), SSTI (28/10). Zero false negatives, zero cross-domain false positives. See `docs/PHASE_2_E2E_RESULTS.md`.
 
 ### What's NOT Done
 
@@ -136,6 +142,16 @@ New files: 15 (learning.py, test_learning.py, test_phase2_server.py, 6 subagent 
 - Remaining 14 agents (CWE-1400 domains 2-18) not yet researched (Phase 7)
 - Rust benchmark corpus not yet built (deferred to Phase 5 step 5.0, see D-01)
 - screw.nvim integration (Phase 3)
+
+### Known Limitations (from Phase 2 E2E testing)
+
+These are documented in `docs/PHASE_2_E2E_RESULTS.md` "Known Limitations" section:
+
+1. **Subagent nesting depth:** Claude Code can't nest 3+ subagent levels. For Phase 7 (18 domains), the skill should dispatch domain orchestrators directly instead of going through screw-full-review.
+2. **scan_domain payload size:** Responses can reach 47k-277k tokens for large targets, exceeding tool-response limits. Track for Phase 4 optimization.
+3. **CSV output format:** Requested but deferred — not blocking any phase.
+4. **Benchmark exclusion isolation:** `.screw/learning/exclusions.yaml` must be ignored or scoped out during benchmark evaluation runs (Phase 5) to prevent FP exclusions from suppressing true positives in benchmark fixtures.
+5. **Formatter polish:** Finding model schema asymmetry (empty strings vs null), SARIF shortDescription should be richer, Markdown headings could use full CWE names.
 
 ### Benchmark Data Ingestion (complete as of Phase 1, 2026-04-10)
 
@@ -388,7 +404,7 @@ Structured as a dependency graph with three parallel tracks converging at smoke 
 | Phase 0.5 | Benchmark Infrastructure Sprint | **Complete** |
 | Phase 1 | Core Infrastructure (MCP server, agent registry, target resolver) | **Complete** (PR #2, 2026-04-10) |
 | Phase 1.7 | Gates G5-G7: Detection rate validation (D-02) | **Complete** (pipeline validated, PR #3, 2026-04-11) |
-| **Phase 2** | **Claude Code Integration (subagents, skills, filesystem output, FP learning)** | **Complete** (2026-04-11) |
+| **Phase 2** | **Claude Code Integration (subagents, skills, filesystem output, FP learning)** | **Complete** (PR #4 2026-04-11, PR #5 2026-04-12) |
 | Phase 3 | screw.nvim Integration (scan commands, review-before-import, exclusions) | Pending |
 | Phase 4 | Adaptive Analysis & Learning Refinement | Pending |
 | Phase 5 | Autoresearch & Self-Improvement — step 5.0 is D-01 (hard gate) | Pending |

@@ -288,3 +288,59 @@ Any of these three tripwires surfaces the obligation during Phase 5 kickoff. All
 **Tradeoff accepted:** Phase 1 ships without quantitative Rust detection claims. The agent YAMLs still carry deep Rust knowledge (load-bearing for users running scans on Rust code), but the evaluation gate does not include a "Rust TPR %" number. Users are informed explicitly.
 
 **Related decisions:** ADR-002 (CWE-1400), ADR-006 (autoresearch), ADR-013 (CWE-1400-native evaluator). Related PRD sections: §12 Phase 5, §11.3 autoresearch.
+
+## ADR-015: Server-Side Results Writing (`write_scan_results`)
+
+**Decision:** Move scan result persistence (exclusion matching, formatting, directory creation, file writing) from Claude Code subagent multi-step workflows to a single server-side MCP tool call.
+
+**Context:** Phase 2 E2E testing (2026-04-11) revealed that Claude Code subagents reliably execute 1-2 MCP tool calls per dispatch, but not 5+. The original design (PRD §7, design spec §3) expected subagents to orchestrate a 6-step workflow: scan → analyze → check exclusions → format_output → create .screw/ directories → Write files. In practice, subagents consistently completed steps 1-3 (scan + analyze) and then presented results conversationally without executing steps 4-6. This was observed across all test cases regardless of token budget (TC-2: 43k tokens, TC-3: 72k tokens, TC-4: 150k tokens).
+
+**Root cause:** Claude Code subagents are optimized for analysis and conversation, not for executing long procedural tool-call sequences. The more tool calls a workflow requires, the less likely the subagent is to complete all of them. This is a platform behavioral constraint, not a code bug.
+
+**Alternatives considered:**
+
+1. **Stronger prompt language** — Add "YOU MUST" and bold emphasis to file-writing steps.
+   - Rejected in isolation because: TC-3 had 42 tool uses but still didn't write files. The subagent has the capability but doesn't prioritize multi-step file operations over conversational response. Prompt emphasis alone is insufficient.
+
+2. **Keep format_output + Write as separate steps, reduce to 2 calls** — Have format_output return content, then one Write call.
+   - Rejected because: Still requires the subagent to execute 2 additional calls after analysis, and doesn't solve exclusion matching (D5 — subagent does its own scope interpretation).
+
+3. **New `write_scan_results` MCP tool** — Single server-side call handles everything.
+   - **Accepted.** Reduces the post-analysis workflow from 4+ tool calls to 1. Server-side exclusion matching ensures correct scope semantics. Directory creation and .gitignore are deterministic, not dependent on subagent behavior.
+
+**What `write_scan_results` does:**
+1. Parses findings via Pydantic (validates schema)
+2. Loads exclusions from `.screw/learning/exclusions.yaml`
+3. Runs `match_exclusions` server-side (correct scope: exact_line, pattern, file, directory, function)
+4. Sets `excluded`/`exclusion_ref`/`status` on matched findings
+5. Creates `.screw/` structure (findings/, learning/, .gitignore)
+6. Formats as JSON + Markdown via `format_findings`
+7. Writes `.screw/findings/{prefix}-{timestamp}.json` and `.md`
+8. Returns summary dict (total, suppressed, active, by_severity, files_written, exclusions_applied)
+
+**Impact on subagent prompts:** Workflow reduced from 6 steps to 4: scan → analyze → write_scan_results (MANDATORY) → present summary. Prompts shortened from ~180 lines to ~80 lines. Step 3 marked with bold emphasis as the single most important tool call.
+
+**Impact on existing tools:** `format_output`, `record_exclusion`, `check_exclusions` remain available for ad-hoc use. `write_scan_results` is the primary workflow tool for scans.
+
+**Defects resolved:** D2 (files not written), D3 (format_output skipped), D5 (exclusion scope semantics). Combined with D1 fix (skill description) and D4 fix (screw-full-review tool list), all 5 E2E defects are resolved.
+
+**Test coverage:** 15 unit tests in `tests/test_results.py` covering directory creation, .gitignore, file writing, filename prefixes, summary counts, empty findings, metadata passthrough, and all exclusion scope types (file, exact_line, directory, wrong-agent). 2 additional server dispatch tests.
+
+**Related decisions:** ADR-001 (MCP server as backbone — this reinforces it by moving more logic server-side), ADR-007 (persistent FP learning — scope matching is now server-authoritative).
+
+## ADR-016: Subagent Nesting Limitation and Full-Review Architecture
+
+**Decision:** Accept Claude Code's subagent nesting limitation (max ~2 levels) and plan for Phase 7 to dispatch domain orchestrators directly from the skill rather than nesting through screw-full-review.
+
+**Context:** Phase 2 E2E testing (TC-4) revealed that Claude Code cannot reliably nest 3 levels of subagents: skill → screw-full-review → screw-injection. The screw-full-review subagent reported "can't nest subagents" and the skill adapted by dispatching screw-injection directly. This produced correct results because Phase 2 only has one domain (injection-input-handling).
+
+**Current behavior:** The screw-review skill dispatches screw-full-review, which calls `list_domains` and attempts to dispatch domain orchestrators. When nesting fails, the skill falls back to dispatching the domain orchestrator directly.
+
+**Phase 7 implication:** With 18 domains, screw-full-review would need to dispatch 18 orchestrators. The nesting limitation means this won't work as designed. The skill should instead:
+1. Call `list_domains` directly
+2. Dispatch each domain orchestrator in parallel via the Agent tool
+3. Consolidate results from `.screw/findings/` after all orchestrators complete
+
+**Action:** Redesign screw-full-review or remove it in Phase 7, replacing with direct orchestrator dispatch from the skill. The skill already has the routing logic. screw-full-review's only added value (consolidated executive report) can move to the skill itself.
+
+**Related:** ADR-015 (write_scan_results makes file-based result collection reliable).
