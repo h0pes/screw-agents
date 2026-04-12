@@ -246,6 +246,44 @@ class ScanEngine:
                 ),
             })
 
+        # Phase 2: write_scan_results
+        tools.append({
+            "name": "write_scan_results",
+            "description": (
+                "Write scan findings to .screw/findings/ as JSON and Markdown reports. "
+                "Automatically applies exclusion matching from .screw/learning/exclusions.yaml "
+                "using correct scope semantics, creates the .screw/ directory structure, and "
+                "returns a summary with file paths and counts. "
+                "YOU MUST call this after analyzing code — pass your complete findings array."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "project_root": {
+                        "type": "string",
+                        "description": "Absolute path to the project root directory.",
+                    },
+                    "findings": {
+                        "type": "array",
+                        "description": "Array of Finding objects from your analysis.",
+                    },
+                    "agent_names": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Agent names that produced the findings "
+                            "(e.g. ['sqli'] or ['sqli', 'cmdi', 'ssti', 'xss'])."
+                        ),
+                    },
+                    "scan_metadata": {
+                        "type": "object",
+                        "description": "Optional metadata: target, timestamp.",
+                    },
+                },
+                "required": ["project_root", "findings", "agent_names"],
+            },
+        })
+
         # Phase 2: format_output
         tools.append({
             "name": "format_output",

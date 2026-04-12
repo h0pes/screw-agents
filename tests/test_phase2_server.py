@@ -111,6 +111,37 @@ class TestExclusionTools:
         assert result["exclusions"][0]["agent"] == "sqli"
 
 
+class TestWriteScanResultsTool:
+    def test_dispatch_write_scan_results(self, engine, tmp_path):
+        result = _dispatch_tool(engine, "write_scan_results", {
+            "project_root": str(tmp_path),
+            "findings": [
+                {
+                    "id": "test-001",
+                    "agent": "sqli",
+                    "domain": "injection-input-handling",
+                    "timestamp": "2026-04-11T14:30:00Z",
+                    "location": {"file": "src/api.py", "line_start": 42},
+                    "classification": {
+                        "cwe": "CWE-89",
+                        "cwe_name": "SQL Injection",
+                        "severity": "high",
+                        "confidence": "high",
+                    },
+                    "analysis": {"description": "SQL injection found"},
+                    "remediation": {"recommendation": "Use parameterized queries"},
+                }
+            ],
+            "agent_names": ["sqli"],
+            "scan_metadata": {"target": "src/api.py"},
+        })
+        assert "files_written" in result
+        assert len(result["files_written"]) == 2
+        assert result["summary"]["total"] == 1
+        assert (tmp_path / ".screw" / "findings").is_dir()
+        assert (tmp_path / ".screw" / ".gitignore").exists()
+
+
 class TestScanToolProjectRoot:
     def test_scan_tool_accepts_project_root(self, engine, domains_dir, tmp_path):
         fixtures_dir = Path(__file__).resolve().parent.parent / "benchmarks" / "fixtures"
@@ -144,6 +175,12 @@ class TestNewToolsRegistered:
         assert "format_output" in names
         assert "record_exclusion" in names
         assert "check_exclusions" in names
+
+    def test_write_scan_results_in_tool_list(self, domains_dir):
+        _, engine = create_server(domains_dir)
+        tools = engine.list_tool_definitions()
+        names = {t["name"] for t in tools}
+        assert "write_scan_results" in names
 
     def test_scan_tools_have_project_root(self, domains_dir):
         _, engine = create_server(domains_dir)

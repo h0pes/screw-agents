@@ -1,8 +1,10 @@
 ---
 name: screw-review
 description: >
-  Use when the user asks for security review, vulnerability scanning, or security audit.
-  Recognizes security review intent and delegates to the appropriate screw-agents subagent.
+  Use when the user asks to check, scan, review, or audit code for security vulnerabilities,
+  or mentions any specific vulnerability type: SQL injection, SQLi, XSS, cross-site scripting,
+  command injection, CmdI, template injection, SSTI, injection, security issues, security scan,
+  vulnerability scan, security audit, security review, secure code review. Delegates to screw-agents subagents.
 ---
 
 # Security Review Skill
