@@ -21,6 +21,7 @@ from mcp.server.models import InitializationOptions
 from screw_agents.engine import ScanEngine
 from screw_agents.learning import load_exclusions, record_exclusion
 from screw_agents.models import ExclusionInput, Finding
+from screw_agents.results import write_scan_results
 from screw_agents.registry import AgentRegistry
 
 logger = logging.getLogger(__name__)
@@ -118,6 +119,14 @@ def _dispatch_tool(
         if agent_filter:
             all_exc = [e for e in all_exc if e.agent == agent_filter]
         return {"exclusions": [e.model_dump() for e in all_exc]}
+
+    if name == "write_scan_results":
+        return write_scan_results(
+            project_root=Path(args["project_root"]),
+            findings_raw=args.get("findings", []),
+            agent_names=args.get("agent_names", []),
+            scan_metadata=args.get("scan_metadata"),
+        )
 
     # --- Scan tools (Phase 1 + Phase 2 project_root) ---
 
