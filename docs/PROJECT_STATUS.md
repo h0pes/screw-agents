@@ -8,18 +8,18 @@ Items explicitly deferred from earlier phases that must be completed in later ph
 
 | # | Item | Deferred from | Owning phase | Tracking ADR | Status |
 |---|---|---|---|---|---|
-| D-01 | Rust benchmark corpus from RustSec (~24 verified CVE candidates + synthetic SSTI fixtures) | Phase 0.5 | **Phase 5 (step 5.0)** — hard gate, Phase 5 cannot close without it | ADR-014 | **DEFERRED** |
-| D-02 | Gates G5-G7: detection rate validation against real-CVE benchmarks | Phase 1 (Task 20) | **Phase 5** — full run deferred to autoresearch loop | — | **SAMPLE COMPLETE** — pipeline validated 2026-04-11, threshold optimization deferred to Phase 5 |
+| D-01 | Rust benchmark corpus from RustSec (~24 verified CVE candidates + synthetic SSTI fixtures) | Phase 0.5 | **Phase 4 (step 4.0)** — hard gate, Phase 4 cannot close without it | ADR-014 | **DEFERRED** |
+| D-02 | Gates G5-G7: detection rate validation against real-CVE benchmarks | Phase 1 (Task 20) | **Phase 4** — full run deferred to autoresearch loop | — | **SAMPLE COMPLETE** — pipeline validated 2026-04-11, threshold optimization deferred to Phase 4 |
 
-**When returning to Phase 5:** The first step of Phase 5 is D-01 (Rust benchmark corpus construction). Verify this deferral is still valid by re-reading ADR-014 and `docs/research/benchmark-tier4-rust-modern.md`. Do not skip this step.
+**When returning to Phase 4:** The first step of Phase 4 is D-01 (Rust benchmark corpus construction). Verify this deferral is still valid by re-reading ADR-014 and `docs/research/benchmark-tier4-rust-modern.md`. Do not skip this step.
 
-**When starting Phase 5:** D-02 threshold optimization runs as part of the autoresearch loop. The benchmark pipeline is validated (PR #3).
+**When starting Phase 4:** D-02 threshold optimization runs as part of the autoresearch loop. The benchmark pipeline is validated (PR #3).
 
 ---
 
 ## Current Phase: Phase 2 Complete — Claude Code Integration
 
-Architecture and product design is **complete** (PRD v0.4.3 is the definitive document). Phase 0 (Knowledge Research) is **complete**. Phase 0.5 (Benchmark Infrastructure) is **complete**. Phase 1 (Core Infrastructure) is **complete** (PR #2 merged 2026-04-10). Gates G1-G4 pass. Phase 1.7 (G5-G7 detection rate validation) is **complete** — pipeline built and validated via sample run (2026-04-11, PR #3), full benchmark deferred to Phase 5 autoresearch. **Phase 2 (Claude Code Integration) is complete. Phase 3 (screw.nvim Integration) is next.**
+Architecture and product design is **complete** (PRD v0.4.3 is the definitive document). Phase 0 (Knowledge Research) is **complete**. Phase 0.5 (Benchmark Infrastructure) is **complete**. Phase 1 (Core Infrastructure) is **complete** (PR #2 merged 2026-04-10). Gates G1-G4 pass. Phase 1.7 (G5-G7 detection rate validation) is **complete** — pipeline built and validated via sample run (2026-04-11, PR #3), full benchmark deferred to Phase 4 autoresearch. **Phase 2 (Claude Code Integration) is complete. Phase 3 (Adaptive Analysis & Learning Refinement) is next.**
 
 ### What's Done
 
@@ -138,19 +138,19 @@ PR #5 (2026-04-12): E2E defect fixes — `write_scan_results` MCP tool (`results
 
 ### What's NOT Done
 
-- **Gates G5-G7: full benchmark run** — deferred to Phase 5 autoresearch; pipeline validated via sample run (2026-04-11)
-- Remaining 14 agents (CWE-1400 domains 2-18) not yet researched (Phase 7)
-- Rust benchmark corpus not yet built (deferred to Phase 5 step 5.0, see D-01)
-- screw.nvim integration (Phase 3)
+- **Gates G5-G7: full benchmark run** — deferred to Phase 4 autoresearch; pipeline validated via sample run (2026-04-11)
+- Remaining 14 agents (CWE-1400 domains 2-18) not yet researched (Phase 6)
+- Rust benchmark corpus not yet built (deferred to Phase 4 step 4.0, see D-01)
+- screw.nvim integration (Phase 7)
 
 ### Known Limitations (from Phase 2 E2E testing)
 
 These are documented in `docs/PHASE_2_E2E_RESULTS.md` "Known Limitations" section:
 
-1. **Subagent nesting depth:** Claude Code can't nest 3+ subagent levels. For Phase 7 (18 domains), the skill should dispatch domain orchestrators directly instead of going through screw-full-review.
-2. **scan_domain payload size:** Responses can reach 47k-277k tokens for large targets, exceeding tool-response limits. Track for Phase 4 optimization.
+1. **Subagent nesting depth:** Claude Code can't nest 3+ subagent levels. For Phase 6 (18 domains), the skill should dispatch domain orchestrators directly instead of going through screw-full-review.
+2. **scan_domain payload size:** Responses can reach 47k-277k tokens for large targets, exceeding tool-response limits. Track for Phase 3 optimization.
 3. **CSV output format:** Requested but deferred — not blocking any phase.
-4. **Benchmark exclusion isolation:** `.screw/learning/exclusions.yaml` must be ignored or scoped out during benchmark evaluation runs (Phase 5) to prevent FP exclusions from suppressing true positives in benchmark fixtures.
+4. **Benchmark exclusion isolation:** `.screw/learning/exclusions.yaml` must be ignored or scoped out during benchmark evaluation runs (Phase 4) to prevent FP exclusions from suppressing true positives in benchmark fixtures.
 5. **Formatter polish:** Finding model schema asymmetry (empty strings vs null), SARIF shortDescription should be richer, Markdown headings could use full CWE names.
 
 ### Benchmark Data Ingestion (complete as of Phase 1, 2026-04-10)
@@ -180,7 +180,7 @@ To reproduce (if data is lost): re-run all ingest scripts, then `apply_dedup` an
 
 ## Phase 1.7 — Gates G5-G7: Detection Rate Validation (D-02)
 
-**Status:** Sample complete. Pipeline validated, detection confirmed. Full run deferred to Phase 5 autoresearch loop (deliberate decision — see rationale below).
+**Status:** Sample complete. Pipeline validated, detection confirmed. Full run deferred to Phase 4 autoresearch loop (deliberate decision — see rationale below).
 
 ### What was built (2026-04-11)
 
@@ -274,17 +274,17 @@ uv run python benchmarks/scripts/run_gates.py --mode full --timeout 300
 
 Results written to `benchmarks/results/<run_id>/` (gitignored).
 
-### Decision: defer full run to Phase 5 (2026-04-11)
+### Decision: defer full run to Phase 4 (2026-04-11)
 
-The full benchmark run (~2,934 Claude calls, 50-73 hours) is deferred to Phase 5's autoresearch loop. Rationale:
+The full benchmark run (~2,934 Claude calls, 50-73 hours) is deferred to Phase 4's autoresearch loop. Rationale:
 
 1. **Pipeline is validated.** The sample proved end-to-end correctness: code extraction, prompt assembly, Claude invocation, finding parsing, pair-based scoring, gate checking, report generation, checkpoint/resume.
 2. **Detection is confirmed.** Agents genuinely detect real-world CVEs (100% XSS/CrossVul, 30-50% CmdI/SQLi). The YAML knowledge from Phase 0 works.
 3. **Phase 2 does not depend on specific TPR numbers.** Claude Code integration (subagents, skills, filesystem output) depends on the MCP server and engine working correctly — which they do.
-4. **Phase 5 autoresearch is the right place to optimize.** It systematically runs benchmarks, analyzes failures, adjusts YAML heuristics, and re-runs. Manual full-run optimization now would be superseded by that automated loop.
+4. **Phase 4 autoresearch is the right place to optimize.** It systematically runs benchmarks, analyzes failures, adjusts YAML heuristics, and re-runs. Manual full-run optimization now would be superseded by that automated loop.
 5. **Resource cost is disproportionate.** 50-73 hours of Pro subscription usage for numbers that will change once autoresearch tunes the YAMLs.
 
-D-02 status changed from "pre-Phase 2 hard gate" to "pipeline validated, threshold optimization deferred to Phase 5." This is not skipping validation — it is sequencing it correctly.
+D-02 status changed from "pre-Phase 2 hard gate" to "pipeline validated, threshold optimization deferred to Phase 4." This is not skipping validation — it is sequencing it correctly.
 
 ---
 
@@ -300,7 +300,7 @@ D-02 status changed from "pre-Phase 2 hard gate" to "pipeline validated, thresho
 
 3. **Build our own Python evaluator, CWE-1400 native (ADR-013).** Reject direct bentoo adoption because bentoo scores in CWE-1000 Research View, which would force taxonomy translation everywhere and break the "universal join key" contract (ADR-002). Consume bentoo-sarif format as input, score in CWE-1400, emit bentoo-compatible `summary.json` for optional cross-check.
 
-4. **Rust corpus deferred to Phase 5 (ADR-014).** Triple-redundantly tracked (ADR-014, PRD §12 step 5.0, Deferred Obligations D-01 above). Current Rust fixtures downgraded to smoke-test status. Phase 1 benchmark reports explicitly say "Rust detection quality not benchmarked — see ADR-014."
+4. **Rust corpus deferred to Phase 4 (ADR-014).** Triple-redundantly tracked (ADR-014, PRD §12 step 4.0, Deferred Obligations D-01 above). Current Rust fixtures downgraded to smoke-test status. Phase 1 benchmark reports explicitly say "Rust detection quality not benchmarked — see ADR-014."
 
 5. **MCP library: low-level `mcp.Server`.** Both stdio (Claude Code) and streamable HTTP (screw.nvim, CI/CD) transports supported from day 1. Rejected FastMCP because we need dynamic YAML-driven tool registration.
 
@@ -328,7 +328,7 @@ D-02 status changed from "pre-Phase 2 hard gate" to "pipeline validated, thresho
 - Target: ~30 additional real CVE fixtures per CWE across all viable languages
 - Rationale: MoreFixes is a strict superset of CVEfixes (adds GHSA ingestion, newer 2024-09-26, same schema)
 
-**0.5.4 — Rust benchmark deferred to Phase 5** (see Deferred Obligations D-01 and ADR-014)
+**0.5.4 — Rust benchmark deferred to Phase 4** (see Deferred Obligations D-01 and ADR-014)
 - Current Rust fixtures (14 vuln + 11 safe in `benchmarks/fixtures/{xss,sqli,cmdi,ssti}/`) demoted to smoke tests only
 - Phase 1 reports explicitly state "Rust detection quality not benchmarked"
 - Per-fixture provenance notes added where a real-CVE analog exists
@@ -405,11 +405,11 @@ Structured as a dependency graph with three parallel tracks converging at smoke 
 | Phase 1 | Core Infrastructure (MCP server, agent registry, target resolver) | **Complete** (PR #2, 2026-04-10) |
 | Phase 1.7 | Gates G5-G7: Detection rate validation (D-02) | **Complete** (pipeline validated, PR #3, 2026-04-11) |
 | **Phase 2** | **Claude Code Integration (subagents, skills, filesystem output, FP learning)** | **Complete** (PR #4 2026-04-11, PR #5 2026-04-12) |
-| Phase 3 | screw.nvim Integration (scan commands, review-before-import, exclusions) | Pending |
-| Phase 4 | Adaptive Analysis & Learning Refinement | Pending |
-| Phase 5 | Autoresearch & Self-Improvement — step 5.0 is D-01 (hard gate) | Pending |
-| Phase 6 | Multi-LLM Challenger System | Pending |
-| Phase 7 | Agent Expansion & Ecosystem | Pending |
+| **Phase 3** | **Adaptive Analysis & Learning Refinement** | **Next** |
+| Phase 4 | Autoresearch & Self-Improvement — step 4.0 is D-01 (hard gate) | Pending |
+| Phase 5 | Multi-LLM Challenger System | Pending |
+| Phase 6 | Agent Expansion & Ecosystem | Pending |
+| Phase 7 | screw.nvim Integration (scan commands, review-before-import, exclusions) | Pending |
 
 ---
 

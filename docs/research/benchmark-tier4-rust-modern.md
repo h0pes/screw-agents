@@ -1,14 +1,14 @@
-# Benchmark Research Tier 4 — Rust Corpus (Phase 5 Reference) and Modern Ecosystems
+# Benchmark Research Tier 4 — Rust Corpus (Phase 4 Reference) and Modern Ecosystems
 
 _Date: 2026-04-09_
-_Status: Reference document for Phase 5 Rust corpus construction (deferred from Phase 0.5)_
+_Status: Reference document for Phase 4 Rust corpus construction (deferred from Phase 0.5)_
 _Purpose: Inventory Rust CVE sources and evaluate multi-language CVE extraction tools_
 
-> NOTE: This is a forward-looking reference document. Phase 0.5 will NOT build a Rust benchmark corpus. This file captures what is available and must be revisited when Phase 5 begins.
+> NOTE: This is a forward-looking reference document. Phase 0.5 will NOT build a Rust benchmark corpus. This file captures what is available and must be revisited when Phase 4 begins.
 
 ---
 
-## 1. Rust Advisory Inventory (Phase 5 Corpus Seed)
+## 1. Rust Advisory Inventory (Phase 4 Corpus Seed)
 
 ### 1.1 Methodology
 
@@ -32,7 +32,7 @@ Each row has its CWE classification taken from the GHSA API (authoritative). Whe
 | RUSTSEC-2024-0363 | sqlx | GHSA-xmrp-424f-vfpx | — | unverified (GHSA lists no CWE; RustSec labels `format-injection` + `sql injection`; CVSS unset; DEFCON 32 "SQL Injection Smuggling" class — truncating cast at `sqlx-postgres/src/arguments.rs#L163`) | SQLx issue #3440 | ORM / DB toolkit |
 
 Notes:
-- The `sqlx` advisory is the same 4-GiB length-prefix smuggling attack class as the `diesel` one (same DEFCON 32 talk by Paul Gerste). GHSA has not filed a formal CWE for this advisory, but the Diesel twin IS CWE-89 per GHSA. It is reasonable to treat `sqlx` as CWE-89 in Phase 5 but the label must be noted as "derived, not GHSA-assigned".
+- The `sqlx` advisory is the same 4-GiB length-prefix smuggling attack class as the `diesel` one (same DEFCON 32 talk by Paul Gerste). GHSA has not filed a formal CWE for this advisory, but the Diesel twin IS CWE-89 per GHSA. It is reasonable to treat `sqlx` as CWE-89 in Phase 4 but the label must be noted as "derived, not GHSA-assigned".
 - There are NO other CWE-89 advisories in the Rust ecosystem per GHSA search (2026-04-09). These three are the entire corpus.
 
 #### CWE-78 / CWE-77 — OS Command Injection and Command Injection
@@ -90,7 +90,7 @@ Related but not CWE-1336:
 - `better-macro` (GHSA-79wf-qcqv-r22r, CVE-2021-38196, CWE-94) — proc-macro RCE at compile time. Not runtime SSTI.
 - `rssn` (GHSA-9c4h-pwmf-m6fj, CVE-2026-30960, CWE-94) — JIT code generation. Not SSTI.
 
-**Conclusion:** there is NO real-world Rust SSTI CVE corpus to seed Phase 5 from. We will have to synthesize SSTI fixtures by auditing Tera / MiniJinja / Askama / Handlebars-rust APIs for misuse patterns (dynamic template string construction, `Tera::one_off` with attacker-controlled templates, etc.) and constructing synthetic benchmarks inspired by the Python Jinja2 SSTI corpus.
+**Conclusion:** there is NO real-world Rust SSTI CVE corpus to seed Phase 4 from. We will have to synthesize SSTI fixtures by auditing Tera / MiniJinja / Askama / Handlebars-rust APIs for misuse patterns (dynamic template string construction, `Tera::one_off` with attacker-controlled templates, etc.) and constructing synthetic benchmarks inspired by the Python Jinja2 SSTI corpus.
 
 ### 1.3 GHSA CWE Authoritative Mapping — How-To
 
@@ -109,7 +109,7 @@ For any RustSec TOML at `crates/{pkg}/{RUSTSEC-YYYY-NNNN}.md`:
 - **CWE-89 (SQL Injection):** 2 verified + 1 unverified-but-derived = **3** Rust advisories total. Crates: `matrix-sdk-sqlite`, `diesel`, `sqlx`.
 - **CWE-78 (OS Command Injection):** 3 verified in RustSec (`starship`, `grep-cli`/ripgrep, `gix-transport` RUSTSEC-2023-0064) + 2 Deno (GHSA only) = **5**. Excluding the Deno JS-runtime noise, the Rust-library universe is effectively 3.
 - **CWE-77 (Command Injection, generic):** ~5 real hits (`lettre`, `gix-transport` 2024, `starship` [dual label], `aliyundrive-webdav`, Deno) + ~14 false positives (data-race mislabels) = **~5** true hits.
-- **CWE-79 (XSS):** **16** real hits after filtering. Strongest crate seeds for Phase 5: `ammonia` (×3), `comrak` (×2), `salvo` (×2 — web framework with clear pre-fix commits), `static-web-server`, `rustfs`, `mdbook`, `pagefind`, `cargo` (cargo-timings), `vaultwarden` (×2), `microbin`, `deno_doc`.
+- **CWE-79 (XSS):** **16** real hits after filtering. Strongest crate seeds for Phase 4: `ammonia` (×3), `comrak` (×2), `salvo` (×2 — web framework with clear pre-fix commits), `static-web-server`, `rustfs`, `mdbook`, `pagefind`, `cargo` (cargo-timings), `vaultwarden` (×2), `microbin`, `deno_doc`.
 - **CWE-1336 (SSTI):** **0** Rust advisories. This is a gap — SSTI fixtures for Rust must be synthesized against Tera / MiniJinja / Askama / Handlebars-rust API surfaces.
 
 **Total Rust Phase-5 seed CVEs matching our 4 Phase 1 CWEs: ~24 advisories (3 + 5 + 16 + 0).**
@@ -174,13 +174,13 @@ Alive, 2,108 stars, updated 2026-04-07 (daily). YAML-per-advisory flat-file data
 Unified OSS vulnerability DB with HTTP API (`https://api.osv.dev/v1/query`, 2,580 stars). Ingests from GHSA, PyPA, RustSec, Go, Maven, npm, NuGet, RubySec, Packagist, Debian, Alpine, Android, OSS-Fuzz, Linux kernel, UVI/UBUNTU, and more. Verified available 2026-04-09 (query endpoint returns HTTP 200). For our 4 CWEs OSV is the best single normalized API — query by `ecosystem` (`crates.io`, `npm`, `PyPI`, `Maven`, `RubyGems`, `Packagist`, `NuGet`, `Go`) then filter `database_specific.cwe_ids` or `aliases[]` for GHSA cross-reference. Do NOT use OSV in isolation for code extraction — it lacks pre/post code pairs; pair it with MoreFixes for the code half.
 
 ### 3.4 WPScan WordPress vulnerability database
-`wpscanteam/wpscan` (9,539 stars). The database itself is at `https://wpscan.com/api/` and is commercial (free tier + paid). Schema covers WordPress core, plugins, themes — massive CWE-79 and CWE-89 corpus (plugins historically dominate XSS and SQLi counts ecosystem-wide). For Phase 0.5 and Phase 5 we probably DO NOT want raw WPScan data — the signal-to-noise is poor (many dupes, many theme-bundled jQuery issues, many unpatched plugins). Treat as supplementary only.
+`wpscanteam/wpscan` (9,539 stars). The database itself is at `https://wpscan.com/api/` and is commercial (free tier + paid). Schema covers WordPress core, plugins, themes — massive CWE-79 and CWE-89 corpus (plugins historically dominate XSS and SQLi counts ecosystem-wide). For Phase 0.5 and Phase 4 we probably DO NOT want raw WPScan data — the signal-to-noise is poor (many dupes, many theme-bundled jQuery issues, many unpatched plugins). Treat as supplementary only.
 
 ---
 
-## 4. Phase 5 Rust Corpus Construction Plan
+## 4. Phase 4 Rust Corpus Construction Plan
 
-When we return to Rust corpus construction in Phase 5:
+When we return to Rust corpus construction in Phase 4:
 
 1. **Re-verify the advisory list.** Re-clone `rustsec/advisory-db` and re-run `gh api "advisories?ecosystem=rust&cwes={N}"` for CWE-78, 79, 89, 1336, 77, 80, 94, 116, 917. New Rust advisories land every month; our 2026-04-09 snapshot will be stale.
 2. **Build from the GHSA side.** GHSA ecosystem filter is more complete than the RustSec categories. Start with GHSA, backfill with RustSec's affected-function metadata (which GHSA often lacks).
@@ -189,7 +189,7 @@ When we return to Rust corpus construction in Phase 5:
 5. **Synthesize CWE-1336.** No real Rust SSTI corpus exists. Build Tera / MiniJinja / Askama / Handlebars-rust misuse fixtures from the template-engine audit pattern set (dynamic template string construction, `render_str` with untrusted template text, helper-registration from user input, etc.).
 6. **Integrate into autoresearch.** Treat the Rust corpus as a fourth benchmark tier alongside flawgarden/reality-check, with its own `metrics.yaml` output.
 
-**Projected Phase 5 corpus size:** 20-30 Rust CVEs across CWE-78/79/89 plus 10-20 synthesized CWE-1336 fixtures. Small but usable for regression testing.
+**Projected Phase 4 corpus size:** 20-30 Rust CVEs across CWE-78/79/89 plus 10-20 synthesized CWE-1336 fixtures. Small but usable for regression testing.
 
 **Top-5 Phase-5 Rust seed crates** (highest real-world realism, cleanest pre-fix commits, best library-level detection signal):
 
@@ -203,7 +203,7 @@ When we return to Rust corpus construction in Phase 5:
 
 ## 5. Deferred Obligations (CRITICAL — do not forget)
 
-Before Phase 5 kickoff, these actions must be executed and the results folded back into the sqli/cmdi/xss/ssti agents:
+Before Phase 4 kickoff, these actions must be executed and the results folded back into the sqli/cmdi/xss/ssti agents:
 
 - [ ] Re-run `gh api "advisories?ecosystem=rust&cwes={N}"` for CWE-78/79/89/1336/77/94/116 and diff against the 24-advisory baseline in §1.2. New hits must be triaged.
 - [ ] Clone the affected repo for each advisory in §1.2 and extract pre-fix (commit^1) and post-fix (fix commit) file+function pairs for the "affected.functions" entries.
@@ -211,8 +211,8 @@ Before Phase 5 kickoff, these actions must be executed and the results folded ba
 - [ ] Reconcile the `sqlx` RUSTSEC-2024-0363 CWE classification with upstream. GHSA has no CWE assigned; we inherit the Diesel twin's CWE-89 but should request a proper GHSA CWE label from the SQLx maintainers or file a correction via the `rustsec/advisory-db` PR path.
 - [ ] Validate RUSTSEC-2024-0006 (`shlex`). Its primary GHSA has empty CWE but the duplicate lists CWE-116. Decide whether to treat as CmdI training example or exclude.
 - [ ] Add the Phase-5 Rust corpus to the benchmark `metrics.yaml` schema as a distinct tier.
-- [ ] On return, re-pull MoreFixes for an updated dump (2024-09-26 will be ~18 months stale by Phase 5).
+- [ ] On return, re-pull MoreFixes for an updated dump (2024-09-26 will be ~18 months stale by Phase 4).
 - [ ] Cross-reference the `cargo` cargo-timings XSS (CVE-2023-40030) — interesting edge case because the vulnerability is in build-tool output, not a web context. Decide whether this belongs in the XSS agent or is a separate "dev-tool output injection" sub-class.
 - [ ] Verify the data-race CWE-77 mislabel cluster (kekbit/bunch/lexer/dces/...) is still filtered out of any automated GHSA ingestion — they are MITRE labeling errors and must NEVER end up in the CmdI corpus.
-- [ ] Investigate Rust web frameworks beyond `salvo` and `actix-http`: `axum`, `rocket`, `warp`, `poem`, `loco-rs`. As of 2026-04-09 none of these have CWE-78/79/89 advisories in GHSA Rust-ecosystem search, but Phase 5 re-scan must confirm.
+- [ ] Investigate Rust web frameworks beyond `salvo` and `actix-http`: `axum`, `rocket`, `warp`, `poem`, `loco-rs`. As of 2026-04-09 none of these have CWE-78/79/89 advisories in GHSA Rust-ecosystem search, but Phase 4 re-scan must confirm.
 - [ ] Cross-reference the Phase-5 Rust corpus with the `domains/sqli.yaml` / `cmdi.yaml` / `xss.yaml` / `ssti.yaml` `few_shot_examples` sections — any corpus CVE that is ALREADY cited in a YAML must not be reused as a hold-out benchmark (data leakage into the agent knowledge base).

@@ -4,7 +4,7 @@ Phase 2 implements layers 1-2 of PRD §11.2:
   Layer 1: Exclusion storage in .screw/learning/exclusions.yaml
   Layer 2: Pre-scan filtering via scope-based matching
 
-Layers 3 (aggregation) and 4 (feedback loop) are Phase 4 scope.
+Layers 3 (aggregation) and 4 (feedback loop) are Phase 3 scope.
 """
 
 from __future__ import annotations

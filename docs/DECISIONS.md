@@ -189,7 +189,7 @@ This document captures every significant design decision made during the archite
 - Two distribution mechanisms from one repo: PyPI package (MCP server) + Claude Code plugin (agents/skills/commands).
 - `domains/` directory at the top level (not buried in `src/`) because it's the community contribution target.
 
-**screw.nvim boundary:** screw.nvim adds screw-agents as an optional dependency (same pattern as Telescope). The MCP protocol is the bridge. Transport (stdio vs HTTP) to be determined in Phase 3.
+**screw.nvim boundary:** screw.nvim adds screw-agents as an optional dependency (same pattern as Telescope). The MCP protocol is the bridge. Transport (stdio vs HTTP) to be determined in Phase 7.
 
 ---
 
@@ -241,9 +241,9 @@ This document captures every significant design decision made during the archite
 
 ---
 
-## ADR-014: Rust Benchmark Corpus Deferred to Phase 5 (Hard Gate)
+## ADR-014: Rust Benchmark Corpus Deferred to Phase 4 (Hard Gate)
 
-**Decision:** Phase 0.5 (Benchmark Infrastructure Sprint) does NOT construct a Rust benchmark corpus from RustSec. The Rust corpus is deferred to Phase 5 (Autoresearch & Self-Improvement), where it becomes the first mandatory sub-step. Phase 5 cannot close without it.
+**Decision:** Phase 0.5 (Benchmark Infrastructure Sprint) does NOT construct a Rust benchmark corpus from RustSec. The Rust corpus is deferred to Phase 4 (Autoresearch & Self-Improvement), where it becomes the first mandatory sub-step. Phase 4 cannot close without it.
 
 **Context:** Our Phase 1 agents (SQLi, CmdI, SSTI, XSS) target injection-class vulnerabilities. Rust is a memory-safe language: its CVE history is dominated by memory corruption (145 advisories), denial of service (84), crypto failures (66), and memory exposure (52). Direct grep of the 1,010-advisory RustSec database (cloned 2026-04-09) plus GHSA-authoritative CWE cross-reference yields the following counts for our four Phase 1 CWEs:
 
@@ -266,28 +266,28 @@ This document captures every significant design decision made during the archite
 2. **Defer Rust validation entirely, keep self-authored fixtures as smoke tests only** — The existing 14 vulnerable + 11 safe Rust fixtures in `benchmarks/fixtures/xss/`, `sqli/`, `cmdi/`, `ssti/` continue to validate MCP plumbing (agent can load a Rust file, run tree-sitter extraction, produce a finding) but do not claim detection accuracy. All Phase 1 benchmark reports explicitly say "Rust detection quality not benchmarked — see ADR-014."
    - **Accepted.**
 
-**Why Phase 5 resolves this:** Phase 5 targets broader agent coverage beyond injection (memory safety, thread safety, crypto issues, access control, file handling). These align directly with the dominant Rust CVE categories: 256+ memory-class advisories, 84 DoS advisories, 66 crypto-failure advisories, 10 thread-safety advisories are all within scope of Phase 2-5 agents. By the time we reach Phase 5, the Rust corpus will be statistically meaningful across multiple CWEs, and the autoresearch loop has something to optimize against.
+**Why Phase 4 resolves this:** Phase 4 is the autoresearch and self-improvement phase. If Phase 6 (Agent Expansion) has progressed, broader agent coverage beyond injection (memory safety, thread safety, crypto issues, access control, file handling) will align directly with the dominant Rust CVE categories: 256+ memory-class advisories, 84 DoS advisories, 66 crypto-failure advisories, 10 thread-safety advisories. The autoresearch loop has something to optimize against, and the Rust corpus will be statistically meaningful across multiple CWEs.
 
 **Triple-redundant tracking (this deferral must not be forgotten):**
 
 1. `docs/PROJECT_STATUS.md` carries a prominent "Deferred Obligations" section listing the Rust corpus with its owning phase and acceptance criteria.
 2. This ADR (ADR-014) is cross-referenced from `docs/DECISIONS.md` ADR-006 (autoresearch) and ADR-011 (uv package manager, which notes the Rust gap).
-3. `docs/PRD.md` §12 Phase 5 lists "5.0 — Rust benchmark corpus construction from RustSec (blocked-in from Phase 0.5 per ADR-014)" as the first sub-step, with the gating language "Phase 5 cannot close without this sub-step complete."
+3. `docs/PRD.md` §12 Phase 4 lists "4.0 — Rust benchmark corpus construction from RustSec (blocked-in from Phase 0.5 per ADR-014)" as the first sub-step, with the gating language "Phase 4 cannot close without this sub-step complete."
 
-Any of these three tripwires surfaces the obligation during Phase 5 kickoff. All three would have to be missed for the deferral to slip silently.
+Any of these three tripwires surfaces the obligation during Phase 4 kickoff. All three would have to be missed for the deferral to slip silently.
 
-**Phase 5 starting corpus (reference, from `docs/research/benchmark-tier4-rust-modern.md`):**
+**Phase 4 starting corpus (reference, from `docs/research/benchmark-tier4-rust-modern.md`):**
 1. **salvo** — GHSA-rjf8-2wcw-f6mp (reflected XSS) + GHSA-54m3-5fxr-2f3j (stored XSS), file:line at `serve-static/dir.rs:593/:581`, commit `16efeba312a274`
 2. **diesel** — RUSTSEC-2024-0365, CWE-89, `diesel/src/pg/connection/stmt/mod.rs#L36`, commit `ae82c4a5a133`. **Conflict flag:** already cited in `domains/injection-input-handling/sqli.yaml`; must be held out from training data if used for validation.
 3. **ammonia** — RUSTSEC-2021-0074, 2022-0003, 2025-0071 — three CVEs in one HTML-sanitizer library across 4 years, giving temporal regression coverage for mXSS.
 4. **lettre** — RUSTSEC-2020-0069, CWE-77, function-level `SendmailTransport::send`, commit `bbe7cc5381c5380b54fb8bbb4f77a3725917ff0b`.
 5. **matrix-sdk-sqlite** — RUSTSEC-2025-0043, CWE-89, canonical `format!("... WHERE id = '{}'", ...)` pattern in `SqliteEventCacheStore::find_event_with_relations`.
 
-**Critical methodology note for Phase 5:** RustSec's `categories = ["format-injection"]` label is unreliable — it conflates CWE-89, CWE-79, CWE-444, CWE-150, CWE-601, CWE-116. Always cross-reference via `gh api /advisories/GHSA-xxxx` for authoritative CWE classification. Benchmark ingestion must also filter out the ~14 data-race crates (kekbit, bunch, dces, lexer, syncpool, etc.) that MITRE mislabeled as CWE-77.
+**Critical methodology note for Phase 4:** RustSec's `categories = ["format-injection"]` label is unreliable — it conflates CWE-89, CWE-79, CWE-444, CWE-150, CWE-601, CWE-116. Always cross-reference via `gh api /advisories/GHSA-xxxx` for authoritative CWE classification. Benchmark ingestion must also filter out the ~14 data-race crates (kekbit, bunch, dces, lexer, syncpool, etc.) that MITRE mislabeled as CWE-77.
 
 **Tradeoff accepted:** Phase 1 ships without quantitative Rust detection claims. The agent YAMLs still carry deep Rust knowledge (load-bearing for users running scans on Rust code), but the evaluation gate does not include a "Rust TPR %" number. Users are informed explicitly.
 
-**Related decisions:** ADR-002 (CWE-1400), ADR-006 (autoresearch), ADR-013 (CWE-1400-native evaluator). Related PRD sections: §12 Phase 5, §11.3 autoresearch.
+**Related decisions:** ADR-002 (CWE-1400), ADR-006 (autoresearch), ADR-013 (CWE-1400-native evaluator). Related PRD sections: §12 Phase 4, §11.3 autoresearch.
 
 ## ADR-015: Server-Side Results Writing (`write_scan_results`)
 
@@ -330,17 +330,17 @@ Any of these three tripwires surfaces the obligation during Phase 5 kickoff. All
 
 ## ADR-016: Subagent Nesting Limitation and Full-Review Architecture
 
-**Decision:** Accept Claude Code's subagent nesting limitation (max ~2 levels) and plan for Phase 7 to dispatch domain orchestrators directly from the skill rather than nesting through screw-full-review.
+**Decision:** Accept Claude Code's subagent nesting limitation (max ~2 levels) and plan for Phase 6 to dispatch domain orchestrators directly from the skill rather than nesting through screw-full-review.
 
 **Context:** Phase 2 E2E testing (TC-4) revealed that Claude Code cannot reliably nest 3 levels of subagents: skill → screw-full-review → screw-injection. The screw-full-review subagent reported "can't nest subagents" and the skill adapted by dispatching screw-injection directly. This produced correct results because Phase 2 only has one domain (injection-input-handling).
 
 **Current behavior:** The screw-review skill dispatches screw-full-review, which calls `list_domains` and attempts to dispatch domain orchestrators. When nesting fails, the skill falls back to dispatching the domain orchestrator directly.
 
-**Phase 7 implication:** With 18 domains, screw-full-review would need to dispatch 18 orchestrators. The nesting limitation means this won't work as designed. The skill should instead:
+**Phase 6 implication:** With 18 domains, screw-full-review would need to dispatch 18 orchestrators. The nesting limitation means this won't work as designed. The skill should instead:
 1. Call `list_domains` directly
 2. Dispatch each domain orchestrator in parallel via the Agent tool
 3. Consolidate results from `.screw/findings/` after all orchestrators complete
 
-**Action:** Redesign screw-full-review or remove it in Phase 7, replacing with direct orchestrator dispatch from the skill. The skill already has the routing logic. screw-full-review's only added value (consolidated executive report) can move to the skill itself.
+**Action:** Redesign screw-full-review or remove it in Phase 6, replacing with direct orchestrator dispatch from the skill. The skill already has the routing logic. screw-full-review's only added value (consolidated executive report) can move to the skill itself.
 
 **Related:** ADR-015 (write_scan_results makes file-based result collection reliable).

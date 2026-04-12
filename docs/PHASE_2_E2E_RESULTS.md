@@ -186,17 +186,17 @@ Correctly identified SSRF as CWE-918, noted it belongs to request-forgery/resour
 
 ## Known Limitations and Future Work
 
-### 1. Subagent nesting depth (Phase 7)
+### 1. Subagent nesting depth (Phase 6)
 
-Claude Code cannot nest 3+ levels of subagents (skill → screw-full-review → screw-injection). In TC-4, the skill worked around this by dispatching screw-injection directly after screw-full-review reported it couldn't nest further. This works for Phase 2 (single domain), but for Phase 7 (18 domains), the screw-review skill should dispatch domain orchestrators directly rather than going through screw-full-review.
+Claude Code cannot nest 3+ levels of subagents (skill → screw-full-review → screw-injection). In TC-4, the skill worked around this by dispatching screw-injection directly after screw-full-review reported it couldn't nest further. This works for Phase 2 (single domain), but for Phase 6 (18 domains), the screw-review skill should dispatch domain orchestrators directly rather than going through screw-full-review.
 
-**Action:** When implementing Phase 7, redesign the skill's routing to dispatch domain orchestrators directly for multi-domain scans.
+**Action:** When implementing Phase 6, redesign the skill's routing to dispatch domain orchestrators directly for multi-domain scans.
 
 ### 2. scan_domain payload size (~47k-277k tokens)
 
 The injection domain orchestrator noted that `scan_domain` responses exceed Claude Code's tool-response limits when scanning directories with many files. The subagent falls back to reading fixture files from disk via Claude Code's internal tool-result cache. Not a defect — the scan still works — but worth optimizing.
 
-**Action:** Track for Phase 4 optimization. Consider pagination, response truncation, or splitting large payloads.
+**Action:** Track for Phase 3 optimization. Consider pagination, response truncation, or splitting large payloads.
 
 ### 3. CSV output format
 
@@ -206,9 +206,9 @@ Marco requested CSV as a third output format alongside JSON and Markdown in `wri
 
 ### 4. Exclusions on benchmark fixtures suppress TP recall
 
-Recording FP exclusions on files in `benchmarks/fixtures/` will zero out true-positive recall for those files in future benchmark evaluation runs. The autoresearch loop (Phase 5) and gate evaluations must handle this.
+Recording FP exclusions on files in `benchmarks/fixtures/` will zero out true-positive recall for those files in future benchmark evaluation runs. The autoresearch loop (Phase 4) and gate evaluations must handle this.
 
-**Action:** The benchmark evaluator (`benchmarks/runner/evaluator.py`) must either: (a) ignore `.screw/learning/exclusions.yaml` during evaluation, or (b) scope exclusions so they don't apply to benchmark fixture paths. Address in Phase 5 step 5.0.
+**Action:** The benchmark evaluator (`benchmarks/runner/evaluator.py`) must either: (a) ignore `.screw/learning/exclusions.yaml` during evaluation, or (b) scope exclusions so they don't apply to benchmark fixture paths. Address in Phase 4 step 4.0.
 
 ### 5. Format output quality improvements
 
@@ -216,7 +216,7 @@ Recording FP exclusions on files in `benchmarks/fixtures/` will zero out true-po
 - **SARIF:** `shortDescription` echoes `cwe_name` verbatim — should be a full human-readable sentence once agent metadata is richer
 - **Markdown:** Section heading uses `cwe_name` (e.g. "SSTI") not full CWE long name — consider "CWE-1336 — Server-Side Template Injection" for grep-friendliness
 
-**Action:** Address as polish items in Phase 4 or when agent metadata expansion requires formatter updates.
+**Action:** Address as polish items in Phase 3 or when agent metadata expansion requires formatter updates.
 
 ---
 

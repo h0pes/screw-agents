@@ -117,7 +117,7 @@ def render_gate_report(
     out.write("## G6: Rust Disclaimer\n\n")
     if g6_passed:
         out.write("> Rust detection quality not benchmarked — see ADR-014. "
-                  "Rust corpus construction is deferred to Phase 5 (step 5.0).\n\n")
+                  "Rust corpus construction is deferred to Phase 4 (step 4.0).\n\n")
         out.write("**G6: PASS**\n\n")
     else:
         out.write("**G6: FAIL** — Rust cases were included but should not have been. "

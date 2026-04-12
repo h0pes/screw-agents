@@ -391,7 +391,7 @@ Phase 2 implements layers 1-2 of PRD §11.2:
   Layer 1: Exclusion storage in .screw/learning/exclusions.yaml
   Layer 2: Pre-scan filtering via scope-based matching
 
-Layers 3 (aggregation) and 4 (feedback loop) are Phase 4 scope.
+Layers 3 (aggregation) and 4 (feedback loop) are Phase 3 scope.
 """
 
 from __future__ import annotations
@@ -732,7 +732,7 @@ git commit -m "feat(learning): exclusion storage, loading, and scope matching
 Phase 2 step 2: learning.py with load_exclusions, record_exclusion,
 match_exclusions. Supports 5 scope types: exact_line, pattern,
 function, file, directory. Creates .screw/learning/ on first write.
-Schema matches PRD §11.2 exactly (frozen for Phase 3/4)."
+Schema matches PRD §11.2 exactly (frozen for Phase 3)."
 ```
 
 ---

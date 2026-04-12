@@ -68,7 +68,7 @@ python --version       # expect 3.11 or newer
 uv --version           # expect present
 docker --version       # expect present (Task 21)
 docker compose version # expect v2 syntax (Task 21)
-gh --version           # expect present (Phase 5 cross-reference, but useful earlier)
+gh --version           # expect present (Phase 4 cross-reference, but useful earlier)
 git --version          # expect present
 ```
 
@@ -5275,7 +5275,7 @@ These fixtures are **smoke tests only**, not validation datasets.
   against real-world CVE benchmarks from `benchmarks/external/` (see
   `benchmarks/external/manifests/*.manifest.json`).
 - **Rust fixtures carry special notes** — per ADR-014, Rust benchmark corpus
-  construction is deferred to Phase 5 because there are insufficient verified
+  construction is deferred to Phase 4 because there are insufficient verified
   real Rust CVEs for our Phase 1 injection CWEs. The Rust fixtures here model
   real Rust web framework patterns but the detection quality is not benchmarked.
 
@@ -5290,8 +5290,8 @@ Python, Java, JavaScript, TypeScript, Go, Ruby, PHP, C#, **Rust** (smoke only).
 
 ## References
 - ADR-013: CWE-1400-native benchmark evaluator (why our own runner)
-- ADR-014: Rust benchmark corpus deferred to Phase 5 (why Rust fixtures are smoke-only)
-- `docs/research/benchmark-tier4-rust-modern.md`: Phase 5 Rust corpus seed
+- ADR-014: Rust benchmark corpus deferred to Phase 4 (why Rust fixtures are smoke-only)
+- `docs/research/benchmark-tier4-rust-modern.md`: Phase 4 Rust corpus seed
 EOF
 ```
 
@@ -5301,10 +5301,10 @@ For each `benchmarks/fixtures/{xss,sqli,cmdi,ssti}/{vulnerable,safe}/rust_*.rs` 
 
 ```rust
 // --- screw-agents smoke-test fixture (not for detection benchmarking) ---
-// Per ADR-014 (docs/DECISIONS.md), Rust benchmark corpus is DEFERRED to Phase 5.
+// Per ADR-014 (docs/DECISIONS.md), Rust benchmark corpus is DEFERRED to Phase 4.
 // This file verifies MCP plumbing + tree-sitter loading + agent-YAML resolution.
 // Detection accuracy against this file is NOT part of any Phase 1 validation gate.
-// Phase 5 corpus seed: docs/research/benchmark-tier4-rust-modern.md
+// Phase 4 corpus seed: docs/research/benchmark-tier4-rust-modern.md
 // -----------------------------------------------------------------------
 ```
 
@@ -5312,10 +5312,10 @@ Do this with a Bash loop:
 
 ```bash
 HEADER='// --- screw-agents smoke-test fixture (not for detection benchmarking) ---
-// Per ADR-014 (docs/DECISIONS.md), Rust benchmark corpus is DEFERRED to Phase 5.
+// Per ADR-014 (docs/DECISIONS.md), Rust benchmark corpus is DEFERRED to Phase 4.
 // This file verifies MCP plumbing + tree-sitter loading + agent-YAML resolution.
 // Detection accuracy against this file is NOT part of any Phase 1 validation gate.
-// Phase 5 corpus seed: docs/research/benchmark-tier4-rust-modern.md
+// Phase 4 corpus seed: docs/research/benchmark-tier4-rust-modern.md
 // -----------------------------------------------------------------------
 '
 
@@ -5434,7 +5434,7 @@ achievable.
 
 Per ADR-014, the Phase 1.7 report MUST explicitly state:
 > Rust detection quality not benchmarked — see ADR-014. Rust corpus construction
-> is deferred to Phase 5 (step 5.0).
+> is deferred to Phase 4 (step 4.0).
 
 The report generator (`benchmarks/runner/report.py`) must emit this line when
 the run summary does not include any Rust-language cases.
@@ -5483,7 +5483,7 @@ Open `docs/PROJECT_STATUS.md` and make these changes:
 | 26 | Rust fixtures demoted to smoke tests with provenance headers (ADR-014) |
 | 27 | Phase 1.7 validation gates documented (`docs/PHASE_0_5_VALIDATION_GATES.md`) |
 
-All decisions tracked: ADR-013 (CWE-1400-native evaluator), ADR-014 (Rust deferred to Phase 5).
+All decisions tracked: ADR-013 (CWE-1400-native evaluator), ADR-014 (Rust deferred to Phase 4).
 Deferred Obligation D-01 (Rust corpus) still active — see "Deferred Obligations" table above.
 ```
 

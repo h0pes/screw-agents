@@ -1112,7 +1112,7 @@ This creates a **three-way feedback loop**: benchmark metrics + challenger disag
 
 ### Phase 0.5: Benchmark Infrastructure Sprint
 
-**Inserted after Phase 0 (not in the original PRD v0.4.3).** Phase 1 validation cannot rely on self-authored fixtures alone — we need real-CVE benchmarks with proper methodology. Originally, all benchmark work lived in Phase 5 (autoresearch); pulling the infrastructure subset forward to 0.5 means Phase 1 has a validation harness from day one, and Phase 5 can assume the harness exists and focus on the self-improvement loop.
+**Inserted after Phase 0 (not in the original PRD v0.4.3).** Phase 1 validation cannot rely on self-authored fixtures alone — we need real-CVE benchmarks with proper methodology. Originally, all benchmark work lived in Phase 4 (autoresearch); pulling the infrastructure subset forward to 0.5 means Phase 1 has a validation harness from day one, and Phase 4 can assume the harness exists and focus on the self-improvement loop.
 
 **The plan is in `docs/PHASE_0_5_PLAN.md`** (28 tasks, 178 steps). Summary of what it produces:
 - CWE-1400-native Python benchmark evaluator (ADR-013 — reject direct bentoo adoption due to CWE-1000 vs CWE-1400 taxonomy mismatch)
@@ -1121,7 +1121,7 @@ This creates a **three-way feedback loop**: benchmark metrics + challenger disag
 - Central active-CWE registry (`benchmarks/scripts/_active_cwes.py`) so Phase 2+ agent expansion is a one-line change
 - Validation gates for Phase 1.7 documented (`docs/PHASE_0_5_VALIDATION_GATES.md`)
 
-**Rust corpus is deferred from Phase 0.5 to Phase 5 step 5.0** (ADR-014 — insufficient verified real Rust CVEs for Phase 1 injection CWEs; the deferral is hard-gated via triple-redundant tracking: ADR-014, PRD §12 step 5.0, `docs/PROJECT_STATUS.md` Deferred Obligations D-01).
+**Rust corpus is deferred from Phase 0.5 to Phase 4 step 4.0** (ADR-014 — insufficient verified real Rust CVEs for Phase 1 injection CWEs; the deferral is hard-gated via triple-redundant tracking: ADR-014, PRD §12 step 4.0, `docs/PROJECT_STATUS.md` Deferred Obligations D-01).
 
 ### Phase 1: Core Infrastructure
 - Build MCP server skeleton (Python, FastAPI or stdio)
@@ -1139,54 +1139,43 @@ This creates a **three-way feedback loop**: benchmark metrics + challenger disag
 - **Implement persistent learning: `.screw/learning/exclusions.yaml` storage and pre-scan filtering**
 - End-to-end testing in Claude Code
 
-### Phase 3: screw.nvim Integration
-- Add `:Screw scan` commands (calls MCP server)
-- Implement review-before-import workflow:
-  - Temp report generation and display
-  - Finding triage interface (confirm/reject/investigate)
-  - **False positive reason capture during triage**
-  - Import confirmed findings to screw.nvim DB
-- SARIF bridge for findings import/export
-- **Integrate exclusions with screw.nvim's `not_vulnerable` state — auto-populate exclusions from existing notes**
-
-### Phase 4: Adaptive Analysis & Learning Refinement
+### Phase 3: Adaptive Analysis & Learning Refinement
 - **Implement adaptive analysis script generation in Claude Code subagents**
 - **Script sandboxing and persistence (`.screw/custom-scripts/`)**
 - **Human review gate for custom scripts (validated flag)**
-- **screw.nvim `:Screw scan --adaptive` flag support**
 - **Learning aggregation: false positive pattern reports and scan exclusion suggestions**
 - **Feedback loop: generate agent improvement recommendations from exclusion data**
 
-### Phase 5: Autoresearch & Self-Improvement
+### Phase 4: Autoresearch & Self-Improvement
 
-- **5.0 — Rust benchmark corpus construction from RustSec (blocked-in from Phase 0.5 per ADR-014).** *Phase 5 cannot close without this sub-step complete.*
+- **4.0 — Rust benchmark corpus construction from RustSec (blocked-in from Phase 0.5 per ADR-014).** *Phase 4 cannot close without this sub-step complete.*
   - Manually curate the ~24 verified Rust CVE candidates identified in `docs/research/benchmark-tier4-rust-modern.md` (salvo, diesel, ammonia ×3, lettre, matrix-sdk-sqlite, comrak ×2, mdbook, pagefind, cargo, vaultwarden ×2, microbin, static-web-server, rustfs, deno_doc, gix-transport, starship, grep-cli/ripgrep, aliyundrive-webdav)
   - Apply GHSA-authoritative CWE cross-reference (RustSec `categories` field is unreliable — conflates CWE-89/79/444/150/601/116)
   - Filter out the ~14 data-race crates MITRE mislabeled as CWE-77 (kekbit, bunch, dces, lexer, syncpool, etc.)
   - Build method-level ground-truth in bentoo-sarif format (kind: fail/pass, ruleId: CWE-<id>)
-  - Cover all then-active agents, not just the original 4 injection agents — by Phase 5 we will have memory safety, thread safety, crypto, and access-control agents whose CWE coverage aligns better with Rust's CVE distribution (256+ memory-class advisories, 84 DoS, 66 crypto-failure, 10 thread-safety)
+  - Cover all then-active agents, not just the original 4 injection agents — if Phase 6 (Agent Expansion) has progressed, memory safety, thread safety, crypto, and access-control agents should be included as their CWE coverage aligns better with Rust's CVE distribution (256+ memory-class advisories, 84 DoS, 66 crypto-failure, 10 thread-safety)
   - Hold out any advisory cited in an existing agent YAML from validation data (known case: diesel RUSTSEC-2024-0365 is referenced in `domains/injection-input-handling/sqli.yaml`)
   - Apply PrimeVul methodology: deduplication, chronological splits, pair-based evaluation
 
-- **5.1 — Integrate SAST benchmark suites as evaluation infrastructure.** Extends the Phase 0.5 foundation: reality-check, BenchmarkJava-mutated, ossf-cve-benchmark, CrossVul, Vul4J, go-sec-code-mutated, skf-labs-mutated
+- **4.1 — Integrate SAST benchmark suites as evaluation infrastructure.** Extends the Phase 0.5 foundation: reality-check, BenchmarkJava-mutated, ossf-cve-benchmark, CrossVul, Vul4J, go-sec-code-mutated, skf-labs-mutated
 
-- **5.2 — Build automated benchmark runner** with TPR/FPR/accuracy scoring via the CWE-1400-native Python evaluator (ADR-013)
+- **4.2 — Build automated benchmark runner** with TPR/FPR/accuracy scoring via the CWE-1400-native Python evaluator (ADR-013)
 
-- **5.3 — Implement autoresearch loop:** mutate → evaluate → gate → log → repeat (ADR-006)
+- **4.3 — Implement autoresearch loop:** mutate → evaluate → gate → log → repeat (ADR-006)
 
-- **5.4 — On-demand autoresearch mode** (`/screw autoresearch sqli --iterations 20`)
+- **4.4 — On-demand autoresearch mode** (`/screw autoresearch sqli --iterations 20`)
 
-- **5.5 — Scheduled autoresearch mode** (nightly/weekly via cron/CI)
+- **4.5 — Scheduled autoresearch mode** (nightly/weekly via cron/CI)
 
-- **5.6 — Research-triggered autoresearch mode** — new CVE ingestion triggers automatic YAML update proposals
+- **4.6 — Research-triggered autoresearch mode** — new CVE ingestion triggers automatic YAML update proposals
 
-- **5.7 — Human review gate** — research reports with proposed YAML diffs and metric changes
+- **4.7 — Human review gate** — research reports with proposed YAML diffs and metric changes
 
-- **5.8 — Build CVE-based benchmark fixtures for remaining language gaps** (Kotlin, Swift, Elixir — anything not covered by Phase 0.5 or Phase 5.0)
+- **4.8 — Build CVE-based benchmark fixtures for remaining language gaps** (Kotlin, Swift, Elixir — anything not covered by Phase 0.5 or Phase 4.0)
 
-- **5.9 — Experiment logging and history** (`.screw/autoresearch/experiments.log`)
+- **4.9 — Experiment logging and history** (`.screw/autoresearch/experiments.log`)
 
-### Phase 6: Multi-LLM Challenger System
+### Phase 5: Multi-LLM Challenger System
 - **Define provider-agnostic challenger interface (structured input/output contract)**
 - **Implement OpenAI Codex adapter (first provider)**
 - **Challenger prompt design with anti-anchoring measures**
@@ -1197,13 +1186,24 @@ This creates a **three-way feedback loop**: benchmark metrics + challenger disag
 - **Connect challenger disagreement signals to autoresearch loop (§11.3)**
 - **Prepare extensibility for additional providers (Gemini, etc.) — config-only addition**
 
-### Phase 7: Agent Expansion & Ecosystem
+### Phase 6: Agent Expansion & Ecosystem
 - Research and build Phase 2 agents (access control, crypto, path traversal, etc.)
 - Validation against diverse vulnerable codebases
 - Community contribution workflow for new agents
 - Performance optimization (parallel scanning, caching)
 - Knowledge refresh process for existing agents
 - **CI/CD integration with validated-only script execution**
+
+### Phase 7: screw.nvim Integration
+- Add `:Screw scan` commands (calls MCP server)
+- Implement review-before-import workflow:
+  - Temp report generation and display
+  - Finding triage interface (confirm/reject/investigate)
+  - **False positive reason capture during triage**
+  - Import confirmed findings to screw.nvim DB
+- SARIF bridge for findings import/export
+- **Integrate exclusions with screw.nvim's `not_vulnerable` state — auto-populate exclusions from existing notes**
+- **screw.nvim `:Screw scan --adaptive` flag support** (leverages Phase 3 adaptive scripts)
 
 ---
 
@@ -1217,14 +1217,14 @@ This creates a **three-way feedback loop**: benchmark metrics + challenger disag
 | Time to add a new vulnerability agent | <1 day (YAML only, no code) | Phase 1 |
 | Agent knowledge sources per vulnerability type | ≥5 authoritative sources | Phase 0 |
 | **False positive rate after learning (repeat scans on same project)** | **<5% (down from <20% on first scan)** | **Phase 2-3** |
-| **Adaptive script reuse rate** | **>70% of custom scripts successfully reused in subsequent sessions** | **Phase 4** |
+| **Adaptive script reuse rate** | **>70% of custom scripts successfully reused in subsequent sessions** | **Phase 3** |
 | **Triage-to-exclusion conversion rate** | **>80% of false positive triages produce reusable exclusion patterns** | **Phase 3** |
 | **Time from first scan to "clean" scan (no new FPs)** | **<3 scan cycles per project** | **Phase 3** |
-| **Autoresearch accuracy improvement per cycle** | **≥2% accuracy gain per 20-iteration research cycle** | **Phase 5** |
-| **Benchmark coverage (languages with ground-truth suites)** | **≥6 languages (Java, Python, Go, C#, Rust, TypeScript)** | **Phase 5** |
-| **Challenger agreement rate on true positives** | **>85% cross-model agreement on confirmed vulnerabilities** | **Phase 6** |
-| **Disputed findings that are actual vulnerabilities** | **>50% of disputed findings resolve as true positives after human triage** | **Phase 6** |
-| **Time to add new challenger LLM provider** | **<1 day (config + thin adapter only)** | **Phase 6** |
+| **Autoresearch accuracy improvement per cycle** | **≥2% accuracy gain per 20-iteration research cycle** | **Phase 4** |
+| **Benchmark coverage (languages with ground-truth suites)** | **≥6 languages (Java, Python, Go, C#, Rust, TypeScript)** | **Phase 4** |
+| **Challenger agreement rate on true positives** | **>85% cross-model agreement on confirmed vulnerabilities** | **Phase 5** |
+| **Disputed findings that are actual vulnerabilities** | **>50% of disputed findings resolve as true positives after human triage** | **Phase 5** |
+| **Time to add new challenger LLM provider** | **<1 day (config + thin adapter only)** | **Phase 5** |
 
 ---
 
@@ -1464,4 +1464,4 @@ screw.nvim/  (existing repo, unchanged structure)
 :Screw scan --diff main         " Scan changes vs main branch
 ```
 
-**Transport:** The MCP server communicates with screw.nvim via stdio (spawned as a subprocess) or HTTP, to be determined during Phase 3 implementation. screw.nvim already has HTTP infrastructure from its collaboration backend, but stdio is simpler for the single-user case and avoids running a persistent server.
+**Transport:** The MCP server communicates with screw.nvim via stdio (spawned as a subprocess) or HTTP, to be determined during Phase 7 implementation. screw.nvim already has HTTP infrastructure from its collaboration backend, but stdio is simpler for the single-user case and avoids running a persistent server.

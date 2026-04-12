@@ -19,7 +19,7 @@ These define WHAT the vulnerabilities are. Every agent references these for CWE 
 | CWE Full Database | https://cwe.mitre.org/                                                    | Extract full XML entries for each agent's primary CWEs. Include relationships (parent/child CWEs, related weaknesses). Use CWE-1400 view for domain assignment. |
 | OWASP ASVS v5.0   | https://owasp.org/www-project-application-security-verification-standard/ | Map each agent to specific ASVS verification requirements. These become testable assertions in the agent prompt.                                                |
 | CAPEC             | https://capec.mitre.org/                                                  | Extract attack patterns linked to each CWE. These inform the "bypass techniques" and "exploitability" sections of agent definitions.                            |
-| OWASP MASVS v2.1  | https://mas.owasp.org/MASVS/                                              | Mobile-specific overlay. Defer to Phase 3+ unless specifically needed.                                                                                          |
+| OWASP MASVS v2.1  | https://mas.owasp.org/MASVS/                                              | Mobile-specific overlay. Defer to Phase 6+ unless specifically needed.                                                                                          |
 
 ### Tier 2 — Testing Methodology (What To Look For)
 

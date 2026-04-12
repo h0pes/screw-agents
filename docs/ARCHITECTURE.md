@@ -20,7 +20,7 @@ screw-agents is a modular, AI-powered secure code review system. It provides ded
 │  └────────────────────────────────────────────────────────┘  │
 │                                                              │
 │  Benchmark Evaluator (benchmarks/runner/)                    │
-│  Autoresearch Loop (Phase 5)                                 │
+│  Autoresearch Loop (Phase 4)                                 │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -45,15 +45,15 @@ This is the most important architectural concept to understand. The system is de
 ```
  PER-VULNERABILITY (repeat for each new vuln):
  ├── Phase 0:   Knowledge Research — research, synthesize, write agent YAML
- └── Phase 2-4: Agent authoring — subagent wrappers, skills, testing
+ └── Phase 2-3: Agent authoring — subagent wrappers, skills, testing
                  (one-line _active_cwes.py edit to light up benchmarks)
 
  ONE-TIME INFRASTRUCTURE (build once, benefits all vulns):
  ├── Phase 0.5: Benchmark infrastructure — evaluator, ingest harness, datasets
  ├── Phase 1:   MCP server — registry, resolver, formatter
- ├── Phase 5:   Autoresearch loop — self-improvement, experiment logging
- ├── Phase 6:   Multi-LLM challenger — provider-agnostic disagreement analysis
- └── Phase 7:   Agent expansion tooling — CI/CD, community workflow
+ ├── Phase 4:   Autoresearch loop — self-improvement, experiment logging
+ ├── Phase 5:   Multi-LLM challenger — provider-agnostic disagreement analysis
+ └── Phase 6:   Agent expansion tooling — CI/CD, community workflow
 ```
 
 ### How a New Vulnerability Plugs In
@@ -161,8 +161,8 @@ Thin orchestration wrappers calling MCP tools:
 
 Per-project persistent state in the target repository:
 - `findings/`: Scan results
-- `learning/exclusions.yaml`: False positive patterns (Phase 2-3)
-- `custom-scripts/`: Adaptive analysis scripts (Phase 4)
+- `learning/exclusions.yaml`: False positive patterns (Phase 2)
+- `custom-scripts/`: Adaptive analysis scripts (Phase 3)
 
 ---
 
@@ -182,13 +182,13 @@ See `docs/PRD.md` §9 for the full taxonomy mapping and `docs/DECISIONS.md` ADR-
 |---|---|---|---|
 | Phase 0 | Per-vuln | Knowledge Research | Complete (4 agents) |
 | Phase 0.5 | **One-time** | Benchmark Infrastructure | **Complete** |
-| Phase 1 | **One-time** | MCP Server + Registry + Resolver + Formatter | **Next** |
-| Phase 2 | Per-vuln | Claude Code Integration (subagents, skills, FP learning) | Pending |
-| Phase 3 | **One-time** | screw.nvim Integration | Pending |
-| Phase 4 | **One-time** | Adaptive Analysis & Learning | Pending |
-| Phase 5 | **One-time** | Autoresearch & Self-Improvement | Pending |
-| Phase 6 | **One-time** | Multi-LLM Challenger | Pending |
-| Phase 7 | Mixed | Agent Expansion (per-vuln) + Ecosystem (one-time) | Pending |
+| Phase 1 | **One-time** | MCP Server + Registry + Resolver + Formatter | **Complete** |
+| Phase 2 | Per-vuln | Claude Code Integration (subagents, skills, FP learning) | **Complete** |
+| Phase 3 | **One-time** | Adaptive Analysis & Learning | **Next** |
+| Phase 4 | **One-time** | Autoresearch & Self-Improvement | Pending |
+| Phase 5 | **One-time** | Multi-LLM Challenger | Pending |
+| Phase 6 | Mixed | Agent Expansion (per-vuln) + Ecosystem (one-time) | Pending |
+| Phase 7 | **One-time** | screw.nvim Integration | Pending |
 
 See `docs/PRD.md` §12 for detailed phase descriptions and `docs/PROJECT_STATUS.md` for current state.
 

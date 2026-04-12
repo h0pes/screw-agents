@@ -325,11 +325,11 @@
 | Phase | Agents | Domains Touched | Status |
 |---|---|---|---|
 | **0** (research) | sqli, cmdi, ssti, xss | 1 (injection) | **Complete** |
-| **2** (expansion) | xpath, deserialization, broken_access, ssrf, weak_crypto, hardcoded_secrets, auth_failures, path_traversal, sensitive_data | 5 (injection, access-control, cryptography, protection-mechanism, file-handling, sensitive-info) | **Agent YAML: Phase 7. Subagent .md: Phase 2 only for existing 4 agents** |
+| **2** (expansion) | xpath, deserialization, broken_access, ssrf, weak_crypto, hardcoded_secrets, auth_failures, path_traversal, sensitive_data | 5 (injection, access-control, cryptography, protection-mechanism, file-handling, sensitive-info) | **Agent YAML: Phase 6. Subagent .md: Phase 2 only for existing 4 agents** |
 | **3+** | xxe, unsafe_reflection, error_handling, race_condition, csrf, jwt_validation, resource_exhaustion, insecure_design, ldap_injection, nosql_injection, header_injection, log_injection, log_leakage, buffer_overflow, use_after_free, null_deref | 10 | Planned |
-| **7** (full coverage) | type_confusion, regex_dos, open_redirect, resource_exposure, file_upload, integer_overflow, control_flow, resource_leak, insecure_random | 7 | Planned |
+| **6** (full coverage) | type_confusion, regex_dos, open_redirect, resource_exposure, file_upload, integer_overflow, control_flow, resource_leak, insecure_random | 7 | Planned |
 
-> **Clarification on "Phase 2" overloading:** The PRD uses "Phase 2" in two contexts: (a) Phase 2 of the *implementation plan* = Claude Code Integration (subagents, skills, filesystem output) for the existing 4 agents; (b) "Phase 2 agents" in §9 = the next 8 agent YAMLs to be researched. The YAML research for expansion agents happens in Phase 7 (Agent Expansion). Phase 2 of the implementation plan builds Claude Code integration for whatever agents exist at the time (currently 4).
+> **Clarification on "Phase 2" overloading:** The PRD uses "Phase 2" in two contexts: (a) Phase 2 of the *implementation plan* = Claude Code Integration (subagents, skills, filesystem output) for the existing 4 agents; (b) "Phase 2 agents" in §9 = the next 8 agent YAMLs to be researched. The YAML research for expansion agents happens in Phase 6 (Agent Expansion). Phase 2 of the implementation plan builds Claude Code integration for whatever agents exist at the time (currently 4).
 
 ---
 
@@ -342,4 +342,4 @@ The PRD mentions OWASP MASVS-based mobile agents as a future overlay, not a CWE-
 | `insecure_storage` | MASVS-STORAGE | File Handling, Sensitive Info |
 | `insecure_communication` | MASVS-NETWORK | Cryptography, Exposed Resource |
 
-These are Phase 7+ and depend on mobile-specific benchmark availability.
+These are Phase 6+ and depend on mobile-specific benchmark availability.

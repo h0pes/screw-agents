@@ -1,8 +1,8 @@
 // --- screw-agents smoke-test fixture (not for detection benchmarking) ---
-// Per ADR-014 (docs/DECISIONS.md), Rust benchmark corpus is DEFERRED to Phase 5.
+// Per ADR-014 (docs/DECISIONS.md), Rust benchmark corpus is DEFERRED to Phase 4.
 // This file verifies MCP plumbing + tree-sitter loading + agent-YAML resolution.
 // Detection accuracy against this file is NOT part of any Phase 1 validation gate.
-// Phase 5 corpus seed: docs/research/benchmark-tier4-rust-modern.md
+// Phase 4 corpus seed: docs/research/benchmark-tier4-rust-modern.md
 // -----------------------------------------------------------------------
 // Fixture: rust-tera-render-file — Tera render() with registered file template and user data in context
 // Expected: TRUE NEGATIVE (must NOT be flagged)

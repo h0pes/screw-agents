@@ -3294,7 +3294,7 @@ CLI entry point: screw-agents --transport stdio"
 **Files:**
 - Modify: `src/screw_agents/server.py`
 
-**Context:** HTTP transport enables screw.nvim (Phase 3) and CI/CD integration. Uses the MCP SDK's Streamable HTTP support via Starlette/uvicorn (already dependencies of `mcp`).
+**Context:** HTTP transport enables screw.nvim (Phase 7) and CI/CD integration. Uses the MCP SDK's Streamable HTTP support via Starlette/uvicorn (already dependencies of `mcp`).
 
 - [ ] **Step 1: Write a test for HTTP server creation**
 

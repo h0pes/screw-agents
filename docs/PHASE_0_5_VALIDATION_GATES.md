@@ -71,7 +71,7 @@ achievable.
 
 Per ADR-014, the Phase 1.7 report MUST explicitly state:
 > Rust detection quality not benchmarked — see ADR-014. Rust corpus construction
-> is deferred to Phase 5 (step 5.0).
+> is deferred to Phase 4 (step 4.0).
 
 The report generator (`benchmarks/runner/report.py`) must emit this line when
 the run summary does not include any Rust-language cases.
