@@ -247,9 +247,9 @@ def load_config(project_root: Path) -> ScrewConfig:
 
     if not config_path.exists():
         screw_dir.mkdir(parents=True, exist_ok=True)
-        config_path.write_text(_CONFIG_STUB_TEMPLATE)
+        config_path.write_text(_CONFIG_STUB_TEMPLATE, encoding="utf-8")
 
-    raw_text = config_path.read_text()
+    raw_text = config_path.read_text(encoding="utf-8")
 
     try:
         data = yaml.safe_load(raw_text)
