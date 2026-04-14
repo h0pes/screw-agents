@@ -72,6 +72,7 @@ select = ["E", "F", "W", "I", "S", "B", "UP"]
 [tool.pytest.ini_options]
 testpaths = ["tests", "benchmarks/tests"]
 pythonpath = ["."]
+addopts = "--import-mode=importlib"
 
 [tool.mypy]
 python_version = "3.11"
