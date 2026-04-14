@@ -2673,6 +2673,7 @@ Before merging PR #1:
   8. Re-run scan: Markdown report shows "1 exclusion quarantined"
   9. `uv run screw-agents validate-exclusion fp-2026-04-14-001`
   10. Re-run scan: exclusion is trusted again
+- [ ] **Downstream impact review**: open `docs/PHASE_3B_PLAN.md` and scan the "Upstream Dependencies from Phase 3a" section. Reconcile any PR #1 changes (trust module signatures, `ScrewConfig` shape, Exclusion model fields, `verify_script` signature, CLI subcommand names, `.screw/config.yaml` schema) against the 3b tasks that reference them. If any drift exists, update `PHASE_3B_PLAN.md` in the same commit or a targeted follow-up.
 - [ ] PR #1 description references Phase 3a spec §4, §5, §7.1
 
 ---
@@ -3671,6 +3672,7 @@ git commit -m "test(phase3a): end-to-end integration test for aggregation flow"
 
 - [ ] All tests green: `uv run pytest tests/test_aggregation.py tests/test_aggregate_learning_tool.py tests/test_aggregation_integration.py -v`
 - [ ] Manual test: In Claude Code, `/screw:learning-report` produces a report section or a "no patterns yet" message
+- [ ] **Downstream impact review**: open `docs/PHASE_3B_PLAN.md` and scan the "Upstream Dependencies from Phase 3a" section. Reconcile any PR #2 changes (`aggregate_learning` MCP tool schema, aggregation Pydantic model shapes, `screw-learning-analyst` subagent description, FPReport structure) against 3b tasks. 3b's script rejection flow feeds rejection reasons into the FP report — verify the data-flow contract still holds.
 - [ ] PR #2 description references Phase 3a spec §7.2
 
 ---
@@ -4863,6 +4865,7 @@ git commit -m "test(phase3a): E2E coverage for PR #3 carryover cleanup"
 - [ ] Phase 2 regression tests still green
 - [ ] Manual test in Claude Code: `/screw:scan sqli benchmarks/fixtures/sqli/vulnerable/` on a large fixture directory completes without token-limit errors
 - [ ] Manual test: `write_scan_results` with `format: "csv"` produces a valid CSV file under `.screw/findings/`
+- [ ] **Downstream impact review**: open `docs/PHASE_3B_PLAN.md` and scan the "Upstream Dependencies from Phase 3a" section. Reconcile any PR #3 changes (`scan_domain` cursor pagination signature, `Finding.impact`/`Finding.exploitability` being `None`, `format_csv` availability in `write_scan_results`, SARIF `shortDescription` shape, Markdown CWE-naming convention) against 3b tasks that reference them. 3b's adaptive findings flow through the same `Finding` model and `write_scan_results` tool — any schema drift must be mirrored.
 - [ ] PR #3 description references Phase 3a spec §7.3
 
 ---
