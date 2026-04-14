@@ -8,7 +8,7 @@ metadata.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -235,6 +235,30 @@ class Exclusion(ExclusionInput):
     created: str  # ISO8601
     times_suppressed: int = 0
     last_suppressed: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Project Configuration Models (Phase 3a — trust infrastructure)
+# ---------------------------------------------------------------------------
+
+
+class ReviewerKey(BaseModel):
+    """A single trusted reviewer's identity and public key."""
+
+    name: str
+    email: str
+    key: str  # SSH public key in OpenSSH format (e.g., "ssh-ed25519 AAAA... user@host")
+
+
+class ScrewConfig(BaseModel):
+    """Project-level screw-agents configuration stored in .screw/config.yaml."""
+
+    version: int = 1
+    exclusion_reviewers: list[ReviewerKey] = []
+    script_reviewers: list[ReviewerKey] = []
+    adaptive: bool = False
+    legacy_unsigned_exclusions: Literal["reject", "warn", "allow"] = "reject"
+    trusted_reviewers_file: str | None = None
 
 
 class Finding(BaseModel):

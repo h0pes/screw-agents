@@ -181,6 +181,8 @@ from screw_agents.models import (
     ExclusionInput,
     ExclusionScope,
     FindingTriage,
+    ReviewerKey,
+    ScrewConfig,
 )
 
 
@@ -267,3 +269,46 @@ class TestFindingTriageExclusionFields:
         t = FindingTriage(excluded=True, exclusion_ref="fp-2026-04-11-001")
         assert t.excluded is True
         assert t.exclusion_ref == "fp-2026-04-11-001"
+
+
+def test_reviewer_key_roundtrip():
+    key = ReviewerKey(
+        name="Marco",
+        email="marco@example.com",
+        key="ssh-ed25519 AAAAC3Nz... marco@arch",
+    )
+    assert key.name == "Marco"
+    assert key.email == "marco@example.com"
+    assert key.key.startswith("ssh-ed25519 ")
+
+
+def test_screw_config_defaults():
+    config = ScrewConfig()
+    assert config.version == 1
+    assert config.exclusion_reviewers == []
+    assert config.script_reviewers == []
+    assert config.adaptive is False
+    assert config.legacy_unsigned_exclusions == "reject"
+    assert config.trusted_reviewers_file is None
+
+
+def test_screw_config_with_reviewers():
+    config = ScrewConfig(
+        exclusion_reviewers=[
+            ReviewerKey(name="Marco", email="marco@example.com", key="ssh-ed25519 X marco@arch"),
+        ],
+        script_reviewers=[
+            ReviewerKey(name="Marco", email="marco@example.com", key="ssh-ed25519 X marco@arch"),
+        ],
+        adaptive=True,
+    )
+    assert len(config.exclusion_reviewers) == 1
+    assert config.adaptive is True
+
+
+def test_screw_config_rejects_invalid_legacy_policy():
+    import pytest
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        ScrewConfig(legacy_unsigned_exclusions="nonsense")
