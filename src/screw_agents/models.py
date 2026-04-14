@@ -236,6 +236,16 @@ class Exclusion(ExclusionInput):
     times_suppressed: int = 0
     last_suppressed: str | None = None
 
+    # new in Phase 3a — signing
+    signed_by: str | None = None
+    signature: str | None = None
+    signature_version: int = 1
+
+    # runtime flag (not persisted to YAML)
+    quarantined: bool = False
+
+    model_config = {"extra": "forbid"}
+
 
 # ---------------------------------------------------------------------------
 # Project Configuration Models (Phase 3a — trust infrastructure)

@@ -310,3 +310,43 @@ def test_screw_config_with_reviewers():
 def test_screw_config_rejects_invalid_legacy_policy():
     with pytest.raises(ValidationError):
         ScrewConfig(legacy_unsigned_exclusions="nonsense")
+
+
+def test_exclusion_signing_fields_optional():
+    """Phase 2 exclusions without signatures still parse (backwards compat)."""
+    excl = Exclusion(
+        id="fp-2026-04-14-001",
+        created="2026-04-14T10:00:00Z",
+        agent="sqli",
+        finding=ExclusionFinding(
+            file="src/services/user_service.py",
+            line=42,
+            code_pattern="db.text_search(*)",
+            cwe="CWE-89",
+        ),
+        reason="uses parameterized internals",
+        scope=ExclusionScope(type="pattern", pattern="db.text_search(*)"),
+    )
+    assert excl.signed_by is None
+    assert excl.signature is None
+    assert excl.signature_version == 1
+    assert excl.quarantined is False
+
+
+def test_exclusion_with_signing_fields():
+    excl = Exclusion(
+        id="fp-2026-04-14-002",
+        created="2026-04-14T10:00:00Z",
+        agent="sqli",
+        finding=ExclusionFinding(
+            file="src/auth.py", line=12, code_pattern="*", cwe="CWE-89"
+        ),
+        reason="test",
+        scope=ExclusionScope(type="exact_line", path="src/auth.py"),
+        signed_by="marco@example.com",
+        signature="U1NIU0lH...",
+        signature_version=1,
+    )
+    assert excl.signed_by == "marco@example.com"
+    assert excl.signature is not None
+    assert excl.quarantined is False
