@@ -24,14 +24,19 @@ from __future__ import annotations
 import base64
 import json
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+import yaml
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PrivateKey,
     Ed25519PublicKey,
 )
+from pydantic import ValidationError
 
-from screw_agents.models import Exclusion
+from screw_agents.models import Exclusion, ScrewConfig
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 # Public re-exports.
 __all__ = [
@@ -40,6 +45,7 @@ __all__ = [
     "VerificationResult",
     "canonicalize_exclusion",
     "canonicalize_script",
+    "load_config",
     "sign_content",
     "verify_signature",
 ]
@@ -62,6 +68,40 @@ _SCRIPT_META_CANONICAL_EXCLUDE = {
     "signature",
     "signature_version",
 }
+
+
+# Auto-generated .screw/config.yaml stub written on first run when no config
+# exists. Defaults to `legacy_unsigned_exclusions: reject` — fail-safe. Users
+# must explicitly opt into applying their Phase 2 unsigned exclusions by
+# running `screw-agents init-trust` followed by `screw-agents migrate-exclusions`.
+_CONFIG_STUB_TEMPLATE = """\
+# screw-agents project configuration
+# See https://github.com/h0pes/screw-agents for the trust model details.
+#
+# Exclusion and script signing are SEPARATE trust domains (split lists).
+# To register your local SSH key, run: `screw-agents init-trust`.
+
+version: 1
+
+# Reviewers authorized to sign .screw/learning/exclusions.yaml entries.
+# Populated by `screw-agents init-trust`. Each entry is {name, email, key}
+# where `key` is an OpenSSH-format ed25519 public key.
+exclusion_reviewers: []
+
+# Reviewers authorized to sign .screw/custom-scripts/*.py adaptive scripts
+# (Phase 3b feature). Leave empty until adaptive scripts are enabled.
+script_reviewers: []
+
+# Adaptive analysis mode (Phase 3b). Default: false.
+adaptive: false
+
+# Policy for legacy unsigned exclusions (from Phase 2 before signing existed):
+#   reject  — quarantine unsigned entries; user must re-sign via
+#             `screw-agents migrate-exclusions` (safest, default)
+#   warn    — apply unsigned entries with a loud warning (90-day window)
+#   allow   — silently apply unsigned entries (NOT RECOMMENDED)
+legacy_unsigned_exclusions: reject
+"""
 
 
 def canonicalize_exclusion(exclusion: Exclusion) -> bytes:
@@ -176,3 +216,53 @@ def _fingerprint_public_key(public_key: Ed25519PublicKey) -> str:
     )
     digest = hashlib.sha256(raw).digest()
     return base64.b64encode(digest).decode("ascii")[:16]
+
+
+def load_config(project_root: Path) -> ScrewConfig:
+    """Load .screw/config.yaml into a ScrewConfig, auto-generating a stub if missing.
+
+    Behavior:
+    - If `.screw/` does not exist, create it (mkdir parents=True, exist_ok=True).
+    - If `.screw/config.yaml` does not exist, write the stub template and load it.
+    - If the file exists but is malformed YAML, raise `ValueError` with the
+      config file path and the parser's line/column context.
+    - If the file parses but fails `ScrewConfig` validation, raise `ValueError`
+      with the config file path and the pydantic error detail.
+
+    The fail-safe stub defaults to `legacy_unsigned_exclusions: reject` — no
+    Phase 2 exclusions are applied until the user signs them via
+    `screw-agents migrate-exclusions`.
+
+    Args:
+        project_root: project root directory (Path).
+
+    Returns:
+        Parsed `ScrewConfig`. On first run this is the defaults from the stub.
+
+    Raises:
+        ValueError: if the file exists but is malformed or schema-invalid.
+    """
+    screw_dir = project_root / ".screw"
+    config_path = screw_dir / "config.yaml"
+
+    if not config_path.exists():
+        screw_dir.mkdir(parents=True, exist_ok=True)
+        config_path.write_text(_CONFIG_STUB_TEMPLATE)
+
+    raw_text = config_path.read_text()
+
+    try:
+        data = yaml.safe_load(raw_text)
+    except yaml.YAMLError as exc:
+        # YAMLError's str() includes "in <unicode string>, line N, column M" which
+        # is the line-number context we promise in the docstring/tests.
+        raise ValueError(f"Malformed YAML in {config_path}: {exc}") from exc
+
+    if data is None:
+        # Empty file (whitespace-only, comments-only) — treat as defaults.
+        data = {}
+
+    try:
+        return ScrewConfig.model_validate(data)
+    except ValidationError as exc:
+        raise ValueError(f"Invalid schema in {config_path}: {exc}") from exc

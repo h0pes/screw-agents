@@ -228,3 +228,120 @@ def test_verify_signature_empty_allowed_keys():
     result = verify_signature(canonical, signature, public_keys=[])
     assert result.valid is False
     assert "no trusted keys" in result.reason.lower()
+
+
+def test_load_config_generates_stub_when_missing(tmp_path: Path):
+    """First-run scenario: .screw/ exists but config.yaml does not → auto-generate stub."""
+    from screw_agents.trust import load_config
+    from screw_agents.models import ScrewConfig
+
+    project_root = tmp_path
+    screw_dir = project_root / ".screw"
+    screw_dir.mkdir()
+
+    config = load_config(project_root)
+
+    assert isinstance(config, ScrewConfig)
+    assert config.version == 1
+    assert config.legacy_unsigned_exclusions == "reject"
+    assert config.exclusion_reviewers == []
+    assert config.script_reviewers == []
+    assert config.adaptive is False
+
+    # The stub file was written to disk
+    config_file = screw_dir / "config.yaml"
+    assert config_file.exists()
+    content = config_file.read_text()
+    assert "version:" in content
+    assert "legacy_unsigned_exclusions" in content
+    # Auto-generated stub must include a helpful comment pointing at init-trust
+    assert "init-trust" in content.lower() or "screw-agents" in content.lower()
+
+
+def test_load_config_creates_screw_dir_when_missing(tmp_path: Path):
+    """Very-first-run: neither .screw/ nor config.yaml exists → create both."""
+    from screw_agents.trust import load_config
+
+    project_root = tmp_path
+    # .screw/ does not exist at all
+
+    config = load_config(project_root)
+
+    assert (project_root / ".screw").is_dir()
+    assert (project_root / ".screw" / "config.yaml").exists()
+    assert config.version == 1
+
+
+def test_load_config_parses_valid_file(tmp_path: Path):
+    """Existing .screw/config.yaml with valid content is parsed into ScrewConfig."""
+    from screw_agents.trust import load_config
+
+    project_root = tmp_path
+    screw_dir = project_root / ".screw"
+    screw_dir.mkdir()
+    config_file = screw_dir / "config.yaml"
+    config_file.write_text(
+        """
+version: 1
+adaptive: true
+legacy_unsigned_exclusions: warn
+exclusion_reviewers:
+  - name: Marco
+    email: marco@example.com
+    key: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIexample marco@arch
+script_reviewers:
+  - name: Marco
+    email: marco@example.com
+    key: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIexample marco@arch
+"""
+    )
+
+    config = load_config(project_root)
+
+    assert config.version == 1
+    assert config.adaptive is True
+    assert config.legacy_unsigned_exclusions == "warn"
+    assert len(config.exclusion_reviewers) == 1
+    assert config.exclusion_reviewers[0].name == "Marco"
+    assert config.exclusion_reviewers[0].email == "marco@example.com"
+    assert config.exclusion_reviewers[0].key.startswith("ssh-ed25519 ")
+    assert len(config.script_reviewers) == 1
+
+
+def test_load_config_rejects_malformed_yaml(tmp_path: Path):
+    """Malformed YAML → ValueError pointing at the bad field with line number context."""
+    import pytest
+
+    from screw_agents.trust import load_config
+
+    project_root = tmp_path
+    screw_dir = project_root / ".screw"
+    screw_dir.mkdir()
+    config_file = screw_dir / "config.yaml"
+    # Unclosed bracket is a classic YAML parse error
+    config_file.write_text("version: [unclosed\nadaptive: true\n")
+
+    with pytest.raises(ValueError) as exc_info:
+        load_config(project_root)
+
+    # Error message must include the config file path for debuggability
+    assert "config.yaml" in str(exc_info.value)
+
+
+def test_load_config_rejects_invalid_schema(tmp_path: Path):
+    """YAML parses but violates the ScrewConfig schema → ValueError."""
+    import pytest
+
+    from screw_agents.trust import load_config
+
+    project_root = tmp_path
+    screw_dir = project_root / ".screw"
+    screw_dir.mkdir()
+    config_file = screw_dir / "config.yaml"
+    # legacy_unsigned_exclusions must be Literal["reject", "warn", "allow"]
+    config_file.write_text("version: 1\nlegacy_unsigned_exclusions: nonsense\n")
+
+    with pytest.raises(ValueError) as exc_info:
+        load_config(project_root)
+
+    assert "config.yaml" in str(exc_info.value) or "legacy_unsigned_exclusions" in str(exc_info.value)
