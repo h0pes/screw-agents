@@ -19,6 +19,9 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from screw_agents.models import Exclusion, ExclusionInput, ScrewConfig
 from screw_agents.trust import (
+    _find_matching_reviewer,
+    _fingerprint_public_key,
+    _load_public_keys_with_reviewers,
     _public_key_to_openssh_line,
     canonicalize_exclusion,
     load_config,
@@ -161,13 +164,12 @@ def record_exclusion(project_root: Path, exclusion: ExclusionInput) -> Exclusion
     format fp-YYYY-MM-DD-NNN (sequential per day). Signs the canonical form with
     the local Ed25519 key (auto-generated in .screw/local/keys/ on first use).
 
-    The `signed_by` field is set to the first exclusion_reviewer's email from
-    .screw/config.yaml, OR to a fallback `local@<project_name>` string if no
-    reviewers are registered yet. Under Task 7.1 Model A verification, the
-    chosen signer_email MUST match an entry in exclusion_reviewers for the
-    round-trip to verify cleanly — the `init-trust` CLI (Task 12) is responsible
-    for making that match. This function does NOT auto-register keys into
-    config.yaml; that is an explicit action.
+    The `signed_by` field is set to the email of the reviewer whose public key
+    fingerprint matches the local signing key. This matches Task 7.1 Model A
+    verification semantics — the claimed signer must actually own the signing
+    key. If no reviewer matches (pre-`init-trust`), fall back to
+    `local@<project_name>` and accept that the entry will be quarantined on
+    reload until the key is registered.
     """
     path = project_root / _EXCLUSIONS_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -181,12 +183,28 @@ def record_exclusion(project_root: Path, exclusion: ExclusionInput) -> Exclusion
     next_seq = len(today_ids) + 1
     exclusion_id = f"{today_prefix}{next_seq:03d}"
 
-    # Determine the signer identity from config.yaml's first exclusion_reviewer,
-    # or fall back to a project-local string if no reviewers are registered yet.
+    # Load the local signing key FIRST so we can pick the matching reviewer.
+    priv, _pub_line = _get_or_create_local_private_key(project_root)
+
+    # Determine the signer identity by matching the local key's fingerprint to
+    # a reviewer entry in config.yaml. Under Task 7.1's Model A verification,
+    # `signed_by` must equal the email of the reviewer whose key matches this
+    # signature — otherwise reload triggers an identity mismatch and quarantine.
     config = load_config(project_root)
-    if config.exclusion_reviewers:
-        signer_email = config.exclusion_reviewers[0].email
+    keys_with_reviewers, _dropped = _load_public_keys_with_reviewers(
+        config.exclusion_reviewers
+    )
+    local_fingerprint = _fingerprint_public_key(priv.public_key())
+    matching_reviewer = _find_matching_reviewer(
+        local_fingerprint, keys_with_reviewers
+    )
+
+    if matching_reviewer is not None:
+        signer_email = matching_reviewer.email
     else:
+        # Pre-init-trust: no reviewer's key matches our local key. The entry
+        # will be quarantined on reload until `screw-agents init-trust` registers
+        # this machine's key in exclusion_reviewers.
         signer_email = f"local@{project_root.name}"
 
     saved = Exclusion(
@@ -203,8 +221,7 @@ def record_exclusion(project_root: Path, exclusion: ExclusionInput) -> Exclusion
         signature_version=1,
     )
 
-    # Sign the canonical form with the local Ed25519 key
-    priv, _pub_line = _get_or_create_local_private_key(project_root)
+    # Sign the canonical form with the local Ed25519 key (loaded above)
     canonical = canonicalize_exclusion(saved)
     saved.signature = sign_content(canonical, private_key=priv)
 

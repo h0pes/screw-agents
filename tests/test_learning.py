@@ -410,3 +410,78 @@ exclusion_reviewers:
         assert key_dir.exists()
         # At least one key file was written
         assert any(key_dir.iterdir())
+
+    def test_record_exclusion_multi_reviewer_picks_matching_key(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """With multiple reviewers, record_exclusion must pick the reviewer whose key
+        actually matches the local signing key — NOT blindly pick exclusion_reviewers[0].
+
+        Scenario: config has [Marco, Alice]. Alice is the machine owner (her key is
+        the local signing key). Under the first-reviewer heuristic, signed_by would
+        be set to marco@example.com, then Model A identity check would fail on reload
+        (signature matches Alice's key, but claim says Marco). The fingerprint-based
+        selector picks Alice correctly.
+        """
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+        from screw_agents.learning import (
+            _get_or_create_local_private_key,
+            load_exclusions,
+            record_exclusion,
+        )
+        from screw_agents.models import ExclusionFinding, ExclusionInput, ExclusionScope
+        from screw_agents.trust import _public_key_to_openssh_line
+
+        monkeypatch.setenv("SCREW_FORCE_LOCAL_KEY", "1")
+
+        # Generate a "marco" key that is NOT the local key
+        marco_priv = Ed25519PrivateKey.generate()
+        marco_pub_line = _public_key_to_openssh_line(
+            marco_priv.public_key(), comment="marco@test"
+        )
+
+        # Generate the local key — this is what record_exclusion will sign with
+        _local_priv, local_pub_line = _get_or_create_local_private_key(tmp_path)
+
+        # Register BOTH reviewers in config.yaml, with Marco FIRST and Alice (local) SECOND.
+        # The first-reviewer heuristic would pick Marco (wrong); fingerprint matching must pick Alice.
+        alice_email = f"alice@{tmp_path.name}"
+        screw_dir = tmp_path / ".screw"
+        screw_dir.mkdir(parents=True, exist_ok=True)
+        (screw_dir / "config.yaml").write_text(
+            f"""version: 1
+legacy_unsigned_exclusions: reject
+exclusion_reviewers:
+  - name: Marco
+    email: marco@example.com
+    key: "{marco_pub_line}"
+  - name: Alice
+    email: {alice_email}
+    key: "{local_pub_line}"
+""",
+            encoding="utf-8",
+        )
+
+        excl_input = ExclusionInput(
+            agent="sqli",
+            finding=ExclusionFinding(
+                file="src/a.py", line=10, code_pattern="*", cwe="CWE-89"
+            ),
+            reason="test multi-reviewer fingerprint selection",
+            scope=ExclusionScope(type="exact_line", path="src/a.py"),
+        )
+
+        saved = record_exclusion(tmp_path, excl_input)
+
+        # The first-reviewer heuristic would have picked marco@example.com (WRONG).
+        # Fingerprint-based logic picks Alice because HER key matches the local key.
+        assert saved.signed_by == alice_email
+        assert saved.signed_by != "marco@example.com"
+
+        # Round-trip: Model A identity cross-check succeeds because Alice's signature
+        # matches Alice's claimed email.
+        loaded = load_exclusions(tmp_path)
+        assert len(loaded) == 1
+        assert loaded[0].quarantined is False
+        assert loaded[0].signed_by == alice_email
