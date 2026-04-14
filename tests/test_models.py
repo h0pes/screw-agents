@@ -2,6 +2,7 @@
 
 import yaml
 import pytest
+from pydantic import ValidationError
 
 from screw_agents.models import AgentDefinition, AgentMeta, CWEs
 
@@ -307,8 +308,5 @@ def test_screw_config_with_reviewers():
 
 
 def test_screw_config_rejects_invalid_legacy_policy():
-    import pytest
-    from pydantic import ValidationError
-
     with pytest.raises(ValidationError):
         ScrewConfig(legacy_unsigned_exclusions="nonsense")
