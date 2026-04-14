@@ -14,16 +14,19 @@ Fallback signing path: Python `cryptography` Ed25519 when OpenSSH is not availab
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any
 
 from screw_agents.models import Exclusion
 
 # Canonical form excludes these keys when hashing/signing exclusions.
+# signature_version is INCLUDED in the canonical form on purpose: changing the
+# version flips the canonical bytes and invalidates the signature, preventing
+# silent version downgrade attacks (e.g., "downgrade v2 to v1 to exploit a
+# weaker verifier"). Only the signature material itself and runtime flags are
+# excluded.
 _EXCLUSION_CANONICAL_EXCLUDE = {
     "signed_by",
     "signature",
-    "signature_version",
     "quarantined",
 }
 
