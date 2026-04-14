@@ -132,3 +132,36 @@ def test_canonicalize_script_handles_unicode():
     parsed = json.loads(out.decode("utf-8"))
     assert parsed["meta"]["name"] == "тест"
     assert parsed["meta"]["emoji"] == "🔒"
+
+
+def test_sign_content_returns_base64_signature(tmp_path: Path):
+    # Generate a throwaway Ed25519 SSH key for the test using cryptography.
+    # Test covers the cryptography-fallback path directly to avoid depending on
+    # ssh-keygen being on PATH in CI.
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    priv = Ed25519PrivateKey.generate()
+
+    from screw_agents.trust import sign_content
+
+    canonical = b"test content to sign"
+    signature = sign_content(canonical, private_key=priv, key_comment="test@example")
+
+    assert isinstance(signature, str)
+    assert len(signature) > 0
+    # Cryptography fallback emits base64 over raw Ed25519 signature bytes.
+    # The shape is opaque here; verification test (next task) exercises round-trip.
+
+
+def test_sign_content_deterministic_for_same_input(tmp_path: Path):
+    """Ed25519 signatures are deterministic — same key + same message → same signature."""
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    priv = Ed25519PrivateKey.generate()
+
+    from screw_agents.trust import sign_content
+
+    canonical = b"identical content"
+    sig1 = sign_content(canonical, private_key=priv, key_comment="t@e")
+    sig2 = sign_content(canonical, private_key=priv, key_comment="t@e")
+    assert sig1 == sig2
