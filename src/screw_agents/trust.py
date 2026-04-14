@@ -272,17 +272,69 @@ def load_config(project_root: Path) -> ScrewConfig:
 
 
 def verify_exclusion(exclusion: Exclusion, *, config: ScrewConfig) -> VerificationResult:
-    """Verify an exclusion's signature against the project's exclusion_reviewers.
+    """Verify an exclusion's signature AND claimed signer identity.
 
-    Returns VerificationResult. Exclusions with no signature return valid=False
-    with reason 'unsigned' — the caller (learning.py) applies the legacy policy.
+    Returns VerificationResult. Four outcomes:
+    - Unsigned (signature or signed_by missing) → valid=False, reason='exclusion {id}: unsigned'
+    - All configured reviewer keys malformed → valid=False with dropped-key diagnostics
+    - Signature valid but signed_by mismatches the matched key's reviewer →
+      valid=False, reason='exclusion {id}: signer identity mismatch...'
+    - Signature valid AND signed_by matches the matched reviewer's email → valid=True
+
+    The caller (learning.py) applies the legacy_unsigned_exclusions policy on
+    unsigned results; other invalid results are quarantined unconditionally.
     """
     if exclusion.signature is None or exclusion.signed_by is None:
-        return VerificationResult(valid=False, reason="unsigned")
+        return VerificationResult(valid=False, reason=f"exclusion {exclusion.id}: unsigned")
 
     canonical = canonicalize_exclusion(exclusion)
-    public_keys = _load_public_keys(config.exclusion_reviewers)
-    return verify_signature(canonical, exclusion.signature, public_keys=public_keys)
+    keys_with_reviewers, dropped = _load_public_keys_with_reviewers(config.exclusion_reviewers)
+    public_keys = [pub for pub, _ in keys_with_reviewers]
+
+    if not public_keys and dropped:
+        # All reviewer entries were malformed — give the user actionable feedback
+        dropped_reasons = ", ".join(f"{r.email}: {reason}" for r, reason in dropped)
+        return VerificationResult(
+            valid=False,
+            reason=(
+                f"exclusion {exclusion.id}: no usable reviewer keys "
+                f"({len(dropped)} dropped: {dropped_reasons})"
+            ),
+        )
+
+    result = verify_signature(canonical, exclusion.signature, public_keys=public_keys)
+    if not result.valid:
+        # Propagate the verify_signature reason but wrap with exclusion ID for context
+        return VerificationResult(
+            valid=False,
+            reason=f"exclusion {exclusion.id}: {result.reason}",
+        )
+
+    # Signature is valid — now cross-check that signed_by matches the key's owner
+    matched_reviewer = _find_matching_reviewer(
+        result.matched_key_identity, keys_with_reviewers
+    )
+    if matched_reviewer is None:
+        # Defensive: shouldn't happen because verify_signature only returns
+        # matched_key_identity when it found a key in the list we passed in.
+        return VerificationResult(
+            valid=False,
+            reason=(
+                f"exclusion {exclusion.id}: matched key has no reviewer entry "
+                f"(internal error)"
+            ),
+        )
+
+    if matched_reviewer.email != exclusion.signed_by:
+        return VerificationResult(
+            valid=False,
+            reason=(
+                f"exclusion {exclusion.id}: signer identity mismatch "
+                f"(claimed {exclusion.signed_by!r}, actual {matched_reviewer.email!r})"
+            ),
+        )
+
+    return result
 
 
 def verify_script(
@@ -291,52 +343,138 @@ def verify_script(
     meta: dict[str, Any],
     config: ScrewConfig,
 ) -> VerificationResult:
-    """Verify a script's signature against the project's script_reviewers.
+    """Verify a script's signature AND claimed signer identity.
 
-    Returns VerificationResult. Scripts with no signature return valid=False
-    with reason 'unsigned'.
+    Same four-outcome model as verify_exclusion. The script identifier used
+    in error reasons is meta.get('name', '<unnamed script>').
     """
+    script_name = meta.get("name", "<unnamed script>")
     signature = meta.get("signature")
     signed_by = meta.get("signed_by")
     if signature is None or signed_by is None:
-        return VerificationResult(valid=False, reason="unsigned")
+        return VerificationResult(valid=False, reason=f"script {script_name}: unsigned")
 
     canonical = canonicalize_script(source=source, meta=meta)
-    public_keys = _load_public_keys(config.script_reviewers)
-    return verify_signature(canonical, signature, public_keys=public_keys)
+    keys_with_reviewers, dropped = _load_public_keys_with_reviewers(config.script_reviewers)
+    public_keys = [pub for pub, _ in keys_with_reviewers]
+
+    if not public_keys and dropped:
+        dropped_reasons = ", ".join(f"{r.email}: {reason}" for r, reason in dropped)
+        return VerificationResult(
+            valid=False,
+            reason=(
+                f"script {script_name}: no usable reviewer keys "
+                f"({len(dropped)} dropped: {dropped_reasons})"
+            ),
+        )
+
+    result = verify_signature(canonical, signature, public_keys=public_keys)
+    if not result.valid:
+        return VerificationResult(
+            valid=False,
+            reason=f"script {script_name}: {result.reason}",
+        )
+
+    matched_reviewer = _find_matching_reviewer(
+        result.matched_key_identity, keys_with_reviewers
+    )
+    if matched_reviewer is None:
+        return VerificationResult(
+            valid=False,
+            reason=(
+                f"script {script_name}: matched key has no reviewer entry "
+                f"(internal error)"
+            ),
+        )
+
+    if matched_reviewer.email != signed_by:
+        return VerificationResult(
+            valid=False,
+            reason=(
+                f"script {script_name}: signer identity mismatch "
+                f"(claimed {signed_by!r}, actual {matched_reviewer.email!r})"
+            ),
+        )
+
+    return result
 
 
-def _load_public_keys(reviewers: list[ReviewerKey]) -> list[Ed25519PublicKey]:
-    """Parse the ssh-ed25519 lines in reviewer entries into Ed25519PublicKey objects.
+def _find_matching_reviewer(
+    fingerprint: str | None,
+    keys_with_reviewers: list[tuple[Ed25519PublicKey, ReviewerKey]],
+) -> ReviewerKey | None:
+    """Find the reviewer whose public key fingerprint matches the given value.
 
-    Ignores any non-Ed25519 keys (for Phase 3a we only support Ed25519 — RSA/ECDSA
-    can be added later if needed). Malformed entries are skipped with a warning.
+    Used by verify_exclusion/verify_script to correlate a
+    VerificationResult.matched_key_identity back to the reviewer entry so the
+    caller can cross-check signed_by against reviewer.email.
     """
-    pubs: list[Ed25519PublicKey] = []
+    if fingerprint is None:
+        return None
+    for pub, reviewer in keys_with_reviewers:
+        if _fingerprint_public_key(pub) == fingerprint:
+            return reviewer
+    return None
+
+
+def _load_public_keys_with_reviewers(
+    reviewers: list[ReviewerKey],
+) -> tuple[list[tuple[Ed25519PublicKey, ReviewerKey]], list[tuple[ReviewerKey, str]]]:
+    """Parse ssh-ed25519 lines in reviewer entries into (pub, reviewer) pairs.
+
+    Returns (valid_pairs, dropped_diagnostics). Each dropped entry pairs the
+    reviewer with a short reason string explaining why it was dropped
+    ("ssh-rsa not supported", "malformed base64", "wrong prefix",
+    "authorized_keys option prefix", "truncated key", etc.). Callers surface
+    these diagnostics when `valid_pairs` is empty so users with misconfigured
+    keys get actionable feedback instead of a generic "no trusted keys" error.
+
+    Only Ed25519 keys are supported in Phase 3a. Future work may add RSA/ECDSA.
+    """
+    valid: list[tuple[Ed25519PublicKey, ReviewerKey]] = []
+    dropped: list[tuple[ReviewerKey, str]] = []
     for reviewer in reviewers:
         try:
-            # Parse the OpenSSH public-key line format: "ssh-ed25519 <base64> <comment>"
             parts = reviewer.key.strip().split()
-            if len(parts) < 2 or parts[0] != "ssh-ed25519":
+            if len(parts) < 2:
+                dropped.append((reviewer, "key field does not contain a type/data pair"))
                 continue
-            key_bytes_with_header = base64.b64decode(parts[1], validate=True)
-            # The SSH wire format for ed25519 is:
-            #   uint32 len("ssh-ed25519") + "ssh-ed25519" + uint32 len(key) + key_bytes (32 B)
-            # Skip the header (4 + 11 + 4 = 19 bytes) and take the 32-byte raw key.
+            if parts[0] != "ssh-ed25519":
+                if parts[0].startswith("ssh-"):
+                    dropped.append(
+                        (reviewer, f"{parts[0]} not supported (only ssh-ed25519)")
+                    )
+                else:
+                    # authorized_keys-style option prefix or garbage
+                    dropped.append(
+                        (
+                            reviewer,
+                            f"unrecognized key prefix {parts[0]!r} "
+                            f"(authorized_keys option line?)",
+                        )
+                    )
+                continue
+            try:
+                key_bytes_with_header = base64.b64decode(parts[1], validate=True)
+            except (ValueError, base64.binascii.Error):
+                dropped.append((reviewer, "base64 decode failed"))
+                continue
+            # SSH wire format header: uint32(11) + "ssh-ed25519" + uint32(32) = 19 bytes
             raw_key = key_bytes_with_header[19 : 19 + 32]
             if len(raw_key) != 32:
+                dropped.append((reviewer, "key payload truncated"))
                 continue
-            pubs.append(Ed25519PublicKey.from_public_bytes(raw_key))
-        except Exception:
-            continue
-    return pubs
+            valid.append((Ed25519PublicKey.from_public_bytes(raw_key), reviewer))
+        except Exception as exc:
+            dropped.append((reviewer, f"unexpected error: {type(exc).__name__}"))
+    return valid, dropped
 
 
 def _public_key_to_openssh_line(public_key: Ed25519PublicKey, *, comment: str) -> str:
     """Encode an Ed25519PublicKey as a single-line OpenSSH public key.
 
     Format: "ssh-ed25519 <base64(wire_format)> <comment>"
-    This is the inverse of _load_public_keys and is used by tests plus `init-trust`.
+    This is the inverse of _load_public_keys_with_reviewers and is used by tests plus `init-trust`.
     """
     raw = public_key.public_bytes(
         encoding=serialization.Encoding.Raw,

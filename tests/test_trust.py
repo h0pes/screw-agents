@@ -437,3 +437,116 @@ def test_verify_script_round_trip(tmp_path: Path):
     )
     result = verify_script(source=source, meta=meta_signed, config=config)
     assert result.valid is True
+
+
+def test_verify_exclusion_signer_identity_mismatch_returns_invalid(tmp_path: Path):
+    """Attacker with a valid reviewer key forges signed_by as another reviewer.
+
+    Even though the signature is cryptographically valid against Bob's key,
+    signed_by claims Alice. Model A verification catches the mismatch.
+    """
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    from screw_agents.models import ReviewerKey, ScrewConfig
+    from screw_agents.trust import (
+        _public_key_to_openssh_line,
+        canonicalize_exclusion,
+        sign_content,
+        verify_exclusion,
+    )
+
+    # Two trusted reviewers: Alice and Bob
+    alice_priv = Ed25519PrivateKey.generate()
+    bob_priv = Ed25519PrivateKey.generate()
+    alice_line = _public_key_to_openssh_line(alice_priv.public_key(), comment="alice@test")
+    bob_line = _public_key_to_openssh_line(bob_priv.public_key(), comment="bob@test")
+
+    # Bob signs the exclusion but claims Alice is the signer
+    excl = _sample_exclusion()
+    canonical = canonicalize_exclusion(excl)
+    excl.signature = sign_content(canonical, private_key=bob_priv)
+    excl.signed_by = "alice@example.com"  # Bob's lie
+
+    config = ScrewConfig(
+        exclusion_reviewers=[
+            ReviewerKey(name="Alice", email="alice@example.com", key=alice_line),
+            ReviewerKey(name="Bob", email="bob@example.com", key=bob_line),
+        ]
+    )
+
+    result = verify_exclusion(excl, config=config)
+    assert result.valid is False
+    assert "identity mismatch" in (result.reason or "").lower()
+    assert "alice@example.com" in (result.reason or "")
+    assert "bob@example.com" in (result.reason or "")
+
+
+def test_verify_script_unsigned_meta_returns_invalid(tmp_path: Path):
+    """verify_script with no signature/signed_by in meta returns unsigned."""
+    from screw_agents.models import ScrewConfig
+    from screw_agents.trust import verify_script
+
+    config = ScrewConfig()
+    result = verify_script(
+        source="def analyze(project): pass\n",
+        meta={"name": "test", "target_patterns": ["X"]},
+        config=config,
+    )
+    assert result.valid is False
+    assert "unsigned" in (result.reason or "").lower()
+
+
+def test_verify_exclusion_dropped_rsa_key_reports_diagnostic(tmp_path: Path):
+    """An RSA key in exclusion_reviewers is dropped with a diagnostic reason."""
+    from screw_agents.models import ReviewerKey, ScrewConfig
+    from screw_agents.trust import verify_exclusion
+
+    excl = _sample_exclusion()
+    excl.signature = "AAAA"  # dummy — verification never reaches this
+    excl.signed_by = "marco@example.com"
+
+    config = ScrewConfig(
+        exclusion_reviewers=[
+            ReviewerKey(
+                name="Marco",
+                email="marco@example.com",
+                # Fake RSA key — only the prefix matters for the diagnostic
+                key="ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAA fake@rsa",
+            ),
+        ]
+    )
+
+    result = verify_exclusion(excl, config=config)
+    assert result.valid is False
+    reason = (result.reason or "").lower()
+    assert "no usable reviewer keys" in reason
+    assert "ssh-rsa" in reason
+    assert "not supported" in reason
+
+
+def test_verify_exclusion_authorized_keys_option_prefix_reported(tmp_path: Path):
+    """A reviewer entry with authorized_keys-style options is dropped diagnostically."""
+    from screw_agents.models import ReviewerKey, ScrewConfig
+    from screw_agents.trust import verify_exclusion
+
+    excl = _sample_exclusion()
+    excl.signature = "AAAA"
+    excl.signed_by = "marco@example.com"
+
+    config = ScrewConfig(
+        exclusion_reviewers=[
+            ReviewerKey(
+                name="Marco",
+                email="marco@example.com",
+                # authorized_keys-style: option_prefix ssh-ed25519 base64 comment
+                key='command="restrict" ssh-ed25519 AAAAC3Nz... marco@arch',
+            ),
+        ]
+    )
+
+    result = verify_exclusion(excl, config=config)
+    assert result.valid is False
+    reason = (result.reason or "").lower()
+    assert "no usable reviewer keys" in reason
+    # One of the diagnostics should mention the unrecognized prefix
+    assert "unrecognized" in reason or "prefix" in reason
