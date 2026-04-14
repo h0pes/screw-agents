@@ -14,13 +14,27 @@ from datetime import datetime, timezone
 from pathlib import Path
 import yaml
 
-from screw_agents.models import Exclusion, ExclusionInput
+from screw_agents.models import Exclusion, ExclusionInput, ScrewConfig
+from screw_agents.trust import load_config, verify_exclusion
 
 _EXCLUSIONS_PATH = Path(".screw") / "learning" / "exclusions.yaml"
 
 
 def load_exclusions(project_root: Path) -> list[Exclusion]:
-    """Read exclusions from .screw/learning/exclusions.yaml.
+    """Read exclusions from .screw/learning/exclusions.yaml with signature verification.
+
+    For each exclusion:
+      - Unsigned entries → apply the project's `legacy_unsigned_exclusions` policy
+        (reject/warn/allow). Under `reject`, the entry is returned with
+        `quarantined=True`. Under `warn` and `allow`, it is returned with
+        `quarantined=False` (the scan reporter surfaces warn-policy entries).
+      - Signed entries → call `verify_exclusion` (Model A — signature + signer
+        identity cross-check). Any failure (mismatch, untrusted key, identity
+        mismatch) sets `quarantined=True`.
+
+    The full list is returned — quarantined AND trusted entries. The caller
+    (engine.py, results.py) decides what to do with quarantined entries
+    (skip them in pre-scan filtering, count them in scan reports, etc.).
 
     Args:
         project_root: Project root directory.
@@ -36,7 +50,7 @@ def load_exclusions(project_root: Path) -> list[Exclusion]:
         return []
 
     try:
-        raw = yaml.safe_load(path.read_text())
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     except yaml.YAMLError as exc:
         raise ValueError(f"Malformed exclusions YAML at {path}: {exc}") from exc
 
@@ -47,7 +61,48 @@ def load_exclusions(project_root: Path) -> list[Exclusion]:
     if not entries:
         return []
 
-    return [Exclusion(**entry) for entry in entries]
+    # Load project config — auto-generates the stub (with fail-safe
+    # `legacy_unsigned_exclusions: reject`) if the file is missing.
+    config = load_config(project_root)
+
+    result: list[Exclusion] = []
+    for entry in entries:
+        exclusion = Exclusion.model_validate(entry)
+        _apply_trust_policy(exclusion, config=config)
+        result.append(exclusion)
+
+    return result
+
+
+def _apply_trust_policy(exclusion: Exclusion, *, config: ScrewConfig) -> None:
+    """Set `exclusion.quarantined` based on verification + legacy policy.
+
+    Called by `load_exclusions` for each loaded entry. Mutates the exclusion
+    in-place. The `quarantined` field is declared with `exclude=True` on the
+    pydantic model, so this runtime flag is never persisted to YAML on write.
+
+    Policy:
+      - Unsigned (no signature or no signed_by):
+          reject → quarantined=True
+          warn   → quarantined=False (caller surfaces a warning separately)
+          allow  → quarantined=False
+      - Signed: call `verify_exclusion`; any `valid=False` (bad signature,
+        untrusted key, identity mismatch) → quarantined=True. `valid=True` →
+        quarantined=False (trusted, applied).
+    """
+    # Unsigned path — apply legacy policy
+    if exclusion.signature is None or exclusion.signed_by is None:
+        if config.legacy_unsigned_exclusions == "reject":
+            exclusion.quarantined = True
+        # `warn` and `allow` both leave quarantined=False. Task 11 (results.py)
+        # is responsible for surfacing warn-policy entries in the scan report.
+        return
+
+    # Signed path — cryptographic verification (Model A: signature + identity)
+    verification = verify_exclusion(exclusion, config=config)
+    if not verification.valid:
+        exclusion.quarantined = True
+    # valid=True leaves quarantined=False (trusted, applied)
 
 
 def record_exclusion(project_root: Path, exclusion: ExclusionInput) -> Exclusion:

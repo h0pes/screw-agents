@@ -207,3 +207,117 @@ class TestMatchExclusions:
         exc2 = self._make_exclusion("file", path="src/other.py")
         matches = match_exclusions([exc1, exc2], file="src/api.py", line=1, code="anything", agent="sqli")
         assert len(matches) == 1
+
+
+class TestLoadExclusionsSignatureVerification:
+    """Task 8 — load_exclusions applies the trust policy layer on load."""
+
+    def test_load_exclusions_quarantines_unsigned_under_reject_policy(self, tmp_path: Path):
+        """Unsigned exclusions with reject policy are returned with quarantined=True."""
+        from screw_agents.learning import load_exclusions
+
+        screw = tmp_path / ".screw"
+        (screw / "learning").mkdir(parents=True)
+        (screw / "learning" / "exclusions.yaml").write_text(
+            """
+exclusions:
+  - id: "fp-2026-04-14-001"
+    created: "2026-04-14T10:00:00Z"
+    agent: sqli
+    finding:
+      file: "src/a.py"
+      line: 10
+      code_pattern: "*"
+      cwe: "CWE-89"
+    reason: "legacy unsigned"
+    scope:
+      type: "exact_line"
+      path: "src/a.py"
+"""
+        )
+        # Default config → legacy_unsigned_exclusions: reject
+        (screw / "config.yaml").write_text("version: 1\nlegacy_unsigned_exclusions: reject\n")
+
+        exclusions = load_exclusions(tmp_path)
+        assert len(exclusions) == 1
+        assert exclusions[0].quarantined is True
+
+    def test_load_exclusions_applies_unsigned_under_warn_policy(self, tmp_path: Path):
+        from screw_agents.learning import load_exclusions
+
+        screw = tmp_path / ".screw"
+        (screw / "learning").mkdir(parents=True)
+        (screw / "learning" / "exclusions.yaml").write_text(
+            """
+exclusions:
+  - id: "fp-2026-04-14-001"
+    created: "2026-04-14T10:00:00Z"
+    agent: sqli
+    finding:
+      file: "src/a.py"
+      line: 10
+      code_pattern: "*"
+      cwe: "CWE-89"
+    reason: "legacy unsigned"
+    scope:
+      type: "exact_line"
+      path: "src/a.py"
+"""
+        )
+        (screw / "config.yaml").write_text("version: 1\nlegacy_unsigned_exclusions: warn\n")
+
+        exclusions = load_exclusions(tmp_path)
+        assert len(exclusions) == 1
+        assert exclusions[0].quarantined is False  # warn → still applied
+
+    def test_load_exclusions_returns_valid_signed_as_trusted(self, tmp_path: Path):
+        """Full round-trip: sign → write → load → verify → not quarantined."""
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+        from screw_agents.learning import load_exclusions
+        from screw_agents.models import Exclusion, ExclusionFinding, ExclusionScope
+        from screw_agents.trust import (
+            _public_key_to_openssh_line,
+            canonicalize_exclusion,
+            sign_content,
+        )
+
+        priv = Ed25519PrivateKey.generate()
+        pub_line = _public_key_to_openssh_line(priv.public_key(), comment="marco@test")
+
+        excl = Exclusion(
+            id="fp-2026-04-14-001",
+            created="2026-04-14T10:00:00Z",
+            agent="sqli",
+            finding=ExclusionFinding(file="src/a.py", line=10, code_pattern="*", cwe="CWE-89"),
+            reason="signed entry",
+            scope=ExclusionScope(type="exact_line", path="src/a.py"),
+        )
+        sig = sign_content(canonicalize_exclusion(excl), private_key=priv)
+        excl.signed_by = "marco@example.com"
+        excl.signature = sig
+
+        screw = tmp_path / ".screw"
+        (screw / "learning").mkdir(parents=True)
+
+        import yaml as _yaml
+
+        data = {"exclusions": [excl.model_dump(exclude={"quarantined"})]}
+        (screw / "learning" / "exclusions.yaml").write_text(
+            _yaml.dump(data, default_flow_style=False, sort_keys=False)
+        )
+
+        (screw / "config.yaml").write_text(
+            f"""version: 1
+exclusion_reviewers:
+  - name: Marco
+    email: marco@example.com
+    key: "{pub_line}"
+legacy_unsigned_exclusions: reject
+"""
+        )
+
+        exclusions = load_exclusions(tmp_path)
+        assert len(exclusions) == 1
+        assert exclusions[0].quarantined is False
+        assert exclusions[0].signed_by == "marco@example.com"
