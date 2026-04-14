@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # ---------------------------------------------------------------------------
@@ -241,10 +241,39 @@ class Exclusion(ExclusionInput):
     signature: str | None = None
     signature_version: int = 1
 
-    # runtime flag (not persisted to YAML)
-    quarantined: bool = False
+    # runtime flag (not persisted to YAML — dual-layer defense below)
+    quarantined: bool = Field(default=False, exclude=True)
 
-    model_config = {"extra": "forbid"}
+    model_config = ConfigDict(extra="forbid")
+
+    def model_dump(self, **kwargs):
+        """Strip the runtime-only `quarantined` flag from Python-side serialization.
+
+        Defense-in-depth: the `quarantined` field is declared with
+        `Field(exclude=True)` which handles the default case for both `model_dump`
+        and `model_dump_json` at the schema level. This override is a second layer
+        that catches edge cases the schema-level exclude does not cover:
+
+        - Callers that pass `include={"quarantined"}` (Pydantic's include/exclude
+          precedence can let include win over field-level exclude in some shapes)
+        - Callers that pass `exclude=` as a list or tuple (unknown shape falls back
+          to a safe `{"quarantined"}` set)
+
+        The `quarantined` field is set at load time when signature verification
+        fails; persisting it would allow a tampered YAML file to self-mark as
+        not-quarantined.
+        """
+        exclude = kwargs.pop("exclude", None)
+        if exclude is None:
+            exclude = {"quarantined"}
+        elif isinstance(exclude, set):
+            exclude = exclude | {"quarantined"}
+        elif isinstance(exclude, dict):
+            exclude = {**exclude, "quarantined": True}
+        else:
+            # Unknown shape — fall back to a safe set form.
+            exclude = {"quarantined"}
+        return super().model_dump(exclude=exclude, **kwargs)
 
 
 # ---------------------------------------------------------------------------

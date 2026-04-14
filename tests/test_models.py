@@ -350,3 +350,89 @@ def test_exclusion_with_signing_fields():
     assert excl.signed_by == "marco@example.com"
     assert excl.signature is not None
     assert excl.quarantined is False
+
+
+def test_exclusion_model_dump_excludes_quarantined():
+    """The runtime-only `quarantined` flag must never appear in serialized output."""
+    excl = Exclusion(
+        id="fp-dump-test",
+        created="2026-04-14T10:00:00Z",
+        agent="sqli",
+        finding=ExclusionFinding(
+            file="a.py", line=1, code_pattern="*", cwe="CWE-89"
+        ),
+        reason="test",
+        scope=ExclusionScope(type="pattern", pattern="*"),
+    )
+
+    # Default — no user exclusions
+    dumped = excl.model_dump()
+    assert "quarantined" not in dumped
+
+    # Even when quarantined is True, the serialized form omits it
+    excl.quarantined = True
+    dumped = excl.model_dump()
+    assert "quarantined" not in dumped
+
+    # User's explicit exclude= (set form) still respected and still excludes quarantined
+    dumped = excl.model_dump(exclude={"reason"})
+    assert "quarantined" not in dumped
+    assert "reason" not in dumped
+
+    # User's explicit exclude= (dict form) still respected and still excludes quarantined
+    dumped = excl.model_dump(exclude={"reason": True})
+    assert "quarantined" not in dumped
+    assert "reason" not in dumped
+
+
+def test_exclusion_model_dump_json_excludes_quarantined():
+    """model_dump_json must also omit the runtime-only quarantined flag.
+
+    Pydantic v2's model_dump_json routes through a Rust-backed serializer that
+    does NOT call the Python model_dump override, so schema-level Field(exclude=True)
+    is the primary defense for this path.
+    """
+    import json
+
+    excl = Exclusion(
+        id="fp-json-test",
+        created="2026-04-14T10:00:00Z",
+        agent="sqli",
+        finding=ExclusionFinding(
+            file="a.py", line=1, code_pattern="*", cwe="CWE-89"
+        ),
+        reason="test",
+        scope=ExclusionScope(type="pattern", pattern="*"),
+    )
+
+    # Default
+    data = json.loads(excl.model_dump_json())
+    assert "quarantined" not in data
+
+    # Explicitly True
+    excl.quarantined = True
+    data = json.loads(excl.model_dump_json())
+    assert "quarantined" not in data
+
+
+def test_exclusion_include_does_not_leak_quarantined():
+    """Even if a caller explicitly passes include={"quarantined"}, the field
+    must NOT appear in serialized output. This verifies Layer 2 (the custom
+    model_dump override) catches the include edge case that schema-level
+    Field(exclude=True) may not."""
+    excl = Exclusion(
+        id="fp-include-test",
+        created="2026-04-14T10:00:00Z",
+        agent="sqli",
+        finding=ExclusionFinding(
+            file="a.py", line=1, code_pattern="*", cwe="CWE-89"
+        ),
+        reason="test",
+        scope=ExclusionScope(type="pattern", pattern="*"),
+    )
+    excl.quarantined = True
+
+    # If a caller explicitly tries to include quarantined, it must still be stripped.
+    dumped = excl.model_dump(include={"id", "quarantined"})
+    assert "quarantined" not in dumped
+    assert "id" in dumped  # other included fields still present

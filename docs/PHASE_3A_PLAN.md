@@ -1647,7 +1647,25 @@ Run: `uv run pytest tests/test_learning.py -k "record_exclusion_signs or record_
 
 Expected: FAIL — existing `record_exclusion` does not sign
 
-- [ ] **Step 3: Add key bootstrapping + signing to `record_exclusion`**
+- [x] **Step 3: Add key bootstrapping + signing to `record_exclusion`**
+
+> **NOTE (moved to Task 2 follow-up commit, fix of Task 2 `1479272`):** The
+> `quarantined` runtime-only field is enforced at two layers:
+> (1) `Field(default=False, exclude=True)` on the field declaration — schema-
+>     level exclude that covers `model_dump()`, `model_dump(mode="json")`, and
+>     `model_dump_json()` via Pydantic v2's Rust-backed serializer (Layer 1).
+> (2) `Exclusion.model_dump` override — Python-side second layer that catches
+>     `include={"quarantined"}` edge cases and unknown `exclude=` shapes
+>     (list/tuple fallback).
+>
+> Three regression tests guard the defense:
+>   - `tests/test_models.py::test_exclusion_model_dump_excludes_quarantined`
+>   - `tests/test_models.py::test_exclusion_model_dump_json_excludes_quarantined`
+>   - `tests/test_models.py::test_exclusion_include_does_not_leak_quarantined`
+>
+> Task 9 Step 3 is now a verification-only step: re-run the three tests. The
+> call-site `e.model_dump(exclude={"quarantined"})` shown below is redundant
+> but left in place as additional defense-in-depth.
 
 Modify `src/screw_agents/learning.py`:
 
