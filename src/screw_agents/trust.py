@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import base64
 import json
+from dataclasses import dataclass
 from typing import Any
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
@@ -32,14 +33,15 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 
 from screw_agents.models import Exclusion
 
-# Public re-exports. `Ed25519PublicKey` is forward-looking for Task 5's
-# verify_signature, which lives in this module but has not been added yet.
+# Public re-exports.
 __all__ = [
     "Ed25519PrivateKey",
     "Ed25519PublicKey",
+    "VerificationResult",
     "canonicalize_exclusion",
     "canonicalize_script",
     "sign_content",
+    "verify_signature",
 ]
 
 # Canonical form excludes these keys when hashing/signing exclusions.
@@ -113,3 +115,64 @@ def sign_content(canonical: bytes, *, private_key: Ed25519PrivateKey) -> str:
     """
     signature_bytes = private_key.sign(canonical)
     return base64.b64encode(signature_bytes).decode("ascii")
+
+
+@dataclass(frozen=True)
+class VerificationResult:
+    """Result of a signature verification attempt."""
+
+    valid: bool
+    reason: str | None = None  # populated when valid is False
+    matched_key_identity: str | None = None  # populated when valid is True
+
+
+def verify_signature(
+    canonical: bytes,
+    signature: str,
+    *,
+    public_keys: list[Ed25519PublicKey],
+) -> VerificationResult:
+    """Verify a base64-encoded signature against a list of allowed public keys.
+
+    Tries each public key until one succeeds. Phase 3a uses cryptography-library
+    signing and verification uniformly (Task 4 revised per Option C — see Task 4
+    NOTE block in PHASE_3A_PLAN.md). Signatures are raw 64-byte Ed25519,
+    base64-encoded. The CLI subcommands (Tasks 12-14) use the same cryptography
+    path — no ssh-keygen subprocess dependency.
+    """
+    if not public_keys:
+        return VerificationResult(valid=False, reason="no trusted keys configured")
+
+    try:
+        signature_bytes = base64.b64decode(signature, validate=True)
+    except (ValueError, base64.binascii.Error):
+        return VerificationResult(valid=False, reason="signature is not valid base64")
+
+    for pub in public_keys:
+        try:
+            pub.verify(signature_bytes, canonical)
+            return VerificationResult(
+                valid=True, matched_key_identity=_fingerprint_public_key(pub)
+            )
+        except Exception:  # InvalidSignature from cryptography
+            continue
+
+    return VerificationResult(valid=False, reason="signature invalid or content mismatch")
+
+
+def _fingerprint_public_key(public_key: Ed25519PublicKey) -> str:
+    """Short fingerprint of an Ed25519 public key for logging/diagnostics.
+
+    Returns SHA-256 of the raw public key bytes, base64-encoded, first 16 chars.
+    NOT cryptographic identity — for display only. Do not use as a trust anchor.
+    """
+    import hashlib
+
+    from cryptography.hazmat.primitives import serialization
+
+    raw = public_key.public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+    digest = hashlib.sha256(raw).digest()
+    return base64.b64encode(digest).decode("ascii")[:16]

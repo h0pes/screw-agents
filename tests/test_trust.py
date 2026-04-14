@@ -163,3 +163,68 @@ def test_sign_content_deterministic_for_same_input():
     sig1 = sign_content(canonical, private_key=priv)
     sig2 = sign_content(canonical, private_key=priv)
     assert sig1 == sig2
+
+
+def test_verify_signature_accepts_valid_signature():
+    """Sign with cryptography, verify with cryptography — round-trip success."""
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    from screw_agents.trust import sign_content, verify_signature, VerificationResult
+
+    priv = Ed25519PrivateKey.generate()
+    pub = priv.public_key()
+
+    canonical = b"valid content"
+    signature = sign_content(canonical, private_key=priv)
+
+    result = verify_signature(canonical, signature, public_keys=[pub])
+    assert isinstance(result, VerificationResult)
+    assert result.valid is True
+    assert result.reason is None
+
+
+def test_verify_signature_rejects_tampered_content():
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    from screw_agents.trust import sign_content, verify_signature
+
+    priv = Ed25519PrivateKey.generate()
+    pub = priv.public_key()
+
+    canonical = b"original content"
+    signature = sign_content(canonical, private_key=priv)
+
+    tampered = b"MODIFIED content"
+    result = verify_signature(tampered, signature, public_keys=[pub])
+    assert result.valid is False
+    assert "content mismatch" in result.reason.lower() or "invalid" in result.reason.lower()
+
+
+def test_verify_signature_rejects_untrusted_key():
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    from screw_agents.trust import sign_content, verify_signature
+
+    signing_priv = Ed25519PrivateKey.generate()
+    other_priv = Ed25519PrivateKey.generate()
+
+    canonical = b"content"
+    signature = sign_content(canonical, private_key=signing_priv)
+
+    result = verify_signature(canonical, signature, public_keys=[other_priv.public_key()])
+    assert result.valid is False
+
+
+def test_verify_signature_empty_allowed_keys():
+    """With no allowed keys, verification must fail."""
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    from screw_agents.trust import sign_content, verify_signature
+
+    priv = Ed25519PrivateKey.generate()
+    canonical = b"content"
+    signature = sign_content(canonical, private_key=priv)
+
+    result = verify_signature(canonical, signature, public_keys=[])
+    assert result.valid is False
+    assert "no trusted keys" in result.reason.lower()
