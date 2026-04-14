@@ -321,3 +321,92 @@ legacy_unsigned_exclusions: reject
         assert len(exclusions) == 1
         assert exclusions[0].quarantined is False
         assert exclusions[0].signed_by == "marco@example.com"
+
+
+class TestRecordExclusionSignsOnWrite:
+    """Task 9 — record_exclusion signs new entries with the local Ed25519 key."""
+
+    def test_record_exclusion_signs_with_local_key(self, tmp_path: Path, monkeypatch):
+        """record_exclusion signs new entries with the local Ed25519 key.
+
+        Simulates the init-trust flow: generate the local key, register its public
+        key as an exclusion_reviewer in .screw/config.yaml, then record the exclusion.
+        The round-trip (record → load → verify) must succeed under Task 7.1 Model A.
+        """
+        from screw_agents.learning import (
+            _get_or_create_local_private_key,
+            load_exclusions,
+            record_exclusion,
+        )
+        from screw_agents.models import ExclusionFinding, ExclusionInput, ExclusionScope
+
+        # Force the project-local key path (placeholder — no-op today, reserved for
+        # future ~/.ssh/id_ed25519 probing support)
+        monkeypatch.setenv("SCREW_FORCE_LOCAL_KEY", "1")
+
+        # Simulate `init-trust`: generate the local key and register it in config.yaml
+        # BEFORE record_exclusion runs. Task 12's init-trust CLI will do this for real;
+        # here we do it manually because Task 9 is the write path, not the registration path.
+        _priv, pub_line = _get_or_create_local_private_key(tmp_path)
+        signer_email = f"local@{tmp_path.name}"
+
+        screw_dir = tmp_path / ".screw"
+        screw_dir.mkdir(parents=True, exist_ok=True)
+        (screw_dir / "config.yaml").write_text(
+            f"""version: 1
+legacy_unsigned_exclusions: reject
+exclusion_reviewers:
+  - name: Local
+    email: {signer_email}
+    key: "{pub_line}"
+""",
+            encoding="utf-8",
+        )
+
+        excl_input = ExclusionInput(
+            agent="sqli",
+            finding=ExclusionFinding(
+                file="src/a.py", line=10, code_pattern="*", cwe="CWE-89"
+            ),
+            reason="test signed write",
+            scope=ExclusionScope(type="exact_line", path="src/a.py"),
+        )
+
+        saved = record_exclusion(tmp_path, excl_input)
+        assert saved.signed_by == signer_email
+        assert saved.signature is not None
+        assert saved.signature_version == 1
+
+        # Round-trip: reload, verify passes, not quarantined
+        loaded = load_exclusions(tmp_path)
+        assert len(loaded) == 1
+        assert loaded[0].quarantined is False
+        assert loaded[0].signed_by == signer_email
+
+    def test_record_exclusion_generates_local_key_on_first_use(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """If no local key exists in .screw/local/keys/, record_exclusion generates one.
+
+        This test does NOT exercise the round-trip — it only verifies that the key
+        file is created on first use. The round-trip test above handles the full flow.
+        """
+        from screw_agents.learning import record_exclusion
+        from screw_agents.models import ExclusionFinding, ExclusionInput, ExclusionScope
+
+        monkeypatch.setenv("SCREW_FORCE_LOCAL_KEY", "1")
+
+        excl_input = ExclusionInput(
+            agent="sqli",
+            finding=ExclusionFinding(
+                file="src/a.py", line=10, code_pattern="*", cwe="CWE-89"
+            ),
+            reason="key bootstrap",
+            scope=ExclusionScope(type="exact_line", path="src/a.py"),
+        )
+        record_exclusion(tmp_path, excl_input)
+
+        key_dir = tmp_path / ".screw" / "local" / "keys"
+        assert key_dir.exists()
+        # At least one key file was written
+        assert any(key_dir.iterdir())

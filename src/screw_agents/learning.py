@@ -14,10 +14,59 @@ from datetime import datetime, timezone
 from pathlib import Path
 import yaml
 
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
 from screw_agents.models import Exclusion, ExclusionInput, ScrewConfig
-from screw_agents.trust import load_config, verify_exclusion
+from screw_agents.trust import (
+    _public_key_to_openssh_line,
+    canonicalize_exclusion,
+    load_config,
+    sign_content,
+    verify_exclusion,
+)
 
 _EXCLUSIONS_PATH = Path(".screw") / "learning" / "exclusions.yaml"
+_LOCAL_KEY_DIR = Path(".screw") / "local" / "keys"
+_LOCAL_PRIV_NAME = "screw-local.ed25519"
+
+
+def _get_or_create_local_private_key(
+    project_root: Path,
+) -> tuple[Ed25519PrivateKey, str]:
+    """Return the local Ed25519 private key, generating one if absent.
+
+    On first use, creates `.screw/local/keys/screw-local.ed25519` with 0600 perms
+    containing the raw private key bytes (32 bytes). Subsequent calls load the
+    existing key.
+
+    Returns (private_key, openssh_public_key_line) so callers can both sign and
+    register the public key in .screw/config.yaml via init-trust.
+
+    Phase 3b Task 13 (script signing) consumes this helper directly — the shape
+    is listed as an upstream dependency in PHASE_3B_PLAN.md.
+    """
+    key_dir = project_root / _LOCAL_KEY_DIR
+    key_path = key_dir / _LOCAL_PRIV_NAME
+
+    if not key_path.exists():
+        key_dir.mkdir(parents=True, exist_ok=True)
+        priv = Ed25519PrivateKey.generate()
+        key_path.write_bytes(
+            priv.private_bytes(
+                encoding=serialization.Encoding.Raw,
+                format=serialization.PrivateFormat.Raw,
+                encryption_algorithm=serialization.NoEncryption(),
+            )
+        )
+        key_path.chmod(0o600)
+
+    priv_bytes = key_path.read_bytes()
+    priv = Ed25519PrivateKey.from_private_bytes(priv_bytes)
+    pub_line = _public_key_to_openssh_line(
+        priv.public_key(), comment=f"screw-local@{project_root.name}"
+    )
+    return priv, pub_line
 
 
 def load_exclusions(project_root: Path) -> list[Exclusion]:
@@ -106,17 +155,19 @@ def _apply_trust_policy(exclusion: Exclusion, *, config: ScrewConfig) -> None:
 
 
 def record_exclusion(project_root: Path, exclusion: ExclusionInput) -> Exclusion:
-    """Record a new exclusion in .screw/learning/exclusions.yaml.
+    """Record a new exclusion in .screw/learning/exclusions.yaml, signed with the local key.
 
-    Creates the directory and file if they don't exist. Assigns a unique
-    ID with format fp-YYYY-MM-DD-NNN (sequential per day).
+    Creates the directory and file if they don't exist. Assigns a unique ID with
+    format fp-YYYY-MM-DD-NNN (sequential per day). Signs the canonical form with
+    the local Ed25519 key (auto-generated in .screw/local/keys/ on first use).
 
-    Args:
-        project_root: Project root directory.
-        exclusion: The exclusion input from the subagent.
-
-    Returns:
-        The saved Exclusion with generated id and created timestamp.
+    The `signed_by` field is set to the first exclusion_reviewer's email from
+    .screw/config.yaml, OR to a fallback `local@<project_name>` string if no
+    reviewers are registered yet. Under Task 7.1 Model A verification, the
+    chosen signer_email MUST match an entry in exclusion_reviewers for the
+    round-trip to verify cleanly — the `init-trust` CLI (Task 12) is responsible
+    for making that match. This function does NOT auto-register keys into
+    config.yaml; that is an explicit action.
     """
     path = project_root / _EXCLUSIONS_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -130,6 +181,14 @@ def record_exclusion(project_root: Path, exclusion: ExclusionInput) -> Exclusion
     next_seq = len(today_ids) + 1
     exclusion_id = f"{today_prefix}{next_seq:03d}"
 
+    # Determine the signer identity from config.yaml's first exclusion_reviewer,
+    # or fall back to a project-local string if no reviewers are registered yet.
+    config = load_config(project_root)
+    if config.exclusion_reviewers:
+        signer_email = config.exclusion_reviewers[0].email
+    else:
+        signer_email = f"local@{project_root.name}"
+
     saved = Exclusion(
         id=exclusion_id,
         created=now.strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -139,11 +198,24 @@ def record_exclusion(project_root: Path, exclusion: ExclusionInput) -> Exclusion
         scope=exclusion.scope,
         times_suppressed=0,
         last_suppressed=None,
+        signed_by=signer_email,
+        signature=None,  # filled below
+        signature_version=1,
     )
 
+    # Sign the canonical form with the local Ed25519 key
+    priv, _pub_line = _get_or_create_local_private_key(project_root)
+    canonical = canonicalize_exclusion(saved)
+    saved.signature = sign_content(canonical, private_key=priv)
+
     existing.append(saved)
-    data = {"exclusions": [e.model_dump() for e in existing]}
-    path.write_text(yaml.dump(data, default_flow_style=False, sort_keys=False))
+    data = {
+        "exclusions": [e.model_dump(exclude={"quarantined"}) for e in existing]
+    }
+    path.write_text(
+        yaml.dump(data, default_flow_style=False, sort_keys=False),
+        encoding="utf-8",
+    )
 
     return saved
 
