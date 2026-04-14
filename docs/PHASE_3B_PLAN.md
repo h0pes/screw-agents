@@ -40,7 +40,7 @@
 |---|---|---|
 | `screw_agents.trust.canonicalize_script(*, source, meta) -> bytes` | Accepts script source text and metadata dict, returns canonical JSON bytes excluding signature-related fields | Task 3b-13 (signing adaptive scripts on approval) |
 | `screw_agents.trust.verify_script(*, source, meta, config) -> VerificationResult` | Verifies signature against `config.script_reviewers`, returns valid/invalid with reason | Task 3b-14 (verifying scripts at load time — Layer 3) |
-| `screw_agents.trust.sign_content(canonical, *, private_key, key_path, key_comment, namespace)` | Signs bytes via ssh-keygen or cryptography fallback | Task 3b-13 (signing adaptive scripts) |
+| `screw_agents.trust.sign_content(canonical: bytes, *, private_key: Ed25519PrivateKey) -> str` | Signs bytes with Ed25519 private key via `cryptography` library, returns base64. Revised from an earlier two-backend design (see PHASE_3A_PLAN.md Task 4 NOTE block for history). | Task 3b-13 (signing adaptive scripts) |
 | `screw_agents.trust.load_config(project_root) -> ScrewConfig` | Auto-generates stub if missing; parses `.screw/config.yaml` | Task 3b-7 (adaptive flag check), Task 3b-14 (script verification) |
 | `screw_agents.models.ScrewConfig` — fields `script_reviewers: list[ReviewerKey]`, `adaptive: bool` | Split reviewer list; adaptive-mode opt-in flag | Task 3b-7, Task 3b-14, Task 3b-20 |
 | `screw_agents.models.ReviewerKey` — `name, email, key` | OpenSSH public key line format | Task 3b-13 (signer identity) |
@@ -3263,7 +3263,7 @@ def run_validate_script(*, project_root: Path, script_name: str) -> dict[str, An
     # Sign the canonical form (source + meta minus signing fields)
     priv, _ = _get_or_create_local_private_key(project_root)
     canonical = canonicalize_script(source=source, meta=meta_raw)
-    signature = sign_content(canonical, private_key=priv, key_comment=signer_email)
+    signature = sign_content(canonical, private_key=priv)
 
     meta_raw["signed_by"] = signer_email
     meta_raw["signature"] = signature

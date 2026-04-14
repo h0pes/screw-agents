@@ -6,7 +6,7 @@
 
 **Architecture:** SSH-key-based signing establishes a uniform trust boundary for everything in `.screw/` that affects scan integrity. Phase 2's exclusions are retrofitted onto this trust model; Phase 3b will consume the same infrastructure for adaptive scripts. Learning aggregation is purely additive, reading the (now signed) exclusions database and producing three report types via a new on-demand MCP tool. Carryover cleanup resolves three items surfaced in Phase 2 E2E testing: `scan_domain` pagination, formatter polish, and the long-deferred CSV output format.
 
-**Tech Stack:** Python 3.11+ (Pydantic, PyYAML, `cryptography` for Ed25519 fallback), OpenSSH (`ssh-keygen -Y sign` / `-Y verify`), Markdown (Claude Code agents/skills/commands), `uv` for package management, `pytest` for testing.
+**Tech Stack:** Python 3.11+ (Pydantic, PyYAML, `cryptography` for Ed25519 signing/verification), Markdown (Claude Code agents/skills/commands), `uv` for package management, `pytest` for testing.
 
 **Spec:** `docs/specs/2026-04-13-phase-3-adaptive-analysis-learning-design.md` (local, not in git)
 
@@ -116,7 +116,7 @@ Task 1 (models: ReviewerKey, ScrewConfig)
     ├─► Task 3 (trust.py: canonicalize_exclusion, canonicalize_script)
     │       │
     │       ▼
-    ├─► Task 4 (trust.py: sign_content wrapper — ssh-keygen + cryptography fallback)
+    ├─► Task 4 (trust.py: sign_content — cryptography library, Ed25519)
     │       │
     │       ▼
     ├─► Task 5 (trust.py: verify_signature wrapper)
@@ -225,8 +225,11 @@ Task 35 (X3: integration test for CSV output)
 - Trust root is the git repository (`.screw/config.yaml` declares trusted keys)
 - Split reviewer lists from day one: `exclusion_reviewers` and `script_reviewers` (Phase 3b will use the second list)
 - Default for unsigned legacy content: `reject`
-- Primary signing path: `ssh-keygen -Y sign` / `-Y verify`
-- Fallback signing path: Python `cryptography` Ed25519 when OpenSSH unavailable
+- Signing and verification uniformly via the Python `cryptography` library with Ed25519
+  (users' existing OpenSSH `~/.ssh/id_ed25519` keys are loaded via
+  `cryptography.hazmat.primitives.serialization.load_ssh_private_key`)
+- Wire format: raw 64-byte Ed25519 signatures, base64-encoded (see Task 4 NOTE block
+  for the Option C decision history)
 
 **PR #1 exit criteria:**
 - All tests green
@@ -558,17 +561,20 @@ Expected: FAIL with `ModuleNotFoundError: No module named 'screw_agents.trust'`
 Create `src/screw_agents/trust.py`:
 
 ```python
-"""Content trust for .screw/ — SSH-key-based signing and verification.
+"""Content trust for .screw/ — Ed25519 signing and verification.
 
 Phase 3a establishes a uniform trust boundary for everything in .screw/ that
 affects scan integrity. Exclusions (Phase 2, retrofit) and adaptive scripts
 (Phase 3b, new) both go through this module.
 
 The trust root is the git repository itself: .screw/config.yaml declares
-trusted signing keys, and its integrity is rooted in commit history.
+trusted signing keys (OpenSSH format), and its integrity is rooted in commit
+history.
 
-Primary signing path: `ssh-keygen -Y sign` / `ssh-keygen -Y verify` via subprocess.
-Fallback signing path: Python `cryptography` Ed25519 when OpenSSH is not available.
+Signing uses the `cryptography` library with Ed25519 end-to-end. Users' existing
+~/.ssh/id_ed25519 keys are loaded via cryptography.serialization.load_ssh_private_key
+when present; otherwise `init-trust` generates a project-local key under
+.screw/local/keys/. The wire format is raw 64-byte Ed25519 signatures, base64-encoded.
 """
 
 from __future__ import annotations
@@ -646,7 +652,26 @@ git commit -m "feat(phase3a): trust module skeleton with canonicalization"
 
 ---
 
-### Task 4: Signing Wrapper — ssh-keygen + cryptography Fallback
+### Task 4: Signing Wrapper — Ed25519 via cryptography library
+
+> **REVISED post-code-review (2026-04-14).** Task 4 originally specified a two-backend
+> signing wrapper (`ssh-keygen -Y sign` subprocess primary + `cryptography` Ed25519
+> fallback). Code review of the initial implementation (`d2ac79d`) found that the two
+> backends produced incompatible wire formats (SSHSIG envelope vs. raw Ed25519 bytes),
+> and the plan had silently diverged from the spec's "same wire format" requirement
+> (`docs/specs/2026-04-13-phase-3-adaptive-analysis-learning-design.md` §7.1 line 411).
+>
+> Four options were considered (A: implement SSHSIG envelope in Python; B: accept
+> two-track divergence; C: cryptography-only; D: hybrid verify). Option C was chosen.
+>
+> **Rationale for Option C:** `cryptography.hazmat.primitives.serialization.load_ssh_private_key()`
+> loads OpenSSH-format `~/.ssh/id_ed25519` directly, preserving the UX of using existing
+> SSH keys. One wire format (raw 64-byte Ed25519, base64-encoded). No subprocess complexity.
+> Trade-off: loses ssh-agent integration (mitigated by the `.screw/local/keys/` fallback
+> path the spec already specifies at line 410 and 1116).
+>
+> The revised Task 4 below reflects the cryptography-only design. The original ssh-keygen
+> path has been deleted from the code as of fix-up commit `9d4a686`.
 
 **Files:**
 - Modify: `src/screw_agents/trust.py`
@@ -688,10 +713,8 @@ Expected: `cryptography` installed into the venv.
 Add to `tests/test_trust.py`:
 
 ```python
-def test_sign_content_returns_base64_signature(tmp_path: Path):
-    # Generate a throwaway Ed25519 SSH key for the test using cryptography.
-    # Test covers the cryptography-fallback path directly to avoid depending on
-    # ssh-keygen being on PATH in CI.
+def test_sign_content_returns_base64_signature():
+    # Cryptography-library signing. Ed25519 private key generated in-test.
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
     priv = Ed25519PrivateKey.generate()
@@ -699,15 +722,15 @@ def test_sign_content_returns_base64_signature(tmp_path: Path):
     from screw_agents.trust import sign_content
 
     canonical = b"test content to sign"
-    signature = sign_content(canonical, private_key=priv, key_comment="test@example")
+    signature = sign_content(canonical, private_key=priv)
 
     assert isinstance(signature, str)
     assert len(signature) > 0
-    # Cryptography fallback emits base64 over raw Ed25519 signature bytes.
-    # The shape is opaque here; verification test (next task) exercises round-trip.
+    # Raw 64-byte Ed25519 signature, base64-encoded → 88 chars (with padding) or 86 (without).
+    # Opaque here; verification test (Task 5) exercises round-trip.
 
 
-def test_sign_content_deterministic_for_same_input(tmp_path: Path):
+def test_sign_content_deterministic_for_same_input():
     """Ed25519 signatures are deterministic — same key + same message → same signature."""
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
@@ -716,8 +739,8 @@ def test_sign_content_deterministic_for_same_input(tmp_path: Path):
     from screw_agents.trust import sign_content
 
     canonical = b"identical content"
-    sig1 = sign_content(canonical, private_key=priv, key_comment="t@e")
-    sig2 = sign_content(canonical, private_key=priv, key_comment="t@e")
+    sig1 = sign_content(canonical, private_key=priv)
+    sig2 = sign_content(canonical, private_key=priv)
     assert sig1 == sig2
 ```
 
@@ -727,90 +750,40 @@ Run: `uv run pytest tests/test_trust.py::test_sign_content_returns_base64_signat
 
 Expected: FAIL with `ImportError: cannot import name 'sign_content'`
 
-- [ ] **Step 4: Implement `sign_content` with cryptography fallback**
+- [ ] **Step 4: Implement `sign_content` (cryptography library, Ed25519)**
 
-Add to `src/screw_agents/trust.py`:
+Add to `src/screw_agents/trust.py` (imports at the top, `sign_content` after the
+existing `canonicalize_*` helpers):
 
 ```python
 import base64
-import shutil
-import subprocess
-import tempfile
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PrivateKey,
     Ed25519PublicKey,
 )
 
 
-def ssh_keygen_available() -> bool:
-    """Return True if `ssh-keygen` is on PATH."""
-    return shutil.which("ssh-keygen") is not None
+def sign_content(canonical: bytes, *, private_key: Ed25519PrivateKey) -> str:
+    """Sign canonical bytes with an Ed25519 private key and return a base64 signature.
 
+    Phase 3a uses cryptography-library signing uniformly. The produced signature
+    is raw 64-byte Ed25519 bytes, base64-encoded. Callers load their SSH key via
+    `cryptography.hazmat.primitives.serialization.load_ssh_private_key()` (which
+    accepts OpenSSH-format ~/.ssh/id_ed25519) and pass the resulting private_key
+    to this function.
 
-def sign_content(
-    canonical: bytes,
-    *,
-    private_key: Ed25519PrivateKey | None = None,
-    key_path: Path | None = None,
-    key_comment: str = "screw-agents",
-    namespace: str = "screw-agents",
-) -> str:
-    """Sign canonical bytes and return a base64-encoded signature.
-
-    Two paths:
-      1. `key_path` provided AND `ssh-keygen` on PATH → shell out to `ssh-keygen -Y sign`
-      2. `private_key` provided (Ed25519PrivateKey) → cryptography-library signing
-
-    Callers should prefer path 1 for user-facing CLI commands (which consume the user's
-    existing SSH key). Path 2 is for tests and for environments without OpenSSH.
-
-    The `namespace` argument is used by ssh-keygen's domain separation. Exclusions
-    use "screw-exclusions"; scripts use "screw-scripts".
+    The CLI init-trust subcommand (Task 12) handles the user-facing flow: detect
+    an existing ~/.ssh/id_ed25519, decrypt with getpass if encrypted, or generate
+    a fresh project-local key under .screw/local/keys/ if none is available.
     """
-    if key_path is not None and ssh_keygen_available():
-        return _sign_with_ssh_keygen(canonical, key_path=key_path, namespace=namespace)
-    if private_key is not None:
-        return _sign_with_cryptography(canonical, private_key=private_key)
-    raise ValueError(
-        "sign_content requires either key_path (with ssh-keygen on PATH) or private_key"
-    )
-
-
-def _sign_with_ssh_keygen(canonical: bytes, *, key_path: Path, namespace: str) -> str:
-    """Sign via `ssh-keygen -Y sign` subprocess. Writes to a tempfile because
-    ssh-keygen reads the content to sign from a file."""
-    with tempfile.NamedTemporaryFile(mode="wb", delete=False) as tf:
-        tf.write(canonical)
-        tf_path = Path(tf.name)
-    try:
-        result = subprocess.run(
-            [
-                "ssh-keygen",
-                "-Y",
-                "sign",
-                "-f",
-                str(key_path),
-                "-n",
-                namespace,
-                str(tf_path),
-            ],
-            check=True,
-            capture_output=True,
-        )
-        # ssh-keygen writes the signature to <input>.sig
-        sig_path = tf_path.with_suffix(tf_path.suffix + ".sig")
-        sig_bytes = sig_path.read_bytes()
-        sig_path.unlink()
-        return base64.b64encode(sig_bytes).decode("ascii")
-    finally:
-        tf_path.unlink(missing_ok=True)
-
-
-def _sign_with_cryptography(canonical: bytes, *, private_key: Ed25519PrivateKey) -> str:
-    """Sign via the cryptography library — raw Ed25519 signature, base64 encoded."""
     signature_bytes = private_key.sign(canonical)
     return base64.b64encode(signature_bytes).decode("ascii")
 ```
+
+Note: `Ed25519PublicKey` is imported alongside `Ed25519PrivateKey` because Task 5's
+`verify_signature` will need it — add both to the module-level `__all__` to keep
+the lint clean without `# noqa` suppression. No `shutil`, `subprocess`, `tempfile`,
+or `Path` imports are needed under Option C.
 
 - [ ] **Step 5: Run tests to verify they pass**
 
@@ -822,7 +795,7 @@ Expected: 2 passed
 
 ```bash
 git add src/screw_agents/trust.py tests/test_trust.py pyproject.toml uv.lock
-git commit -m "feat(phase3a): sign_content with ssh-keygen and cryptography backends"
+git commit -m "feat(phase3a): sign_content via cryptography library (Ed25519)"
 ```
 
 ---
@@ -848,7 +821,7 @@ def test_verify_signature_accepts_valid_signature():
     pub = priv.public_key()
 
     canonical = b"valid content"
-    signature = sign_content(canonical, private_key=priv, key_comment="t@e")
+    signature = sign_content(canonical, private_key=priv)
 
     result = verify_signature(canonical, signature, public_keys=[pub])
     assert isinstance(result, VerificationResult)
@@ -865,7 +838,7 @@ def test_verify_signature_rejects_tampered_content():
     pub = priv.public_key()
 
     canonical = b"original content"
-    signature = sign_content(canonical, private_key=priv, key_comment="t@e")
+    signature = sign_content(canonical, private_key=priv)
 
     tampered = b"MODIFIED content"
     result = verify_signature(tampered, signature, public_keys=[pub])
@@ -882,7 +855,7 @@ def test_verify_signature_rejects_untrusted_key():
     other_priv = Ed25519PrivateKey.generate()
 
     canonical = b"content"
-    signature = sign_content(canonical, private_key=signing_priv, key_comment="t@e")
+    signature = sign_content(canonical, private_key=signing_priv)
 
     result = verify_signature(canonical, signature, public_keys=[other_priv.public_key()])
     assert result.valid is False
@@ -896,7 +869,7 @@ def test_verify_signature_empty_allowed_keys():
 
     priv = Ed25519PrivateKey.generate()
     canonical = b"content"
-    signature = sign_content(canonical, private_key=priv, key_comment="t@e")
+    signature = sign_content(canonical, private_key=priv)
 
     result = verify_signature(canonical, signature, public_keys=[])
     assert result.valid is False
@@ -934,12 +907,11 @@ def verify_signature(
 ) -> VerificationResult:
     """Verify a base64-encoded signature against a list of allowed public keys.
 
-    Tries each public key until one succeeds. This is compatible with the
-    cryptography-fallback signing path (Task 4). For ssh-keygen-produced
-    signatures, the SSH-sig wire format would need parsing; Phase 3a uses
-    cryptography-backed verification uniformly when invoked from Python code.
-    CLI-driven verification that needs full `ssh-keygen -Y verify` semantics
-    lives in the CLI subcommands (Task 12-14).
+    Tries each public key until one succeeds. Phase 3a uses cryptography-library
+    signing and verification uniformly (Task 4 revised per Option C — see Task 4
+    NOTE block). Signatures are raw 64-byte Ed25519, base64-encoded. The CLI
+    subcommands (Tasks 12-14) use the same cryptography path — no ssh-keygen
+    subprocess dependency.
     """
     if not public_keys:
         return VerificationResult(valid=False, reason="no trusted keys configured")
@@ -1180,7 +1152,7 @@ def test_verify_exclusion_valid_signature_returns_trusted(tmp_path: Path):
 
     excl = _sample_exclusion()
     canonical = canonicalize_exclusion(excl)
-    signature = sign_content(canonical, private_key=priv, key_comment="marco@test")
+    signature = sign_content(canonical, private_key=priv)
     excl.signed_by = "marco@example.com"
     excl.signature = signature
 
@@ -1213,7 +1185,7 @@ def test_verify_exclusion_untrusted_signer_returns_invalid(tmp_path: Path):
 
     priv = Ed25519PrivateKey.generate()
     excl = _sample_exclusion()
-    excl.signature = sign_content(canonicalize_exclusion(excl), private_key=priv, key_comment="x")
+    excl.signature = sign_content(canonicalize_exclusion(excl), private_key=priv)
     excl.signed_by = "attacker@example.com"
 
     config = ScrewConfig()  # empty exclusion_reviewers → no trusted keys
@@ -1240,7 +1212,7 @@ def test_verify_script_round_trip(tmp_path: Path):
     meta = {"name": "test", "target_patterns": ["X"], "sha256": "abc"}
 
     canonical = canonicalize_script(source=source, meta=meta)
-    signature = sign_content(canonical, private_key=priv, key_comment="marco@test")
+    signature = sign_content(canonical, private_key=priv)
 
     meta_signed = {**meta, "signed_by": "marco@example.com", "signature": signature}
 
@@ -1461,7 +1433,7 @@ def test_load_exclusions_returns_valid_signed_as_trusted(tmp_path: Path):
         reason="signed entry",
         scope=ExclusionScope(type="exact_line", path="src/a.py"),
     )
-    sig = sign_content(canonicalize_exclusion(excl), private_key=priv, key_comment="marco@test")
+    sig = sign_content(canonicalize_exclusion(excl), private_key=priv)
     excl.signed_by = "marco@example.com"
     excl.signature = sig
 
@@ -1590,13 +1562,14 @@ Add to `tests/test_learning.py`:
 ```python
 def test_record_exclusion_signs_with_local_key(tmp_path: Path, monkeypatch):
     """record_exclusion should sign the new entry using the key resolved for the
-    current user — either from ssh-keygen (if configured) or from a generated
-    local Ed25519 key under .screw/local/keys/."""
+    current user — either loaded from ~/.ssh/id_ed25519 (if available and
+    registered as a script_reviewer) or a generated project-local Ed25519 key
+    under .screw/local/keys/."""
     from screw_agents.learning import record_exclusion
     from screw_agents.models import ExclusionFinding, ExclusionInput, ExclusionScope
 
-    # Force cryptography fallback by monkeypatching ssh-keygen detection off
-    monkeypatch.setattr("screw_agents.trust.ssh_keygen_available", lambda: False)
+    # Force the project-local key path (no ~/.ssh probe in this unit test)
+    monkeypatch.setenv("SCREW_FORCE_LOCAL_KEY", "1")
 
     excl_input = ExclusionInput(
         agent="sqli",
@@ -1625,7 +1598,7 @@ def test_record_exclusion_generates_local_key_on_first_use(tmp_path: Path, monke
     from screw_agents.learning import record_exclusion
     from screw_agents.models import ExclusionFinding, ExclusionInput, ExclusionScope
 
-    monkeypatch.setattr("screw_agents.trust.ssh_keygen_available", lambda: False)
+    monkeypatch.setenv("SCREW_FORCE_LOCAL_KEY", "1")
 
     excl_input = ExclusionInput(
         agent="sqli",
@@ -1761,7 +1734,7 @@ def record_exclusion(project_root: Path, exclusion: ExclusionInput) -> Exclusion
     # Sign the canonical form
     priv, _pub_line = _get_or_create_local_private_key(project_root)
     canonical = canonicalize_exclusion(saved)
-    saved.signature = sign_content(canonical, private_key=priv, key_comment=signer_email)
+    saved.signature = sign_content(canonical, private_key=priv)
 
     existing.append(saved)
     data = {
@@ -2432,7 +2405,7 @@ def run_migrate_exclusions(*, project_root: Path, skip_confirm: bool) -> dict[st
         # Build an Exclusion object from the raw entry, then canonicalize + sign
         excl = Exclusion(**entry)
         canonical = canonicalize_exclusion(excl)
-        signature = sign_content(canonical, private_key=priv, key_comment=signer_email)
+        signature = sign_content(canonical, private_key=priv)
         entry["signed_by"] = signer_email
         entry["signature"] = signature
         entry["signature_version"] = 1
@@ -2591,7 +2564,7 @@ def run_validate_exclusion(
 
     excl = Exclusion(**target_entry)
     canonical = canonicalize_exclusion(excl)
-    signature = sign_content(canonical, private_key=priv, key_comment=signer_email)
+    signature = sign_content(canonical, private_key=priv)
 
     target_entry["signed_by"] = signer_email
     target_entry["signature"] = signature

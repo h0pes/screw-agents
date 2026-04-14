@@ -134,10 +134,8 @@ def test_canonicalize_script_handles_unicode():
     assert parsed["meta"]["emoji"] == "🔒"
 
 
-def test_sign_content_returns_base64_signature(tmp_path: Path):
-    # Generate a throwaway Ed25519 SSH key for the test using cryptography.
-    # Test covers the cryptography-fallback path directly to avoid depending on
-    # ssh-keygen being on PATH in CI.
+def test_sign_content_returns_base64_signature():
+    # Cryptography-library signing. Ed25519 private key generated in-test.
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
     priv = Ed25519PrivateKey.generate()
@@ -145,15 +143,15 @@ def test_sign_content_returns_base64_signature(tmp_path: Path):
     from screw_agents.trust import sign_content
 
     canonical = b"test content to sign"
-    signature = sign_content(canonical, private_key=priv, key_comment="test@example")
+    signature = sign_content(canonical, private_key=priv)
 
     assert isinstance(signature, str)
     assert len(signature) > 0
-    # Cryptography fallback emits base64 over raw Ed25519 signature bytes.
-    # The shape is opaque here; verification test (next task) exercises round-trip.
+    # Raw 64-byte Ed25519 signature, base64-encoded → 88 chars (with padding) or 86 (without).
+    # Opaque here; verification test (Task 5) exercises round-trip.
 
 
-def test_sign_content_deterministic_for_same_input(tmp_path: Path):
+def test_sign_content_deterministic_for_same_input():
     """Ed25519 signatures are deterministic — same key + same message → same signature."""
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
@@ -162,6 +160,6 @@ def test_sign_content_deterministic_for_same_input(tmp_path: Path):
     from screw_agents.trust import sign_content
 
     canonical = b"identical content"
-    sig1 = sign_content(canonical, private_key=priv, key_comment="t@e")
-    sig2 = sign_content(canonical, private_key=priv, key_comment="t@e")
+    sig1 = sign_content(canonical, private_key=priv)
+    sig2 = sign_content(canonical, private_key=priv)
     assert sig1 == sig2

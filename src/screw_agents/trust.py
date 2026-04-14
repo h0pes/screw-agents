@@ -1,24 +1,28 @@
-"""Content trust for .screw/ — SSH-key-based signing and verification.
+"""Content trust for .screw/ — Ed25519 signing and verification.
 
 Phase 3a establishes a uniform trust boundary for everything in .screw/ that
 affects scan integrity. Exclusions (Phase 2, retrofit) and adaptive scripts
 (Phase 3b, new) both go through this module.
 
 The trust root is the git repository itself: .screw/config.yaml declares
-trusted signing keys, and its integrity is rooted in commit history.
+trusted signing keys (OpenSSH format), and its integrity is rooted in commit
+history.
 
-Primary signing path: `ssh-keygen -Y sign` / `ssh-keygen -Y verify` via subprocess.
-Fallback signing path: Python `cryptography` Ed25519 when OpenSSH is not available.
+Signing uses the `cryptography` library with Ed25519 end-to-end. Users' existing
+~/.ssh/id_ed25519 keys are loaded via cryptography.serialization.load_ssh_private_key
+when present; otherwise `init-trust` generates a project-local key under
+.screw/local/keys/. The wire format is raw 64-byte Ed25519 signatures, base64-encoded.
+
+(Design history: an earlier iteration considered ssh-keygen subprocess wrapping
+with cryptography as a fallback. That was rejected during Task 4 code review
+because the two backends produced incompatible wire formats and implementing
+SSHSIG envelope in pure Python was disproportionate effort for the value.)
 """
 
 from __future__ import annotations
 
 import base64
 import json
-import shutil
-import subprocess
-import tempfile
-from pathlib import Path
 from typing import Any
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
@@ -27,6 +31,16 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 )
 
 from screw_agents.models import Exclusion
+
+# Public re-exports. `Ed25519PublicKey` is forward-looking for Task 5's
+# verify_signature, which lives in this module but has not been added yet.
+__all__ = [
+    "Ed25519PrivateKey",
+    "Ed25519PublicKey",
+    "canonicalize_exclusion",
+    "canonicalize_script",
+    "sign_content",
+]
 
 # Canonical form excludes these keys when hashing/signing exclusions.
 # signature_version is INCLUDED in the canonical form on purpose: changing the
@@ -84,71 +98,18 @@ def _canonical_json_bytes(data: Any) -> bytes:
     )
 
 
-def ssh_keygen_available() -> bool:
-    """Return True if `ssh-keygen` is on PATH."""
-    return shutil.which("ssh-keygen") is not None
+def sign_content(canonical: bytes, *, private_key: Ed25519PrivateKey) -> str:
+    """Sign canonical bytes with an Ed25519 private key and return a base64 signature.
 
+    Phase 3a uses cryptography-library signing uniformly. The produced signature
+    is raw 64-byte Ed25519 bytes, base64-encoded. Callers load their SSH key via
+    `cryptography.hazmat.primitives.serialization.load_ssh_private_key()` (which
+    accepts OpenSSH-format ~/.ssh/id_ed25519) and pass the resulting private_key
+    to this function.
 
-def sign_content(
-    canonical: bytes,
-    *,
-    private_key: Ed25519PrivateKey | None = None,
-    key_path: Path | None = None,
-    key_comment: str = "screw-agents",
-    namespace: str = "screw-agents",
-) -> str:
-    """Sign canonical bytes and return a base64-encoded signature.
-
-    Two paths:
-      1. `key_path` provided AND `ssh-keygen` on PATH → shell out to `ssh-keygen -Y sign`
-      2. `private_key` provided (Ed25519PrivateKey) → cryptography-library signing
-
-    Callers should prefer path 1 for user-facing CLI commands (which consume the user's
-    existing SSH key). Path 2 is for tests and for environments without OpenSSH.
-
-    The `namespace` argument is used by ssh-keygen's domain separation. Exclusions
-    use "screw-exclusions"; scripts use "screw-scripts".
+    The CLI init-trust subcommand (Task 12) handles the user-facing flow: detect
+    an existing ~/.ssh/id_ed25519, decrypt with getpass if encrypted, or generate
+    a fresh project-local key under .screw/local/keys/ if none is available.
     """
-    if key_path is not None and ssh_keygen_available():
-        return _sign_with_ssh_keygen(canonical, key_path=key_path, namespace=namespace)
-    if private_key is not None:
-        return _sign_with_cryptography(canonical, private_key=private_key)
-    raise ValueError(
-        "sign_content requires either key_path (with ssh-keygen on PATH) or private_key"
-    )
-
-
-def _sign_with_ssh_keygen(canonical: bytes, *, key_path: Path, namespace: str) -> str:
-    """Sign via `ssh-keygen -Y sign` subprocess. Writes to a tempfile because
-    ssh-keygen reads the content to sign from a file."""
-    with tempfile.NamedTemporaryFile(mode="wb", delete=False) as tf:
-        tf.write(canonical)
-        tf_path = Path(tf.name)
-    try:
-        subprocess.run(
-            [
-                "ssh-keygen",
-                "-Y",
-                "sign",
-                "-f",
-                str(key_path),
-                "-n",
-                namespace,
-                str(tf_path),
-            ],
-            check=True,
-            capture_output=True,
-        )
-        # ssh-keygen writes the signature to <input>.sig
-        sig_path = tf_path.with_suffix(tf_path.suffix + ".sig")
-        sig_bytes = sig_path.read_bytes()
-        sig_path.unlink()
-        return base64.b64encode(sig_bytes).decode("ascii")
-    finally:
-        tf_path.unlink(missing_ok=True)
-
-
-def _sign_with_cryptography(canonical: bytes, *, private_key: Ed25519PrivateKey) -> str:
-    """Sign via the cryptography library — raw Ed25519 signature, base64 encoded."""
     signature_bytes = private_key.sign(canonical)
     return base64.b64encode(signature_bytes).decode("ascii")
