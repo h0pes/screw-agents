@@ -27,13 +27,14 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import yaml
+from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PrivateKey,
     Ed25519PublicKey,
 )
 from pydantic import ValidationError
 
-from screw_agents.models import Exclusion, ScrewConfig
+from screw_agents.models import Exclusion, ReviewerKey, ScrewConfig
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -47,6 +48,8 @@ __all__ = [
     "canonicalize_script",
     "load_config",
     "sign_content",
+    "verify_exclusion",
+    "verify_script",
     "verify_signature",
 ]
 
@@ -266,3 +269,84 @@ def load_config(project_root: Path) -> ScrewConfig:
         return ScrewConfig.model_validate(data)
     except ValidationError as exc:
         raise ValueError(f"Invalid schema in {config_path}: {exc}") from exc
+
+
+def verify_exclusion(exclusion: Exclusion, *, config: ScrewConfig) -> VerificationResult:
+    """Verify an exclusion's signature against the project's exclusion_reviewers.
+
+    Returns VerificationResult. Exclusions with no signature return valid=False
+    with reason 'unsigned' — the caller (learning.py) applies the legacy policy.
+    """
+    if exclusion.signature is None or exclusion.signed_by is None:
+        return VerificationResult(valid=False, reason="unsigned")
+
+    canonical = canonicalize_exclusion(exclusion)
+    public_keys = _load_public_keys(config.exclusion_reviewers)
+    return verify_signature(canonical, exclusion.signature, public_keys=public_keys)
+
+
+def verify_script(
+    *,
+    source: str,
+    meta: dict[str, Any],
+    config: ScrewConfig,
+) -> VerificationResult:
+    """Verify a script's signature against the project's script_reviewers.
+
+    Returns VerificationResult. Scripts with no signature return valid=False
+    with reason 'unsigned'.
+    """
+    signature = meta.get("signature")
+    signed_by = meta.get("signed_by")
+    if signature is None or signed_by is None:
+        return VerificationResult(valid=False, reason="unsigned")
+
+    canonical = canonicalize_script(source=source, meta=meta)
+    public_keys = _load_public_keys(config.script_reviewers)
+    return verify_signature(canonical, signature, public_keys=public_keys)
+
+
+def _load_public_keys(reviewers: list[ReviewerKey]) -> list[Ed25519PublicKey]:
+    """Parse the ssh-ed25519 lines in reviewer entries into Ed25519PublicKey objects.
+
+    Ignores any non-Ed25519 keys (for Phase 3a we only support Ed25519 — RSA/ECDSA
+    can be added later if needed). Malformed entries are skipped with a warning.
+    """
+    pubs: list[Ed25519PublicKey] = []
+    for reviewer in reviewers:
+        try:
+            # Parse the OpenSSH public-key line format: "ssh-ed25519 <base64> <comment>"
+            parts = reviewer.key.strip().split()
+            if len(parts) < 2 or parts[0] != "ssh-ed25519":
+                continue
+            key_bytes_with_header = base64.b64decode(parts[1], validate=True)
+            # The SSH wire format for ed25519 is:
+            #   uint32 len("ssh-ed25519") + "ssh-ed25519" + uint32 len(key) + key_bytes (32 B)
+            # Skip the header (4 + 11 + 4 = 19 bytes) and take the 32-byte raw key.
+            raw_key = key_bytes_with_header[19 : 19 + 32]
+            if len(raw_key) != 32:
+                continue
+            pubs.append(Ed25519PublicKey.from_public_bytes(raw_key))
+        except Exception:
+            continue
+    return pubs
+
+
+def _public_key_to_openssh_line(public_key: Ed25519PublicKey, *, comment: str) -> str:
+    """Encode an Ed25519PublicKey as a single-line OpenSSH public key.
+
+    Format: "ssh-ed25519 <base64(wire_format)> <comment>"
+    This is the inverse of _load_public_keys and is used by tests plus `init-trust`.
+    """
+    raw = public_key.public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+    # SSH wire format: len("ssh-ed25519")=11, key_len=32
+    wire = (
+        len("ssh-ed25519").to_bytes(4, "big")
+        + b"ssh-ed25519"
+        + (32).to_bytes(4, "big")
+        + raw
+    )
+    return f"ssh-ed25519 {base64.b64encode(wire).decode('ascii')} {comment}"

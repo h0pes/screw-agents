@@ -345,3 +345,95 @@ def test_load_config_rejects_invalid_schema(tmp_path: Path):
         load_config(project_root)
 
     assert "config.yaml" in str(exc_info.value) or "legacy_unsigned_exclusions" in str(exc_info.value)
+
+
+def test_verify_exclusion_valid_signature_returns_trusted(tmp_path: Path):
+    """Full round-trip: sign an exclusion, build a config with the matching key,
+    verify_exclusion returns valid=True."""
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    from screw_agents.models import ReviewerKey, ScrewConfig
+    from screw_agents.trust import (
+        _public_key_to_openssh_line,
+        canonicalize_exclusion,
+        sign_content,
+        verify_exclusion,
+    )
+
+    priv = Ed25519PrivateKey.generate()
+    pub = priv.public_key()
+    key_line = _public_key_to_openssh_line(pub, comment="marco@test")
+
+    excl = _sample_exclusion()
+    canonical = canonicalize_exclusion(excl)
+    signature = sign_content(canonical, private_key=priv)
+    excl.signed_by = "marco@example.com"
+    excl.signature = signature
+
+    config = ScrewConfig(
+        exclusion_reviewers=[
+            ReviewerKey(name="Marco", email="marco@example.com", key=key_line)
+        ]
+    )
+
+    result = verify_exclusion(excl, config=config)
+    assert result.valid is True
+
+
+def test_verify_exclusion_unsigned_returns_invalid(tmp_path: Path):
+    from screw_agents.models import ScrewConfig
+    from screw_agents.trust import verify_exclusion
+
+    excl = _sample_exclusion()  # no signature
+    config = ScrewConfig()
+    result = verify_exclusion(excl, config=config)
+    assert result.valid is False
+    assert "unsigned" in (result.reason or "").lower()
+
+
+def test_verify_exclusion_untrusted_signer_returns_invalid(tmp_path: Path):
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    from screw_agents.models import ScrewConfig
+    from screw_agents.trust import canonicalize_exclusion, sign_content, verify_exclusion
+
+    priv = Ed25519PrivateKey.generate()
+    excl = _sample_exclusion()
+    excl.signature = sign_content(canonicalize_exclusion(excl), private_key=priv)
+    excl.signed_by = "attacker@example.com"
+
+    config = ScrewConfig()  # empty exclusion_reviewers → no trusted keys
+    result = verify_exclusion(excl, config=config)
+    assert result.valid is False
+
+
+def test_verify_script_round_trip(tmp_path: Path):
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    from screw_agents.models import ReviewerKey, ScrewConfig
+    from screw_agents.trust import (
+        _public_key_to_openssh_line,
+        canonicalize_script,
+        sign_content,
+        verify_script,
+    )
+
+    priv = Ed25519PrivateKey.generate()
+    pub = priv.public_key()
+    key_line = _public_key_to_openssh_line(pub, comment="marco@test")
+
+    source = "from screw_agents.adaptive import emit_finding\n\ndef analyze(project):\n    pass\n"
+    meta = {"name": "test", "target_patterns": ["X"], "sha256": "abc"}
+
+    canonical = canonicalize_script(source=source, meta=meta)
+    signature = sign_content(canonical, private_key=priv)
+
+    meta_signed = {**meta, "signed_by": "marco@example.com", "signature": signature}
+
+    config = ScrewConfig(
+        script_reviewers=[
+            ReviewerKey(name="Marco", email="marco@example.com", key=key_line)
+        ]
+    )
+    result = verify_script(source=source, meta=meta_signed, config=config)
+    assert result.valid is True
