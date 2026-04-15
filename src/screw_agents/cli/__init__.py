@@ -4,12 +4,13 @@ Unified dispatcher for user-facing CLI commands. Subcommands:
 
 - ``screw-agents serve`` — run the MCP server (stdio or HTTP transport)
 - ``screw-agents init-trust`` — register the local SSH key as a trusted reviewer
-- ``screw-agents migrate-exclusions`` — sign legacy unsigned exclusions (Task 13)
-- ``screw-agents validate-exclusion`` — re-sign a quarantined exclusion (Task 14)
+- ``screw-agents migrate-exclusions`` — bulk-sign legacy unsigned exclusions
+- ``screw-agents validate-exclusion <id>`` — sign a single quarantined exclusion
 
-Tasks 13 and 14 register their subparsers here but are not yet implemented.
-Calling them today raises ``ModuleNotFoundError`` from the on-demand import
-inside ``main()``.
+All four subcommands are implemented and tested as of Phase 3a PR#1
+(Tasks 12-14). Each subcommand module is imported on-demand inside
+``main()`` to avoid import-time side effects and keep the CLI startup
+lightweight.
 """
 
 from __future__ import annotations
