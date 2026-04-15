@@ -166,7 +166,7 @@ class VerificationResult:
 
     valid: bool
     reason: str | None = None  # populated when valid is False
-    matched_key_identity: str | None = None  # populated when valid is True
+    matched_key_fingerprint: str | None = None  # populated when valid is True
 
 
 def verify_signature(
@@ -195,7 +195,7 @@ def verify_signature(
         try:
             pub.verify(signature_bytes, canonical)
             return VerificationResult(
-                valid=True, matched_key_identity=_fingerprint_public_key(pub)
+                valid=True, matched_key_fingerprint=_fingerprint_public_key(pub)
             )
         except Exception:  # InvalidSignature from cryptography
             continue
@@ -312,11 +312,11 @@ def verify_exclusion(exclusion: Exclusion, *, config: ScrewConfig) -> Verificati
 
     # Signature is valid — now cross-check that signed_by matches the key's owner
     matched_reviewer = _find_matching_reviewer(
-        result.matched_key_identity, keys_with_reviewers
+        result.matched_key_fingerprint, keys_with_reviewers
     )
     if matched_reviewer is None:
         # Defensive: shouldn't happen because verify_signature only returns
-        # matched_key_identity when it found a key in the list we passed in.
+        # matched_key_fingerprint when it found a key in the list we passed in.
         return VerificationResult(
             valid=False,
             reason=(
@@ -376,7 +376,7 @@ def verify_script(
         )
 
     matched_reviewer = _find_matching_reviewer(
-        result.matched_key_identity, keys_with_reviewers
+        result.matched_key_fingerprint, keys_with_reviewers
     )
     if matched_reviewer is None:
         return VerificationResult(
@@ -406,7 +406,7 @@ def _find_matching_reviewer(
     """Find the reviewer whose public key fingerprint matches the given value.
 
     Used by verify_exclusion/verify_script to correlate a
-    VerificationResult.matched_key_identity back to the reviewer entry so the
+    VerificationResult.matched_key_fingerprint back to the reviewer entry so the
     caller can cross-check signed_by against reviewer.email.
     """
     if fingerprint is None:
