@@ -58,11 +58,15 @@ __all__ = [
 # version flips the canonical bytes and invalidates the signature, preventing
 # silent version downgrade attacks (e.g., "downgrade v2 to v1 to exploit a
 # weaker verifier"). Only the signature material itself and runtime flags are
-# excluded.
+# excluded. This set MUST enumerate every runtime-only field on `Exclusion`
+# explicitly — do not rely on `Exclusion.model_dump`'s override to strip them,
+# because a future refactor loosening the override would silently change what
+# gets signed and break verification of every stored exclusion.
 _EXCLUSION_CANONICAL_EXCLUDE = {
     "signed_by",
     "signature",
     "quarantined",
+    "trust_state",
 }
 
 # Canonical form excludes these keys when hashing/signing script metadata.

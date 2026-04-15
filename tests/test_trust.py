@@ -56,6 +56,40 @@ def test_canonicalize_exclusion_excludes_runtime_flags():
     assert canonicalize_exclusion(excl) == canonicalize_exclusion(excl_quarantined)
 
 
+def test_canonicalize_exclusion_invariant_across_trust_state():
+    """`trust_state` is a runtime flag and must never appear in signed bytes.
+
+    This test pins the crypto-correctness contract independently of the
+    `Exclusion.model_dump` override. Even if a future refactor loosens the
+    override's `_RUNTIME_ONLY_FIELDS` union, `_EXCLUSION_CANONICAL_EXCLUDE`
+    must still enumerate `trust_state` explicitly so canonicalize_exclusion
+    produces identical bytes regardless of the field's current value. If
+    this invariant drifts, verification of every stored exclusion breaks
+    silently — the loaded exclusion's canonical bytes would no longer match
+    the bytes that were signed at record time.
+    """
+    excl_trusted = _sample_exclusion()
+    excl_trusted.trust_state = "trusted"
+
+    excl_warned = _sample_exclusion()
+    excl_warned.trust_state = "warned"
+
+    excl_quarantined = _sample_exclusion()
+    excl_quarantined.trust_state = "quarantined"
+
+    excl_allowed = _sample_exclusion()
+    excl_allowed.trust_state = "allowed"
+
+    canonical_trusted = canonicalize_exclusion(excl_trusted)
+    canonical_warned = canonicalize_exclusion(excl_warned)
+    canonical_quarantined = canonicalize_exclusion(excl_quarantined)
+    canonical_allowed = canonicalize_exclusion(excl_allowed)
+
+    assert canonical_trusted == canonical_warned
+    assert canonical_trusted == canonical_quarantined
+    assert canonical_trusted == canonical_allowed
+
+
 def test_canonicalize_exclusion_changes_when_signature_version_changes():
     """signature_version is part of the signed content — flipping it must
     invalidate the signature. Prevents silent version downgrade attacks where
