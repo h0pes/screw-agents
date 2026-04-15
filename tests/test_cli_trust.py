@@ -423,3 +423,254 @@ class TestMigrateExclusions:
         assert exit_code == 0
         captured = capsys.readouterr()
         assert "Signed 1 legacy exclusion" in captured.out
+
+
+class TestValidateExclusion:
+    """Task 14 — screw-agents validate-exclusion <id> CLI subcommand."""
+
+    def _seed_two_exclusions(self, project_root: Path) -> None:
+        """Helper: write two unsigned exclusions to the YAML file."""
+        learning_dir = project_root / ".screw" / "learning"
+        learning_dir.mkdir(parents=True, exist_ok=True)
+        (learning_dir / "exclusions.yaml").write_text(yaml.dump({
+            "exclusions": [
+                {
+                    "id": "fp-2026-04-14-001",
+                    "created": "2026-04-14T10:00:00Z",
+                    "agent": "sqli",
+                    "finding": {
+                        "file": "src/a.py",
+                        "line": 10,
+                        "code_pattern": "*",
+                        "cwe": "CWE-89",
+                    },
+                    "reason": "legacy one",
+                    "scope": {"type": "exact_line", "path": "src/a.py"},
+                },
+                {
+                    "id": "fp-2026-04-14-002",
+                    "created": "2026-04-14T10:00:00Z",
+                    "agent": "sqli",
+                    "finding": {
+                        "file": "src/b.py",
+                        "line": 20,
+                        "code_pattern": "*",
+                        "cwe": "CWE-89",
+                    },
+                    "reason": "legacy two",
+                    "scope": {"type": "exact_line", "path": "src/b.py"},
+                },
+            ]
+        }))
+
+    def test_signs_single_entry_leaving_others_untouched(self, tmp_path: Path):
+        """validate-exclusion signs only the specified entry. Other entries
+        remain unsigned and quarantined. Round-trip via load_exclusions
+        verifies Model A identity check passes for the signed one."""
+        from screw_agents.cli.init_trust import run_init_trust
+        from screw_agents.cli.validate_exclusion import run_validate_exclusion
+        from screw_agents.learning import load_exclusions
+
+        run_init_trust(
+            project_root=tmp_path, name="Marco", email="marco@example.com"
+        )
+        self._seed_two_exclusions(tmp_path)
+
+        result = run_validate_exclusion(
+            project_root=tmp_path, exclusion_id="fp-2026-04-14-001"
+        )
+        assert result["status"] == "validated"
+        assert "marco@example.com" in result["message"]
+
+        # Round-trip — reload via load_exclusions to verify Model A passes
+        loaded = load_exclusions(tmp_path)
+        by_id = {e.id: e for e in loaded}
+
+        # fp-001 is now trusted
+        assert by_id["fp-2026-04-14-001"].trust_state == "trusted"
+        assert by_id["fp-2026-04-14-001"].quarantined is False
+        assert by_id["fp-2026-04-14-001"].signed_by == "marco@example.com"
+
+        # fp-002 is still quarantined (unsigned, default reject policy)
+        assert by_id["fp-2026-04-14-002"].trust_state == "quarantined"
+        assert by_id["fp-2026-04-14-002"].quarantined is True
+
+    def test_is_idempotent_on_already_signed_entry(self, tmp_path: Path):
+        """Running validate-exclusion on an already-signed entry returns
+        already_validated without re-signing."""
+        from screw_agents.cli.init_trust import run_init_trust
+        from screw_agents.cli.validate_exclusion import run_validate_exclusion
+
+        run_init_trust(
+            project_root=tmp_path, name="Marco", email="marco@example.com"
+        )
+        self._seed_two_exclusions(tmp_path)
+
+        # First run: validates and signs
+        first_result = run_validate_exclusion(
+            project_root=tmp_path, exclusion_id="fp-2026-04-14-001"
+        )
+        assert first_result["status"] == "validated"
+
+        # Capture the signature bytes
+        yaml_path = tmp_path / ".screw" / "learning" / "exclusions.yaml"
+        data = yaml.safe_load(yaml_path.read_text())
+        original_sig = data["exclusions"][0]["signature"]
+
+        # Second run on same ID: already_validated
+        second_result = run_validate_exclusion(
+            project_root=tmp_path, exclusion_id="fp-2026-04-14-001"
+        )
+        assert second_result["status"] == "already_validated"
+        assert "already signed" in second_result["message"].lower()
+
+        # Verify the signature bytes are unchanged (no re-signing happened)
+        reloaded = yaml.safe_load(yaml_path.read_text())
+        assert reloaded["exclusions"][0]["signature"] == original_sig
+
+    def test_wrong_id_returns_not_found_with_available_ids(self, tmp_path: Path):
+        """Validating a non-existent ID returns not_found and lists the
+        available IDs in the error message."""
+        from screw_agents.cli.init_trust import run_init_trust
+        from screw_agents.cli.validate_exclusion import run_validate_exclusion
+
+        run_init_trust(
+            project_root=tmp_path, name="Marco", email="marco@example.com"
+        )
+        self._seed_two_exclusions(tmp_path)
+
+        result = run_validate_exclusion(
+            project_root=tmp_path, exclusion_id="fp-typo-not-real"
+        )
+        assert result["status"] == "not_found"
+        assert "fp-typo-not-real" in result["message"]
+        # Available IDs should be surfaced to help the user
+        assert "fp-2026-04-14-001" in result["message"]
+        assert "fp-2026-04-14-002" in result["message"]
+
+    def test_missing_exclusions_file_returns_not_found(self, tmp_path: Path):
+        """When .screw/learning/exclusions.yaml doesn't exist, returns
+        not_found gracefully (no crash)."""
+        from screw_agents.cli.init_trust import run_init_trust
+        from screw_agents.cli.validate_exclusion import run_validate_exclusion
+
+        run_init_trust(
+            project_root=tmp_path, name="Marco", email="marco@example.com"
+        )
+
+        result = run_validate_exclusion(
+            project_root=tmp_path, exclusion_id="fp-2026-04-14-001"
+        )
+        assert result["status"] == "not_found"
+        assert "does not exist" in result["message"]
+
+    def test_empty_exclusions_list_returns_not_found(self, tmp_path: Path):
+        """When the exclusions file exists but has an empty list, returns
+        not_found without crashing."""
+        from screw_agents.cli.init_trust import run_init_trust
+        from screw_agents.cli.validate_exclusion import run_validate_exclusion
+
+        run_init_trust(
+            project_root=tmp_path, name="Marco", email="marco@example.com"
+        )
+        learning_dir = tmp_path / ".screw" / "learning"
+        learning_dir.mkdir(parents=True, exist_ok=True)
+        (learning_dir / "exclusions.yaml").write_text(
+            yaml.dump({"exclusions": []})
+        )
+
+        result = run_validate_exclusion(
+            project_root=tmp_path, exclusion_id="fp-2026-04-14-001"
+        )
+        assert result["status"] == "not_found"
+
+    def test_no_init_trust_returns_error(self, tmp_path: Path):
+        """Before init-trust, config.exclusion_reviewers is empty and
+        validate-exclusion returns status='error' with an actionable
+        message pointing to init-trust."""
+        from screw_agents.cli.validate_exclusion import run_validate_exclusion
+
+        self._seed_two_exclusions(tmp_path)
+
+        result = run_validate_exclusion(
+            project_root=tmp_path, exclusion_id="fp-2026-04-14-001"
+        )
+        assert result["status"] == "error"
+        assert "init-trust" in result["message"]
+
+    def test_round_trip_with_mixed_signed_and_unsigned(self, tmp_path: Path):
+        """After validate-exclusion on one entry, the mixed-state file
+        (one signed, one unsigned) survives a round-trip: the signed
+        entry is trusted, the unsigned one stays quarantined. This
+        catches bugs where validate-exclusion accidentally clobbers
+        neighbor entries during the atomic write."""
+        from screw_agents.cli.init_trust import run_init_trust
+        from screw_agents.cli.validate_exclusion import run_validate_exclusion
+        from screw_agents.learning import load_exclusions
+
+        run_init_trust(
+            project_root=tmp_path, name="Marco", email="marco@example.com"
+        )
+        self._seed_two_exclusions(tmp_path)
+
+        run_validate_exclusion(
+            project_root=tmp_path, exclusion_id="fp-2026-04-14-002"
+        )
+
+        loaded = load_exclusions(tmp_path)
+        assert len(loaded) == 2  # neither entry dropped
+
+        by_id = {e.id: e for e in loaded}
+        assert by_id["fp-2026-04-14-001"].trust_state == "quarantined"
+        assert by_id["fp-2026-04-14-002"].trust_state == "trusted"
+
+
+class TestDispatcherExitCodes:
+    """T13-N1 fix — CLI dispatcher exit code contract for graceful no-ops."""
+
+    def test_migrate_exclusions_no_exclusions_exits_zero(
+        self, tmp_path: Path, capsys
+    ):
+        """T13-N1 regression: running migrate-exclusions on a project with
+        no exclusions file is a graceful no-op and must return exit 0.
+        Previously (pre-T13-N1 fix) it returned 1 because the dispatcher
+        mapped all non-'success' statuses to 1."""
+        from screw_agents.cli import main
+        from screw_agents.cli.init_trust import run_init_trust
+
+        run_init_trust(
+            project_root=tmp_path, name="Marco", email="marco@example.com"
+        )
+        # Deliberately do NOT seed any exclusions
+
+        exit_code = main([
+            "migrate-exclusions",
+            "--project-root", str(tmp_path),
+            "--yes",
+        ])
+        assert exit_code == 0  # no-op is success
+        captured = capsys.readouterr()
+        assert "No exclusions" in captured.out
+
+    def test_validate_exclusion_not_found_exits_one(
+        self, tmp_path: Path, capsys
+    ):
+        """T13-N1 regression: validate-exclusion with a wrong ID is a
+        user input error and must return exit 1. Scriptable callers
+        like `screw-agents validate-exclusion $ID && echo OK` should
+        detect missing IDs via the exit code."""
+        from screw_agents.cli import main
+        from screw_agents.cli.init_trust import run_init_trust
+
+        run_init_trust(
+            project_root=tmp_path, name="Marco", email="marco@example.com"
+        )
+
+        exit_code = main([
+            "validate-exclusion",
+            "fp-does-not-exist",
+            "--project-root", str(tmp_path),
+        ])
+        assert exit_code == 1
+        captured = capsys.readouterr()
+        assert "does not exist" in captured.out or "No exclusion" in captured.out

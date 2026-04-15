@@ -139,7 +139,10 @@ def main(argv: list[str] | None = None) -> int:
             project_root=project_root, skip_confirm=args.yes
         )
         print(result["message"])
-        return 0 if result["status"] == "success" else 1
+        # T13-N1 fix: status space is success/no_exclusions/error.
+        # no_exclusions is a graceful no-op (nothing to migrate), only
+        # "error" is a genuine failure.
+        return 1 if result["status"] == "error" else 0
 
     if args.command == "validate-exclusion":
         from screw_agents.cli.validate_exclusion import run_validate_exclusion
@@ -149,7 +152,11 @@ def main(argv: list[str] | None = None) -> int:
             project_root=project_root, exclusion_id=args.exclusion_id
         )
         print(result["message"])
-        return 0 if result["status"] == "validated" else 1
+        # T13-N1 fix: status space is validated/already_validated/
+        # not_found/error. validated and already_validated are successful
+        # outcomes. not_found is a user input error (wrong ID) that
+        # scriptable CI should detect via exit 1.
+        return 1 if result["status"] in ("error", "not_found") else 0
 
     return 0  # unreachable — argparse enforces required=True
 
