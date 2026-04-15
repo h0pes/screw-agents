@@ -36,6 +36,27 @@ class ScanEngine:
         """Return agent metadata dicts, optionally filtered by domain."""
         return self._registry.list_agents(domain=domain)
 
+    def verify_trust(self, *, project_root: Path) -> dict[str, int]:
+        """Compute a summary of trust status for the project's .screw/ content.
+
+        Returns counts of active vs quarantined entries for both exclusions and
+        scripts. Phase 3a populates exclusion counts via learning.load_exclusions
+        (which applies signature verification + legacy policy). Script counts
+        always return 0 until Phase 3b's adaptive-scripts subsystem lands — the
+        dict shape is stable so Phase 3b Task 14 can populate the script fields
+        without changing the contract.
+        """
+        exclusions = load_exclusions(project_root)
+        exclusion_quarantine_count = sum(1 for e in exclusions if e.quarantined)
+        exclusion_active_count = len(exclusions) - exclusion_quarantine_count
+
+        return {
+            "exclusion_quarantine_count": exclusion_quarantine_count,
+            "exclusion_active_count": exclusion_active_count,
+            "script_quarantine_count": 0,
+            "script_active_count": 0,
+        }
+
     def assemble_scan(
         self,
         agent_name: str,
@@ -99,6 +120,7 @@ class ScanEngine:
             all_exclusions = load_exclusions(project_root)
             agent_exclusions = [e for e in all_exclusions if e.agent == agent_name]
             result["exclusions"] = [e.model_dump() for e in agent_exclusions]
+            result["trust_status"] = self.verify_trust(project_root=project_root)
         return result
 
     def assemble_domain_scan(
@@ -381,6 +403,26 @@ class ScanEngine:
                     "agent": {
                         "type": "string",
                         "description": "Filter exclusions to this agent (optional).",
+                    },
+                },
+                "required": ["project_root"],
+            },
+        })
+
+        # Phase 3a: verify_trust
+        tools.append({
+            "name": "verify_trust",
+            "description": (
+                "Return a summary of .screw/ content trust status — counts of "
+                "active vs quarantined exclusions and (Phase 3b) adaptive scripts. "
+                "Use this to surface trust issues in the scan report header."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "project_root": {
+                        "type": "string",
+                        "description": "Absolute path to the project root directory.",
                     },
                 },
                 "required": ["project_root"],

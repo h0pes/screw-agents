@@ -120,6 +120,12 @@ def _dispatch_tool(
             all_exc = [e for e in all_exc if e.agent == agent_filter]
         return {"exclusions": [e.model_dump() for e in all_exc]}
 
+    # --- Phase 3a: trust tools ---
+
+    if name == "verify_trust":
+        project_root = Path(args["project_root"])
+        return engine.verify_trust(project_root=project_root)
+
     if name == "write_scan_results":
         return write_scan_results(
             project_root=Path(args["project_root"]),
