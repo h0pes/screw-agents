@@ -8,7 +8,7 @@ metadata.
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -241,38 +241,46 @@ class Exclusion(ExclusionInput):
     signature: str | None = None
     signature_version: int = 1
 
-    # runtime flag (not persisted to YAML — dual-layer defense below)
+    # runtime flags (not persisted to YAML — dual-layer defense below)
     quarantined: bool = Field(default=False, exclude=True)
+    trust_state: Literal["trusted", "warned", "quarantined", "allowed"] = Field(
+        default="trusted", exclude=True
+    )
 
     model_config = ConfigDict(extra="forbid")
 
+    _RUNTIME_ONLY_FIELDS: ClassVar[set[str]] = {"quarantined", "trust_state"}
+
     def model_dump(self, **kwargs):
-        """Strip the runtime-only `quarantined` flag from Python-side serialization.
+        """Strip runtime-only flags from Python-side serialization.
 
-        Defense-in-depth: the `quarantined` field is declared with
-        `Field(exclude=True)` which handles the default case for both `model_dump`
-        and `model_dump_json` at the schema level. This override is a second layer
-        that catches edge cases the schema-level exclude does not cover:
+        Defense-in-depth: `quarantined` and `trust_state` are declared with
+        `Field(exclude=True)` which handles the default case at the schema
+        level for both `model_dump` and `model_dump_json`. This override is a
+        second layer that catches edge cases the schema-level exclude does not
+        cover:
 
-        - Callers that pass `include={"quarantined"}` (Pydantic's include/exclude
-          precedence can let include win over field-level exclude in some shapes)
-        - Callers that pass `exclude=` as a list or tuple (unknown shape falls back
-          to a safe `{"quarantined"}` set)
+        - Callers that pass `include={"quarantined"}` or `include={"trust_state"}`
+          (Pydantic's include/exclude precedence can let include win over
+          field-level exclude in some shapes)
+        - Callers that pass `exclude=` as a list or tuple (unknown shape falls
+          back to a safe set form)
 
-        The `quarantined` field is set at load time when signature verification
-        fails; persisting it would allow a tampered YAML file to self-mark as
+        These fields are set at load time based on signature verification;
+        persisting them would allow a tampered YAML file to self-mark as
         not-quarantined.
         """
         exclude = kwargs.pop("exclude", None)
+        runtime = self._RUNTIME_ONLY_FIELDS
         if exclude is None:
-            exclude = {"quarantined"}
+            exclude = set(runtime)
         elif isinstance(exclude, set):
-            exclude = exclude | {"quarantined"}
+            exclude = exclude | runtime
         elif isinstance(exclude, dict):
-            exclude = {**exclude, "quarantined": True}
+            exclude = {**exclude, **{k: True for k in runtime}}
         else:
             # Unknown shape — fall back to a safe set form.
-            exclude = {"quarantined"}
+            exclude = set(runtime)
         return super().model_dump(exclude=exclude, **kwargs)
 
 

@@ -45,12 +45,47 @@ def write_scan_results(
             - files_written: list[str] — paths to JSON and Markdown files
             - summary: dict — total, suppressed, active, by_severity counts
             - exclusions_applied: list[dict] — finding_id + exclusion_ref pairs
+            - trust_status: dict — 4-field trust verification counts
+              (matches `ScanEngine.verify_trust` shape)
+
+    Raises:
+        ValueError: If `.screw/` exists as a non-directory (T6-I1) or is not
+            accessible due to permissions (T6-I2).
     """
     # Parse findings via Pydantic
     findings = [Finding(**f) for f in findings_raw]
 
-    # Apply exclusions server-side (correct scope semantics)
-    exclusions = load_exclusions(project_root)
+    # Apply exclusions server-side (correct scope semantics).
+    # Wrap FileExistsError (T6-I1) and PermissionError (T6-I2) from the
+    # learning → trust.load_config chain with actionable messages.
+    try:
+        exclusions = load_exclusions(project_root)
+    except FileExistsError as exc:
+        raise ValueError(
+            f"A `.screw` path exists at {project_root / '.screw'} but is not a "
+            f"directory. Remove or rename it before running screw-agents. "
+            f"Original error: {exc}"
+        ) from exc
+    except PermissionError as exc:
+        raise ValueError(
+            f"Cannot access `.screw/` at {project_root / '.screw'}: permission "
+            f"denied. Check directory permissions or run with appropriate user. "
+            f"Original error: {exc}"
+        ) from exc
+
+    # Compute trust_status inline from the already-loaded exclusions (no
+    # duplicate load_exclusions call). The 4-key shape matches
+    # `ScanEngine.verify_trust` exactly — Phase 3b Task 14 will populate
+    # the script_* fields; for now they are always 0.
+    exclusion_quarantine_count = sum(1 for e in exclusions if e.quarantined)
+    exclusion_active_count = len(exclusions) - exclusion_quarantine_count
+    trust_status: dict[str, int] = {
+        "exclusion_quarantine_count": exclusion_quarantine_count,
+        "exclusion_active_count": exclusion_active_count,
+        "script_quarantine_count": 0,  # Phase 3b populates
+        "script_active_count": 0,  # Phase 3b populates
+    }
+
     suppressed_count = 0
     exclusions_applied: list[dict[str, str]] = []
 
@@ -73,12 +108,28 @@ def write_scan_results(
                 "exclusion_ref": matches[0].id,
             })
 
-    # Create .screw/ directory structure
+    # Create .screw/ directory structure. Wrap NotADirectoryError (when
+    # `.screw` exists as a FILE — T6-I1) and PermissionError (T6-I2) with
+    # actionable messages so users get remediation guidance, not a bare
+    # OSError traceback.
     screw_dir = project_root / ".screw"
     findings_dir = screw_dir / "findings"
     learning_dir = screw_dir / "learning"
-    findings_dir.mkdir(parents=True, exist_ok=True)
-    learning_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        findings_dir.mkdir(parents=True, exist_ok=True)
+        learning_dir.mkdir(parents=True, exist_ok=True)
+    except (FileExistsError, NotADirectoryError) as exc:
+        raise ValueError(
+            f"A `.screw` path exists at {screw_dir} but is not a directory. "
+            f"Remove or rename it before running screw-agents. "
+            f"Original error: {exc}"
+        ) from exc
+    except PermissionError as exc:
+        raise ValueError(
+            f"Cannot create `.screw/` at {screw_dir}: permission denied. "
+            f"Check directory permissions or run with appropriate user. "
+            f"Original error: {exc}"
+        ) from exc
 
     gitignore = screw_dir / ".gitignore"
     if not gitignore.exists():
@@ -102,7 +153,9 @@ def write_scan_results(
 
     # Format and write
     json_content = format_findings(findings, format="json", scan_metadata=meta)
-    md_content = format_findings(findings, format="markdown", scan_metadata=meta)
+    md_content = format_findings(
+        findings, format="markdown", scan_metadata=meta, trust_status=trust_status
+    )
 
     json_path = findings_dir / f"{prefix}-{ts}.json"
     md_path = findings_dir / f"{prefix}-{ts}.md"
@@ -125,4 +178,5 @@ def write_scan_results(
             "by_severity": by_severity,
         },
         "exclusions_applied": exclusions_applied,
+        "trust_status": trust_status,
     }

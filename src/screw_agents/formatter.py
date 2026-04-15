@@ -34,6 +34,7 @@ def format_findings(
     *,
     format: str = "json",
     scan_metadata: dict[str, Any] | None = None,
+    trust_status: dict[str, int] | None = None,
 ) -> str:
     """Dispatch findings to the requested output formatter.
 
@@ -41,6 +42,10 @@ def format_findings(
         findings: List of Finding objects to format.
         format: One of "json", "sarif", or "markdown".
         scan_metadata: Optional dict with keys like "target", "agents", "timestamp".
+        trust_status: Optional trust verification counts with the 4-key shape
+            returned by `ScanEngine.verify_trust`. Only the markdown formatter
+            surfaces this (as a "Trust verification" section); JSON and SARIF
+            ignore it.
 
     Returns:
         Formatted string output.
@@ -54,7 +59,7 @@ def format_findings(
     if format == "sarif":
         return _format_sarif(findings, meta)
     if format == "markdown":
-        return _format_markdown(findings, meta)
+        return _format_markdown(findings, meta, trust_status=trust_status)
     raise ValueError(f"Unsupported format: {format!r}. Choose 'json', 'sarif', or 'markdown'.")
 
 
@@ -159,7 +164,63 @@ def _sarif_result(finding: Finding) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def _format_markdown(findings: list[Finding], metadata: dict[str, Any]) -> str:
+def _render_trust_section_markdown(trust_status: dict[str, int]) -> list[str]:
+    """Render a Trust verification section for scan reports.
+
+    Surfaces:
+    - quarantined exclusions (untrusted/unsigned/signature failure)
+    - active (trusted) exclusion count
+    - Phase 3b placeholder for quarantined scripts
+    - pointers to the CLI remediation subcommands
+
+    Returns an empty list when trust_status is a no-op (all-zero). Callers
+    should still get the clean no-op behavior (no section rendered).
+    """
+    quarantine = trust_status.get("exclusion_quarantine_count", 0)
+    active = trust_status.get("exclusion_active_count", 0)
+    script_quarantine = trust_status.get("script_quarantine_count", 0)
+    script_active = trust_status.get("script_active_count", 0)
+
+    if (
+        quarantine == 0
+        and active == 0
+        and script_quarantine == 0
+        and script_active == 0
+    ):
+        return []
+
+    lines: list[str] = ["## Trust verification", ""]
+    if quarantine > 0:
+        noun = "exclusion" if quarantine == 1 else "exclusions"
+        lines.append(
+            f"- **{quarantine} {noun} quarantined** "
+            f"(unsigned or signed by untrusted key)"
+        )
+        lines.append(
+            "  - Review each with `screw-agents validate-exclusion <id>` "
+            "or run `screw-agents migrate-exclusions` to sign them in bulk"
+        )
+    if active > 0:
+        noun = "exclusion" if active == 1 else "exclusions"
+        lines.append(f"- {active} trusted {noun} applied")
+    if script_quarantine > 0:
+        noun = "script" if script_quarantine == 1 else "scripts"
+        lines.append(
+            f"- **{script_quarantine} adaptive {noun} quarantined** "
+            "(Phase 3b — see `screw-agents validate-script <name>`)"
+        )
+    if script_active > 0:
+        noun = "script" if script_active == 1 else "scripts"
+        lines.append(f"- {script_active} trusted adaptive {noun} loaded")
+    lines.append("")  # trailing blank line before next section
+    return lines
+
+
+def _format_markdown(
+    findings: list[Finding],
+    metadata: dict[str, Any],
+    trust_status: dict[str, int] | None = None,
+) -> str:
     """Build a human-readable Markdown security scan report."""
     lines: list[str] = []
 
@@ -179,6 +240,10 @@ def _format_markdown(findings: list[Finding], metadata: dict[str, Any]) -> str:
         if timestamp:
             lines.append(f"**Scan date:** {timestamp}")
         lines.append("")
+
+    # --- Trust verification (Task 11) ---
+    if trust_status is not None:
+        lines.extend(_render_trust_section_markdown(trust_status))
 
     # --- Summary ---
     lines.append("## Summary")

@@ -12,6 +12,7 @@ from __future__ import annotations
 import fnmatch
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Literal
 import yaml
 
 from cryptography.hazmat.primitives import serialization
@@ -127,34 +128,38 @@ def load_exclusions(project_root: Path) -> list[Exclusion]:
 
 
 def _apply_trust_policy(exclusion: Exclusion, *, config: ScrewConfig) -> None:
-    """Set `exclusion.quarantined` based on verification + legacy policy.
+    """Set `exclusion.trust_state` and `exclusion.quarantined` based on
+    verification + legacy policy.
 
     Called by `load_exclusions` for each loaded entry. Mutates the exclusion
-    in-place. The `quarantined` field is declared with `exclude=True` on the
-    pydantic model, so this runtime flag is never persisted to YAML on write.
+    in-place. Both fields are declared with `exclude=True` on the pydantic
+    model, so these runtime flags are never persisted to YAML on write.
 
-    Policy:
+    Policy (single-assignment — `quarantined` is derived from `trust_state`):
       - Unsigned (no signature or no signed_by):
-          reject → quarantined=True
-          warn   → quarantined=False (caller surfaces a warning separately)
-          allow  → quarantined=False
+          reject → trust_state='quarantined'
+          warn   → trust_state='warned'
+          allow  → trust_state='allowed'
       - Signed: call `verify_exclusion`; any `valid=False` (bad signature,
-        untrusted key, identity mismatch) → quarantined=True. `valid=True` →
-        quarantined=False (trusted, applied).
+        untrusted key, identity mismatch) → trust_state='quarantined'.
+        `valid=True` → trust_state='trusted'.
+      - quarantined is computed as (trust_state == 'quarantined').
     """
-    # Unsigned path — apply legacy policy
-    if exclusion.signature is None or exclusion.signed_by is None:
-        if config.legacy_unsigned_exclusions == "reject":
-            exclusion.quarantined = True
-        # `warn` and `allow` both leave quarantined=False. Task 11 (results.py)
-        # is responsible for surfacing warn-policy entries in the scan report.
-        return
+    state: Literal["trusted", "warned", "quarantined", "allowed"]
 
-    # Signed path — cryptographic verification (Model A: signature + identity)
-    verification = verify_exclusion(exclusion, config=config)
-    if not verification.valid:
-        exclusion.quarantined = True
-    # valid=True leaves quarantined=False (trusted, applied)
+    if exclusion.signature is None or exclusion.signed_by is None:
+        policy = config.legacy_unsigned_exclusions
+        state = {
+            "reject": "quarantined",
+            "warn": "warned",
+            "allow": "allowed",
+        }[policy]
+    else:
+        verification = verify_exclusion(exclusion, config=config)
+        state = "trusted" if verification.valid else "quarantined"
+
+    exclusion.trust_state = state
+    exclusion.quarantined = state == "quarantined"
 
 
 def record_exclusion(project_root: Path, exclusion: ExclusionInput) -> Exclusion:

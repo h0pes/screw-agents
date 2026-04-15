@@ -323,6 +323,151 @@ legacy_unsigned_exclusions: reject
         assert exclusions[0].signed_by == "marco@example.com"
 
 
+class TestLoadExclusionsTrustState:
+    """Task 11 — _apply_trust_policy sets both trust_state and quarantined."""
+
+    def _write_unsigned_entry(self, tmp_path: Path, policy: str) -> None:
+        screw = tmp_path / ".screw"
+        (screw / "learning").mkdir(parents=True)
+        (screw / "learning" / "exclusions.yaml").write_text(
+            """
+exclusions:
+  - id: "fp-2026-04-14-001"
+    created: "2026-04-14T10:00:00Z"
+    agent: sqli
+    finding:
+      file: "src/a.py"
+      line: 10
+      code_pattern: "*"
+      cwe: "CWE-89"
+    reason: "legacy unsigned"
+    scope:
+      type: "exact_line"
+      path: "src/a.py"
+"""
+        )
+        (screw / "config.yaml").write_text(
+            f"version: 1\nlegacy_unsigned_exclusions: {policy}\n"
+        )
+
+    def test_unsigned_reject_policy_sets_trust_state_quarantined(self, tmp_path: Path):
+        """Under reject policy (default), unsigned entries get trust_state='quarantined'."""
+        self._write_unsigned_entry(tmp_path, "reject")
+        loaded = load_exclusions(tmp_path)
+        assert len(loaded) == 1
+        assert loaded[0].trust_state == "quarantined"
+        assert loaded[0].quarantined is True
+
+    def test_unsigned_warn_policy_sets_trust_state_warned(self, tmp_path: Path):
+        """Under warn policy, unsigned entries get trust_state='warned' and
+        quarantined=False (applied with warning)."""
+        self._write_unsigned_entry(tmp_path, "warn")
+        loaded = load_exclusions(tmp_path)
+        assert len(loaded) == 1
+        assert loaded[0].trust_state == "warned"
+        assert loaded[0].quarantined is False
+
+    def test_unsigned_allow_policy_sets_trust_state_allowed(self, tmp_path: Path):
+        """Under allow policy, unsigned entries get trust_state='allowed'."""
+        self._write_unsigned_entry(tmp_path, "allow")
+        loaded = load_exclusions(tmp_path)
+        assert len(loaded) == 1
+        assert loaded[0].trust_state == "allowed"
+        assert loaded[0].quarantined is False
+
+    def test_signed_valid_sets_trust_state_trusted(self, tmp_path: Path):
+        """Signed-and-valid entries get trust_state='trusted'."""
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+        from screw_agents.models import Exclusion, ExclusionFinding, ExclusionScope
+        from screw_agents.trust import (
+            _public_key_to_openssh_line,
+            canonicalize_exclusion,
+            sign_content,
+        )
+
+        priv = Ed25519PrivateKey.generate()
+        pub_line = _public_key_to_openssh_line(priv.public_key(), comment="marco@test")
+
+        excl = Exclusion(
+            id="fp-2026-04-14-001",
+            created="2026-04-14T10:00:00Z",
+            agent="sqli",
+            finding=ExclusionFinding(
+                file="src/a.py", line=10, code_pattern="*", cwe="CWE-89"
+            ),
+            reason="signed",
+            scope=ExclusionScope(type="exact_line", path="src/a.py"),
+        )
+        sig = sign_content(canonicalize_exclusion(excl), private_key=priv)
+        excl.signed_by = "marco@example.com"
+        excl.signature = sig
+
+        screw = tmp_path / ".screw"
+        (screw / "learning").mkdir(parents=True)
+
+        data = {"exclusions": [excl.model_dump()]}
+        (screw / "learning" / "exclusions.yaml").write_text(
+            yaml.dump(data, default_flow_style=False, sort_keys=False)
+        )
+        (screw / "config.yaml").write_text(
+            f"""version: 1
+exclusion_reviewers:
+  - name: Marco
+    email: marco@example.com
+    key: "{pub_line}"
+legacy_unsigned_exclusions: reject
+"""
+        )
+
+        loaded = load_exclusions(tmp_path)
+        assert len(loaded) == 1
+        assert loaded[0].trust_state == "trusted"
+        assert loaded[0].quarantined is False
+
+    def test_signed_invalid_sets_trust_state_quarantined(self, tmp_path: Path):
+        """Signed-but-invalid entries (signer not registered) get
+        trust_state='quarantined'."""
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+        from screw_agents.models import Exclusion, ExclusionFinding, ExclusionScope
+        from screw_agents.trust import canonicalize_exclusion, sign_content
+
+        # Sign with a key that is NOT in the config.yaml reviewers list.
+        priv = Ed25519PrivateKey.generate()
+
+        excl = Exclusion(
+            id="fp-2026-04-14-001",
+            created="2026-04-14T10:00:00Z",
+            agent="sqli",
+            finding=ExclusionFinding(
+                file="src/a.py", line=10, code_pattern="*", cwe="CWE-89"
+            ),
+            reason="signed but untrusted",
+            scope=ExclusionScope(type="exact_line", path="src/a.py"),
+        )
+        sig = sign_content(canonicalize_exclusion(excl), private_key=priv)
+        excl.signed_by = "attacker@example.com"
+        excl.signature = sig
+
+        screw = tmp_path / ".screw"
+        (screw / "learning").mkdir(parents=True)
+
+        data = {"exclusions": [excl.model_dump()]}
+        (screw / "learning" / "exclusions.yaml").write_text(
+            yaml.dump(data, default_flow_style=False, sort_keys=False)
+        )
+        # No reviewers → any signed entry fails verification
+        (screw / "config.yaml").write_text(
+            "version: 1\nlegacy_unsigned_exclusions: reject\n"
+        )
+
+        loaded = load_exclusions(tmp_path)
+        assert len(loaded) == 1
+        assert loaded[0].trust_state == "quarantined"
+        assert loaded[0].quarantined is True
+
+
 class TestRecordExclusionSignsOnWrite:
     """Task 9 — record_exclusion signs new entries with the local Ed25519 key."""
 
