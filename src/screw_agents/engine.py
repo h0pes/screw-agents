@@ -13,7 +13,7 @@ from typing import Any
 
 from screw_agents.formatter import format_findings
 from screw_agents.learning import load_exclusions
-from screw_agents.models import AgentDefinition, Finding, HeuristicEntry
+from screw_agents.models import AgentDefinition, Exclusion, Finding, HeuristicEntry
 from screw_agents.registry import AgentRegistry
 from screw_agents.resolver import ResolvedCode, filter_by_relevance, resolve_target
 
@@ -36,7 +36,12 @@ class ScanEngine:
         """Return agent metadata dicts, optionally filtered by domain."""
         return self._registry.list_agents(domain=domain)
 
-    def verify_trust(self, *, project_root: Path) -> dict[str, int]:
+    def verify_trust(
+        self,
+        *,
+        project_root: Path,
+        exclusions: list[Exclusion] | None = None,
+    ) -> dict[str, int]:
         """Compute a summary of trust status for the project's .screw/ content.
 
         Returns counts of active vs quarantined entries for both exclusions and
@@ -45,8 +50,15 @@ class ScanEngine:
         always return 0 until Phase 3b's adaptive-scripts subsystem lands — the
         dict shape is stable so Phase 3b Task 14 can populate the script fields
         without changing the contract.
+
+        The optional `exclusions` parameter lets callers that already have a
+        loaded-and-verified list reuse it to avoid a duplicate YAML parse and
+        Ed25519 verification pass. `assemble_scan` passes this through to avoid
+        paying the load cost twice on every scan invocation. MCP tool callers
+        (server.py) omit it and let this function self-load.
         """
-        exclusions = load_exclusions(project_root)
+        if exclusions is None:
+            exclusions = load_exclusions(project_root)
         exclusion_quarantine_count = sum(1 for e in exclusions if e.quarantined)
         exclusion_active_count = len(exclusions) - exclusion_quarantine_count
 
@@ -120,7 +132,10 @@ class ScanEngine:
             all_exclusions = load_exclusions(project_root)
             agent_exclusions = [e for e in all_exclusions if e.agent == agent_name]
             result["exclusions"] = [e.model_dump() for e in agent_exclusions]
-            result["trust_status"] = self.verify_trust(project_root=project_root)
+            # Reuse the already-loaded list to avoid a duplicate YAML parse + verify pass.
+            result["trust_status"] = self.verify_trust(
+                project_root=project_root, exclusions=all_exclusions
+            )
         return result
 
     def assemble_domain_scan(
