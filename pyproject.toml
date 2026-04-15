@@ -39,7 +39,7 @@ dependencies = [
 ]
 
 [project.scripts]
-screw-agents = "screw_agents.server:main"
+screw-agents = "screw_agents.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/h0pes/screw-agents"

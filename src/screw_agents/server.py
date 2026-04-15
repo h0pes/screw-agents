@@ -7,8 +7,6 @@ handlers.
 
 from __future__ import annotations
 
-import argparse
-import asyncio
 import json
 import logging
 from pathlib import Path
@@ -247,55 +245,3 @@ async def run_http(domains_dir: Path | None = None, port: int = 8080) -> None:
     config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="info")
     uvi_server = uvicorn.Server(config)
     await uvi_server.serve()
-
-
-# ------------------------------------------------------------------
-# CLI entry point
-# ------------------------------------------------------------------
-
-
-def main() -> None:
-    """CLI entry point for ``screw-agents``."""
-    parser = argparse.ArgumentParser(
-        prog="screw-agents",
-        description="screw-agents MCP server — vulnerability-specific code review agents",
-    )
-    parser.add_argument(
-        "--transport",
-        choices=["stdio", "http"],
-        default="stdio",
-        help="Transport protocol (default: stdio)",
-    )
-    parser.add_argument(
-        "--port",
-        type=int,
-        default=8080,
-        help="Port for HTTP transport (default: 8080)",
-    )
-    parser.add_argument(
-        "--domains-dir",
-        type=Path,
-        default=None,
-        help="Path to domains directory (default: auto-detect from repo root)",
-    )
-    parser.add_argument(
-        "--log-level",
-        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-        default="INFO",
-        help="Logging level (default: INFO)",
-    )
-    args = parser.parse_args()
-
-    logging.basicConfig(
-        level=getattr(logging, args.log_level),
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    )
-
-    if args.transport == "stdio":
-        asyncio.run(run_stdio(args.domains_dir))
-    elif args.transport == "http":
-        asyncio.run(run_http(args.domains_dir, args.port))
-
-
-if __name__ == "__main__":
-    main()

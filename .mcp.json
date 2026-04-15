@@ -2,7 +2,7 @@
   "mcpServers": {
     "screw-agents": {
       "command": "uv",
-      "args": ["run", "screw-agents", "--transport", "stdio"]
+      "args": ["run", "screw-agents", "serve", "--transport", "stdio"]
     }
   }
 }

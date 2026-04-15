@@ -2063,6 +2063,28 @@ git commit -m "feat(phase3a): surface trust status in write_scan_results Markdow
 
 ### Task 12: `screw-agents init-trust` CLI Subcommand
 
+**NOTE (2026-04-15 — Option A unified CLI):** The original Task 12 plan (below)
+assumed `screw-agents` was a greenfield CLI binding. In reality, the
+`[project.scripts]` entry was already bound to `screw_agents.server:main` (the
+MCP server entry point). Task 12 shipped under **Option A — unified subparsers**:
+
+- `screw_agents.cli:main` is now the unified dispatcher with four subcommands:
+  `serve` (replaces bare `screw-agents --transport stdio`), `init-trust`
+  (Task 12), `migrate-exclusions` (Task 13 stub), `validate-exclusion` (Task 14
+  stub).
+- `server.main` was DELETED; the MCP server is now invoked via
+  `screw-agents serve --transport stdio`. `server.run_stdio` / `run_http` /
+  `create_server` / `create_http_app` remain.
+- `.mcp.json` was updated to invoke `uv run screw-agents serve --transport
+  stdio` (inserted `serve` into the args array).
+- The `run_init_trust` function signature and behavior described below still
+  match reality; only the dispatcher wrapping them differs.
+
+This NOTE documents the divergence. The original plan text below remains as a
+historical reference for the original scoping intent.
+
+---
+
 **Files:**
 - Create: `src/screw_agents/cli/__init__.py`
 - Create: `src/screw_agents/cli/init_trust.py`
