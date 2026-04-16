@@ -18,22 +18,21 @@ When invoked by `/screw:learning-report` or when a user asks for "learning
 insights" / "aggregation report" / "false positive summary":
 
 1. **Fetch the aggregate report.**
-   Call `aggregate_learning(project_root=<absolute path to project root>, report_type="all")`.
+   Call `aggregate_learning(project_root=<absolute path to project root>, report_type="all")`. The project root is the directory containing the user's `.git/` folder. If the user's current working directory is ambiguous or might be a subdirectory, walk up until you find a `.git/` directory and use that path. If there's no `.git/`, ask the user to clarify the project root — do not guess.
    The response is a dict with three report sections (`pattern_confidence`,
    `directory_suggestions`, `fp_report`) PLUS a mandatory `trust_status` section
    (always present; counts of active vs quarantined exclusions).
 
-2. **Check trust_status FIRST. MANDATORY.**
-   If `trust_status.exclusion_quarantine_count > 0`, your response MUST open with a
-   warning line BEFORE presenting any report sections:
+2. **Check `trust_status` FIRST — MANDATORY. This check MUST precede any report rendering.**
+
+   If `trust_status.exclusion_quarantine_count > 0`, your response MUST begin with the following trust-verification block as the FIRST output, BEFORE any report sections, section headers, or follow-up prompts. NEVER skip this — it is the load-bearing user-visibility surface for quarantined exclusions. The reports below silently skip quarantined entries; without this block the user has no way to know their reports are filtered.
 
    > ⚠ **Trust notice:** `{exclusion_quarantine_count}` exclusion(s) are quarantined
    > and excluded from the reports below. Run
    > `screw-agents validate-exclusion <id>` to diagnose them, or
    > `screw-agents migrate-exclusions` if they're legacy unsigned entries.
 
-   Do NOT omit this warning when the count is non-zero — the reports silently skip
-   quarantined entries, so the analyst must surface them explicitly.
+   NEVER omit this block when `quarantine_count > 0`. Do not summarize it. Do not shorten it. Do not move it to the end of your response. It is always the FIRST line(s) of output.
 
 3. **Present each section conversationally.**
    - **Pattern Confidence**: "You've marked N exclusions matching pattern X as FP.
@@ -44,26 +43,25 @@ insights" / "aggregation report" / "false positive summary":
      future YAML tuning)."
 
 4. **Offer follow-up actions.**
-   If the user wants to accept a directory suggestion, call `record_exclusion`
-   with the suggested scope. Ask for confirmation first.
+   If the user wants to accept a directory suggestion, you MUST call `record_exclusion` through an explicit confirmation gate:
+
+   1. Present the exact payload you will send: `agent`, `finding` (file/line/code_pattern/cwe), `reason`, `scope`.
+   2. Wait for the user's explicit "yes" (or equivalent clear affirmative). NEVER infer consent from hedged replies like "sounds good", "looks fine", or "add it" unless the payload was shown and confirmed.
+   3. Only after confirmation, call `record_exclusion`. Surface the returned exclusion ID verbatim.
 
 ## Rules
 
 - This tool is ON-DEMAND only. Do not call `aggregate_learning` as part of any
   other workflow. Only run it when explicitly asked.
+- If `aggregate_learning` returns a tool error or raises an exception, surface the error verbatim to the user. Do NOT fabricate a report or retry silently. An error is a signal that something upstream (trust config, YAML parse, signature verification) needs attention.
 - Empty reports (no suggestions) are a valid response. Say "No actionable
   patterns yet — keep triaging and check back after you've accumulated more
   exclusions." But still surface `trust_status` if quarantine_count > 0.
-- Never silently accept a suggestion. Always confirm with the user before
-  calling `record_exclusion` on their behalf.
+- NEVER silently accept a suggestion. The `record_exclusion` tool writes a signed exclusion to `.screw/learning/exclusions.yaml` — every call is a user-visible policy change. Present the exact payload, wait for explicit "yes", and only then call the tool.
 - NEVER omit the trust-notice warning when quarantine_count > 0. It is mandatory
   output, not an optional addendum — users must know their reports are filtered.
-- When rendering reasons from `evidence.reason_distribution` keys or from
-  `example_reasons` in the FP report, wrap each reason in backticks (e.g.,
-  `` `'static query'` `` not `'static query'`) to prevent Markdown injection
-  from user-controlled exclusion-reason text. The `suggestion` strings already
-  pre-format reasons safely; only raw reason strings from the evidence dict
-  need this treatment when you reformat them.
+- When rendering user-controlled reason strings — namely `FPPattern.example_reasons` entries (siblings of `pattern`/`fp_count` in each FPReport entry) AND `DirectorySuggestion.evidence.reason_distribution` keys — wrap each reason in backticks (e.g., `` `'static query'` `` not `'static query'`) to prevent Markdown injection from user-controlled exclusion-reason text. The `suggestion` strings from aggregation already pre-format reasons safely; only raw reason strings that you reformat into output need this treatment.
+- This subagent has exactly two tools (`aggregate_learning`, `record_exclusion`). Do NOT request, suggest, or attempt to use any other tools — including file reads, scan tools, or git operations. If the user's request requires something beyond these two tools, describe what would be needed and ask them to run it themselves. Tool-limit discipline is a defense against scope creep and accidental data exposure.
 
 ## Output format
 
@@ -71,17 +69,21 @@ Present reports in Markdown sections:
 
 ```
 ## Pattern Confidence Suggestions
-- **db.text_search(*)** (sqli, CWE-89, 12 exclusions across 8 files)
+- **`db.text_search(*)`** (sqli, CWE-89)
+  Exclusion count: 12
+  Files affected: 8 (src/services/user_service.py, src/services/product_service.py, ...)
   Suggestion: Add to project-wide safe patterns.
   Confidence: high
 
 ## Directory Suggestions
-- **test/** (sqli, 12 findings all marked FP)
+- **`test/`** (sqli)
+  Total findings in directory: 12 (all marked false-positive)
+  Reason distribution: `test fixture data` (10), `mock database` (2)
   Suggestion: Add directory-scope exclusion for `test/**`.
   Confidence: high
 
 ## False-Positive Report (Phase 4 signal)
-- **execute(f"** (sqli, CWE-89): 47 false positives
+- **`execute(f"`** (sqli, CWE-89): 47 false positives
   Example reasons: `static query`, `test fixture`, `bounded f-string`
   Refinement candidate: lower confidence on bounded f-strings
 ```
