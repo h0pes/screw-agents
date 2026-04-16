@@ -3,11 +3,9 @@ name: screw:scan
 description: "Run a security scan with screw-agents. Usage: /scan <agent|domain|full> [target] [--thoroughness standard|deep] [--format json|sarif|markdown]"
 ---
 
-# /scan — Security Scan Command
+# /screw:scan — Security Scan Command
 
 Parse the arguments and dispatch to the appropriate screw-agents subagent.
-
-> **Slash-command name:** Claude Code 2.x registers this command under its file basename (`scan`), not the `name: screw:scan` frontmatter. Invoke as `/scan` from the slash-command palette. The `name: screw:scan` frontmatter is preserved for forward compatibility with Claude Code versions that honor namespaced slash commands.
 
 ## Syntax
 
