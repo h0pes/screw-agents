@@ -94,10 +94,19 @@ _DIR_HIGH_COUNT = 10
 def aggregate_directory_suggestions(exclusions: list[Exclusion]) -> list[DirectorySuggestion]:
     """Detect directories where exclusions concentrate, suggesting directory-scope exclusions.
 
-    Groups by (agent, top_dir) where top_dir is the first path component of
-    finding.file plus a trailing slash. Only trusted (non-quarantined) exclusions
-    with a non-empty file path are considered. Buckets meeting _DIR_MIN_COUNT
-    produce a suggestion.
+    Groups exclusions by (agent, top_dir) where top_dir is the FIRST path component
+    of finding.file plus a trailing slash. This is an intentional coarse granularity:
+    a concentration in `src/` surfaces as one bucket, not split by sub-paths. Deeper
+    granularity is tracked by T18-M1 in docs/DEFERRED_BACKLOG.md.
+
+    Exclusions are skipped when:
+    - quarantined (trust-policy decision)
+    - file path is empty/whitespace (malformed data)
+    - file path has no directory component (root-level files like README.md)
+
+    Only buckets meeting _DIR_MIN_COUNT produce a suggestion. The "top reason" in
+    the suggestion string is deterministically tie-broken by (count, reason_text)
+    to prevent order-dependent output across exclusion insertion order.
     """
     buckets: dict[tuple[str, str], list[Exclusion]] = defaultdict(list)
     for excl in exclusions:
@@ -106,9 +115,14 @@ def aggregate_directory_suggestions(exclusions: list[Exclusion]) -> list[Directo
         # Skip exclusions with no identifiable file path — these are schema-
         # evolution artifacts or test fixtures and must not synthesize a bogus
         # directory suggestion.
-        if not excl.finding.file.strip():
+        file_path = excl.finding.file.strip()
+        if not file_path:
             continue
-        top_dir = excl.finding.file.split("/", 1)[0] + "/"
+        # Skip root-level files (no slash) — they don't represent directory
+        # concentration and would produce nonsense suggestions like `README.md/**`.
+        if "/" not in file_path:
+            continue
+        top_dir = file_path.split("/", 1)[0] + "/"
         key = (excl.agent, top_dir)
         buckets[key].append(excl)
 
@@ -129,19 +143,28 @@ def aggregate_directory_suggestions(exclusions: list[Exclusion]) -> list[Directo
         else:
             confidence = "low"
 
+        # Deterministic tie-break: when two reasons share the same count,
+        # the lexicographically larger reason wins. Stable across exclusion
+        # insertion order.
+        top_reason = max(reason_counts.items(), key=lambda kv: (kv[1], kv[0]))[0]
+
         suggestions.append(
             DirectorySuggestion(
                 directory=directory,
                 agent=agent,
                 evidence={
                     "total_findings_in_directory": len(group),
+                    # Invariant: every Exclusion in the database represents a user-confirmed
+                    # false positive (that's the only way entries land in exclusions.yaml).
+                    # The literal True encodes this invariant; do NOT compute it from group
+                    # contents — the model guarantees it.
                     "all_marked_false_positive": True,
                     "reason_distribution": dict(reason_counts),
                     "files_affected": sorted({e.finding.file for e in group}),
                 },
                 suggestion=(
                     f"Add directory-scope exclusion for `{directory}**` "
-                    f"(top reason: '{max(reason_counts, key=reason_counts.get)}')."
+                    f"(top reason: '{top_reason}')."
                 ),
                 confidence=confidence,
             )

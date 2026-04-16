@@ -248,6 +248,9 @@ def test_aggregate_directory_suggestions_skips_quarantined():
     suggestions = aggregate_directory_suggestions(exclusions)
     assert len(suggestions) == 1
     assert suggestions[0].confidence == "low"
+    # Intent check: evidence reflects the filtered count, not the raw 5.
+    assert suggestions[0].evidence["total_findings_in_directory"] == 3
+    assert len(suggestions[0].evidence["files_affected"]) == 3
 
 
 def test_aggregate_directory_suggestions_same_dir_across_agents_doesnt_collapse():
@@ -263,5 +266,71 @@ def test_aggregate_directory_suggestions_same_dir_across_agents_doesnt_collapse(
         for i in range(5)
     ]
     suggestions = aggregate_directory_suggestions(exclusions)
-    agents = sorted(s.agent for s in suggestions)
-    assert agents == ["cmdi", "sqli"]
+    by_agent = {s.agent: s for s in suggestions}
+    assert set(by_agent.keys()) == {"sqli", "cmdi"}
+    # Each bucket has its own 5 findings — no cross-agent contamination
+    assert by_agent["sqli"].evidence["total_findings_in_directory"] == 5
+    assert by_agent["cmdi"].evidence["total_findings_in_directory"] == 5
+    # Files are disjoint — the sqli bucket has no cmdi files and vice versa
+    sqli_files = set(by_agent["sqli"].evidence["files_affected"])
+    cmdi_files = set(by_agent["cmdi"].evidence["files_affected"])
+    assert sqli_files.isdisjoint(cmdi_files)
+
+
+def test_aggregate_directory_suggestions_skips_root_level_files():
+    """Files with no directory component (e.g., README.md) don't produce suggestions."""
+    from screw_agents.aggregation import aggregate_directory_suggestions
+    exclusions = [
+        _excl(id=f"fp-2026-04-14-{i:03d}", agent="sqli", pattern=f"p{i}",
+              file=f"root_file_{i}.py", line=10, reason="t")
+        for i in range(5)
+    ]
+    assert aggregate_directory_suggestions(exclusions) == []
+
+
+def test_aggregate_directory_suggestions_tie_break_is_deterministic():
+    """When two reasons tie in count, the top-reason in the suggestion string is deterministic."""
+    from screw_agents.aggregation import aggregate_directory_suggestions
+    # 4 exclusions: 2 with reason "alpha", 2 with reason "beta"
+    exclusions = [
+        _excl(id=f"fp-2026-04-14-{i:03d}", agent="sqli", pattern=f"p{i}",
+              file=f"test/f{i}.py", line=10, reason="alpha")
+        for i in range(2)
+    ] + [
+        _excl(id=f"fp-2026-04-14-{i + 100:03d}", agent="sqli", pattern=f"p{i}",
+              file=f"test/g{i}.py", line=10, reason="beta")
+        for i in range(2)
+    ]
+    # Add a third one with a different reason to avoid triggering
+    # threshold-related logic — we need at least MIN=3 total entries
+    exclusions.append(
+        _excl(id="fp-2026-04-14-999", agent="sqli", pattern="p",
+              file="test/h.py", line=10, reason="alpha")
+    )
+    # Now: alpha=3, beta=2 → top reason = alpha (unambiguous)
+    suggestions = aggregate_directory_suggestions(exclusions)
+    assert len(suggestions) == 1
+    assert "'alpha'" in suggestions[0].suggestion
+
+    # Now test tie-break: 2 alpha, 2 beta (equal count)
+    exclusions_tied = [
+        _excl(id=f"fp-2026-04-14-{i:03d}", agent="sqli", pattern=f"p{i}",
+              file=f"test/f{i}.py", line=10, reason="alpha")
+        for i in range(2)
+    ] + [
+        _excl(id=f"fp-2026-04-14-{i + 100:03d}", agent="sqli", pattern=f"p{i}",
+              file=f"test/g{i}.py", line=10, reason="beta")
+        for i in range(2)
+    ]
+    # Still need at least 3 total for the directory bucket to produce a suggestion
+    exclusions_tied.append(
+        _excl(id="fp-2026-04-14-555", agent="sqli", pattern="p",
+              file="test/h.py", line=10, reason="gamma")
+    )
+    # Now: alpha=2, beta=2, gamma=1 → tie between alpha and beta
+    # Tie-break rule: (count, reason_text) with max means larger string wins
+    suggestions = aggregate_directory_suggestions(exclusions_tied)
+    assert len(suggestions) == 1
+    # With max((count, reason)) tie-break, "beta" > "alpha" lexicographically
+    # so beta wins the tie
+    assert "'beta'" in suggestions[0].suggestion
