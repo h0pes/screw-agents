@@ -34,11 +34,12 @@ dependencies = [
     "tree-sitter-cpp>=0.23",
     "tree-sitter-c-sharp>=0.23",
     "pyyaml>=6.0",
-    "pydantic>=2.0",
+    "pydantic>=2.0,<3.0",
+    "cryptography>=42.0",
 ]
 
 [project.scripts]
-screw-agents = "screw_agents.server:main"
+screw-agents = "screw_agents.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/h0pes/screw-agents"
@@ -72,6 +73,7 @@ select = ["E", "F", "W", "I", "S", "B", "UP"]
 [tool.pytest.ini_options]
 testpaths = ["tests", "benchmarks/tests"]
 pythonpath = ["."]
+addopts = "--import-mode=importlib"
 
 [tool.mypy]
 python_version = "3.11"

@@ -167,9 +167,25 @@ class TestWriteScanResultsExclusions:
     """D5 fix: write_scan_results applies exclusions server-side."""
 
     def _setup_exclusion(self, tmp_path, scope_type, **scope_kwargs):
-        """Write an exclusion to .screw/learning/exclusions.yaml."""
-        learning_dir = tmp_path / ".screw" / "learning"
-        learning_dir.mkdir(parents=True, exist_ok=True)
+        """Write an exclusion to .screw/learning/exclusions.yaml.
+
+        Writes config.yaml with ``legacy_unsigned_exclusions: warn`` so the
+        unsigned entry is treated as ``warned`` (active) and remains
+        applicable. These tests verify scope-matching semantics — they
+        intentionally do not exercise the trust pipeline. Without the warn
+        config, the default ``reject`` policy quarantines the entry and
+        match_exclusions correctly skips it (per the round-trip defect fix).
+        """
+        screw_dir = tmp_path / ".screw"
+        screw_dir.mkdir(exist_ok=True)
+        (screw_dir / "config.yaml").write_text(
+            "version: 1\n"
+            "exclusion_reviewers: []\n"
+            "script_reviewers: []\n"
+            "legacy_unsigned_exclusions: warn\n"
+        )
+        learning_dir = screw_dir / "learning"
+        learning_dir.mkdir(exist_ok=True)
         data = {
             "exclusions": [
                 {
@@ -285,3 +301,214 @@ class TestWriteScanResultsExclusions:
         data = json.loads(Path(json_file).read_text())
         assert all(f["triage"]["excluded"] for f in data)
         assert all(f["triage"]["exclusion_ref"] == "fp-2026-04-11-001" for f in data)
+
+    def test_quarantined_exclusion_does_not_suppress_findings(
+        self, tmp_path, finding_sqli
+    ):
+        """Round-trip regression: a quarantined exclusion (default reject
+        policy + unsigned entry) MUST NOT be applied to suppress findings.
+
+        Discovered during Phase 3a PR#1 manual round-trip test: the trust
+        layer correctly identified a tampered exclusion as quarantined, but
+        the report writer still applied it via match_exclusions, producing
+        an internally contradictory report ("1 quarantined" alongside
+        "1 suppressed via the same id"). The fix landed the policy gate in
+        match_exclusions; this test pins it.
+        """
+        # Seed an unsigned exclusion that would otherwise match the finding
+        # exactly. Default config policy is reject → entry quarantines on load.
+        learning_dir = tmp_path / ".screw" / "learning"
+        learning_dir.mkdir(parents=True, exist_ok=True)
+        (learning_dir / "exclusions.yaml").write_text(
+            yaml.dump(
+                {
+                    "exclusions": [
+                        {
+                            "id": "fp-2026-04-16-001",
+                            "created": "2026-04-16T07:46:50Z",
+                            "agent": "sqli",
+                            "finding": {
+                                "file": "src/api.py",
+                                "line": 42,
+                                "code_pattern": "cursor.execute(*)",
+                                "cwe": "CWE-89",
+                            },
+                            "reason": "tampered — signature stripped",
+                            "scope": {"type": "exact_line", "path": "src/api.py"},
+                        }
+                    ]
+                }
+            )
+        )
+
+        result = write_scan_results(
+            project_root=tmp_path,
+            findings_raw=[finding_sqli],
+            agent_names=["sqli"],
+        )
+
+        # Trust layer correctly counts the quarantine
+        assert result["trust_status"]["exclusion_quarantine_count"] == 1
+        assert result["trust_status"]["exclusion_active_count"] == 0
+        # And critically — the finding is NOT suppressed despite the
+        # quarantined exclusion's scope matching its file/line
+        assert result["summary"]["suppressed"] == 0
+        assert result["summary"]["active"] == 1
+        assert result["exclusions_applied"] == []
+        # JSON also reflects active status
+        json_file = [f for f in result["files_written"] if f.endswith(".json")][0]
+        data = json.loads(Path(json_file).read_text())
+        assert data[0]["triage"]["excluded"] is False
+        assert data[0]["triage"]["exclusion_ref"] is None
+
+
+class TestWriteScanResultsTrustStatus:
+    """Task 11 — surface trust verification status in scan reports."""
+
+    def test_write_scan_results_returns_trust_status_in_dict(self, tmp_path, finding_sqli):
+        """The return dict has a trust_status key with the 4-field shape."""
+        result = write_scan_results(
+            project_root=tmp_path,
+            findings_raw=[finding_sqli],
+            agent_names=["sqli"],
+        )
+        assert "trust_status" in result
+        ts = result["trust_status"]
+        assert set(ts.keys()) == {
+            "exclusion_quarantine_count",
+            "exclusion_active_count",
+            "script_quarantine_count",
+            "script_active_count",
+        }
+        # No exclusions configured — all zero
+        assert ts["exclusion_quarantine_count"] == 0
+        assert ts["exclusion_active_count"] == 0
+
+    def test_write_scan_results_trust_section_absent_in_empty_project(
+        self, tmp_path, finding_sqli
+    ):
+        """Empty project (no exclusions) → trust section not rendered in Markdown."""
+        result = write_scan_results(
+            project_root=tmp_path,
+            findings_raw=[finding_sqli],
+            agent_names=["sqli"],
+        )
+        md_file = [f for f in result["files_written"] if f.endswith(".md")][0]
+        md = Path(md_file).read_text()
+        assert "## Trust verification" not in md
+
+    def test_write_scan_results_quarantined_exclusion_surfaces_in_markdown(
+        self, tmp_path, finding_sqli
+    ):
+        """When an unsigned exclusion is quarantined (default reject policy),
+        the Markdown report shows a Trust verification section with count
+        and CLI remediation pointer."""
+        # Seed an unsigned exclusion — default config.yaml has reject policy
+        learning_dir = tmp_path / ".screw" / "learning"
+        learning_dir.mkdir(parents=True, exist_ok=True)
+        (learning_dir / "exclusions.yaml").write_text(
+            yaml.dump(
+                {
+                    "exclusions": [
+                        {
+                            "id": "fp-2026-04-14-001",
+                            "created": "2026-04-14T10:00:00Z",
+                            "agent": "sqli",
+                            "finding": {
+                                "file": "src/a.py",
+                                "line": 10,
+                                "code_pattern": "*",
+                                "cwe": "CWE-89",
+                            },
+                            "reason": "legacy unsigned",
+                            "scope": {"type": "file", "path": "src/a.py"},
+                        }
+                    ]
+                }
+            )
+        )
+
+        result = write_scan_results(
+            project_root=tmp_path,
+            findings_raw=[finding_sqli],
+            agent_names=["sqli"],
+        )
+
+        # Return dict exposes the quarantine count
+        assert result["trust_status"]["exclusion_quarantine_count"] == 1
+        assert result["trust_status"]["exclusion_active_count"] == 0
+
+        # Markdown report surfaces the section
+        md_file = [f for f in result["files_written"] if f.endswith(".md")][0]
+        md = Path(md_file).read_text()
+        assert "## Trust verification" in md
+        assert "1 exclusion quarantined" in md
+        assert "screw-agents validate-exclusion" in md
+
+    def test_write_scan_results_warn_policy_surfaces_in_markdown(
+        self, tmp_path, finding_sqli
+    ):
+        """Under warn policy, unsigned exclusions end up as trust_state='warned'
+        (quarantined=False). The scan report should surface them as 'active' —
+        they ARE being applied."""
+        screw_dir = tmp_path / ".screw"
+        screw_dir.mkdir()
+        (screw_dir / "config.yaml").write_text(
+            "version: 1\n"
+            "exclusion_reviewers: []\n"
+            "script_reviewers: []\n"
+            "legacy_unsigned_exclusions: warn\n"
+        )
+
+        learning_dir = screw_dir / "learning"
+        learning_dir.mkdir()
+        (learning_dir / "exclusions.yaml").write_text(
+            yaml.dump(
+                {
+                    "exclusions": [
+                        {
+                            "id": "fp-2026-04-14-001",
+                            "created": "2026-04-14T10:00:00Z",
+                            "agent": "sqli",
+                            "finding": {
+                                "file": "src/a.py",
+                                "line": 10,
+                                "code_pattern": "*",
+                                "cwe": "CWE-89",
+                            },
+                            "reason": "legacy",
+                            "scope": {"type": "file", "path": "src/a.py"},
+                        }
+                    ]
+                }
+            )
+        )
+
+        result = write_scan_results(
+            project_root=tmp_path,
+            findings_raw=[finding_sqli],
+            agent_names=["sqli"],
+        )
+        # Under warn policy: quarantine=0, active=1
+        assert result["trust_status"]["exclusion_quarantine_count"] == 0
+        assert result["trust_status"]["exclusion_active_count"] == 1
+
+        md_file = [f for f in result["files_written"] if f.endswith(".md")][0]
+        md = Path(md_file).read_text()
+        assert "## Trust verification" in md
+        assert "1 trusted exclusion applied" in md
+
+    def test_write_scan_results_friendly_error_when_dot_screw_is_file(
+        self, tmp_path, finding_sqli
+    ):
+        """When `.screw` exists as a FILE (not directory), write_scan_results
+        raises ValueError with actionable message (T6-I1)."""
+        # Create `.screw` as a file
+        (tmp_path / ".screw").write_text("i am not a directory")
+
+        with pytest.raises(ValueError, match="not a directory"):
+            write_scan_results(
+                project_root=tmp_path,
+                findings_raw=[finding_sqli],
+                agent_names=["sqli"],
+            )

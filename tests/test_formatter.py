@@ -198,3 +198,103 @@ def test_format_markdown_with_fix_code():
     )
     output = format_findings([finding], format="markdown")
     assert "cursor.execute" in output
+
+
+# === Task 11 — Trust verification section in Markdown ===
+
+
+def test_format_findings_markdown_renders_trust_section_with_quarantined():
+    """When trust_status shows quarantined exclusions, the Markdown output
+    includes a 'Trust verification' section with counts and CLI pointers."""
+    trust_status = {
+        "exclusion_quarantine_count": 2,
+        "exclusion_active_count": 3,
+        "script_quarantine_count": 0,
+        "script_active_count": 0,
+    }
+    output = format_findings(
+        [],  # no findings is fine — we're testing the header section
+        format="markdown",
+        scan_metadata={
+            "target": "src/",
+            "agents": ["sqli"],
+            "timestamp": "2026-04-14T10:00:00Z",
+        },
+        trust_status=trust_status,
+    )
+    assert "## Trust verification" in output
+    assert "2 exclusions quarantined" in output
+    assert "3 trusted exclusions applied" in output
+    assert "screw-agents validate-exclusion" in output
+
+
+def test_format_findings_markdown_trust_section_omitted_when_all_zeros():
+    """When trust_status is all-zero (empty project), the trust section is
+    NOT rendered — no noise for projects without any trust surface."""
+    trust_status = {
+        "exclusion_quarantine_count": 0,
+        "exclusion_active_count": 0,
+        "script_quarantine_count": 0,
+        "script_active_count": 0,
+    }
+    output = format_findings(
+        [],
+        format="markdown",
+        scan_metadata={
+            "target": "src/",
+            "agents": ["sqli"],
+            "timestamp": "2026-04-14T10:00:00Z",
+        },
+        trust_status=trust_status,
+    )
+    assert "## Trust verification" not in output
+
+
+def test_format_findings_markdown_trust_section_omitted_when_none():
+    """When trust_status is not provided, no Trust verification section appears
+    (backwards compat — Phase 2 callers don't pass trust_status)."""
+    output = format_findings(
+        [],
+        format="markdown",
+        scan_metadata={"target": "src/"},
+    )
+    assert "## Trust verification" not in output
+
+
+def test_format_findings_markdown_trust_section_singular_plural():
+    """Singular 'exclusion' when count == 1, plural 'exclusions' when > 1."""
+    trust_status_1 = {
+        "exclusion_quarantine_count": 1,
+        "exclusion_active_count": 1,
+        "script_quarantine_count": 0,
+        "script_active_count": 0,
+    }
+    output = format_findings([], format="markdown", trust_status=trust_status_1)
+    assert "1 exclusion quarantined" in output
+    assert "1 trusted exclusion applied" in output
+
+    trust_status_2 = {
+        "exclusion_quarantine_count": 2,
+        "exclusion_active_count": 3,
+        "script_quarantine_count": 0,
+        "script_active_count": 0,
+    }
+    output = format_findings([], format="markdown", trust_status=trust_status_2)
+    assert "2 exclusions quarantined" in output
+    assert "3 trusted exclusions applied" in output
+
+
+def test_format_findings_json_ignores_trust_status():
+    """trust_status kwarg is silently ignored for JSON output (not a report
+    envelope — just a list of findings)."""
+    output = format_findings(
+        [],
+        format="json",
+        trust_status={
+            "exclusion_quarantine_count": 5,
+            "exclusion_active_count": 0,
+            "script_quarantine_count": 0,
+            "script_active_count": 0,
+        },
+    )
+    assert json.loads(output) == []

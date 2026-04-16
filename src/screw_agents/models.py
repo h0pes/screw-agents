@@ -8,9 +8,10 @@ metadata.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
+from pydantic.main import IncEx
 
 
 # ---------------------------------------------------------------------------
@@ -220,7 +221,15 @@ class ExclusionFinding(BaseModel):
 
 
 class ExclusionInput(BaseModel):
-    """Input for recording a new exclusion (subagent sends this)."""
+    """Input for recording a new exclusion (subagent sends this).
+
+    Note on extras handling: this parent class is the write-side input shape
+    with default Pydantic extras handling (silently ignored), while the
+    `Exclusion` child has `extra="forbid"` for signing-integrity surface.
+    The asymmetry is intentional — write-side callers may pass extra fields
+    that should be ignored, but stored exclusions must reject extras so the
+    canonical signing payload is not influenced by unknown keys.
+    """
 
     agent: str
     finding: ExclusionFinding
@@ -235,6 +244,102 @@ class Exclusion(ExclusionInput):
     created: str  # ISO8601
     times_suppressed: int = 0
     last_suppressed: str | None = None
+
+    # new in Phase 3a — signing
+    signed_by: str | None = None
+    signature: str | None = None
+    signature_version: int = 1
+
+    # runtime flags (not persisted to YAML — dual-layer defense below)
+    quarantined: bool = Field(default=False, exclude=True)
+    trust_state: Literal["trusted", "warned", "quarantined", "allowed"] = Field(
+        default="trusted", exclude=True
+    )
+
+    model_config = ConfigDict(extra="forbid")
+
+    _RUNTIME_ONLY_FIELDS: ClassVar[set[str]] = {"quarantined", "trust_state"}
+
+    def model_dump(
+        self,
+        *,
+        mode: Literal["json", "python"] = "python",
+        include: IncEx | None = None,
+        exclude: IncEx | None = None,
+        context: Any | None = None,
+        by_alias: bool = False,
+        exclude_unset: bool = False,
+        exclude_defaults: bool = False,
+        exclude_none: bool = False,
+        round_trip: bool = False,
+        warnings: bool | Literal["none", "warn", "error"] = True,
+        serialize_as_any: bool = False,
+    ) -> dict[str, Any]:
+        """Strip runtime-only flags from Python-side serialization.
+
+        Defense-in-depth: `quarantined` and `trust_state` are declared with
+        `Field(exclude=True)` which handles the default case at the schema
+        level for both `model_dump` and `model_dump_json`. This override is a
+        second layer that catches edge cases the schema-level exclude does not
+        cover:
+
+        - Callers that pass `include={"quarantined"}` or `include={"trust_state"}`
+          (Pydantic's include/exclude precedence can let include win over
+          field-level exclude in some shapes)
+        - Callers that pass `exclude=` as a list or tuple (unknown shape falls
+          back to a safe set form)
+
+        These fields are set at load time based on signature verification;
+        persisting them would allow a tampered YAML file to self-mark as
+        not-quarantined.
+        """
+        runtime = self._RUNTIME_ONLY_FIELDS
+        if exclude is None:
+            merged_exclude: IncEx = set(runtime)
+        elif isinstance(exclude, set):
+            merged_exclude = exclude | runtime
+        elif isinstance(exclude, dict):
+            merged_exclude = {**exclude, **{k: True for k in runtime}}
+        else:
+            # Unknown shape — fall back to a safe set form.
+            merged_exclude = set(runtime)
+        return super().model_dump(
+            mode=mode,
+            include=include,
+            exclude=merged_exclude,
+            context=context,
+            by_alias=by_alias,
+            exclude_unset=exclude_unset,
+            exclude_defaults=exclude_defaults,
+            exclude_none=exclude_none,
+            round_trip=round_trip,
+            warnings=warnings,
+            serialize_as_any=serialize_as_any,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Project Configuration Models (Phase 3a — trust infrastructure)
+# ---------------------------------------------------------------------------
+
+
+class ReviewerKey(BaseModel):
+    """A single trusted reviewer's identity and public key."""
+
+    name: str
+    email: str
+    key: str  # SSH public key in OpenSSH format (e.g., "ssh-ed25519 AAAA... user@host")
+
+
+class ScrewConfig(BaseModel):
+    """Project-level screw-agents configuration stored in .screw/config.yaml."""
+
+    version: int = 1
+    exclusion_reviewers: list[ReviewerKey] = []
+    script_reviewers: list[ReviewerKey] = []
+    adaptive: bool = False
+    legacy_unsigned_exclusions: Literal["reject", "warn", "allow"] = "reject"
+    trusted_reviewers_file: str | None = None
 
 
 class Finding(BaseModel):

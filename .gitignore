@@ -6,6 +6,12 @@ docs/research/*
 # Exception: benchmark research docs are canonical deliverables (Phase 0.5)
 !docs/research/benchmark-*.md
 
+# Phase working files — deferred-polish punchlists and session handoff docs
+# are internal session state, not PR deliverables. Live on disk in the worktree
+# for session continuity; not tracked in git.
+docs/PHASE_*_PUNCHLIST.md
+docs/PHASE_*_HANDOFF.md
+
 # Claude Code local settings (permissions, preferences — not committed)
 .claude/settings.json
 

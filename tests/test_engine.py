@@ -175,8 +175,21 @@ class TestAssembleScanExclusions:
         if not py_files:
             pytest.skip("no Python fixtures")
 
-        learning_dir = tmp_path / ".screw" / "learning"
-        learning_dir.mkdir(parents=True)
+        screw_dir = tmp_path / ".screw"
+        screw_dir.mkdir()
+        # Warn policy keeps unsigned entries active (test exercises the
+        # exclusions-list shape, not the trust pipeline). With the default
+        # reject policy + the round-trip defect fix, unsigned entries are
+        # quarantined and engine.assemble_scan correctly omits them from
+        # the subagent-facing list.
+        (screw_dir / "config.yaml").write_text(
+            "version: 1\n"
+            "exclusion_reviewers: []\n"
+            "script_reviewers: []\n"
+            "legacy_unsigned_exclusions: warn\n"
+        )
+        learning_dir = screw_dir / "learning"
+        learning_dir.mkdir()
         data = {
             "exclusions": [
                 {

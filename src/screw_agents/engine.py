@@ -13,7 +13,7 @@ from typing import Any
 
 from screw_agents.formatter import format_findings
 from screw_agents.learning import load_exclusions
-from screw_agents.models import AgentDefinition, Finding, HeuristicEntry
+from screw_agents.models import AgentDefinition, Exclusion, Finding, HeuristicEntry
 from screw_agents.registry import AgentRegistry
 from screw_agents.resolver import ResolvedCode, filter_by_relevance, resolve_target
 
@@ -35,6 +35,46 @@ class ScanEngine:
     def list_agents(self, domain: str | None = None) -> list[dict]:
         """Return agent metadata dicts, optionally filtered by domain."""
         return self._registry.list_agents(domain=domain)
+
+    def verify_trust(
+        self,
+        *,
+        project_root: Path,
+        exclusions: list[Exclusion] | None = None,
+    ) -> dict[str, int]:
+        """Compute a summary of trust status for the project's .screw/ content.
+
+        Returns counts of active vs quarantined entries for both exclusions and
+        scripts. Phase 3a populates exclusion counts via learning.load_exclusions
+        (which applies signature verification + legacy policy). Script counts
+        always return 0 until Phase 3b's adaptive-scripts subsystem lands — the
+        dict shape is stable so Phase 3b Task 14 can populate the script fields
+        without changing the contract.
+
+        The optional `exclusions` parameter lets callers that already have a
+        loaded-and-verified list reuse it to avoid a duplicate YAML parse and
+        Ed25519 verification pass. `assemble_scan` passes this through to avoid
+        paying the load cost twice on every scan invocation. MCP tool callers
+        (server.py) omit it and let this function self-load.
+
+        Raises:
+            ValueError: Propagated from `learning.load_exclusions` when
+                `.screw/learning/exclusions.yaml` is malformed or
+                `.screw/config.yaml` is schema-invalid. Callers should
+                surface this as a loud trust-relevant error rather than
+                degrade to zero counts.
+        """
+        if exclusions is None:
+            exclusions = load_exclusions(project_root)
+        exclusion_quarantine_count = sum(1 for e in exclusions if e.quarantined)
+        exclusion_active_count = len(exclusions) - exclusion_quarantine_count
+
+        return {
+            "exclusion_quarantine_count": exclusion_quarantine_count,
+            "exclusion_active_count": exclusion_active_count,
+            "script_quarantine_count": 0,
+            "script_active_count": 0,
+        }
 
     def assemble_scan(
         self,
@@ -97,8 +137,21 @@ class ScanEngine:
         }
         if project_root is not None:
             all_exclusions = load_exclusions(project_root)
-            agent_exclusions = [e for e in all_exclusions if e.agent == agent_name]
+            # Subagent-facing exclusions list excludes quarantined entries —
+            # exposing tampered/unsigned-under-reject entries here risks the
+            # subagent (or a downstream consumer) treating them as actionable.
+            # trust_status (computed below from the unfiltered list) still
+            # reports the quarantine count separately so the conversational
+            # summary surfaces the warning.
+            agent_exclusions = [
+                e for e in all_exclusions
+                if e.agent == agent_name and not e.quarantined
+            ]
             result["exclusions"] = [e.model_dump() for e in agent_exclusions]
+            # Reuse the already-loaded list to avoid a duplicate YAML parse + verify pass.
+            result["trust_status"] = self.verify_trust(
+                project_root=project_root, exclusions=all_exclusions
+            )
         return result
 
     def assemble_domain_scan(
@@ -381,6 +434,26 @@ class ScanEngine:
                     "agent": {
                         "type": "string",
                         "description": "Filter exclusions to this agent (optional).",
+                    },
+                },
+                "required": ["project_root"],
+            },
+        })
+
+        # Phase 3a: verify_trust
+        tools.append({
+            "name": "verify_trust",
+            "description": (
+                "Return a summary of .screw/ content trust status — counts of "
+                "active vs quarantined exclusions and (Phase 3b) adaptive scripts. "
+                "Use this to surface trust issues in the scan report header."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "project_root": {
+                        "type": "string",
+                        "description": "Absolute path to the project root directory.",
                     },
                 },
                 "required": ["project_root"],
