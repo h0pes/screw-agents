@@ -1,16 +1,18 @@
 ---
 name: screw:scan
-description: "Run a security scan with screw-agents. Usage: /screw:scan <agent|domain|full> [target] [--thoroughness standard|deep] [--format json|sarif|markdown]"
+description: "Run a security scan with screw-agents. Usage: /scan <agent|domain|full> [target] [--thoroughness standard|deep] [--format json|sarif|markdown]"
 ---
 
-# /screw:scan — Security Scan Command
+# /scan — Security Scan Command
 
 Parse the arguments and dispatch to the appropriate screw-agents subagent.
+
+> **Slash-command name:** Claude Code 2.x registers this command under its file basename (`scan`), not the `name: screw:scan` frontmatter. Invoke as `/scan` from the slash-command palette. The `name: screw:scan` frontmatter is preserved for forward compatibility with Claude Code versions that honor namespaced slash commands.
 
 ## Syntax
 
 ```
-/screw:scan <scope> [target] [--thoroughness standard|deep] [--format json|sarif|markdown]
+/scan <scope> [target] [--thoroughness standard|deep] [--format json|sarif|markdown]
 ```
 
 ## Arguments
@@ -49,9 +51,9 @@ Pass the parsed target, thoroughness, and format to the subagent so it can use t
 ## Examples
 
 ```
-/screw:scan sqli src/api/auth.rs
-/screw:scan injection --target git_diff:main
-/screw:scan full --thoroughness deep
-/screw:scan xss src/components/**
-/screw:scan sqli function:get_user@src/api/users.py
+/scan sqli src/api/auth.rs
+/scan injection --target git_diff:main
+/scan full --thoroughness deep
+/scan xss src/components/**
+/scan sqli function:get_user@src/api/users.py
 ```
