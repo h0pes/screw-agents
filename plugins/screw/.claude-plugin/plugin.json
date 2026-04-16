@@ -2,9 +2,10 @@
   "name": "screw",
   "version": "0.1.0",
   "description": "AI-powered secure code review agents with vulnerability-specific detection knowledge",
-  "author": "h0pes",
+  "author": {
+    "name": "h0pes"
+  },
   "homepage": "https://github.com/h0pes/screw-agents",
-  "agents_dir": "../plugins/screw/agents",
-  "skills_dir": "../plugins/screw/skills",
-  "commands_dir": "../plugins/screw/commands"
+  "repository": "https://github.com/h0pes/screw-agents",
+  "license": "MIT"
 }

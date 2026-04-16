@@ -43,11 +43,17 @@ All 5 defects resolved. Architectural fix: new `write_scan_results` MCP tool col
 
 ### TC-2: Individual agent scan (slash command) — PASS
 
-**Prompt:** `/scan xss benchmarks/fixtures/xss/vulnerable/`
+**Prompt:** `/screw:scan xss benchmarks/fixtures/xss/vulnerable/`
+
+(Historical note: Run 1 and Run 2 were executed in dev-mode with the
+`.claude/commands/scan.md` symlink in place, where the command registered
+under the bare `/scan` basename. After the Phase 3a PR#2 plugin-namespace
+restructure, the canonical invocation is `/screw:scan` — same underlying
+command, namespaced through the plugin system.)
 
 | Check | Run 1 | Run 2 |
 |---|---|---|
-| `/scan` command discovered | **PASS** | **PASS** |
+| `/screw:scan` command discovered (recorded as `/scan` at test time) | **PASS** | **PASS** |
 | Dispatches to screw-xss subagent | **PASS** | **PASS** |
 | Calls `scan_xss` MCP tool | **PASS** | **PASS** |
 | Calls `write_scan_results` | N/A | **PASS** |
@@ -106,7 +112,7 @@ All 5 defects resolved. Architectural fix: new `write_scan_results` MCP tool col
 
 ### TC-6: Exclusion applied on re-scan — PASS
 
-**Prompt:** `/scan ssti benchmarks/fixtures/ssti/vulnerable/python_jinja2_from_string.py`
+**Prompt:** `/screw:scan ssti benchmarks/fixtures/ssti/vulnerable/python_jinja2_from_string.py` (recorded at test time as `/scan`; see TC-2 note)
 
 | Check | Run 1 | Run 2 |
 |---|---|---|

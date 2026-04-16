@@ -4,7 +4,16 @@ import yaml
 import pytest
 from pydantic import ValidationError
 
-from screw_agents.models import AgentDefinition, AgentMeta, CWEs
+from screw_agents.models import (
+    AgentDefinition,
+    AgentMeta,
+    AggregateReport,
+    CWEs,
+    DirectorySuggestion,
+    FPPattern,
+    FPReport,
+    PatternSuggestion,
+)
 
 
 def test_cwes_model():
@@ -565,4 +574,96 @@ def test_screw_config_rejects_invalid_legacy_policy():
     with pytest.raises(ValidationError):
         ScrewConfig(legacy_unsigned_exclusions="nonsense")
 
+
+def test_pattern_suggestion_model():
+    sugg = PatternSuggestion(
+        pattern="db.text_search(*)",
+        agent="sqli",
+        cwe="CWE-89",
+        evidence={"exclusion_count": 12, "files_affected": ["a.py", "b.py"]},
+        suggestion="Consider adding to project-wide safe patterns.",
+        confidence="high",
+    )
+    assert sugg.pattern == "db.text_search(*)"
+    assert sugg.confidence == "high"
+
+
+def test_directory_suggestion_model():
+    sugg = DirectorySuggestion(
+        directory="test/",
+        agent="sqli",
+        evidence={"total_findings": 12, "all_fp": True},
+        suggestion="Add test/** directory exclusion.",
+        confidence="high",
+    )
+    assert sugg.directory == "test/"
+
+
+def test_fp_pattern_and_fp_report():
+    pattern = FPPattern(
+        agent="sqli",
+        cwe="CWE-89",
+        pattern="execute\\(f\"",
+        fp_count=47,
+        example_reasons=["static query", "test fixture"],
+        candidate_heuristic_refinement="lower confidence on bounded f-strings",
+    )
+    report = FPReport(
+        generated_at="2026-04-14T10:00:00Z",
+        scope="project",
+        top_fp_patterns=[pattern],
+    )
+    assert report.top_fp_patterns[0].fp_count == 47
+
+
+def test_aggregate_report_model():
+    report = AggregateReport(
+        pattern_confidence=[],
+        directory_suggestions=[],
+        fp_report=FPReport(generated_at="2026-04-14T10:00:00Z", scope="project", top_fp_patterns=[]),
+    )
+    assert report.pattern_confidence == []
+
+
+def test_pattern_suggestion_rejects_invalid_confidence():
+    """`confidence` accepts only low/medium/high — other values raise ValidationError."""
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        PatternSuggestion(
+            pattern="x",
+            agent="sqli",
+            cwe="CWE-89",
+            evidence={},
+            suggestion="y",
+            confidence="critical",  # not a valid Literal value
+        )
+
+
+def test_fp_report_rejects_invalid_scope():
+    """`scope` accepts only project/global."""
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        FPReport(generated_at="2026-04-14T10:00:00Z", scope="team", top_fp_patterns=[])
+
+
+def test_aggregate_report_round_trip_model_dump_validate():
+    """model_dump -> model_validate round-trips losslessly for MCP JSON serialization."""
+    original = AggregateReport(
+        pattern_confidence=[
+            PatternSuggestion(
+                pattern="p",
+                agent="sqli",
+                cwe="CWE-89",
+                evidence={"exclusion_count": 3, "files_affected": ["a.py"]},
+                suggestion="s",
+                confidence="low",
+            )
+        ],
+        directory_suggestions=[],
+        fp_report=FPReport(generated_at="2026-04-14T10:00:00Z", scope="project", top_fp_patterns=[]),
+    )
+    roundtrip = AggregateReport.model_validate(original.model_dump())
+    assert roundtrip == original
 
