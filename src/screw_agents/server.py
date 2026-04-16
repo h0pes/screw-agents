@@ -124,6 +124,15 @@ def _dispatch_tool(
         project_root = Path(args["project_root"])
         return engine.verify_trust(project_root=project_root)
 
+    # --- Phase 3a PR#2: aggregate_learning ---
+
+    if name == "aggregate_learning":
+        project_root = Path(args["project_root"])
+        report_type = args.get("report_type", "all")
+        return engine.aggregate_learning(
+            project_root=project_root, report_type=report_type
+        )
+
     if name == "write_scan_results":
         return write_scan_results(
             project_root=Path(args["project_root"]),

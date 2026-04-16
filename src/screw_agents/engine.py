@@ -11,11 +11,18 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from screw_agents.aggregation import (
+    aggregate_directory_suggestions,
+    aggregate_fp_report,
+    aggregate_pattern_confidence,
+)
 from screw_agents.formatter import format_findings
 from screw_agents.learning import load_exclusions
 from screw_agents.models import AgentDefinition, Exclusion, Finding, HeuristicEntry
 from screw_agents.registry import AgentRegistry
 from screw_agents.resolver import ResolvedCode, filter_by_relevance, resolve_target
+
+_DEFAULT_DOMAINS_DIR = Path(__file__).resolve().parent.parent.parent / "domains"
 
 
 class ScanEngine:
@@ -23,6 +30,17 @@ class ScanEngine:
 
     def __init__(self, registry: AgentRegistry) -> None:
         self._registry = registry
+
+    @classmethod
+    def from_defaults(cls) -> ScanEngine:
+        """Construct a ScanEngine backed by the repo's default domains directory.
+
+        Convenience constructor for tests and callers that don't need to
+        override the domains directory. Mirrors the default used by
+        ``server.create_server`` so tool behavior matches between MCP
+        invocations and direct engine-level tests.
+        """
+        return cls(AgentRegistry(_DEFAULT_DOMAINS_DIR))
 
     # ------------------------------------------------------------------
     # Public API
@@ -75,6 +93,49 @@ class ScanEngine:
             "script_quarantine_count": 0,
             "script_active_count": 0,
         }
+
+    def aggregate_learning(
+        self,
+        *,
+        project_root: Path,
+        report_type: str = "all",
+    ) -> dict[str, Any]:
+        """Compute learning reports from the project's exclusions database.
+
+        Args:
+            project_root: project root directory.
+            report_type: one of "all", "pattern_confidence",
+                "directory_suggestions", "fp_report".
+
+        Returns:
+            Dict containing the requested report sections plus a
+            ``trust_status`` key. Sections not requested are omitted
+            entirely (not empty — absent). ``"all"`` returns all three
+            report sections. ``trust_status`` is ALWAYS present regardless
+            of ``report_type`` so callers can surface quarantine counts
+            honestly: aggregation silently skips quarantined exclusions,
+            so the tool must report how many were skipped. Mirrors the
+            scan-response ``trust_status`` contract from PR#1 Task 10.
+        """
+        exclusions = load_exclusions(project_root)
+
+        result: dict[str, Any] = {}
+        if report_type in ("all", "pattern_confidence"):
+            result["pattern_confidence"] = [
+                s.model_dump() for s in aggregate_pattern_confidence(exclusions)
+            ]
+        if report_type in ("all", "directory_suggestions"):
+            result["directory_suggestions"] = [
+                s.model_dump() for s in aggregate_directory_suggestions(exclusions)
+            ]
+        if report_type in ("all", "fp_report"):
+            result["fp_report"] = aggregate_fp_report(exclusions).model_dump()
+
+        # Reuse the already-loaded list to avoid a duplicate YAML parse + verify pass.
+        result["trust_status"] = self.verify_trust(
+            project_root=project_root, exclusions=exclusions
+        )
+        return result
 
     def assemble_scan(
         self,
@@ -454,6 +515,41 @@ class ScanEngine:
                     "project_root": {
                         "type": "string",
                         "description": "Absolute path to the project root directory.",
+                    },
+                },
+                "required": ["project_root"],
+            },
+        })
+
+        # Phase 3a PR#2: aggregate_learning
+        tools.append({
+            "name": "aggregate_learning",
+            "description": (
+                "Compute learning reports from the project's exclusions database. "
+                "Returns pattern-confidence suggestions, directory-scope exclusion "
+                "candidates, and a false-positive report for agent refinement. "
+                "Always includes a trust_status section. "
+                "This is on-demand only; do NOT call after every scan."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "project_root": {
+                        "type": "string",
+                        "description": "Absolute path to the project root directory.",
+                    },
+                    "report_type": {
+                        "type": "string",
+                        "enum": [
+                            "all",
+                            "pattern_confidence",
+                            "directory_suggestions",
+                            "fp_report",
+                        ],
+                        "default": "all",
+                        "description": (
+                            "Which report sections to include. 'all' is the default."
+                        ),
                     },
                 },
                 "required": ["project_root"],
