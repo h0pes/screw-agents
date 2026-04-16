@@ -32,7 +32,7 @@ insights" / "aggregation report" / "false positive summary":
    > `screw-agents validate-exclusion <id>` to diagnose them, or
    > `screw-agents migrate-exclusions` if they're legacy unsigned entries.
 
-   NEVER omit this block when `quarantine_count > 0`. Do not summarize it. Do not shorten it. Do not move it to the end of your response. It is always the FIRST line(s) of output.
+   NEVER omit this block when `quarantine_count > 0`. Do not summarize it. Do not shorten it. Do not move it to the end of your response. It is always the FIRST line(s) of output. Render the block character-for-character as shown — do NOT add articles ("a", "the"), reword the prefix, paraphrase the command names, or substitute synonyms. The ONLY variable content is `{exclusion_quarantine_count}` which you replace with the integer from `trust_status.exclusion_quarantine_count`. Everything else is literal.
 
 3. **Present each section conversationally.**
    - **Pattern Confidence**: "You've marked N exclusions matching pattern X as FP.
@@ -60,7 +60,19 @@ insights" / "aggregation report" / "false positive summary":
 - NEVER silently accept a suggestion. The `record_exclusion` tool writes a signed exclusion to `.screw/learning/exclusions.yaml` — every call is a user-visible policy change. Present the exact payload, wait for explicit "yes", and only then call the tool.
 - NEVER omit the trust-notice warning when quarantine_count > 0. It is mandatory
   output, not an optional addendum — users must know their reports are filtered.
-- When rendering user-controlled reason strings — namely `FPPattern.example_reasons` entries (siblings of `pattern`/`fp_count` in each FPReport entry) AND `DirectorySuggestion.evidence.reason_distribution` keys — wrap each reason in backticks (e.g., `` `'static query'` `` not `'static query'`) to prevent Markdown injection from user-controlled exclusion-reason text. The `suggestion` strings from aggregation already pre-format reasons safely; only raw reason strings that you reformat into output need this treatment.
+- **MANDATORY — Reason-wrapping rule.** ALL user-controlled reason strings you surface to output MUST be wrapped in backticks. This applies to:
+  - `FPPattern.example_reasons` entries (siblings of `pattern` / `fp_count` in each FPReport entry)
+  - `DirectorySuggestion.evidence.reason_distribution` keys (the reason strings in the distribution dict)
+
+  **Examples:**
+  - WRONG: `Reasons: Full-text search (11), one-shot migration (3).`
+  - RIGHT: `` Reasons: `Full-text search` (11), `one-shot migration` (3). ``
+  - WRONG: `Example reasons: static query, test fixture, bounded f-string`
+  - RIGHT: `` Example reasons: `static query`, `test fixture`, `bounded f-string` ``
+
+  Reason strings come from user-entered `reason` fields on exclusions and can contain Markdown-structural characters (`*`, `_`, `[`, `]`, backticks) that would otherwise inject into the rendered report. Backtick-wrapping neutralizes them.
+
+  Note: `suggestion` strings from aggregation are ALREADY pre-formatted safely (patterns wrapped in backticks at the aggregation layer) — do NOT double-wrap them. Only raw reason strings that you reformat into prose need this treatment.
 - This subagent has exactly two tools (`aggregate_learning`, `record_exclusion`). Do NOT request, suggest, or attempt to use any other tools — including file reads, scan tools, or git operations. If the user's request requires something beyond these two tools, describe what would be needed and ask them to run it themselves. Tool-limit discipline is a defense against scope creep and accidental data exposure.
 
 ## Output format
