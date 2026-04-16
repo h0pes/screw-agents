@@ -155,6 +155,28 @@ class ScanEngine:
         result["trust_status"] = self.verify_trust(
             project_root=project_root, exclusions=exclusions
         )
+
+        # T21-m2: render the trust notice server-side so the subagent outputs
+        # it verbatim instead of paraphrasing (LLM versions drift when asked
+        # to render a Markdown template character-for-character). Only
+        # populated when there's content; empty string for clean states so
+        # the subagent can truthy-check without KeyError handling.
+        # Note: this ADDS a fifth key to the aggregate_learning trust_status
+        # dict; verify_trust's scan-facing surface (assemble_scan /
+        # assemble_domain_scan) intentionally does NOT get this field — scan
+        # reports render their own trust block elsewhere.
+        trust_status = result["trust_status"]
+        quarantine_count = trust_status.get("exclusion_quarantine_count", 0)
+        if quarantine_count > 0:
+            noun = "exclusion" if quarantine_count == 1 else "exclusions"
+            trust_status["notice_markdown"] = (
+                f"⚠ **{quarantine_count} {noun} quarantined** "
+                f"(unsigned or signed by an untrusted key). "
+                f"Review with `screw-agents validate-exclusion <id>` "
+                f"or bulk-sign with `screw-agents migrate-exclusions`."
+            )
+        else:
+            trust_status["notice_markdown"] = ""
         return result
 
     def assemble_scan(
