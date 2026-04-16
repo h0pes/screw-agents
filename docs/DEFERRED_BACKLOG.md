@@ -124,6 +124,20 @@
 **Trigger:** When a project with many FPs-per-pattern makes the emitted report unwieldy (subagent truncates, Markdown renderer stalls), OR during the T16-M4 bounds pass.
 **Suggested fix:** Truncate `files_affected` to the top 20 lexicographically and emit an `evidence["files_affected_truncated"]: True` + `"files_affected_total": len(group)` fields when truncation occurs.
 
+### T18-M1 — Multi-level directory grouping for `aggregate_directory_suggestions`
+**Source:** Phase 3a PR#2 Task 18 quality review (commit `ce0773e`)
+**File:** `src/screw_agents/aggregation.py` `aggregate_directory_suggestions`
+**Why deferred:** Current algorithm buckets by FIRST path component only — a repo with most files under `src/` collapses into one giant `src/` bucket, obliterating the "concentration" signal for sub-directories like `src/vendor/` or `src/services/`. The plan explicitly specifies first-segment grouping in §7.2 ("All 12 findings under `test/` were marked FP"), so the coarse granularity is by design for the initial release. Deferring the design question until user feedback shows whether sub-directory granularity is actually needed.
+**Trigger:** User reports saying "the suggestion is too coarse — my whole src/ collapsed" OR Phase 4 autoresearch needs finer-grained signal.
+**Suggested fix:** Extend signature with `granularity: Literal["top", "full"] = "top"` parameter. When `"full"`, use `os.path.dirname(file) + "/"` as the top_dir. Update tests to cover both modes. Or: emit suggestions at multiple granularities and let the subagent choose.
+
+### T18-m1 — Sanitize `reason_distribution` keys in subagent render (Task 21 concern)
+**Source:** Phase 3a PR#2 Task 18 quality review (commit `ce0773e`)
+**File:** `plugins/screw/agents/screw-learning-analyst.md` (Task 21 subagent prompt)
+**Why deferred:** The `evidence["reason_distribution"]` dict carries user-controlled reason strings as keys. They reach the rendered Markdown via the subagent. Task 18 doesn't sanitize at the data layer (reason is semantically text, not a code-pattern). The correct layer for escape-handling is the subagent prompt — instruct the LLM to render reasons as inline code (backticks) or truncate/escape.
+**Trigger:** Task 21 implementation OR during the first real-world subagent run if a reason contains Markdown-structural characters.
+**Suggested fix:** In `screw-learning-analyst.md`, add rule: "When rendering `evidence.reason_distribution` keys, wrap each reason in backticks to prevent Markdown injection from user-controlled exclusion-reason text."
+
 ### T16-N1 — `AggregateReport.generated_at` convenience field
 **Source:** Phase 3a PR#2 Task 16 quality review (commit `bb3b7a0`)
 **File:** `src/screw_agents/models.py` `AggregateReport`
