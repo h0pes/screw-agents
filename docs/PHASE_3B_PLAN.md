@@ -47,7 +47,7 @@
 | `screw_agents.learning._get_or_create_local_private_key(project_root) -> tuple[Ed25519PrivateKey, str]` | Returns local Ed25519 key + OpenSSH public line | Task 3b-13 (signing approved scripts with local key) |
 | `screw_agents.trust._public_key_to_openssh_line(public_key, *, comment) -> str` | Encodes Ed25519PublicKey as OpenSSH line | Task 3b-13 (recording signer identity in metadata) |
 | `.screw/config.yaml` schema: `adaptive`, `script_reviewers`, `legacy_unsigned_exclusions` | YAML file auto-created by Phase 3a | Task 3b-7, Task 3b-20 |
-| `screw_agents.engine.ScanEngine.verify_trust(project_root) -> dict` | Returns `{exclusion_quarantine_count, exclusion_active_count, script_quarantine_count, script_active_count}` | Task 3b-14 (populates `script_quarantine_count` and `script_active_count` fields that Phase 3a stubs to 0) |
+| `screw_agents.engine.ScanEngine.verify_trust(*, project_root, exclusions=None) -> dict` | Returns `{exclusion_quarantine_count, exclusion_active_count, script_quarantine_count, script_active_count}`. Optional `exclusions` parameter (Task 10.1 perf addition) lets callers reuse a pre-loaded list to avoid duplicate YAML parse + Ed25519 verify; `assemble_scan` passes it through. | Task 3b-14 (populates `script_quarantine_count` and `script_active_count` fields that Phase 3a stubs to 0) |
 | `screw-agents init-trust` CLI subcommand | Registers local key in both reviewer lists | Task 3b-20 (documentation references the existing subcommand) |
 | `screw-agents validate-script <name>` CLI subcommand | **Placeholder from Phase 3a** — referenced in error messages but not implemented yet | Task 3b-15 (implements the actual subcommand) |
 
@@ -3038,8 +3038,13 @@ def execute_adaptive_script(
 Also update `verify_trust` to count scripts (Phase 3a stubbed this to 0):
 
 ```python
-def verify_trust(self, *, project_root: Path) -> dict[str, int]:
-    # ... existing exclusion counts ...
+def verify_trust(
+    self,
+    *,
+    project_root: Path,
+    exclusions: list[Exclusion] | None = None,
+) -> dict[str, int]:
+    # ... existing exclusion counts (loads exclusions if not pre-supplied) ...
 
     # Phase 3b: count adaptive scripts
     script_dir = project_root / ".screw" / "custom-scripts"
