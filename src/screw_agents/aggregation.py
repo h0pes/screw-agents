@@ -151,6 +151,17 @@ def aggregate_directory_suggestions(exclusions: list[Exclusion]) -> list[Directo
         # insertion order.
         top_reason = max(reason_counts.items(), key=lambda kv: (kv[1], kv[0]))[0]
 
+        # T21-m1: pre-render the reason distribution with backticks server-side
+        # so the subagent can surface it verbatim instead of applying its own
+        # Markdown-wrapping rule. Order: (count DESC, reason ASC) — matches
+        # the deterministic tie-break convention used elsewhere in this module.
+        rendered_pairs = sorted(
+            reason_counts.items(), key=lambda kv: (-kv[1], kv[0])
+        )
+        reason_distribution_rendered = ", ".join(
+            f"`{reason}` ({count})" for reason, count in rendered_pairs
+        )
+
         suggestions.append(
             DirectorySuggestion(
                 directory=directory,
@@ -163,6 +174,7 @@ def aggregate_directory_suggestions(exclusions: list[Exclusion]) -> list[Directo
                     # contents — the model guarantees it.
                     "all_marked_false_positive": True,
                     "reason_distribution": dict(reason_counts),
+                    "reason_distribution_rendered": reason_distribution_rendered,
                     "files_affected": sorted({e.finding.file for e in group}),
                 },
                 suggestion=(
@@ -245,6 +257,10 @@ def aggregate_fp_report(exclusions: list[Exclusion]) -> FPReport:
             key=lambda kv: (-kv[1], kv[0]),
         )
         reasons = [r for r, _count in ranked_reasons[:_FP_REPORT_MAX_REASONS]]
+        # T21-m1: pre-render each reason backtick-wrapped so the subagent can
+        # surface it verbatim without applying its own Markdown-wrapping rule.
+        # Same order as `reasons` for parallel indexing by consumers.
+        reasons_rendered = [f"`{r}`" for r in reasons]
 
         # The suggestion text embeds the pattern as inline code so user-controlled
         # content doesn't inject into Markdown structure.
@@ -258,6 +274,7 @@ def aggregate_fp_report(exclusions: list[Exclusion]) -> FPReport:
                 pattern=pattern,
                 fp_count=len(group),
                 example_reasons=reasons,
+                example_reasons_rendered=reasons_rendered,
                 candidate_heuristic_refinement=(
                     f"{agent} agent may benefit from lower confidence on pattern "
                     f"`{pattern}` (seen in {len(group)} exclusions with reasons: "

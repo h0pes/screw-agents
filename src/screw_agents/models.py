@@ -395,6 +395,11 @@ class FPPattern(BaseModel):
     pattern: str
     fp_count: int = Field(ge=0)
     example_reasons: list[str]
+    # Pre-rendered parallel field — each reason backtick-wrapped by aggregation
+    # so the subagent does not have discretion on Markdown-injection defense.
+    # See T21-m1 in docs/DEFERRED_BACKLOG.md for rationale. Default `[]` keeps
+    # existing inline FPPattern constructions backward-compatible.
+    example_reasons_rendered: list[str] = []
     candidate_heuristic_refinement: str
 
 

@@ -514,6 +514,83 @@ def test_aggregate_fp_report_same_pattern_cross_agent_stays_separate():
     assert agents == ["cmdi", "sqli"]
 
 
+# ---------------------------------------------------------------------------
+# T21-m1 — Server-side reason backtick-wrapping (rendered parallel fields)
+# ---------------------------------------------------------------------------
+
+
+def test_directory_suggestions_emit_rendered_reasons():
+    """evidence.reason_distribution_rendered is a pre-formatted Markdown string
+    with each reason wrapped in backticks."""
+    from screw_agents.aggregation import aggregate_directory_suggestions
+
+    # Seed exclusions reproducing a realistic test-fixture concentration:
+    # three "test fixture" + two "one-shot migration" in the same directory.
+    reasons = [
+        "test fixture",
+        "test fixture",
+        "test fixture",
+        "one-shot migration",
+        "one-shot migration",
+    ]
+    exclusions = [
+        _excl(
+            id=f"fp-2026-04-14-{i:03d}",
+            agent="sqli",
+            pattern=f"p{i}",
+            file=f"test/f{i}.py",
+            line=10,
+            reason=reason,
+        )
+        for i, reason in enumerate(reasons)
+    ]
+    suggestions = aggregate_directory_suggestions(exclusions)
+    assert len(suggestions) == 1
+    evidence = suggestions[0].evidence
+    # Keep the machine-readable dict for programmatic consumers
+    assert evidence["reason_distribution"] == {"test fixture": 3, "one-shot migration": 2}
+    # NEW: pre-rendered string with backticks around each reason
+    rendered = evidence["reason_distribution_rendered"]
+    assert "`test fixture`" in rendered
+    assert "`one-shot migration`" in rendered
+    assert rendered.count("`") % 2 == 0  # balanced pairs
+    # Determinism: (count DESC, reason ASC) ordering — "test fixture" (3)
+    # precedes "one-shot migration" (2).
+    assert rendered.index("`test fixture`") < rendered.index("`one-shot migration`")
+
+
+def test_fp_report_emits_rendered_example_reasons():
+    """FPPattern.example_reasons_rendered is a list of backtick-wrapped reasons."""
+    from screw_agents.aggregation import aggregate_fp_report
+
+    # Three "safe helper" + two "validated input" sharing the same pattern.
+    reasons = [
+        "safe helper",
+        "safe helper",
+        "safe helper",
+        "validated input",
+        "validated input",
+    ]
+    exclusions = [
+        _excl(
+            id=f"fp-2026-04-14-{i:03d}",
+            agent="sqli",
+            pattern="db.text_search(*)",
+            file=f"src/s{i}.py",
+            line=10,
+            reason=reason,
+        )
+        for i, reason in enumerate(reasons)
+    ]
+    report = aggregate_fp_report(exclusions)
+    assert len(report.top_fp_patterns) == 1
+    pattern = report.top_fp_patterns[0]
+    # Keep raw list for machine consumers (Phase 4 autoresearch)
+    assert pattern.example_reasons == ["safe helper", "validated input"]
+    # NEW: each element pre-wrapped in backticks, same order as example_reasons
+    assert pattern.example_reasons_rendered == ["`safe helper`", "`validated input`"]
+
+
 def test_aggregate_fp_report_mixed_fixture_quarantine_empty_below_above_threshold():
     """Quarantined + empty-pattern + below-threshold + above-threshold all in one fixture."""
     from screw_agents.aggregation import aggregate_fp_report
