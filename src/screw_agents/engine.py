@@ -137,7 +137,16 @@ class ScanEngine:
         }
         if project_root is not None:
             all_exclusions = load_exclusions(project_root)
-            agent_exclusions = [e for e in all_exclusions if e.agent == agent_name]
+            # Subagent-facing exclusions list excludes quarantined entries —
+            # exposing tampered/unsigned-under-reject entries here risks the
+            # subagent (or a downstream consumer) treating them as actionable.
+            # trust_status (computed below from the unfiltered list) still
+            # reports the quarantine count separately so the conversational
+            # summary surfaces the warning.
+            agent_exclusions = [
+                e for e in all_exclusions
+                if e.agent == agent_name and not e.quarantined
+            ]
             result["exclusions"] = [e.model_dump() for e in agent_exclusions]
             # Reuse the already-loaded list to avoid a duplicate YAML parse + verify pass.
             result["trust_status"] = self.verify_trust(

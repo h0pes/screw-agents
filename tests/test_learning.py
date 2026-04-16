@@ -208,6 +208,45 @@ class TestMatchExclusions:
         matches = match_exclusions([exc1, exc2], file="src/api.py", line=1, code="anything", agent="sqli")
         assert len(matches) == 1
 
+    def test_quarantined_exclusion_does_not_match(self):
+        """Quarantined exclusions (tampered or unsigned-under-reject) MUST
+        NEVER match findings. This is the policy gate that enforces the
+        integrity boundary established by Phase 3a's signing infrastructure.
+
+        Round-trip defect: discovered during Phase 3a PR#1 manual round-trip
+        test. Without this filter, a tampered exclusion still suppresses
+        findings in scan reports despite being quarantined by the trust
+        layer — producing a contradictory report ("1 quarantined" alongside
+        "1 suppressed via the same id").
+        """
+        exc = self._make_exclusion("exact_line", path="src/api.py")
+        exc.quarantined = True
+        matches = match_exclusions(
+            [exc], file="src/api.py", line=42, code="db.query(x)", agent="sqli"
+        )
+        assert matches == [], (
+            "Quarantined exclusions must not match — they failed signature "
+            "verification or are unsigned under the reject policy."
+        )
+
+    def test_mixed_active_and_quarantined_only_active_match(self):
+        """In a mixed batch, only non-quarantined exclusions match. Pins
+        per-entry independence: a quarantined entry next to an active one
+        with the same scope must not poison the result."""
+        active = self._make_exclusion("file", path="src/api.py")
+        quarantined = self._make_exclusion("file", path="src/api.py")
+        quarantined.id = "fp-2026-04-11-002"
+        quarantined.quarantined = True
+        matches = match_exclusions(
+            [quarantined, active],
+            file="src/api.py",
+            line=42,
+            code="db.query(x)",
+            agent="sqli",
+        )
+        assert len(matches) == 1
+        assert matches[0].id == "fp-2026-04-11-001"  # the active one
+
 
 class TestLoadExclusionsSignatureVerification:
     """Task 8 — load_exclusions applies the trust policy layer on load."""

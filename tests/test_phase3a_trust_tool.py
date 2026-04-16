@@ -100,3 +100,57 @@ def test_assemble_scan_omits_trust_status_when_no_project_root(
         target={"type": "glob", "pattern": str(tmp_path / "**")},
     )
     assert "trust_status" not in result
+
+
+def test_assemble_scan_omits_quarantined_exclusions_from_subagent_list(
+    engine: ScanEngine, tmp_path: Path
+):
+    """assemble_scan must NOT include quarantined exclusions in the
+    subagent-facing exclusions list. The subagent should never see entries
+    it cannot safely apply — exposing them risks inconsistent behavior
+    where the subagent treats a tampered entry as actionable.
+
+    trust_status (computed from the unfiltered list) still reports the
+    quarantine count separately so the conversational summary surfaces the
+    warning. This test pins the boundary: subagent-facing list excludes
+    quarantined; trust_status counts include them.
+
+    Round-trip regression: paired with the match_exclusions defense, this
+    test pins the second half of the integrity boundary fix from the
+    Phase 3a PR#1 round-trip manual test.
+    """
+    # Seed an unsigned exclusion → quarantines under default reject policy
+    screw = tmp_path / ".screw"
+    (screw / "learning").mkdir(parents=True)
+    (screw / "learning" / "exclusions.yaml").write_text(
+        """
+exclusions:
+  - id: "fp-2026-04-16-001"
+    created: "2026-04-16T07:46:50Z"
+    agent: sqli
+    finding:
+      file: "src/api.py"
+      line: 42
+      code_pattern: "cursor.execute(*)"
+      cwe: "CWE-89"
+    reason: "tampered — signature stripped"
+    scope:
+      type: "exact_line"
+      path: "src/api.py"
+"""
+    )
+    (screw / "config.yaml").write_text(
+        "version: 1\nlegacy_unsigned_exclusions: reject\n"
+    )
+
+    result = engine.assemble_scan(
+        agent_name="sqli",
+        target={"type": "glob", "pattern": str(tmp_path / "**")},
+        project_root=tmp_path,
+    )
+
+    # trust_status counts the quarantine
+    assert result["trust_status"]["exclusion_quarantine_count"] == 1
+    assert result["trust_status"]["exclusion_active_count"] == 0
+    # Subagent-facing exclusions list omits the quarantined entry
+    assert result["exclusions"] == []

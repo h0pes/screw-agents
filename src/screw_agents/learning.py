@@ -343,9 +343,23 @@ def match_exclusions(
 
     Returns:
         List of matching Exclusion objects.
+
+    Note:
+        Quarantined exclusions (``exc.quarantined is True``) are excluded
+        from matching unconditionally. This is the policy gate that enforces
+        the integrity boundary established by Phase 3a's signing
+        infrastructure: an entry that failed cryptographic verification, or
+        that is unsigned under the ``reject`` policy, MUST NOT silently
+        suppress findings in scan reports. Without this filter, a tampered
+        exclusion remains visible to the report writer and produces a
+        contradictory output ("1 quarantined" alongside "1 suppressed via
+        the same id"). Discovered during Phase 3a PR#1 round-trip manual
+        test.
     """
     matches: list[Exclusion] = []
     for exc in exclusions:
+        if exc.quarantined:
+            continue
         if exc.agent != agent:
             continue
         if _scope_matches(exc, file=file, line=line, code=code, function=function):
