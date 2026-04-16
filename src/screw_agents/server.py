@@ -16,15 +16,13 @@ import mcp.types as types
 from mcp.server.lowlevel import Server, NotificationOptions
 from mcp.server.models import InitializationOptions
 
-from screw_agents.engine import ScanEngine
+from screw_agents.engine import ScanEngine, _DEFAULT_DOMAINS_DIR
 from screw_agents.learning import load_exclusions, record_exclusion
 from screw_agents.models import ExclusionInput, Finding
 from screw_agents.results import write_scan_results
 from screw_agents.registry import AgentRegistry
 
 logger = logging.getLogger(__name__)
-
-_DEFAULT_DOMAINS_DIR = Path(__file__).resolve().parent.parent.parent / "domains"
 
 
 def create_server(domains_dir: Path | None = None) -> tuple[Server, ScanEngine]:

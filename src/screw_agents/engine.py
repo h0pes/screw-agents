@@ -32,15 +32,21 @@ class ScanEngine:
         self._registry = registry
 
     @classmethod
-    def from_defaults(cls) -> ScanEngine:
+    def from_defaults(cls, domains_dir: Path | None = None) -> ScanEngine:
         """Construct a ScanEngine backed by the repo's default domains directory.
 
         Convenience constructor for tests and callers that don't need to
         override the domains directory. Mirrors the default used by
         ``server.create_server`` so tool behavior matches between MCP
         invocations and direct engine-level tests.
+
+        Args:
+            domains_dir: Optional override for the domains directory.
+                Defaults to the repo-root ``domains/`` directory.
         """
-        return cls(AgentRegistry(_DEFAULT_DOMAINS_DIR))
+        if domains_dir is None:
+            domains_dir = _DEFAULT_DOMAINS_DIR
+        return cls(AgentRegistry(domains_dir))
 
     # ------------------------------------------------------------------
     # Public API
@@ -116,7 +122,21 @@ class ScanEngine:
             honestly: aggregation silently skips quarantined exclusions,
             so the tool must report how many were skipped. Mirrors the
             scan-response ``trust_status`` contract from PR#1 Task 10.
+
+        Raises:
+            ValueError: If `report_type` is not a recognised value, OR
+                propagated from `learning.load_exclusions` when
+                `.screw/learning/exclusions.yaml` is malformed or
+                `.screw/config.yaml` is schema-invalid. Callers should
+                surface trust-relevant errors loudly rather than degrade
+                to empty reports.
         """
+        valid_report_types = ("all", "pattern_confidence", "directory_suggestions", "fp_report")
+        if report_type not in valid_report_types:
+            raise ValueError(
+                f"Unknown report_type: {report_type!r}. "
+                f"Must be one of {valid_report_types}."
+            )
         exclusions = load_exclusions(project_root)
 
         result: dict[str, Any] = {}

@@ -3367,8 +3367,12 @@ def test_aggregate_learning_surfaces_quarantined_count(tmp_path: Path):
     # Tamper one entry's signature so it quarantines on reload
     excl_path = tmp_path / ".screw" / "learning" / "exclusions.yaml"
     text = excl_path.read_text()
-    # Corrupt the first signature by swapping one character in the base64 payload
-    text = text.replace("signature: '", "signature: 'A", 1)
+    # Corrupt the first signature by prepending an 'A' to the base64 payload.
+    # Note: the YAML emitter writes signature values as bare scalars (no surrounding
+    # quotes), so the replacement targets "signature: " and prepends 'A' to the
+    # base64 string. This produces an invalid signature that fails Ed25519 verify
+    # → the entry quarantines on reload.
+    text = text.replace("signature: ", "signature: A", 1)
     excl_path.write_text(text)
 
     engine = ScanEngine.from_defaults()
