@@ -4,7 +4,16 @@ import yaml
 import pytest
 from pydantic import ValidationError
 
-from screw_agents.models import AgentDefinition, AgentMeta, CWEs
+from screw_agents.models import (
+    AgentDefinition,
+    AgentMeta,
+    AggregateReport,
+    CWEs,
+    DirectorySuggestion,
+    FPPattern,
+    FPReport,
+    PatternSuggestion,
+)
 
 
 def test_cwes_model():
@@ -567,8 +576,6 @@ def test_screw_config_rejects_invalid_legacy_policy():
 
 
 def test_pattern_suggestion_model():
-    from screw_agents.models import PatternSuggestion
-
     sugg = PatternSuggestion(
         pattern="db.text_search(*)",
         agent="sqli",
@@ -582,8 +589,6 @@ def test_pattern_suggestion_model():
 
 
 def test_directory_suggestion_model():
-    from screw_agents.models import DirectorySuggestion
-
     sugg = DirectorySuggestion(
         directory="test/",
         agent="sqli",
@@ -595,8 +600,6 @@ def test_directory_suggestion_model():
 
 
 def test_fp_pattern_and_fp_report():
-    from screw_agents.models import FPPattern, FPReport
-
     pattern = FPPattern(
         agent="sqli",
         cwe="CWE-89",
@@ -614,12 +617,53 @@ def test_fp_pattern_and_fp_report():
 
 
 def test_aggregate_report_model():
-    from screw_agents.models import AggregateReport, FPReport
-
     report = AggregateReport(
         pattern_confidence=[],
         directory_suggestions=[],
         fp_report=FPReport(generated_at="2026-04-14T10:00:00Z", scope="project", top_fp_patterns=[]),
     )
     assert report.pattern_confidence == []
+
+
+def test_pattern_suggestion_rejects_invalid_confidence():
+    """`confidence` accepts only low/medium/high — other values raise ValidationError."""
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        PatternSuggestion(
+            pattern="x",
+            agent="sqli",
+            cwe="CWE-89",
+            evidence={},
+            suggestion="y",
+            confidence="critical",  # not a valid Literal value
+        )
+
+
+def test_fp_report_rejects_invalid_scope():
+    """`scope` accepts only project/global."""
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        FPReport(generated_at="2026-04-14T10:00:00Z", scope="team", top_fp_patterns=[])
+
+
+def test_aggregate_report_round_trip_model_dump_validate():
+    """model_dump -> model_validate round-trips losslessly for MCP JSON serialization."""
+    original = AggregateReport(
+        pattern_confidence=[
+            PatternSuggestion(
+                pattern="p",
+                agent="sqli",
+                cwe="CWE-89",
+                evidence={"exclusion_count": 3, "files_affected": ["a.py"]},
+                suggestion="s",
+                confidence="low",
+            )
+        ],
+        directory_suggestions=[],
+        fp_report=FPReport(generated_at="2026-04-14T10:00:00Z", scope="project", top_fp_patterns=[]),
+    )
+    roundtrip = AggregateReport.model_validate(original.model_dump())
+    assert roundtrip == original
 

@@ -364,6 +364,8 @@ class Finding(BaseModel):
 class PatternSuggestion(BaseModel):
     """Feature 1 output: project-wide safe pattern candidates."""
 
+    # Code-pattern string (e.g., "db.text_search(*)") being proposed
+    # as a project-wide safe pattern based on repeated FP markings.
     pattern: str
     agent: str
     cwe: str
@@ -387,8 +389,11 @@ class FPPattern(BaseModel):
 
     agent: str
     cwe: str
+    # Code-pattern string shared by multiple false-positive exclusions
+    # within the same (agent, cwe) bucket. This is the signal Phase 4
+    # autoresearch consumes to refine agent YAML heuristics.
     pattern: str
-    fp_count: int
+    fp_count: int = Field(ge=0)
     example_reasons: list[str]
     candidate_heuristic_refinement: str
 
