@@ -322,6 +322,87 @@ legacy_unsigned_exclusions: reject
         assert exclusions[0].quarantined is False
         assert exclusions[0].signed_by == "marco@example.com"
 
+    def test_load_exclusions_mixed_signed_and_unsigned_policy_applies_per_entry(
+        self, tmp_path: Path
+    ):
+        """T8-M1 — a single exclusions file with BOTH a signed-valid entry AND
+        an unsigned-reject entry. Both quarantine states must be set
+        independently in the same load — pins iteration semantics so a future
+        refactor that short-circuits on the first quarantine is caught.
+        """
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+        from screw_agents.learning import load_exclusions
+        from screw_agents.models import Exclusion, ExclusionFinding, ExclusionScope
+        from screw_agents.trust import (
+            _public_key_to_openssh_line,
+            canonicalize_exclusion,
+            sign_content,
+        )
+
+        priv = Ed25519PrivateKey.generate()
+        pub_line = _public_key_to_openssh_line(priv.public_key(), comment="marco@test")
+
+        signed_excl = Exclusion(
+            id="fp-2026-04-14-001",
+            created="2026-04-14T10:00:00Z",
+            agent="sqli",
+            finding=ExclusionFinding(
+                file="src/a.py", line=10, code_pattern="*", cwe="CWE-89"
+            ),
+            reason="properly signed",
+            scope=ExclusionScope(type="exact_line", path="src/a.py"),
+        )
+        sig = sign_content(canonicalize_exclusion(signed_excl), private_key=priv)
+        signed_excl.signed_by = "marco@example.com"
+        signed_excl.signature = sig
+
+        screw = tmp_path / ".screw"
+        (screw / "learning").mkdir(parents=True)
+
+        import yaml as _yaml
+
+        unsigned_entry = {
+            "id": "fp-2026-04-14-002",
+            "created": "2026-04-14T10:00:00Z",
+            "agent": "sqli",
+            "finding": {
+                "file": "src/b.py",
+                "line": 20,
+                "code_pattern": "*",
+                "cwe": "CWE-89",
+            },
+            "reason": "legacy unsigned",
+            "scope": {"type": "exact_line", "path": "src/b.py"},
+        }
+        data = {
+            "exclusions": [
+                signed_excl.model_dump(exclude={"quarantined"}),
+                unsigned_entry,
+            ]
+        }
+        (screw / "learning" / "exclusions.yaml").write_text(
+            _yaml.dump(data, default_flow_style=False, sort_keys=False)
+        )
+
+        (screw / "config.yaml").write_text(
+            f"""version: 1
+exclusion_reviewers:
+  - name: Marco
+    email: marco@example.com
+    key: "{pub_line}"
+legacy_unsigned_exclusions: reject
+"""
+        )
+
+        exclusions = load_exclusions(tmp_path)
+        assert len(exclusions) == 2
+        # Order is preserved by load_exclusions iteration
+        assert exclusions[0].id == "fp-2026-04-14-001"
+        assert exclusions[0].quarantined is False  # signed-valid → trusted
+        assert exclusions[1].id == "fp-2026-04-14-002"
+        assert exclusions[1].quarantined is True  # unsigned + reject → quarantined
+
 
 class TestLoadExclusionsTrustState:
     """Task 11 — _apply_trust_policy sets both trust_state and quarantined."""
@@ -485,8 +566,12 @@ class TestRecordExclusionSignsOnWrite:
         )
         from screw_agents.models import ExclusionFinding, ExclusionInput, ExclusionScope
 
-        # Force the project-local key path (placeholder — no-op today, reserved for
-        # future ~/.ssh/id_ed25519 probing support)
+        # SCREW_FORCE_LOCAL_KEY is a no-op placeholder today. Reserved for
+        # Task 12's init-trust which will probe `~/.ssh/id_ed25519` and prefer
+        # an existing user key over generating a project-local one. Setting it
+        # here documents the future contract — when probing lands, this env
+        # var will force the project-local path so the test stays hermetic
+        # and never inadvertently consumes a developer's real SSH key.
         monkeypatch.setenv("SCREW_FORCE_LOCAL_KEY", "1")
 
         # Simulate `init-trust`: generate the local key and register it in config.yaml
@@ -630,3 +715,50 @@ exclusion_reviewers:
         assert len(loaded) == 1
         assert loaded[0].quarantined is False
         assert loaded[0].signed_by == alice_email
+
+    def test_record_exclusion_without_reviewers_uses_fallback_email(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """T9-M7 — without init-trust, record_exclusion stamps the fallback
+        email (`local@<sanitized-project-name>`) and the entry quarantines on
+        reload because no reviewer key matches the local key. Documents the
+        "didn't run init-trust" UX explicitly so a future change that flips
+        the fallback path is caught.
+        """
+        import warnings
+
+        from screw_agents.learning import load_exclusions, record_exclusion
+        from screw_agents.models import ExclusionFinding, ExclusionInput, ExclusionScope
+
+        monkeypatch.setenv("SCREW_FORCE_LOCAL_KEY", "1")
+
+        excl_input = ExclusionInput(
+            agent="sqli",
+            finding=ExclusionFinding(
+                file="src/a.py", line=10, code_pattern="*", cwe="CWE-89"
+            ),
+            reason="pre-init-trust attempt",
+            scope=ExclusionScope(type="exact_line", path="src/a.py"),
+        )
+
+        # T9-M9 — record_exclusion emits a UserWarning on the fallback path.
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            saved = record_exclusion(tmp_path, excl_input)
+            fallback_warnings = [
+                w for w in caught if "init-trust" in str(w.message)
+            ]
+            assert fallback_warnings, "expected fallback-email warning when no reviewer matches"
+
+        # The fallback signer email is `local@<sanitized-project-name>`.
+        # Sanitization rules (T9-M1) collapse anything outside [A-Za-z0-9._-]
+        # to '-'; pin only the prefix so this test stays robust across tmp_path
+        # naming conventions on different platforms.
+        assert saved.signed_by is not None
+        assert saved.signed_by.startswith("local@")
+        assert saved.signature is not None
+
+        # On reload, no reviewer email matches the fallback → quarantine.
+        loaded = load_exclusions(tmp_path)
+        assert len(loaded) == 1
+        assert loaded[0].quarantined is True

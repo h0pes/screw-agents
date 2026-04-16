@@ -10,6 +10,9 @@ Layers 3 (aggregation) and 4 (feedback loop) are Phase 3 scope.
 from __future__ import annotations
 
 import fnmatch
+import re
+import sys
+import warnings
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
@@ -55,6 +58,17 @@ def _get_or_create_local_private_key(
 
     if not key_path.exists():
         key_dir.mkdir(parents=True, exist_ok=True)
+        # T9-M3 — best-effort tighten directory perms to user-only access.
+        # Defense-in-depth: even though the key file itself is 0o600, an
+        # attacker who can traverse `.screw/local/keys/` can still observe
+        # the file's existence and metadata. Swallow OSError (e.g., on
+        # filesystems that don't support POSIX modes like FAT/exFAT or
+        # under platform-specific failures) — the key file's own perms
+        # remain the primary defense.
+        try:
+            key_dir.chmod(0o700)
+        except OSError:
+            pass
         priv = Ed25519PrivateKey.generate()
         key_path.write_bytes(
             priv.private_bytes(
@@ -63,17 +77,37 @@ def _get_or_create_local_private_key(
                 encryption_algorithm=serialization.NoEncryption(),
             )
         )
-        key_path.chmod(0o600)
+        # T9-M2 — chmod(0o600) is a no-op on Windows (only the read-only bit
+        # is set). On Windows, the key file is readable by every local
+        # account. Warn loudly so users understand the gap. Proper Windows
+        # DACL implementation via pywin32 is a follow-up.
+        if sys.platform == "win32":
+            warnings.warn(
+                f"Local signing key created on Windows without ACL restriction "
+                f"at {key_path}; file may be readable by other local accounts. "
+                f"For multi-user systems, store the key on a path with "
+                f"restricted DACLs.",
+                stacklevel=2,
+            )
+        else:
+            key_path.chmod(0o600)
+        # T9-M5 — `priv` from Ed25519PrivateKey.generate() is already usable;
+        # no need to round-trip through disk read.
+    else:
+        priv_bytes = key_path.read_bytes()
+        priv = Ed25519PrivateKey.from_private_bytes(priv_bytes)
 
-    priv_bytes = key_path.read_bytes()
-    priv = Ed25519PrivateKey.from_private_bytes(priv_bytes)
     pub_line = _public_key_to_openssh_line(
         priv.public_key(), comment=f"screw-local@{project_root.name}"
     )
     return priv, pub_line
 
 
-def load_exclusions(project_root: Path) -> list[Exclusion]:
+def load_exclusions(
+    project_root: Path,
+    *,
+    config: ScrewConfig | None = None,
+) -> list[Exclusion]:
     """Read exclusions from .screw/learning/exclusions.yaml with signature verification.
 
     For each exclusion:
@@ -91,12 +125,24 @@ def load_exclusions(project_root: Path) -> list[Exclusion]:
 
     Args:
         project_root: Project root directory.
+        config: Optional pre-loaded ScrewConfig. When provided, the per-call
+            `load_config(project_root)` is skipped (saves one disk read +
+            YAML parse). Used by `record_exclusion` to avoid loading config
+            twice on the write path. T9-I4.
 
     Returns:
         List of Exclusion objects. Empty list if file doesn't exist.
 
     Raises:
         ValueError: If the YAML is malformed or unparseable.
+
+    Side effects:
+        May create `.screw/` directory and `.screw/config.yaml` stub via
+        `trust.load_config` when exclusions exist AND no config is supplied.
+        Empty projects (no exclusions file) are purely read-only — the early
+        return on a missing exclusions file short-circuits before the
+        config-load side effect. Callers that pre-load config see no
+        side effect from this function.
     """
     path = project_root / _EXCLUSIONS_PATH
     if not path.exists():
@@ -116,7 +162,10 @@ def load_exclusions(project_root: Path) -> list[Exclusion]:
 
     # Load project config — auto-generates the stub (with fail-safe
     # `legacy_unsigned_exclusions: reject`) if the file is missing.
-    config = load_config(project_root)
+    # T9-I4 — accept caller-supplied config to avoid double-load on the
+    # record_exclusion write path.
+    if config is None:
+        config = load_config(project_root)
 
     result: list[Exclusion] = []
     for entry in entries:
@@ -179,7 +228,13 @@ def record_exclusion(project_root: Path, exclusion: ExclusionInput) -> Exclusion
     path = project_root / _EXCLUSIONS_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    existing = load_exclusions(project_root) if path.exists() else []
+    # T9-I4 — load config ONCE, share with load_exclusions (saves one
+    # disk read + YAML parse on the write path).
+    config = load_config(project_root)
+
+    existing = (
+        load_exclusions(project_root, config=config) if path.exists() else []
+    )
 
     now = datetime.now(timezone.utc)
     date_str = now.strftime("%Y-%m-%d")
@@ -189,13 +244,16 @@ def record_exclusion(project_root: Path, exclusion: ExclusionInput) -> Exclusion
     exclusion_id = f"{today_prefix}{next_seq:03d}"
 
     # Load the local signing key FIRST so we can pick the matching reviewer.
+    # pub_line is unused here — Task 12's init-trust is the explicit
+    # registration path into config.exclusion_reviewers; record_exclusion
+    # only signs and never registers.
     priv, _pub_line = _get_or_create_local_private_key(project_root)
 
     # Determine the signer identity by matching the local key's fingerprint to
     # a reviewer entry in config.yaml. Under Task 7.1's Model A verification,
     # `signed_by` must equal the email of the reviewer whose key matches this
     # signature — otherwise reload triggers an identity mismatch and quarantine.
-    config = load_config(project_root)
+    # T9-I4 — config was loaded above; reuse it.
     keys_with_reviewers, _dropped = _load_public_keys_with_reviewers(
         config.exclusion_reviewers
     )
@@ -210,7 +268,23 @@ def record_exclusion(project_root: Path, exclusion: ExclusionInput) -> Exclusion
         # Pre-init-trust: no reviewer's key matches our local key. The entry
         # will be quarantined on reload until `screw-agents init-trust` registers
         # this machine's key in exclusion_reviewers.
-        signer_email = f"local@{project_root.name}"
+        #
+        # T9-M1 — sanitize project_root.name for RFC-5321 compliance.
+        # Project directory names can legitimately contain spaces, '@',
+        # Unicode, etc. Collapse anything outside the safe local-part
+        # alphabet ([A-Za-z0-9._-]) to '-'. Falls back to 'project' if
+        # sanitization yields the empty string.
+        safe_name = re.sub(r"[^a-zA-Z0-9._-]", "-", project_root.name) or "project"
+        signer_email = f"local@{safe_name}"
+        # T9-M9 — emit a UserWarning so the user understands their entry will
+        # be quarantined on reload (silent fallback was a footgun).
+        warnings.warn(
+            f"No matching reviewer found for local signing key fingerprint "
+            f"{local_fingerprint}; exclusion {exclusion_id} will be quarantined "
+            f"on next load. Run `screw-agents init-trust` to register the "
+            f"local key.",
+            stacklevel=2,
+        )
 
     saved = Exclusion(
         id=exclusion_id,
@@ -231,8 +305,14 @@ def record_exclusion(project_root: Path, exclusion: ExclusionInput) -> Exclusion
     saved.signature = sign_content(canonical, private_key=priv)
 
     existing.append(saved)
+    # T11-N1 — no `exclude=` here. The Exclusion.model_dump override
+    # (in models.py) unconditionally strips the runtime-only fields
+    # (`_RUNTIME_ONLY_FIELDS = {"quarantined", "trust_state"}`) regardless
+    # of caller args. Passing `exclude={"quarantined"}` here mis-implied that
+    # only `quarantined` would be stripped, hiding the trust_state strip
+    # behind the override.
     data = {
-        "exclusions": [e.model_dump(exclude={"quarantined"}) for e in existing]
+        "exclusions": [e.model_dump() for e in existing]
     }
     path.write_text(
         yaml.dump(data, default_flow_style=False, sort_keys=False),

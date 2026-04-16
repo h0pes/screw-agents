@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Any, ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+from pydantic.main import IncEx
 
 
 # ---------------------------------------------------------------------------
@@ -220,7 +221,15 @@ class ExclusionFinding(BaseModel):
 
 
 class ExclusionInput(BaseModel):
-    """Input for recording a new exclusion (subagent sends this)."""
+    """Input for recording a new exclusion (subagent sends this).
+
+    Note on extras handling: this parent class is the write-side input shape
+    with default Pydantic extras handling (silently ignored), while the
+    `Exclusion` child has `extra="forbid"` for signing-integrity surface.
+    The asymmetry is intentional — write-side callers may pass extra fields
+    that should be ignored, but stored exclusions must reject extras so the
+    canonical signing payload is not influenced by unknown keys.
+    """
 
     agent: str
     finding: ExclusionFinding
@@ -251,7 +260,21 @@ class Exclusion(ExclusionInput):
 
     _RUNTIME_ONLY_FIELDS: ClassVar[set[str]] = {"quarantined", "trust_state"}
 
-    def model_dump(self, **kwargs):
+    def model_dump(
+        self,
+        *,
+        mode: Literal["json", "python"] | str = "python",
+        include: IncEx | None = None,
+        exclude: IncEx | None = None,
+        context: Any | None = None,
+        by_alias: bool = False,
+        exclude_unset: bool = False,
+        exclude_defaults: bool = False,
+        exclude_none: bool = False,
+        round_trip: bool = False,
+        warnings: bool | Literal["none", "warn", "error"] = True,
+        serialize_as_any: bool = False,
+    ) -> dict[str, Any]:
         """Strip runtime-only flags from Python-side serialization.
 
         Defense-in-depth: `quarantined` and `trust_state` are declared with
@@ -270,18 +293,29 @@ class Exclusion(ExclusionInput):
         persisting them would allow a tampered YAML file to self-mark as
         not-quarantined.
         """
-        exclude = kwargs.pop("exclude", None)
         runtime = self._RUNTIME_ONLY_FIELDS
         if exclude is None:
-            exclude = set(runtime)
+            merged_exclude: IncEx = set(runtime)
         elif isinstance(exclude, set):
-            exclude = exclude | runtime
+            merged_exclude = exclude | runtime
         elif isinstance(exclude, dict):
-            exclude = {**exclude, **{k: True for k in runtime}}
+            merged_exclude = {**exclude, **{k: True for k in runtime}}
         else:
             # Unknown shape — fall back to a safe set form.
-            exclude = set(runtime)
-        return super().model_dump(exclude=exclude, **kwargs)
+            merged_exclude = set(runtime)
+        return super().model_dump(
+            mode=mode,
+            include=include,
+            exclude=merged_exclude,
+            context=context,
+            by_alias=by_alias,
+            exclude_unset=exclude_unset,
+            exclude_defaults=exclude_defaults,
+            exclude_none=exclude_none,
+            round_trip=round_trip,
+            warnings=warnings,
+            serialize_as_any=serialize_as_any,
+        )
 
 
 # ---------------------------------------------------------------------------

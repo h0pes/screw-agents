@@ -47,8 +47,12 @@ def run_init_trust(
             the ``signed_by`` attribution on future exclusions).
 
     Returns:
-        Dict with ``status`` (``"created"``, ``"already_registered"``),
-        and ``message`` (human-readable summary for CLI output).
+        Dict with ``status`` (``"created"`` or ``"already_registered"``)
+        and ``message`` (human-readable summary for CLI output). All
+        failure modes raise ``ValueError`` or ``RuntimeError`` instead of
+        returning a non-success status — the dispatcher's defensive
+        ``status not in (...)`` check is intentional belt-and-suspenders
+        for forward compatibility, but no current code path reaches it.
 
     Raises:
         ValueError: If ``.screw`` exists as a file (not directory), if
@@ -78,6 +82,16 @@ def run_init_trust(
     # T9-I3 — friendly error wrapping for _get_or_create_local_private_key.
     try:
         _priv, pub_line = _get_or_create_local_private_key(project_root)
+    except (FileExistsError, NotADirectoryError) as exc:
+        # T12-N1 — `mkdir(parents=True, exist_ok=True)` raises one of these
+        # if `.screw/local/keys/` (or any parent) exists as a FILE rather
+        # than a directory. Surface that distinct case actionably instead
+        # of falling through to the generic OSError branch.
+        raise RuntimeError(
+            f"Cannot create local signing key directory at "
+            f"{project_root / '.screw' / 'local' / 'keys'}: a file blocks "
+            f"that path. Remove or rename it. Original: {exc}"
+        ) from exc
     except PermissionError as exc:
         raise RuntimeError(
             f"Cannot create local signing key at "
@@ -114,8 +128,17 @@ def run_init_trust(
     # Write the updated config back. Wrap for T6-I2 parity.
     config_path = project_root / ".screw" / "config.yaml"
     try:
+        # T12-N4 — `width=1000` prevents PyYAML from line-folding long
+        # OpenSSH key values across multiple lines with continuation chars
+        # (which is syntactically valid YAML but visually noisy and tempts
+        # users to "fix" it manually, breaking the round-trip).
         config_path.write_text(
-            yaml.dump(config.model_dump(), default_flow_style=False, sort_keys=False),
+            yaml.dump(
+                config.model_dump(),
+                default_flow_style=False,
+                sort_keys=False,
+                width=1000,
+            ),
             encoding="utf-8",
         )
     except PermissionError as exc:

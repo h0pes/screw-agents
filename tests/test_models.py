@@ -259,6 +259,260 @@ class TestExclusionModels:
         assert exc.times_suppressed == 0
         assert exc.last_suppressed is None
 
+    # ----- Task 2 — signing field tests (moved into class) -----
+
+    def test_exclusion_signing_fields_optional(self):
+        """Phase 2 exclusions without signatures still parse (backwards compat)."""
+        excl = Exclusion(
+            id="fp-2026-04-14-001",
+            created="2026-04-14T10:00:00Z",
+            agent="sqli",
+            finding=ExclusionFinding(
+                file="src/services/user_service.py",
+                line=42,
+                code_pattern="db.text_search(*)",
+                cwe="CWE-89",
+            ),
+            reason="uses parameterized internals",
+            scope=ExclusionScope(type="pattern", pattern="db.text_search(*)"),
+        )
+        assert excl.signed_by is None
+        assert excl.signature is None
+        assert excl.signature_version == 1
+        assert excl.quarantined is False
+
+    def test_exclusion_signing_fields_optional_from_yaml_dict(self):
+        """T2-I3: backwards-compat parse via YAML dict mirrors the production
+        path in `learning.load_exclusions` (`Exclusion.model_validate(entry)`)
+        rather than kwargs construction. A pre-Phase-3a exclusion entry that
+        lacks `signed_by` / `signature` / `signature_version` keys must still
+        parse cleanly with default values.
+        """
+        yaml_text = """
+        id: fp-2026-04-14-001
+        created: '2026-04-14T10:00:00Z'
+        agent: sqli
+        finding:
+          file: src/services/user_service.py
+          line: 42
+          code_pattern: db.text_search(*)
+          cwe: CWE-89
+        reason: uses parameterized internals
+        scope:
+          type: pattern
+          pattern: db.text_search(*)
+        """
+        entry = yaml.safe_load(yaml_text)
+        excl = Exclusion.model_validate(entry)
+        assert excl.signed_by is None
+        assert excl.signature is None
+        assert excl.signature_version == 1
+        assert excl.quarantined is False
+
+    def test_exclusion_signing_fields_round_trip(self):
+        """T2-M2 rename: round-trips signing fields through Exclusion construction."""
+        excl = Exclusion(
+            id="fp-2026-04-14-002",
+            created="2026-04-14T10:00:00Z",
+            agent="sqli",
+            finding=ExclusionFinding(
+                file="src/auth.py", line=12, code_pattern="*", cwe="CWE-89"
+            ),
+            reason="test",
+            scope=ExclusionScope(type="exact_line", path="src/auth.py"),
+            signed_by="marco@example.com",
+            signature="U1NIU0lH...",
+            signature_version=1,
+        )
+        assert excl.signed_by == "marco@example.com"
+        assert excl.signature is not None
+        assert excl.quarantined is False
+
+    def test_exclusion_model_dump_excludes_quarantined(self):
+        """The runtime-only `quarantined` flag must never appear in serialized output."""
+        excl = Exclusion(
+            id="fp-dump-test",
+            created="2026-04-14T10:00:00Z",
+            agent="sqli",
+            finding=ExclusionFinding(
+                file="a.py", line=1, code_pattern="*", cwe="CWE-89"
+            ),
+            reason="test",
+            scope=ExclusionScope(type="pattern", pattern="*"),
+        )
+
+        # Default — no user exclusions
+        dumped = excl.model_dump()
+        assert "quarantined" not in dumped
+
+        # Even when quarantined is True, the serialized form omits it
+        excl.quarantined = True
+        dumped = excl.model_dump()
+        assert "quarantined" not in dumped
+
+        # User's explicit exclude= (set form) still respected and still excludes quarantined
+        dumped = excl.model_dump(exclude={"reason"})
+        assert "quarantined" not in dumped
+        assert "reason" not in dumped
+
+        # User's explicit exclude= (dict form) still respected and still excludes quarantined
+        dumped = excl.model_dump(exclude={"reason": True})
+        assert "quarantined" not in dumped
+        assert "reason" not in dumped
+
+    def test_exclusion_model_dump_json_excludes_quarantined(self):
+        """model_dump_json must also omit the runtime-only quarantined flag.
+
+        Pydantic v2's model_dump_json routes through a Rust-backed serializer that
+        does NOT call the Python model_dump override, so schema-level Field(exclude=True)
+        is the primary defense for this path.
+        """
+        import json
+
+        excl = Exclusion(
+            id="fp-json-test",
+            created="2026-04-14T10:00:00Z",
+            agent="sqli",
+            finding=ExclusionFinding(
+                file="a.py", line=1, code_pattern="*", cwe="CWE-89"
+            ),
+            reason="test",
+            scope=ExclusionScope(type="pattern", pattern="*"),
+        )
+
+        # Default
+        data = json.loads(excl.model_dump_json())
+        assert "quarantined" not in data
+
+        # Explicitly True
+        excl.quarantined = True
+        data = json.loads(excl.model_dump_json())
+        assert "quarantined" not in data
+
+    def test_exclusion_include_does_not_leak_quarantined(self):
+        """Even if a caller explicitly passes include={"quarantined"}, the field
+        must NOT appear in serialized output. This verifies Layer 2 (the custom
+        model_dump override) catches the include edge case that schema-level
+        Field(exclude=True) may not."""
+        excl = Exclusion(
+            id="fp-include-test",
+            created="2026-04-14T10:00:00Z",
+            agent="sqli",
+            finding=ExclusionFinding(
+                file="a.py", line=1, code_pattern="*", cwe="CWE-89"
+            ),
+            reason="test",
+            scope=ExclusionScope(type="pattern", pattern="*"),
+        )
+        excl.quarantined = True
+
+        # If a caller explicitly tries to include quarantined, it must still be stripped.
+        dumped = excl.model_dump(include={"id", "quarantined"})
+        assert "quarantined" not in dumped
+        assert "id" in dumped  # other included fields still present
+
+    # ----- Task 11 — trust_state runtime-only field -----
+
+    def test_exclusion_trust_state_default_is_trusted(self):
+        """Fresh Exclusion has trust_state='trusted' (matches quarantined=False default)."""
+        exc = Exclusion(
+            id="fp-2026-04-14-001",
+            created="2026-04-14T10:00:00Z",
+            agent="sqli",
+            finding=ExclusionFinding(
+                file="src/a.py", line=10, code_pattern="*", cwe="CWE-89"
+            ),
+            reason="test",
+            scope=ExclusionScope(type="file", path="src/a.py"),
+        )
+        assert exc.trust_state == "trusted"
+        assert exc.quarantined is False
+
+    def test_exclusion_trust_state_accepts_all_literal_values(self):
+        """trust_state accepts the four literal values."""
+        for state in ("trusted", "warned", "quarantined", "allowed"):
+            exc = Exclusion(
+                id="fp-2026-04-14-001",
+                created="2026-04-14T10:00:00Z",
+                agent="sqli",
+                finding=ExclusionFinding(
+                    file="src/a.py", line=10, code_pattern="*", cwe="CWE-89"
+                ),
+                reason="test",
+                scope=ExclusionScope(type="file", path="src/a.py"),
+                trust_state=state,
+            )
+            assert exc.trust_state == state
+
+    def test_exclusion_trust_state_rejects_invalid_value(self):
+        """trust_state rejects values outside the literal set."""
+        with pytest.raises(ValidationError):
+            Exclusion(
+                id="fp-2026-04-14-001",
+                created="2026-04-14T10:00:00Z",
+                agent="sqli",
+                finding=ExclusionFinding(
+                    file="src/a.py", line=10, code_pattern="*", cwe="CWE-89"
+                ),
+                reason="test",
+                scope=ExclusionScope(type="file", path="src/a.py"),
+                trust_state="pending",  # not in literal
+            )
+
+    def test_exclusion_model_dump_excludes_trust_state(self):
+        """trust_state is stripped from model_dump output (runtime-only flag)."""
+        exc = Exclusion(
+            id="fp-2026-04-14-001",
+            created="2026-04-14T10:00:00Z",
+            agent="sqli",
+            finding=ExclusionFinding(
+                file="src/a.py", line=10, code_pattern="*", cwe="CWE-89"
+            ),
+            reason="test",
+            scope=ExclusionScope(type="file", path="src/a.py"),
+            trust_state="warned",
+        )
+        dumped = exc.model_dump()
+        assert "trust_state" not in dumped
+        assert "quarantined" not in dumped  # regression guard from Task 2
+
+    def test_exclusion_model_dump_json_excludes_trust_state(self):
+        """trust_state is stripped from model_dump_json (schema-level exclude)."""
+        import json
+
+        exc = Exclusion(
+            id="fp-2026-04-14-001",
+            created="2026-04-14T10:00:00Z",
+            agent="sqli",
+            finding=ExclusionFinding(
+                file="src/a.py", line=10, code_pattern="*", cwe="CWE-89"
+            ),
+            reason="test",
+            scope=ExclusionScope(type="file", path="src/a.py"),
+            trust_state="warned",
+        )
+        data = json.loads(exc.model_dump_json())
+        assert "trust_state" not in data
+        assert "quarantined" not in data  # regression guard
+
+    def test_exclusion_include_does_not_leak_trust_state(self):
+        """Even with include={'trust_state'}, the runtime flag is stripped
+        (the model_dump override forces exclude)."""
+        exc = Exclusion(
+            id="fp-2026-04-14-001",
+            created="2026-04-14T10:00:00Z",
+            agent="sqli",
+            finding=ExclusionFinding(
+                file="src/a.py", line=10, code_pattern="*", cwe="CWE-89"
+            ),
+            reason="test",
+            scope=ExclusionScope(type="file", path="src/a.py"),
+            trust_state="quarantined",
+        )
+        dumped = exc.model_dump(include={"trust_state", "id"})
+        assert "trust_state" not in dumped
+        assert "id" in dumped  # T11-N2 — other included fields still present
+
 
 class TestFindingTriageExclusionFields:
     def test_triage_default_not_excluded(self):
@@ -312,237 +566,3 @@ def test_screw_config_rejects_invalid_legacy_policy():
         ScrewConfig(legacy_unsigned_exclusions="nonsense")
 
 
-def test_exclusion_signing_fields_optional():
-    """Phase 2 exclusions without signatures still parse (backwards compat)."""
-    excl = Exclusion(
-        id="fp-2026-04-14-001",
-        created="2026-04-14T10:00:00Z",
-        agent="sqli",
-        finding=ExclusionFinding(
-            file="src/services/user_service.py",
-            line=42,
-            code_pattern="db.text_search(*)",
-            cwe="CWE-89",
-        ),
-        reason="uses parameterized internals",
-        scope=ExclusionScope(type="pattern", pattern="db.text_search(*)"),
-    )
-    assert excl.signed_by is None
-    assert excl.signature is None
-    assert excl.signature_version == 1
-    assert excl.quarantined is False
-
-
-def test_exclusion_with_signing_fields():
-    excl = Exclusion(
-        id="fp-2026-04-14-002",
-        created="2026-04-14T10:00:00Z",
-        agent="sqli",
-        finding=ExclusionFinding(
-            file="src/auth.py", line=12, code_pattern="*", cwe="CWE-89"
-        ),
-        reason="test",
-        scope=ExclusionScope(type="exact_line", path="src/auth.py"),
-        signed_by="marco@example.com",
-        signature="U1NIU0lH...",
-        signature_version=1,
-    )
-    assert excl.signed_by == "marco@example.com"
-    assert excl.signature is not None
-    assert excl.quarantined is False
-
-
-def test_exclusion_model_dump_excludes_quarantined():
-    """The runtime-only `quarantined` flag must never appear in serialized output."""
-    excl = Exclusion(
-        id="fp-dump-test",
-        created="2026-04-14T10:00:00Z",
-        agent="sqli",
-        finding=ExclusionFinding(
-            file="a.py", line=1, code_pattern="*", cwe="CWE-89"
-        ),
-        reason="test",
-        scope=ExclusionScope(type="pattern", pattern="*"),
-    )
-
-    # Default — no user exclusions
-    dumped = excl.model_dump()
-    assert "quarantined" not in dumped
-
-    # Even when quarantined is True, the serialized form omits it
-    excl.quarantined = True
-    dumped = excl.model_dump()
-    assert "quarantined" not in dumped
-
-    # User's explicit exclude= (set form) still respected and still excludes quarantined
-    dumped = excl.model_dump(exclude={"reason"})
-    assert "quarantined" not in dumped
-    assert "reason" not in dumped
-
-    # User's explicit exclude= (dict form) still respected and still excludes quarantined
-    dumped = excl.model_dump(exclude={"reason": True})
-    assert "quarantined" not in dumped
-    assert "reason" not in dumped
-
-
-def test_exclusion_model_dump_json_excludes_quarantined():
-    """model_dump_json must also omit the runtime-only quarantined flag.
-
-    Pydantic v2's model_dump_json routes through a Rust-backed serializer that
-    does NOT call the Python model_dump override, so schema-level Field(exclude=True)
-    is the primary defense for this path.
-    """
-    import json
-
-    excl = Exclusion(
-        id="fp-json-test",
-        created="2026-04-14T10:00:00Z",
-        agent="sqli",
-        finding=ExclusionFinding(
-            file="a.py", line=1, code_pattern="*", cwe="CWE-89"
-        ),
-        reason="test",
-        scope=ExclusionScope(type="pattern", pattern="*"),
-    )
-
-    # Default
-    data = json.loads(excl.model_dump_json())
-    assert "quarantined" not in data
-
-    # Explicitly True
-    excl.quarantined = True
-    data = json.loads(excl.model_dump_json())
-    assert "quarantined" not in data
-
-
-def test_exclusion_include_does_not_leak_quarantined():
-    """Even if a caller explicitly passes include={"quarantined"}, the field
-    must NOT appear in serialized output. This verifies Layer 2 (the custom
-    model_dump override) catches the include edge case that schema-level
-    Field(exclude=True) may not."""
-    excl = Exclusion(
-        id="fp-include-test",
-        created="2026-04-14T10:00:00Z",
-        agent="sqli",
-        finding=ExclusionFinding(
-            file="a.py", line=1, code_pattern="*", cwe="CWE-89"
-        ),
-        reason="test",
-        scope=ExclusionScope(type="pattern", pattern="*"),
-    )
-    excl.quarantined = True
-
-    # If a caller explicitly tries to include quarantined, it must still be stripped.
-    dumped = excl.model_dump(include={"id", "quarantined"})
-    assert "quarantined" not in dumped
-    assert "id" in dumped  # other included fields still present
-
-
-# ---------------------------------------------------------------------------
-# Task 11 — Exclusion.trust_state runtime-only field
-# ---------------------------------------------------------------------------
-
-
-def test_exclusion_trust_state_default_is_trusted():
-    """Fresh Exclusion has trust_state='trusted' (matches quarantined=False default)."""
-    exc = Exclusion(
-        id="fp-2026-04-14-001",
-        created="2026-04-14T10:00:00Z",
-        agent="sqli",
-        finding=ExclusionFinding(
-            file="src/a.py", line=10, code_pattern="*", cwe="CWE-89"
-        ),
-        reason="test",
-        scope=ExclusionScope(type="file", path="src/a.py"),
-    )
-    assert exc.trust_state == "trusted"
-    assert exc.quarantined is False
-
-
-def test_exclusion_trust_state_accepts_all_literal_values():
-    """trust_state accepts the four literal values."""
-    for state in ("trusted", "warned", "quarantined", "allowed"):
-        exc = Exclusion(
-            id="fp-2026-04-14-001",
-            created="2026-04-14T10:00:00Z",
-            agent="sqli",
-            finding=ExclusionFinding(
-                file="src/a.py", line=10, code_pattern="*", cwe="CWE-89"
-            ),
-            reason="test",
-            scope=ExclusionScope(type="file", path="src/a.py"),
-            trust_state=state,
-        )
-        assert exc.trust_state == state
-
-
-def test_exclusion_trust_state_rejects_invalid_value():
-    """trust_state rejects values outside the literal set."""
-    with pytest.raises(ValidationError):
-        Exclusion(
-            id="fp-2026-04-14-001",
-            created="2026-04-14T10:00:00Z",
-            agent="sqli",
-            finding=ExclusionFinding(
-                file="src/a.py", line=10, code_pattern="*", cwe="CWE-89"
-            ),
-            reason="test",
-            scope=ExclusionScope(type="file", path="src/a.py"),
-            trust_state="pending",  # not in literal
-        )
-
-
-def test_exclusion_model_dump_excludes_trust_state():
-    """trust_state is stripped from model_dump output (runtime-only flag)."""
-    exc = Exclusion(
-        id="fp-2026-04-14-001",
-        created="2026-04-14T10:00:00Z",
-        agent="sqli",
-        finding=ExclusionFinding(
-            file="src/a.py", line=10, code_pattern="*", cwe="CWE-89"
-        ),
-        reason="test",
-        scope=ExclusionScope(type="file", path="src/a.py"),
-        trust_state="warned",
-    )
-    dumped = exc.model_dump()
-    assert "trust_state" not in dumped
-    assert "quarantined" not in dumped  # regression guard from Task 2
-
-
-def test_exclusion_model_dump_json_excludes_trust_state():
-    """trust_state is stripped from model_dump_json (schema-level exclude)."""
-    import json
-
-    exc = Exclusion(
-        id="fp-2026-04-14-001",
-        created="2026-04-14T10:00:00Z",
-        agent="sqli",
-        finding=ExclusionFinding(
-            file="src/a.py", line=10, code_pattern="*", cwe="CWE-89"
-        ),
-        reason="test",
-        scope=ExclusionScope(type="file", path="src/a.py"),
-        trust_state="warned",
-    )
-    data = json.loads(exc.model_dump_json())
-    assert "trust_state" not in data
-    assert "quarantined" not in data  # regression guard
-
-
-def test_exclusion_include_does_not_leak_trust_state():
-    """Even with include={'trust_state'}, the runtime flag is stripped
-    (the model_dump override forces exclude)."""
-    exc = Exclusion(
-        id="fp-2026-04-14-001",
-        created="2026-04-14T10:00:00Z",
-        agent="sqli",
-        finding=ExclusionFinding(
-            file="src/a.py", line=10, code_pattern="*", cwe="CWE-89"
-        ),
-        reason="test",
-        scope=ExclusionScope(type="file", path="src/a.py"),
-        trust_state="quarantined",
-    )
-    dumped = exc.model_dump(include={"trust_state", "id"})
-    assert "trust_state" not in dumped

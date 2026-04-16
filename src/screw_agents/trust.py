@@ -23,10 +23,12 @@ from __future__ import annotations
 
 import base64
 import json
+import struct
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import yaml
+from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PrivateKey,
@@ -62,6 +64,11 @@ __all__ = [
 # explicitly — do not rely on `Exclusion.model_dump`'s override to strip them,
 # because a future refactor loosening the override would silently change what
 # gets signed and break verification of every stored exclusion.
+#
+# T3-M6: must be a set — `Exclusion.model_dump` unions this with the
+# runtime-flag exclude via the `isinstance(exclude, set)` branch. Changing
+# this to frozenset/dict/tuple would silently bypass the union and the
+# runtime-only fields would leak into the canonical bytes.
 _EXCLUSION_CANONICAL_EXCLUDE = {
     "signed_by",
     "signature",
@@ -70,6 +77,12 @@ _EXCLUSION_CANONICAL_EXCLUDE = {
 }
 
 # Canonical form excludes these keys when hashing/signing script metadata.
+#
+# T3-M2 NOTE: top-level filtering only — script metadata schemas MUST NOT
+# nest signature-related fields in sub-dicts (e.g., `meta["provenance"] = {
+# "signed_by": ..., "signature": ...}`). Phase 3b Task 13's script metadata
+# shape is flat by design; future extensions must preserve this invariant
+# or this filter must grow recursive handling.
 _SCRIPT_META_CANONICAL_EXCLUDE = {
     "signed_by",
     "signature",
@@ -88,6 +101,8 @@ _CONFIG_STUB_TEMPLATE = """\
 # Exclusion and script signing are SEPARATE trust domains (split lists).
 # To register your local SSH key, run: `screw-agents init-trust`.
 
+# version: schema version. Do not bump manually — screw-agents migrates
+# on upgrade.
 version: 1
 
 # Reviewers authorized to sign .screw/learning/exclusions.yaml entries.
@@ -108,6 +123,10 @@ adaptive: false
 #   warn    — apply unsigned entries with a loud warning (90-day window)
 #   allow   — silently apply unsigned entries (NOT RECOMMENDED)
 legacy_unsigned_exclusions: reject
+
+# Optional: factor reviewer lists out to an external SSH allowed_signers file.
+# When set, exclusion_reviewers / script_reviewers above are merged with this.
+# trusted_reviewers_file: .screw/allowed_signers
 """
 
 
@@ -141,6 +160,11 @@ def _canonical_json_bytes(data: Any) -> bytes:
     which is deterministic for the data shapes we sign (dicts/lists/strings/ints/bools/None).
     If we need stronger canonicalization later (Unicode normalization, number handling edge
     cases), swap the implementation here — callers are stable.
+
+    Lists preserve element order — `sort_keys=True` only sorts dict keys.
+    Callers must build lists deterministically (not from sets, dict views,
+    or any other source with non-deterministic iteration order) or canonical
+    bytes will differ across runs and signatures will not verify.
     """
     return json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode(
         "utf-8"
@@ -160,6 +184,12 @@ def sign_content(canonical: bytes, *, private_key: Ed25519PrivateKey) -> str:
     an existing ~/.ssh/id_ed25519, decrypt with getpass if encrypted, or generate
     a fresh project-local key under .screw/local/keys/ if none is available.
     """
+    # T4-M3 — Ed25519 happily signs empty messages, but an empty canonical here
+    # almost certainly indicates an upstream bug (broken canonicalizer, empty
+    # Exclusion, missing payload) and silently producing a "valid" signature
+    # would mask that bug. Refuse loudly.
+    if not canonical:
+        raise ValueError("sign_content: canonical payload is empty — refusing to sign")
     signature_bytes = private_key.sign(canonical)
     return base64.b64encode(signature_bytes).decode("ascii")
 
@@ -192,7 +222,10 @@ def verify_signature(
 
     try:
         signature_bytes = base64.b64decode(signature, validate=True)
-    except (ValueError, base64.binascii.Error):
+    except ValueError:
+        # In Python 3.11+, binascii.Error is a subclass of ValueError, so
+        # ValueError alone covers both. Keep this comment so a future maintainer
+        # who sees `except ValueError` doesn't widen to `except Exception`.
         return VerificationResult(valid=False, reason="signature is not valid base64")
 
     for pub in public_keys:
@@ -201,7 +234,11 @@ def verify_signature(
             return VerificationResult(
                 valid=True, matched_key_fingerprint=_fingerprint_public_key(pub)
             )
-        except Exception:  # InvalidSignature from cryptography
+        except (InvalidSignature, ValueError):
+            # T5-M2 — narrow exception. ValueError covers any size mismatch
+            # in `signature_bytes` (cryptography raises ValueError when raw
+            # signatures are not 64 bytes). Any OTHER exception now
+            # propagates loudly — almost certainly a programming bug.
             continue
 
     return VerificationResult(valid=False, reason="signature invalid or content mismatch")
@@ -214,8 +251,6 @@ def _fingerprint_public_key(public_key: Ed25519PublicKey) -> str:
     NOT cryptographic identity — for display only. Do not use as a trust anchor.
     """
     import hashlib
-
-    from cryptography.hazmat.primitives import serialization
 
     raw = public_key.public_bytes(
         encoding=serialization.Encoding.Raw,
@@ -460,11 +495,34 @@ def _load_public_keys_with_reviewers(
                 continue
             try:
                 key_bytes_with_header = base64.b64decode(parts[1], validate=True)
-            except (ValueError, base64.binascii.Error):
+            except ValueError:
+                # binascii.Error is a ValueError subclass in 3.11+
                 dropped.append((reviewer, "base64 decode failed"))
                 continue
-            # SSH wire format header: uint32(11) + "ssh-ed25519" + uint32(32) = 19 bytes
-            raw_key = key_bytes_with_header[19 : 19 + 32]
+            # T7-M1 — parse the SSH wire format properly via struct.unpack
+            # instead of the old magic-number slice (4 + 11 + 4 = 19). The
+            # wire format is `uint32 alg_len | <alg_len> bytes alg_name |
+            # uint32 key_len | <key_len> bytes key_payload`. For valid
+            # ssh-ed25519 keys: alg_len=11, alg_name=b"ssh-ed25519",
+            # key_len=32. struct.error on truncated input is treated as
+            # "wire format truncated".
+            try:
+                pos = 0
+                (alg_len,) = struct.unpack_from(">I", key_bytes_with_header, pos)
+                pos += 4
+                alg = key_bytes_with_header[pos : pos + alg_len]
+                pos += alg_len
+                if alg != b"ssh-ed25519":
+                    dropped.append(
+                        (reviewer, f"wire format algorithm {alg!r} != b'ssh-ed25519'")
+                    )
+                    continue
+                (key_len,) = struct.unpack_from(">I", key_bytes_with_header, pos)
+                pos += 4
+                raw_key = key_bytes_with_header[pos : pos + key_len]
+            except struct.error:
+                dropped.append((reviewer, "wire format truncated"))
+                continue
             if len(raw_key) != 32:
                 dropped.append((reviewer, "key payload truncated"))
                 continue
@@ -478,7 +536,9 @@ def _public_key_to_openssh_line(public_key: Ed25519PublicKey, *, comment: str) -
     """Encode an Ed25519PublicKey as a single-line OpenSSH public key.
 
     Format: "ssh-ed25519 <base64(wire_format)> <comment>"
-    This is the inverse of _load_public_keys_with_reviewers and is used by tests plus `init-trust`.
+    This is the inverse of _load_public_keys_with_reviewers and is used by
+    tests; the Phase 3a init-trust subcommand (cli/init_trust.py) consumes
+    this to register the local key as a reviewer in .screw/config.yaml.
     """
     raw = public_key.public_bytes(
         encoding=serialization.Encoding.Raw,
