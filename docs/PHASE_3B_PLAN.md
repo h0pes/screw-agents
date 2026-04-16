@@ -64,10 +64,12 @@
 
 | 3a Artifact | Current shape | 3b tasks that depend on it |
 |---|---|---|
-| `screw_agents.formatter.format_csv(findings, scan_metadata) -> str` | CSV output format for findings | Task 3b-19 (adaptive findings merge into the same formatter pipeline) |
-| `screw_agents.models.Finding.impact: str \| None = None` | Null default for optional field | Task 3b-16 (adaptive scripts emit findings through the same model) |
-| `screw_agents.engine.ScanEngine.assemble_domain_scan(..., cursor, page_size)` | Cursor-based pagination | Task 3b-19 (adaptive findings must survive pagination — no duplication across pages) |
-| `screw_agents.cwe_names.long_name(cwe_id)` | CWE long-name lookup | Task 3b-16 (adaptive findings use same Markdown heading format) |
+| `screw_agents.formatter.format_csv(findings, scan_metadata=None) -> str` | CSV output format for findings. Columns: `id, file, line, cwe, cwe_name, agent, severity, confidence, description, code_snippet, excluded, exclusion_ref`. Output-only; nested fields dropped by design. | Task 3b-19 (adaptive findings merge into the same formatter pipeline) |
+| `screw_agents.models.FindingAnalysis.impact: str \| None = None` + `FindingAnalysis.exploitability: str \| None = None` | Null defaults on the nested `FindingAnalysis` submodel (NOT on top-level `Finding`). Pydantic serializes `None → null` at any nesting depth, so JSON output is `{"analysis": {"impact": null, ...}}`. | Task 3b-16 (adaptive scripts emit findings through the same model; construct `FindingAnalysis(description=...)` without impact to get the null default) |
+| `screw_agents.engine.ScanEngine.assemble_domain_scan(domain, target, thoroughness="standard", project_root=None, *, cursor=None, page_size=50) -> dict` | Cursor-based pagination. **Breaking change from pre-PR#3**: return shape is `{"domain", "agents" (list), "next_cursor", "page_size", "total_files", "offset", "trust_status"?}`, not `list[dict]`. Cursor is base64url-encoded `{"target_hash", "offset"}`; replay across targets raises `ValueError`. | Task 3b-19 (adaptive findings must survive pagination — no duplication across pages; iterate `response["agents"]`, not the response directly) |
+| `screw_agents.cwe_names.long_name(cwe_id: str) -> str` | CWE long-name lookup. Returns the long name if known, else the CWE id unchanged. | Task 3b-16 (adaptive findings use same Markdown detail-heading format: `### {id} — {cwe_id} — {long_name}`) |
+| `screw_agents.models.AgentMeta.short_description: str \| None = None` | Optional one-sentence human-readable description used by the SARIF formatter's `shortDescription.text`. | Task 3b-16 (adaptive scripts' agents should populate this for SARIF consistency) |
+| `screw_agents.formatter.format_findings(..., agent_registry=None)` | Formatter accepts an optional `AgentRegistry` to thread agent-meta lookups into SARIF rule construction. | Task 3b-16 (if adaptive findings flow through `format_findings`, propagate the registry) |
 
 ### Cross-plan sync protocol
 

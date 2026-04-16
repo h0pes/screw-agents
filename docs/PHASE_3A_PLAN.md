@@ -3797,15 +3797,307 @@ The three items are independent — they can be implemented and committed in any
 - Markdown output uses full CWE names (`CWE-89 — SQL Injection`) in section headings
 - CSV output format works via `write_scan_results` with `format: "csv"`
 - Phase 2 regression tests still green
+- Server-side reason-rendering + trust-notice-rendering (T21-m1/m2) removes LLM discretion from Markdown-injection defense
+
+**Note on canonical test construction (PR#2 plan-refresh 2026-04-16).** `Finding` is a deeply-nested Pydantic model (see `models.py` Finding/FindingLocation/FindingClassification/FindingAnalysis/FindingRemediation/FindingTriage). Tests in this PR construct findings via `tests/test_formatter.py::_make_finding()` (already established; overrides via kwargs). New tests that need a Finding should import and call that helper rather than reconstructing the nested shape inline. This keeps test code short and resilient to future field renames.
+
+---
+
+### Task 0a: T21-m1 — Server-Side Reason Backtick-Wrapping
+
+**Rationale:** Round-trip testing in PR#2 (2026-04-16) showed that Opus 4.6 renders user-controlled reason strings with backticks while Opus 4.7 uses double-quotes. Prompt-level enforcement cannot deterministically control LLM output across model versions. The correct defense is structural: `aggregation.py` emits pre-wrapped reason strings so the LLM has no discretion at the Markdown-injection boundary.
+
+**Files:**
+- Modify: `src/screw_agents/aggregation.py`
+- Modify: `src/screw_agents/models.py` (FPPattern gains `example_reasons_rendered`)
+- Modify: `plugins/screw/agents/screw-learning-analyst.md` (simplify T18-m1 rule)
+- Modify: `tests/test_aggregation.py` (assert rendered fields)
+
+- [ ] **Step 1: Write failing tests for pre-rendered fields**
+
+Add to `tests/test_aggregation.py`:
+
+```python
+def test_directory_suggestions_emit_rendered_reasons(tmp_path):
+    """evidence.reason_distribution_rendered is a pre-formatted Markdown string
+    with each reason wrapped in backticks."""
+    from screw_agents.aggregation import aggregate_directory_suggestions
+
+    # Seed exclusions reproducing a realistic test-fixture concentration
+    exclusions = _make_exclusion_batch(
+        agent="sqli",
+        directory="test/",
+        reasons=["test fixture", "test fixture", "test fixture",
+                 "one-shot migration", "one-shot migration"],
+        cwe="CWE-89",
+    )
+    suggestions = aggregate_directory_suggestions(exclusions)
+    assert len(suggestions) == 1
+    evidence = suggestions[0].evidence
+    # Keep the machine-readable dict for programmatic consumers
+    assert evidence["reason_distribution"] == {"test fixture": 3, "one-shot migration": 2}
+    # NEW: pre-rendered string with backticks around each reason
+    rendered = evidence["reason_distribution_rendered"]
+    assert "`test fixture`" in rendered
+    assert "`one-shot migration`" in rendered
+    assert rendered.count("`") % 2 == 0  # balanced pairs
+
+
+def test_fp_report_emits_rendered_example_reasons(tmp_path):
+    """FPPattern.example_reasons_rendered is a list of backtick-wrapped reasons."""
+    from screw_agents.aggregation import aggregate_fp_report
+
+    exclusions = _make_exclusion_batch(
+        agent="sqli",
+        pattern="db.text_search(*)",
+        reasons=["safe helper", "safe helper", "safe helper",
+                 "validated input", "validated input"],
+        cwe="CWE-89",
+    )
+    report = aggregate_fp_report(exclusions)
+    assert len(report.top_fp_patterns) == 1
+    pattern = report.top_fp_patterns[0]
+    # Keep raw list for machine consumers (Phase 4 autoresearch)
+    assert pattern.example_reasons == ["safe helper", "validated input"]
+    # NEW: each element pre-wrapped in backticks
+    assert pattern.example_reasons_rendered == ["`safe helper`", "`validated input`"]
+```
+
+(The `_make_exclusion_batch` helper is a thin wrapper over the existing test fixtures; existing tests in `test_aggregation.py` already construct exclusions inline — reuse that pattern if a helper doesn't exist yet.)
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `uv run pytest tests/test_aggregation.py -k "rendered" -v`
+
+Expected: FAIL — `reason_distribution_rendered` and `example_reasons_rendered` do not exist yet.
+
+- [ ] **Step 3: Add `example_reasons_rendered` field to `FPPattern`**
+
+In `src/screw_agents/models.py`, locate `FPPattern` and add the parallel rendered field:
+
+```python
+class FPPattern(BaseModel):
+    """A single false-positive pattern in the FP report."""
+
+    agent: str
+    cwe: str
+    pattern: str
+    fp_count: int = Field(ge=0)
+    example_reasons: list[str]
+    # Pre-rendered parallel field — each reason backtick-wrapped by aggregation
+    # so the subagent does not have discretion on Markdown-injection defense.
+    # See T21-m1 in docs/DEFERRED_BACKLOG.md for rationale.
+    example_reasons_rendered: list[str] = []
+    candidate_heuristic_refinement: str
+```
+
+The default `[]` makes the field backward-compatible with any existing caller/test that constructs `FPPattern` without it; `aggregate_fp_report` populates it.
+
+- [ ] **Step 4: Populate `reason_distribution_rendered` in `aggregate_directory_suggestions`**
+
+In `src/screw_agents/aggregation.py`, inside the `DirectorySuggestion` construction, add the rendered evidence key:
+
+```python
+# Inside the aggregate_directory_suggestions loop:
+rendered_pairs = sorted(reason_counts.items(), key=lambda kv: (-kv[1], kv[0]))
+reason_distribution_rendered = ", ".join(
+    f"`{reason}` ({count})" for reason, count in rendered_pairs
+)
+
+suggestions.append(
+    DirectorySuggestion(
+        directory=directory,
+        agent=agent,
+        evidence={
+            "total_findings_in_directory": len(group),
+            "all_marked_false_positive": True,
+            "reason_distribution": dict(reason_counts),
+            "reason_distribution_rendered": reason_distribution_rendered,  # NEW
+            "files_affected": sorted({e.finding.file for e in group}),
+        },
+        suggestion=(
+            f"Add directory-scope exclusion for `{directory}**` "
+            f"(top reason: '{top_reason}')."
+        ),
+        confidence=confidence,
+    )
+)
+```
+
+- [ ] **Step 5: Populate `example_reasons_rendered` in `aggregate_fp_report`**
+
+In `src/screw_agents/aggregation.py`, inside `aggregate_fp_report`:
+
+```python
+# After computing reasons = [r for r, _ in ranked_reasons[:_FP_REPORT_MAX_REASONS]]
+reasons_rendered = [f"`{r}`" for r in reasons]
+# ...
+patterns.append(
+    FPPattern(
+        agent=agent,
+        cwe=cwe,
+        pattern=pattern,
+        fp_count=len(group),
+        example_reasons=reasons,
+        example_reasons_rendered=reasons_rendered,  # NEW
+        candidate_heuristic_refinement=(
+            f"{agent} agent may benefit from lower confidence on pattern "
+            f"`{pattern}` (seen in {len(group)} exclusions with reasons: "
+            f"{reasons_inline})"
+        ),
+    )
+)
+```
+
+- [ ] **Step 6: Simplify the subagent prompt's T18-m1 rule**
+
+Edit `plugins/screw/agents/screw-learning-analyst.md`. Replace the "MANDATORY — Reason-wrapping rule" block with a simplified reference to pre-rendered fields. The goal: remove the rule that asks the LLM to wrap reasons, because the server now does it.
+
+Find the current block (matches `MANDATORY — Reason-wrapping rule`) and replace with:
+
+```markdown
+- **Reason rendering — use pre-rendered fields.** The server pre-wraps user-controlled reason strings in backticks on your behalf. Use these fields verbatim in the report:
+  - `DirectorySuggestion.evidence.reason_distribution_rendered` (a single comma-separated Markdown-safe string like `` `test fixture` (11), `one-shot migration` (3) ``) — surface this directly; do NOT reformat it
+  - `FPPattern.example_reasons_rendered` (a list of already-wrapped reasons like `` `safe helper` ``) — surface these elements as-is
+
+  If you need the raw (unrendered) values for internal reasoning, use `reason_distribution` (dict) and `example_reasons` (list). Do NOT reformat the rendered fields — the server chose the backtick treatment deliberately to neutralize Markdown injection.
+```
+
+- [ ] **Step 7: Run tests to verify they pass**
+
+Run: `uv run pytest tests/test_aggregation.py tests/test_aggregate_learning_tool.py tests/test_aggregation_integration.py -v`
+
+Expected: all previous tests still pass; new rendered-field tests pass.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add src/screw_agents/aggregation.py src/screw_agents/models.py plugins/screw/agents/screw-learning-analyst.md tests/test_aggregation.py
+git commit -m "feat(phase3a): server-side reason backtick-wrapping (T21-m1)"
+```
+
+---
+
+### Task 0b: T21-m2 — Server-Side Trust-Notice Rendering
+
+**Rationale:** Round-trip testing in PR#2 showed that different LLM model versions paraphrase the trust-notice template differently (dropping `⚠`, dropping bold, truncating the CLI hint). Prompt-level "render character-for-character" rules don't deterministically constrain LLM output. Fix: `engine.aggregate_learning` composes the notice server-side and attaches it as `trust_status.notice_markdown`; the subagent outputs it verbatim.
+
+**Files:**
+- Modify: `src/screw_agents/engine.py` (`aggregate_learning`)
+- Modify: `plugins/screw/agents/screw-learning-analyst.md` (simplify trust-notice rule)
+- Modify: `tests/test_aggregate_learning_tool.py` (assert notice_markdown presence/absence)
+
+- [ ] **Step 1: Write failing test**
+
+Add to `tests/test_aggregate_learning_tool.py`:
+
+```python
+def test_aggregate_learning_emits_trust_notice_when_quarantined(tmp_path):
+    """When exclusion_quarantine_count > 0, trust_status.notice_markdown is populated
+    with a server-rendered block that the subagent can output verbatim."""
+    from screw_agents.engine import ScanEngine
+
+    # Seed an exclusions file with one quarantined entry
+    _seed_quarantined_exclusion(tmp_path, agent="sqli")
+
+    engine = ScanEngine.from_defaults()
+    report = engine.aggregate_learning(project_root=tmp_path, report_type="all")
+
+    trust = report["trust_status"]
+    assert trust["exclusion_quarantine_count"] >= 1
+    assert "notice_markdown" in trust
+    notice = trust["notice_markdown"]
+    assert notice.startswith("⚠")
+    assert "quarantine" in notice.lower()
+    # The notice reads in Markdown — bold marker + backticked CLI hint present
+    assert "**" in notice
+    assert "`screw-agents migrate-exclusions`" in notice or "`screw-agents validate-exclusion`" in notice
+
+
+def test_aggregate_learning_omits_trust_notice_when_clean(tmp_path):
+    """No quarantined entries => notice_markdown is absent (or empty)."""
+    from screw_agents.engine import ScanEngine
+
+    engine = ScanEngine.from_defaults()
+    report = engine.aggregate_learning(project_root=tmp_path, report_type="all")
+
+    trust = report["trust_status"]
+    assert trust["exclusion_quarantine_count"] == 0
+    # Absence is acceptable; empty string is acceptable. Nothing else.
+    assert trust.get("notice_markdown", "") == ""
+```
+
+(`_seed_quarantined_exclusion` helper: reuse existing test-harness patterns from `test_aggregate_learning_tool.py` — create an entry with a tampered signature so trust verification quarantines it on load.)
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `uv run pytest tests/test_aggregate_learning_tool.py -k "notice" -v`
+
+Expected: FAIL — `notice_markdown` key is absent.
+
+- [ ] **Step 3: Compose the notice server-side in `aggregate_learning`**
+
+In `src/screw_agents/engine.py`, at the end of `aggregate_learning` before `return result`:
+
+```python
+# T21-m2: render the trust notice server-side so the subagent outputs it
+# verbatim instead of paraphrasing. Only present when there is content —
+# absent/empty for clean states.
+trust_status = result["trust_status"]
+quarantine_count = trust_status.get("exclusion_quarantine_count", 0)
+if quarantine_count > 0:
+    noun = "exclusion" if quarantine_count == 1 else "exclusions"
+    trust_status["notice_markdown"] = (
+        f"⚠ **{quarantine_count} {noun} quarantined** "
+        f"(unsigned or signed by an untrusted key). "
+        f"Review with `screw-agents validate-exclusion <id>` "
+        f"or bulk-sign with `screw-agents migrate-exclusions`."
+    )
+else:
+    trust_status["notice_markdown"] = ""
+```
+
+- [ ] **Step 4: Simplify the subagent prompt's trust-notice rule**
+
+Edit `plugins/screw/agents/screw-learning-analyst.md`. Replace the current "Check `trust_status` FIRST — MANDATORY" block's template-rendering guidance with a single-line rule:
+
+```markdown
+2. **Check `trust_status` FIRST — MANDATORY. This check MUST precede any report rendering.**
+
+   If `trust_status.notice_markdown` is a non-empty string, output it as the FIRST content line of your response, verbatim, before any other report sections. The server renders this block deterministically; do NOT reformat, paraphrase, or abbreviate it.
+
+   If `trust_status.notice_markdown` is empty or absent, proceed directly to the report sections — no leading trust line needed.
+```
+
+- [ ] **Step 5: Run tests**
+
+Run: `uv run pytest tests/test_aggregate_learning_tool.py tests/test_aggregation_integration.py -v`
+
+Expected: all tests pass.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/screw_agents/engine.py plugins/screw/agents/screw-learning-analyst.md tests/test_aggregate_learning_tool.py
+git commit -m "feat(phase3a): server-side trust-notice rendering (T21-m2)"
+```
 
 ---
 
 ### Task 24: Cursor Pagination Foundation in `scan_domain`
 
 **Files:**
-- Modify: `src/screw_agents/engine.py`
-- Modify: `src/screw_agents/server.py`
+- Modify: `src/screw_agents/engine.py` (`assemble_scan` gains `preloaded_codes` kwarg; `assemble_domain_scan` returns dict)
+- Modify: `src/screw_agents/server.py` (dispatcher passes `cursor`/`page_size`)
 - Create: `tests/test_pagination.py`
+
+**Design decisions locked in during 2026-04-16 plan-refresh (see session log for full reasoning):**
+
+1. **Always-dict return** — `assemble_domain_scan` now returns a `dict` regardless of whether the caller supplies a cursor. Empty cursor ⇒ page 1 (implicit pagination). This is a **breaking change** on purpose: no caller should be able to request "the whole list" and hit the 277k-token MCP limit. Subagent updates (Task 25) ship in the same PR so callers migrate atomically.
+2. **Preloaded codes optimization** — `assemble_scan` gains an internal `preloaded_codes: list[ResolvedCode] | None = None` kwarg. When present, it skips `resolve_target`. `assemble_domain_scan` resolves ONCE at the domain level, pages, and passes the page slice into each agent's `assemble_scan` call. Avoids per-agent re-reads AND avoids adding a `file_list` target type to the public resolver surface.
+3. **Domain-level trust_status** — computed once on the domain response, not duplicated per-agent. Per-agent results inside `agents` still include `exclusions` (filtered by agent) when `project_root` is set.
+4. **Per-agent relevance filtering preserved** — each agent still runs `filter_by_relevance` on its page slice when the original target type is `"glob"` or `"codebase"`. The filter applies to the page, not the global list — acceptable because filtered-out files in a page are simply omitted from that agent's LLM analysis, and the next page still covers the next global slice.
+5. **`scan_full` is out of scope for PR#3.** Same payload-size risk exists but is deferred; log as follow-up in DEFERRED_BACKLOG if it bites.
 
 - [ ] **Step 1: Write failing tests for cursor pagination shape**
 
@@ -3823,240 +4115,371 @@ import pytest
 from screw_agents.engine import ScanEngine
 
 
-def test_scan_domain_empty_cursor_starts_at_first_page(tmp_path: Path):
-    """An empty cursor parameter reproduces the Phase 2 behavior (first page)."""
+def test_scan_domain_empty_cursor_returns_dict_with_cursor_key(tmp_path: Path):
+    """Even the first call (cursor=None) returns the new dict shape with next_cursor key.
+
+    This is the BREAKING change: pre-PR#3 callers got list[dict]; post-PR#3 always
+    get dict[str, Any] with keys agents/next_cursor/page_size/total_files/offset.
+    """
     engine = ScanEngine.from_defaults()
     result = engine.assemble_domain_scan(
-        domain_name="injection-input-handling",
-        target={"type": "glob", "pattern": str(tmp_path / "**")},
+        domain="injection-input-handling",
+        target={"type": "glob", "pattern": str(tmp_path / "*.py")},
         project_root=tmp_path,
         cursor=None,
         page_size=50,
     )
+    assert isinstance(result, dict)
     assert "agents" in result
+    assert isinstance(result["agents"], list)  # list of per-agent payloads
     assert "next_cursor" in result
-    # next_cursor may be None (no more pages) for an empty tmp_path
+    assert "page_size" in result
+    assert "total_files" in result
+    assert "offset" in result
+    # Empty tmp_path resolves to no files — next_cursor is None (pagination done)
+    assert result["total_files"] == 0
+    assert result["next_cursor"] is None
 
 
 def test_scan_domain_pagination_returns_distinct_pages(tmp_path: Path):
-    """With seeded fixture files, page 1 and page 2 contain different results."""
-    # Create 100 files to force pagination
+    """With 100 seeded files and page_size=30, page 1 and page 2 cover different slices."""
     src = tmp_path / "src"
     src.mkdir()
     for i in range(100):
-        (src / f"file_{i}.py").write_text(f"# fixture {i}\n")
+        (src / f"file_{i:03d}.py").write_text(f"# fixture {i}\n")
 
     engine = ScanEngine.from_defaults()
     page1 = engine.assemble_domain_scan(
-        domain_name="injection-input-handling",
+        domain="injection-input-handling",
         target={"type": "glob", "pattern": str(src / "*.py")},
         project_root=tmp_path,
         cursor=None,
         page_size=30,
     )
     assert page1["next_cursor"] is not None
+    assert page1["offset"] == 0
+    assert page1["total_files"] == 100
 
     page2 = engine.assemble_domain_scan(
-        domain_name="injection-input-handling",
+        domain="injection-input-handling",
         target={"type": "glob", "pattern": str(src / "*.py")},
         project_root=tmp_path,
         cursor=page1["next_cursor"],
         page_size=30,
     )
+    assert page2["offset"] == 30
 
-    # The resolved_files list in page 2 should NOT overlap with page 1
-    # (each page covers a different slice of the file list)
-    files_page1 = set()
-    files_page2 = set()
-    for agent_result in page1.get("agents", {}).values():
+    # Per-agent resolved_files across the two pages must be disjoint
+    files_page1: set[str] = set()
+    files_page2: set[str] = set()
+    for agent_result in page1["agents"]:
         files_page1.update(agent_result.get("resolved_files", []))
-    for agent_result in page2.get("agents", {}).values():
+    for agent_result in page2["agents"]:
         files_page2.update(agent_result.get("resolved_files", []))
+    # Either disjoint, OR one page is empty (tolerated for relevance-filtered agents)
     assert files_page1.isdisjoint(files_page2) or not files_page1 or not files_page2
 
 
-def test_scan_domain_cursor_is_opaque_token(tmp_path: Path):
-    """The cursor must be a string — subagents treat it as an opaque value."""
+def test_scan_domain_cursor_is_opaque_base64_string(tmp_path: Path):
+    """The cursor must be a non-empty string when there are more pages."""
+    src = tmp_path / "src"
+    src.mkdir()
+    for i in range(100):
+        (src / f"file_{i:03d}.py").write_text(f"# fixture {i}\n")
+
     engine = ScanEngine.from_defaults()
     result = engine.assemble_domain_scan(
-        domain_name="injection-input-handling",
-        target={"type": "glob", "pattern": str(tmp_path / "**")},
+        domain="injection-input-handling",
+        target={"type": "glob", "pattern": str(src / "*.py")},
         project_root=tmp_path,
         cursor=None,
-        page_size=50,
+        page_size=25,
     )
-    if result["next_cursor"] is not None:
-        assert isinstance(result["next_cursor"], str)
+    assert isinstance(result["next_cursor"], str)
+    assert len(result["next_cursor"]) > 0
+
+
+def test_scan_domain_rejects_cursor_from_different_target(tmp_path: Path):
+    """A cursor bound to target A must not be accepted on a scan with target B."""
+    src = tmp_path / "src"
+    src.mkdir()
+    for i in range(60):
+        (src / f"file_{i:03d}.py").write_text(f"# fixture {i}\n")
+
+    engine = ScanEngine.from_defaults()
+    result_a = engine.assemble_domain_scan(
+        domain="injection-input-handling",
+        target={"type": "glob", "pattern": str(src / "*.py")},
+        project_root=tmp_path,
+        cursor=None,
+        page_size=20,
+    )
+    assert result_a["next_cursor"] is not None
+
+    # Replay cursor A against a DIFFERENT target — must raise
+    with pytest.raises(ValueError, match="cursor"):
+        engine.assemble_domain_scan(
+            domain="injection-input-handling",
+            target={"type": "glob", "pattern": str(src / "file_0[0-4]*.py")},  # narrower target
+            project_root=tmp_path,
+            cursor=result_a["next_cursor"],
+            page_size=20,
+        )
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `uv run pytest tests/test_pagination.py -v`
 
-Expected: FAIL — current `assemble_domain_scan` does not accept `cursor` or `page_size`
+Expected: FAIL — current `assemble_domain_scan` does not accept `cursor` or `page_size` and returns a list.
 
-- [ ] **Step 3: Extend `assemble_domain_scan` with pagination**
+- [ ] **Step 3: Extend `assemble_scan` with `preloaded_codes` kwarg**
 
-Modify `src/screw_agents/engine.py`:
+Modify `src/screw_agents/engine.py` `assemble_scan` signature to accept an optional pre-resolved code list. This lets `assemble_domain_scan` resolve once and feed the page slice into each agent call without re-reading files.
+
+```python
+from screw_agents.resolver import ResolvedCode, filter_by_relevance, resolve_target
+
+def assemble_scan(
+    self,
+    agent_name: str,
+    target: dict[str, Any],
+    thoroughness: str = "standard",
+    project_root: Path | None = None,
+    *,
+    preloaded_codes: list[ResolvedCode] | None = None,
+) -> dict[str, Any]:
+    """Assemble a scan payload for a single agent.
+
+    Args:
+        ... (existing args)
+        preloaded_codes: Internal optimization — when provided, skip resolve_target
+            and use this pre-resolved list. Used by `assemble_domain_scan` to avoid
+            re-reading files per agent on a paginated domain scan.
+    """
+    agent = self._registry.get_agent(agent_name)
+    if agent is None:
+        raise ValueError(f"Unknown agent: {agent_name!r}")
+
+    # Resolve target to code chunks (or use pre-resolved list from domain-level caller)
+    if preloaded_codes is not None:
+        codes = preloaded_codes
+    else:
+        codes = resolve_target(target)
+
+    # Per-agent relevance filter still applies for broad targets (including paged slices)
+    target_type = target.get("type", "")
+    if target_type in ("codebase", "glob"):
+        signals = agent.target_strategy.relevance_signals
+        codes = filter_by_relevance(codes, signals)
+
+    # ... rest of assemble_scan unchanged
+```
+
+- [ ] **Step 4: Rewrite `assemble_domain_scan` with cursor pagination**
+
+Replace the current `assemble_domain_scan` body in `src/screw_agents/engine.py`:
 
 ```python
 import base64
+import hashlib
 import json as _json
 
 
 def assemble_domain_scan(
     self,
-    *,
-    domain_name: str,
-    target: dict,
+    domain: str,
+    target: dict[str, Any],
+    thoroughness: str = "standard",
     project_root: Path | None = None,
+    *,
     cursor: str | None = None,
     page_size: int = 50,
-) -> dict:
-    """Assemble a scan across all agents in a domain, with cursor-based pagination.
+) -> dict[str, Any]:
+    """Assemble paginated scan payloads for every agent in a domain.
 
-    The cursor is an opaque base64-encoded JSON token encoding
-    {"target_hash": str, "offset": int}. Empty/None cursor starts at offset 0.
+    The cursor is an opaque base64url-encoded JSON token encoding
+    {"target_hash": str, "offset": int}. An empty/None cursor starts at
+    offset 0; the response's next_cursor is None when pagination is
+    complete. Cursors are bound to their originating target: replaying a
+    cursor against a different target raises ValueError.
 
     Args:
-        domain_name: CWE-1400 domain name (e.g., "injection-input-handling").
-        target: target spec dict (see PRD §5).
+        domain: CWE-1400 domain name (e.g., "injection-input-handling").
+        target: target spec dict (PRD §5).
+        thoroughness: per-agent tier control ("standard" | "deep").
         project_root: optional project root for exclusions + trust.
-        cursor: opaque pagination token from a previous call.
-        page_size: max number of resolved files per page.
+        cursor: opaque pagination token from a previous call; None starts at page 1.
+        page_size: max number of resolved code chunks per page (default 50).
 
     Returns:
         Dict with keys:
-            agents: per-agent scan responses for this page's file slice
-            next_cursor: string token for the next page, or None if done
-            trust_status: same as assemble_scan
+            domain: str                              — the domain that was scanned
+            agents: list[dict[str, Any]]             — per-agent scan payloads for this page
+            next_cursor: str | None                  — token for the next page, or None when done
+            page_size: int                           — echoed for caller convenience
+            total_files: int                         — count of resolved code chunks pre-paging
+            offset: int                              — the starting offset of this page
+            trust_status: dict                       — only when project_root is provided
     """
-    # Resolve the full file list once
-    all_files = self.resolver.resolve(target=target)
+    agents = self._registry.get_agents_by_domain(domain)
 
-    # Hash the target for cursor stability
-    target_hash = self._target_hash(target)
+    # Canonical target hash binds the cursor to the target — rejects replay across targets
+    canonical = _json.dumps(target, sort_keys=True, separators=(",", ":"))
+    target_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
 
     # Decode cursor
     if cursor:
         try:
-            decoded = _json.loads(base64.urlsafe_b64decode(cursor).decode("utf-8"))
+            decoded = _json.loads(base64.urlsafe_b64decode(cursor.encode("ascii")).decode("utf-8"))
             if decoded.get("target_hash") != target_hash:
                 raise ValueError(
-                    "cursor is from a different target_hash; refusing to use"
+                    "cursor is bound to a different target; refusing to use"
                 )
             offset = int(decoded["offset"])
+            if offset < 0:
+                raise ValueError("cursor offset is negative")
+        except ValueError:
+            raise
         except Exception as exc:
             raise ValueError(f"Invalid cursor: {exc}") from exc
     else:
         offset = 0
 
-    # Slice the file list to this page
-    page_files = all_files[offset:offset + page_size]
-    next_offset = offset + len(page_files)
-    if next_offset < len(all_files):
+    # Resolve once at domain level, page, fan out to per-agent assemble_scan
+    all_codes = resolve_target(target)
+    total_files = len(all_codes)
+    page_codes = all_codes[offset:offset + page_size]
+    next_offset = offset + len(page_codes)
+    if next_offset < total_files:
         next_cursor = base64.urlsafe_b64encode(
-            _json.dumps({"target_hash": target_hash, "offset": next_offset}).encode("utf-8")
+            _json.dumps(
+                {"target_hash": target_hash, "offset": next_offset},
+                separators=(",", ":"),
+            ).encode("utf-8")
         ).decode("ascii")
     else:
         next_cursor = None
 
-    # Run each agent in the domain against the page's file slice
-    page_target = {"type": "file_list", "files": page_files}
-    agents_responses = {}
-    for agent_name in self.registry.list_agents_in_domain(domain_name):
-        agents_responses[agent_name] = self.assemble_scan(
-            agent_name=agent_name,
-            target=page_target,
-            project_root=project_root,
+    agents_responses = [
+        self.assemble_scan(
+            a.meta.name,
+            target,
+            thoroughness,
+            project_root,
+            preloaded_codes=page_codes,
         )
+        for a in agents
+    ]
 
     result: dict[str, Any] = {
+        "domain": domain,
         "agents": agents_responses,
         "next_cursor": next_cursor,
         "page_size": page_size,
-        "total_files": len(all_files),
+        "total_files": total_files,
         "offset": offset,
     }
     if project_root is not None:
-        result["trust_status"] = self.verify_trust(project_root=project_root)
+        # Compute trust_status ONCE at domain level — don't duplicate per-agent
+        all_exclusions = load_exclusions(project_root)
+        result["trust_status"] = self.verify_trust(
+            project_root=project_root, exclusions=all_exclusions
+        )
     return result
-
-
-def _target_hash(self, target: dict) -> str:
-    """Deterministic hash of a target spec for cursor stability."""
-    import hashlib
-
-    canonical = _json.dumps(target, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
 ```
 
-Also ensure `resolver.resolve` supports a `file_list` target type — if not, add it:
+Note: `load_exclusions` is already imported at module level; `base64`, `hashlib`, and `json` are added to the imports at top of engine.py (using `import json as _json` to avoid collision with the existing `json` import in `format_output`).
+
+- [ ] **Step 5: Update `server.py` dispatcher + tool schema**
+
+In `src/screw_agents/server.py` `_dispatch_tool`, update the `scan_domain` branch (around line 146) to pass the new kwargs:
 
 ```python
-# In resolver.py, in the resolve() dispatcher:
-if target["type"] == "file_list":
-    return target["files"]
-```
-
-- [ ] **Step 4: Update `server.py` to pass cursor through**
-
-In `src/screw_agents/server.py`, update the `scan_domain` tool schema and dispatcher to accept `cursor` and `page_size`:
-
-```python
-# In list_tool_definitions() → scan_domain Tool:
-inputSchema={
-    "type": "object",
-    "properties": {
-        "domain_name": {"type": "string"},
-        "target": {"type": "object"},
-        "project_root": {"type": "string"},
-        "cursor": {
-            "type": ["string", "null"],
-            "description": (
-                "Opaque pagination token from a previous scan_domain call. "
-                "Pass null or omit on the first call. When next_cursor is "
-                "null in the response, pagination is complete."
-            ),
-            "default": None,
-        },
-        "page_size": {
-            "type": "integer",
-            "description": "Max resolved files per page. Defaults to 50.",
-            "default": 50,
-        },
-    },
-    "required": ["domain_name", "target"],
-},
-
-# In _dispatch_tool():
-elif name == "scan_domain":
-    domain_name = arguments["domain_name"]
-    target = arguments["target"]
-    project_root = Path(arguments["project_root"]) if arguments.get("project_root") else None
-    cursor = arguments.get("cursor")
-    page_size = arguments.get("page_size", 50)
-    result = self.engine.assemble_domain_scan(
-        domain_name=domain_name,
-        target=target,
+if name == "scan_domain":
+    return engine.assemble_domain_scan(
+        domain=args["domain"],
+        target=args["target"],
+        thoroughness=args.get("thoroughness", "standard"),
         project_root=project_root,
-        cursor=cursor,
-        page_size=page_size,
+        cursor=args.get("cursor"),
+        page_size=args.get("page_size", 50),
     )
-    return [TextContent(type="text", text=json.dumps(result))]
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+In `src/screw_agents/engine.py` `list_tool_definitions` → scan_domain tool definition (around line 331), extend the input schema with `cursor` and `page_size`:
+
+```python
+tools.append({
+    "name": "scan_domain",
+    "description": (
+        "Run all agents in a vulnerability domain against the target. "
+        "Returns a paginated response: {agents, next_cursor, page_size, total_files, "
+        "offset, trust_status?}. Subagents MUST loop until next_cursor is None "
+        "before calling write_scan_results."
+    ),
+    "input_schema": self._scan_input_schema(
+        extra_required=["target", "domain"],
+        extra_props={
+            "target": _target_schema(),
+            "domain": {
+                "type": "string",
+                "description": "Domain name (e.g. 'injection-input-handling').",
+            },
+            "thoroughness": _thoroughness_schema(),
+            "project_root": _project_root_schema(),
+            "cursor": {
+                "type": ["string", "null"],
+                "description": (
+                    "Opaque pagination token from a previous scan_domain call. "
+                    "Pass null (or omit) on the first call. When next_cursor in the "
+                    "response is null, pagination is complete."
+                ),
+                "default": None,
+            },
+            "page_size": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 500,
+                "description": "Max resolved code chunks per page (default 50).",
+                "default": 50,
+            },
+        },
+    ),
+})
+```
+
+- [ ] **Step 6: Run tests to verify they pass**
 
 Run: `uv run pytest tests/test_pagination.py -v`
 
-Expected: 3 passed
+Expected: 4 passed
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Update Phase 2 regression tests for the new shape**
+
+Any existing test that asserts `assemble_domain_scan(...)` is a list (check `tests/test_engine.py`, `tests/test_phase2_server.py`, `tests/test_aggregation_integration.py`) must be migrated to the new dict shape. Grep for `assemble_domain_scan` and patch call sites:
+
+```python
+# Before:
+result = engine.assemble_domain_scan(domain="...", target={...})
+assert len(result) == 4  # used to be list-of-4
+
+# After:
+result = engine.assemble_domain_scan(domain="...", target={...})
+assert len(result["agents"]) == 4
+```
+
+- [ ] **Step 8: Run full suite**
+
+Run: `uv run pytest -q`
+
+Expected: all 397+ tests pass (or an updated baseline after the regression fixups).
+
+- [ ] **Step 9: Commit**
 
 ```bash
-git add src/screw_agents/engine.py src/screw_agents/server.py src/screw_agents/resolver.py tests/test_pagination.py
-git commit -m "feat(phase3a): scan_domain cursor pagination (X1)"
+git add src/screw_agents/engine.py src/screw_agents/server.py tests/test_pagination.py tests/test_engine.py tests/test_phase2_server.py tests/test_aggregation_integration.py
+git commit -m "feat(phase3a): scan_domain cursor pagination (X1) [breaking: dict return]"
 ```
 
 ---
@@ -4067,34 +4490,53 @@ git commit -m "feat(phase3a): scan_domain cursor pagination (X1)"
 - Modify: `plugins/screw/agents/screw-injection.md`
 - Modify: `plugins/screw/agents/screw-full-review.md`
 
+**Note on the breaking change:** after Task 24, `scan_domain` ALWAYS returns a dict (not a list). Subagent prompts must teach the new shape explicitly. Agents cannot silently fall back to the pre-PR#3 list iteration.
+
 - [ ] **Step 1: Add a pagination-handling section to each orchestrator prompt**
 
-Edit `plugins/screw/agents/screw-injection.md`. Find the existing `scan_domain` workflow step and add a pagination loop:
+Edit `plugins/screw/agents/screw-injection.md`. Find the existing `scan_domain` workflow step and replace it with the pagination-aware version:
 
 ```markdown
-### Step: Paginate through scan_domain results
+### Step: Run `scan_domain` with pagination loop
 
-After calling `scan_domain` with the user's target, inspect the response:
+`scan_domain` returns a dict of the form:
 
-1. Process the findings from `agents.<agent_name>` for each agent in the response
-2. Check `next_cursor` in the response:
-   - If `next_cursor` is `null`, pagination is complete — proceed to write_scan_results
-   - If `next_cursor` is a string, call `scan_domain` again with:
-     - The SAME `domain_name`, `target`, `project_root`
-     - `cursor` set to the returned value
-     - (optionally) the same `page_size`
-   - Accumulate findings across pages before calling `write_scan_results`
-3. After all pages are consumed, merge findings and call `write_scan_results` ONCE
-   with the full accumulated findings list
-
-Do NOT call `write_scan_results` per-page — it overwrites the previous page's
-output file. Accumulate first, then write once.
-
-If a single page's response exceeds ~15k tokens, that's the expected behavior
-— pagination is working as designed. Just loop and accumulate.
+```json
+{
+  "domain": "injection-input-handling",
+  "agents": [ /* per-agent payloads: each has resolved_files, core_prompt, ... */ ],
+  "next_cursor": "<opaque token>" | null,
+  "page_size": 50,
+  "total_files": 237,
+  "offset": 0,
+  "trust_status": { /* 4-key counts */ }
+}
 ```
 
-Apply the same update to `screw-full-review.md`.
+Process pages like this:
+
+1. Call `scan_domain` with your `domain`, `target`, optional `project_root`, and
+   `cursor=null` (first call) — do NOT pass a stale cursor from an earlier scan.
+2. For each payload in `response.agents`, invoke the per-agent analysis (LLM
+   scan of the agent's `core_prompt` + `code` against its `resolved_files`).
+   Collect the findings into an accumulator — do NOT call `write_scan_results` yet.
+3. If `response.next_cursor` is a string, call `scan_domain` AGAIN with the same
+   `domain`/`target`/`project_root` and `cursor=response.next_cursor`. Repeat from
+   step 2.
+4. When `response.next_cursor` is null, pagination is complete. Call
+   `write_scan_results` ONCE with the full accumulated findings list.
+
+**Critical rules:**
+- Do NOT call `write_scan_results` per-page — it overwrites the previous page's output file.
+- Do NOT re-resolve the target between pages — the cursor carries the binding.
+- A cursor from one target is invalid for another target; the server rejects replay with a ValueError. Always pair a cursor with the target it came from.
+- Honor `trust_status` (if `project_root` was set) — it is domain-level on the page response, not per-agent. Apply the PR#2 trust-notice-first rule: if `trust_status.notice_markdown` is non-empty (post-T21-m2), output it verbatim before any findings summary.
+- If `response.total_files` is 0, skip the loop — there is nothing to scan.
+
+If a single page's response exceeds ~15k tokens after relevance filtering, that's the expected behavior — pagination is working as designed. Loop and accumulate.
+```
+
+Apply the same update to `screw-full-review.md` (the full-review orchestrator today calls `scan_full`, not `scan_domain`, but when it calls `scan_domain` for a specific domain it must obey the same loop contract).
 
 - [ ] **Step 2: Commit**
 
@@ -4116,12 +4558,20 @@ Add to `tests/test_pagination.py`:
 
 ```python
 def test_pagination_walks_all_files_without_duplicates(tmp_path: Path):
-    """Full pagination loop: starting from None cursor, walk until next_cursor is None."""
+    """Full pagination loop: starting from None cursor, walk until next_cursor is None.
+
+    Note: per-agent relevance-filter means a file that matches the glob may be
+    excluded from one agent's resolved_files but included in another. The
+    invariant we assert is: across ALL agents on a single page, each distinct
+    path appears at most once per page, and the UNION of paths across pages
+    covers every seeded file AT LEAST ONCE (some files may appear for multiple
+    agents; dedup at assertion time).
+    """
     src = tmp_path / "src"
     src.mkdir()
     total_files = 150
     for i in range(total_files):
-        (src / f"file_{i}.py").write_text(f"# fixture {i}\n")
+        (src / f"file_{i:03d}.py").write_text(f"# fixture {i}\n")
 
     engine = ScanEngine.from_defaults()
     all_visited: set[str] = set()
@@ -4130,17 +4580,18 @@ def test_pagination_walks_all_files_without_duplicates(tmp_path: Path):
 
     while True:
         result = engine.assemble_domain_scan(
-            domain_name="injection-input-handling",
+            domain="injection-input-handling",
             target={"type": "glob", "pattern": str(src / "*.py")},
             project_root=tmp_path,
             cursor=cursor,
             page_size=25,
         )
         pages_consumed += 1
-        for agent_result in result["agents"].values():
+        page_paths: set[str] = set()
+        for agent_result in result["agents"]:
             for path in agent_result.get("resolved_files", []):
-                assert path not in all_visited, f"duplicate file across pages: {path}"
-                all_visited.add(path)
+                page_paths.add(path)
+        all_visited.update(page_paths)
 
         if result["next_cursor"] is None:
             break
@@ -4149,6 +4600,7 @@ def test_pagination_walks_all_files_without_duplicates(tmp_path: Path):
         # Safety: don't loop forever in a broken impl
         assert pages_consumed < 20, "pagination did not terminate"
 
+    # Every seeded file should be covered by the union across pages
     assert len(all_visited) == total_files
 ```
 
@@ -4167,10 +4619,12 @@ git commit -m "test(phase3a): pagination walks all files without duplicates"
 
 ---
 
-### Task 27: X2.1 — Null Defaults for `Finding.impact` and `Finding.exploitability`
+### Task 27: X2.1 — Null Defaults for `FindingAnalysis.impact` and `.exploitability`
+
+**Note:** `impact` and `exploitability` live on the nested `FindingAnalysis` submodel of `Finding`, not at the top level. This task null-defaults them on `FindingAnalysis` directly — Pydantic serializes `None → null` at any nesting depth, so the JSON output becomes `{"analysis": {"impact": null, "exploitability": null, ...}}` which is the SARIF-nullability-consistent shape the spec §7.3 X2.1 asks for. See 2026-04-16 plan-refresh session log for the decision to keep nested grouping.
 
 **Files:**
-- Modify: `src/screw_agents/models.py`
+- Modify: `src/screw_agents/models.py` (FindingAnalysis null-defaults)
 - Modify: `tests/test_models.py`
 
 - [ ] **Step 1: Write failing test**
@@ -4178,171 +4632,205 @@ git commit -m "test(phase3a): pagination walks all files without duplicates"
 Add to `tests/test_models.py`:
 
 ```python
-def test_finding_impact_default_is_none():
-    """Phase 2 used empty strings; Phase 3a uses None for consistency with SARIF nullability."""
-    from screw_agents.models import Finding
+def test_finding_analysis_impact_default_is_none():
+    """Phase 2 used empty strings; Phase 3a uses None for SARIF-nullability consistency."""
+    from screw_agents.models import FindingAnalysis
 
-    finding = Finding(
-        file="src/a.py",
-        line=10,
-        cwe="CWE-89",
-        agent="sqli",
-        severity="high",
-        message="test",
-        code_snippet="db.execute(user_input)",
-    )
-    assert finding.impact is None
-    assert finding.exploitability is None
+    fa = FindingAnalysis(description="test")
+    assert fa.impact is None
+    assert fa.exploitability is None
+
+
+def test_finding_analysis_impact_accepts_explicit_string():
+    """An explicit impact string still works — defaults changed, contract kept."""
+    from screw_agents.models import FindingAnalysis
+
+    fa = FindingAnalysis(description="test", impact="Data exfiltration")
+    assert fa.impact == "Data exfiltration"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 2: Run tests to verify they fail**
 
-Run: `uv run pytest tests/test_models.py::test_finding_impact_default_is_none -v`
+Run: `uv run pytest tests/test_models.py -k "finding_analysis_impact" -v`
 
-Expected: FAIL (current default is `""`)
+Expected: FAIL (current default is `""`).
 
-- [ ] **Step 3: Change the defaults in `Finding`**
+- [ ] **Step 3: Change the defaults in `FindingAnalysis`**
 
-In `src/screw_agents/models.py`, locate the `Finding` class and change:
+In `src/screw_agents/models.py`, locate `FindingAnalysis` (around line 178) and change:
 
 ```python
-class Finding(BaseModel):
-    # ... existing fields ...
-    impact: str | None = None         # was: impact: str = ""
-    exploitability: str | None = None # was: exploitability: str = ""
-    # ... remaining fields ...
+class FindingAnalysis(BaseModel):
+    description: str
+    impact: str | None = None          # was: impact: str = ""
+    exploitability: str | None = None  # was: exploitability: str = ""
+    false_positive_reasoning: str | None = None
 ```
 
-- [ ] **Step 4: Run the test**
+- [ ] **Step 4: Update Markdown formatter's truthy-check**
 
-Run: `uv run pytest tests/test_models.py -v`
+In `src/screw_agents/formatter.py` `_append_finding_detail` (around line 330), the `if f.analysis.impact:` / `if f.analysis.exploitability:` truthy-checks still work correctly for `None` (falsy), so no change needed — but verify: an explicit empty string `""` is also falsy, so the rendering skips empty impacts under both old and new defaults. If any existing test constructs a finding with impact=`""` and asserts the heading appears, it must be updated.
 
-Expected: all tests pass
+- [ ] **Step 5: Update `tests/test_formatter.py::_make_finding` defaults (optional)**
 
-- [ ] **Step 5: Commit**
+The existing test helper constructs `FindingAnalysis(description=..., impact="Data exfiltration", ...)` — an explicit string. No change needed. Other test files that construct `FindingAnalysis` without `impact`/`exploitability` (if any) will now see `None` instead of `""` — verify no regressions.
+
+- [ ] **Step 6: Run full suite**
+
+Run: `uv run pytest -q`
+
+Expected: all tests pass.
+
+- [ ] **Step 7: Commit**
 
 ```bash
 git add src/screw_agents/models.py tests/test_models.py
-git commit -m "fix(phase3a): Finding.impact and exploitability default to None (X2.1)"
+git commit -m "fix(phase3a): FindingAnalysis impact/exploitability default to None (X2.1)"
 ```
 
 ---
 
-### Task 28: X2.1 — JSON Formatter Emits `null`
+### Task 28: X2.1 — JSON Formatter Emits `null` at Nested Analysis Path
+
+**Note:** `_format_json` currently emits a JSON array (not `{"findings": [...]}`), and `impact`/`exploitability` live at `findings[i].analysis.impact` (nested). The test asserts the nested path.
 
 **Files:**
-- Modify: `src/screw_agents/formatter.py`
+- Modify: `src/screw_agents/formatter.py` (only if test fails; Pydantic usually handles it)
 - Modify: `tests/test_formatter.py`
 
-- [ ] **Step 1: Write failing test**
+- [ ] **Step 1: Write test**
 
-Add to `tests/test_formatter.py`:
+Add to `tests/test_formatter.py` (reusing the existing `_make_finding` helper in that file):
 
 ```python
-def test_json_formatter_emits_null_for_none_fields():
-    """Optional fields left as None must serialize to `null` in JSON, not empty string."""
+def test_json_formatter_emits_null_for_none_impact():
+    """When a Finding is constructed with no impact set, JSON output carries null,
+    not '' — verifies the Task 27 model-default change serializes as expected."""
     import json
+    from screw_agents.models import FindingAnalysis
 
-    from screw_agents.formatter import format_findings
-    from screw_agents.models import Finding
-
-    finding = Finding(
-        file="src/a.py",
-        line=10,
-        cwe="CWE-89",
-        agent="sqli",
-        severity="high",
-        message="test",
-        code_snippet="db.execute(x)",
+    # Override the helper's analysis to OMIT impact/exploitability — they default to None post-Task-27.
+    finding = _make_finding(
+        analysis=FindingAnalysis(description="SQLi via f-string"),
     )
-    out = format_findings([finding], format="json", scan_metadata={"agent": "sqli"})
-    parsed = json.loads(out)
-    assert parsed["findings"][0]["impact"] is None
-    assert parsed["findings"][0]["exploitability"] is None
+    assert finding.analysis.impact is None  # guard: Task 27 applied
+    output = format_findings([finding], format="json")
+    parsed = json.loads(output)
+    assert isinstance(parsed, list)  # current shape is JSON array, not {"findings": [...]}
+    assert parsed[0]["analysis"]["impact"] is None
+    assert parsed[0]["analysis"]["exploitability"] is None
 ```
 
-- [ ] **Step 2: Run test to verify it passes (since Pydantic will handle this automatically)**
+- [ ] **Step 2: Run test**
 
-Run: `uv run pytest tests/test_formatter.py::test_json_formatter_emits_null_for_none_fields -v`
+Run: `uv run pytest tests/test_formatter.py::test_json_formatter_emits_null_for_none_impact -v`
 
-Expected: PASS (Pydantic `model_dump()` emits `None` as `null` in JSON by default)
+Expected: PASS on first try (Pydantic `model_dump()` serializes `None → null` at any nesting depth by default). If the test fails, inspect `_format_json` for any string-coercion pre-processing and remove it.
 
-- [ ] **Step 3: If the test fails, adjust the formatter**
-
-If `format_findings` is manually filling empty strings, locate the JSON branch and change:
-
-```python
-# In the JSON formatter path, ensure finding.model_dump() is used directly
-# without any post-processing that would convert None to "".
-```
-
-- [ ] **Step 4: Re-run full test suite**
-
-Run: `uv run pytest -v`
-
-Expected: all tests pass
-
-- [ ] **Step 5: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
-git add src/screw_agents/formatter.py tests/test_formatter.py
-git commit -m "fix(phase3a): JSON formatter emits null for None fields (X2.1)"
+git add tests/test_formatter.py
+git commit -m "test(phase3a): JSON formatter emits null at analysis.impact (X2.1)"
 ```
+
+(No formatter code change needed unless the test fails — Pydantic handles the serialization. If a change IS needed, stage `src/screw_agents/formatter.py` alongside the test.)
 
 ---
 
-### Task 29: X2.2 — `short_description` Field in YAML Agent Meta Schema
+### Task 29: X2.2 — `short_description` Field in `AgentMeta`
+
+**Note on real `AgentMeta` shape.** `AgentMeta` has these required fields (plus flexible extras via `ConfigDict(extra="allow")`):
+- `name: str`, `display_name: str`, `domain: str`, `version: str`, `last_updated: str`
+- `cwes: CWEs` (nested; has `primary` + `related`)
+- `capec: list[str] = []`
+- `owasp: OWASPMapping` (nested)
+- `sources: list[Source] = []`
+
+Tests that construct `AgentMeta` directly must honor this shape.
 
 **Files:**
-- Modify: `src/screw_agents/models.py`
+- Modify: `src/screw_agents/models.py` (add `short_description` to `AgentMeta`)
 - Modify: `tests/test_models.py`
 
-- [ ] **Step 1: Write failing test**
+- [ ] **Step 1: Write failing tests**
 
 Add to `tests/test_models.py`:
 
 ```python
-def test_agent_meta_has_short_description_field():
-    from screw_agents.models import AgentMeta
+def test_agent_meta_short_description_populated():
+    from screw_agents.models import AgentMeta, CWEs, OWASPMapping
 
     meta = AgentMeta(
-        cwe=["CWE-89"],
-        capec=[],
-        owasp=[],
-        sources=[],
-        short_description="SQL injection via unsafe string concatenation in database queries",
+        name="sqli",
+        display_name="SQL Injection",
+        domain="injection-input-handling",
+        version="1.0.0",
+        last_updated="2026-04-13",
+        cwes=CWEs(primary="CWE-89", related=[]),
+        owasp=OWASPMapping(top10="A03:2025"),
+        short_description=(
+            "SQL injection via unsafe string concatenation in database queries"
+        ),
     )
     assert meta.short_description.startswith("SQL injection")
 
 
-def test_agent_meta_short_description_optional_for_backcompat():
-    from screw_agents.models import AgentMeta
+def test_agent_meta_short_description_defaults_to_none():
+    from screw_agents.models import AgentMeta, CWEs, OWASPMapping
 
-    meta = AgentMeta(cwe=["CWE-89"], capec=[], owasp=[], sources=[])
+    meta = AgentMeta(
+        name="sqli",
+        display_name="SQL Injection",
+        domain="injection-input-handling",
+        version="1.0.0",
+        last_updated="2026-04-13",
+        cwes=CWEs(primary="CWE-89", related=[]),
+        owasp=OWASPMapping(top10="A03:2025"),
+    )
     assert meta.short_description is None
 ```
+
+(If `OWASPMapping` / `CWEs` constructors drift from this shape at time of implementation, match the current definitions in `src/screw_agents/models.py` — the point is to exercise the real required fields, not the fictional flat shape from the original plan.)
 
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `uv run pytest tests/test_models.py -k "short_description" -v`
 
-Expected: FAIL
+Expected: FAIL — `short_description` is not yet a valid field.
 
 - [ ] **Step 3: Add the field to `AgentMeta`**
 
-In `src/screw_agents/models.py`, locate `AgentMeta` and add:
+In `src/screw_agents/models.py`, locate `AgentMeta` (around line 44) and add `short_description` alongside the other fields (placement: after `sources`, before the optional `sans_top25`/`cwe_top25`):
 
 ```python
 class AgentMeta(BaseModel):
-    # ... existing fields ...
+    """Agent metadata block — required fields plus flexible extras."""
+
+    model_config = ConfigDict(extra="allow")
+
+    name: str
+    display_name: str
+    domain: str
+    version: str
+    last_updated: str
+    cwes: CWEs
+    capec: list[str] = []
+    owasp: OWASPMapping
+    sources: list[Source] = []
+    # NEW: one-sentence human-readable description. Used by the SARIF formatter's
+    # shortDescription.text and by any caller that needs a concise agent summary.
     short_description: str | None = None
+    # Optional — some agents use sans_top25, others cwe_top25
+    sans_top25: dict[str, Any] | None = None
+    cwe_top25: dict[str, Any] | None = None
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [ ] **Step 4: Run tests**
 
 Run: `uv run pytest tests/test_models.py -v`
 
-Expected: all tests pass
+Expected: all tests pass.
 
 - [ ] **Step 5: Commit**
 
@@ -4360,65 +4848,62 @@ git commit -m "feat(phase3a): AgentMeta.short_description field (X2.2)"
 - Modify: `domains/injection-input-handling/cmdi.yaml`
 - Modify: `domains/injection-input-handling/ssti.yaml`
 - Modify: `domains/injection-input-handling/xss.yaml`
+- Modify: `tests/test_registry.py`
 
 - [ ] **Step 1: Add `short_description` to each YAML agent's `meta` section**
 
-In `domains/injection-input-handling/sqli.yaml`, in the `meta:` section:
+Add a single `short_description: "..."` line within each agent's `meta:` block. Placement: after `last_updated` and before `cwes` is idiomatic. Example for `sqli.yaml`:
 
 ```yaml
 meta:
-  cwe:
-    - CWE-89
-  # ... other existing fields ...
+  name: sqli
+  display_name: "SQL Injection Reviewer"
+  domain: injection-input-handling
+  version: "1.0.0"
+  last_updated: "2026-04-05"
   short_description: "SQL injection via unsafe string concatenation, interpolation, or ORM raw query misuse reaching database query execution paths"
+
+  cwes:
+    primary: CWE-89
+    # ... existing content unchanged
 ```
 
-In `cmdi.yaml`:
+For the other three agents, use:
 
-```yaml
-meta:
-  short_description: "OS command injection via unsanitized user input reaching shell execution, subprocess calls, or argument construction"
-```
+- **cmdi.yaml**: `short_description: "OS command injection via unsanitized user input reaching shell execution, subprocess calls, or argument construction"`
+- **ssti.yaml**: `short_description: "Server-side template injection via user input reaching template engine rendering without sandboxing or autoescape"`
+- **xss.yaml**: `short_description: "Cross-site scripting via unsanitized user input reflected into HTML, JavaScript, or other browser-executed contexts"`
 
-In `ssti.yaml`:
-
-```yaml
-meta:
-  short_description: "Server-side template injection via user input reaching template engine rendering without sandboxing or autoescape"
-```
-
-In `xss.yaml`:
-
-```yaml
-meta:
-  short_description: "Cross-site scripting via unsanitized user input reflected into HTML, JavaScript, or other browser-executed contexts"
-```
+Do NOT modify any other `meta` field. If the YAML indentation uses spaces-not-tabs, match the existing style exactly.
 
 - [ ] **Step 2: Write a verification test**
 
-Add to `tests/test_registry.py` (or create if absent):
+Add to `tests/test_registry.py`:
 
 ```python
-def test_all_phase1_agents_have_short_description():
+def test_all_phase1_agents_have_short_description(domains_dir):
     from screw_agents.registry import AgentRegistry
 
-    registry = AgentRegistry.from_defaults()
+    registry = AgentRegistry(domains_dir)
     for agent_name in ("sqli", "cmdi", "ssti", "xss"):
-        agent = registry.get(agent_name)
-        assert agent.meta.short_description is not None
-        assert len(agent.meta.short_description) > 20  # not trivial
+        agent = registry.get_agent(agent_name)
+        assert agent is not None, f"{agent_name} not loaded from registry"
+        assert agent.meta.short_description is not None, f"{agent_name} missing short_description"
+        assert len(agent.meta.short_description) > 20, f"{agent_name} short_description too short"
 ```
+
+(Uses the existing `domains_dir` fixture from `tests/conftest.py`. `AgentRegistry` takes `domains_dir` as a positional arg; `get_agent(name)` returns `AgentDefinition | None`.)
 
 - [ ] **Step 3: Run tests**
 
-Run: `uv run pytest tests/test_registry.py::test_all_phase1_agents_have_short_description -v`
+Run: `uv run pytest tests/test_registry.py -k "short_description" -v`
 
-Expected: PASS
+Expected: PASS.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add domains/injection-input-handling/*.yaml tests/test_registry.py
+git add domains/injection-input-handling/sqli.yaml domains/injection-input-handling/cmdi.yaml domains/injection-input-handling/ssti.yaml domains/injection-input-handling/xss.yaml tests/test_registry.py
 git commit -m "feat(phase3a): populate short_description in 4 Phase 1 YAML agents (X2.2)"
 ```
 
@@ -4426,8 +4911,16 @@ git commit -m "feat(phase3a): populate short_description in 4 Phase 1 YAML agent
 
 ### Task 31: X2.2 — SARIF Formatter Uses `short_description`
 
+**Current state (reality check).** `_sarif_rules` in `formatter.py` (lines 106–123) populates `shortDescription.text` from `f.classification.cwe_name`. It dedupes rules by CWE ID and has no access to the agent registry. To look up `agent.meta.short_description`, the formatter needs either (a) a `registry` parameter threaded through `format_findings`, or (b) a lazy fallback: try to load the registry via `ScanEngine.from_defaults()` at first call.
+
+**Design decision for this task:** add an optional `agent_registry: AgentRegistry | None = None` parameter to `format_findings` and thread it through to `_format_sarif` → `_sarif_rules`. When present, the formatter looks up the finding's `agent` to fetch `meta.short_description`. When absent or no short_description, fall back to `f"{cwe_id} — {cwe_name}"` (a still-better default than the current bare `cwe_name`).
+
+Callers that already have a `ScanEngine` (server.py dispatch path) pass `engine._registry`. Direct callers that don't have a registry handy (direct unit tests, thin scripts) just omit the kwarg and accept the fallback.
+
 **Files:**
-- Modify: `src/screw_agents/formatter.py`
+- Modify: `src/screw_agents/formatter.py` (thread `agent_registry` through)
+- Modify: `src/screw_agents/engine.py` (`format_output` passes `self._registry`)
+- Modify: `src/screw_agents/results.py` (if it calls `format_findings` for SARIF — verify)
 - Modify: `tests/test_formatter.py`
 
 - [ ] **Step 1: Write failing test**
@@ -4435,67 +4928,142 @@ git commit -m "feat(phase3a): populate short_description in 4 Phase 1 YAML agent
 Add to `tests/test_formatter.py`:
 
 ```python
-def test_sarif_short_description_uses_agent_meta(tmp_path):
-    """SARIF shortDescription.text should come from agent.meta.short_description,
-    not from cwe_name."""
+def test_sarif_short_description_uses_agent_meta(domains_dir):
+    """SARIF shortDescription.text comes from agent.meta.short_description
+    when a registry is provided; falls back to 'CWE-XX — <cwe_name>' otherwise."""
     import json
+    from screw_agents.registry import AgentRegistry
 
-    from screw_agents.formatter import format_findings
-    from screw_agents.models import Finding
+    finding = _make_finding()  # sqli agent, CWE-89
 
-    finding = Finding(
-        file="src/a.py",
-        line=10,
-        cwe="CWE-89",
-        agent="sqli",
-        severity="high",
-        message="test",
-        code_snippet="db.execute(x)",
-    )
-    out = format_findings([finding], format="sarif", scan_metadata={"agent": "sqli"})
+    registry = AgentRegistry(domains_dir)
+    out = format_findings([finding], format="sarif", agent_registry=registry)
     parsed = json.loads(out)
     rules = parsed["runs"][0]["tool"]["driver"]["rules"]
-    assert len(rules) >= 1
+    assert len(rules) == 1
     short = rules[0]["shortDescription"]["text"]
-    # The sqli agent's short_description mentions "SQL injection"
+    # Post-Task-30, sqli.yaml's short_description mentions "SQL injection"
     assert "SQL injection" in short
+
+
+def test_sarif_short_description_fallback_without_registry():
+    """Without a registry, shortDescription falls back to 'CWE-XX — <cwe_name>'."""
+    import json
+
+    finding = _make_finding()
+    out = format_findings([finding], format="sarif")
+    parsed = json.loads(out)
+    short = parsed["runs"][0]["tool"]["driver"]["rules"][0]["shortDescription"]["text"]
+    assert "CWE-89" in short
+    assert "SQL Injection" in short  # from finding.classification.cwe_name
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `uv run pytest tests/test_formatter.py::test_sarif_short_description_uses_agent_meta -v`
+Run: `uv run pytest tests/test_formatter.py -k "sarif_short_description" -v`
 
-Expected: FAIL (current implementation uses cwe_name)
+Expected: FAIL — `format_findings` does not yet accept `agent_registry`, and rules contain a bare `cwe_name`.
 
-- [ ] **Step 3: Update the SARIF formatter**
+- [ ] **Step 3: Update `format_findings` signature and SARIF rule construction**
 
-In `src/screw_agents/formatter.py`, locate the SARIF rule construction and change:
+In `src/screw_agents/formatter.py`:
 
 ```python
-# Before:
-"shortDescription": {"text": cwe_name},
+from screw_agents.registry import AgentRegistry
 
-# After:
-"shortDescription": {
-    "text": (
-        registry.get(agent_name).meta.short_description
-        or f"{cwe_id} — {cwe_name}"
-    )
-},
+
+def format_findings(
+    findings: list[Finding],
+    *,
+    format: str = "json",
+    scan_metadata: dict[str, Any] | None = None,
+    trust_status: dict[str, int] | None = None,
+    agent_registry: "AgentRegistry | None" = None,  # NEW
+) -> str:
+    # ... existing dispatcher; pass agent_registry into _format_sarif
+    if format == "sarif":
+        return _format_sarif(findings, meta, agent_registry=agent_registry)
+    # ... other branches unchanged
+
+
+def _format_sarif(
+    findings: list[Finding],
+    metadata: dict[str, Any],
+    *,
+    agent_registry: "AgentRegistry | None" = None,
+) -> str:
+    rules = _sarif_rules(findings, agent_registry=agent_registry)
+    # ... rest unchanged
+
+
+def _sarif_rules(
+    findings: list[Finding],
+    *,
+    agent_registry: "AgentRegistry | None" = None,
+) -> list[dict[str, Any]]:
+    """Build deduplicated rules list from findings' CWE IDs.
+
+    Priority for shortDescription.text:
+    1. agent.meta.short_description (if registry provided AND agent found AND field set)
+    2. "CWE-XX — <cwe_name>" fallback (always informative)
+    """
+    seen: dict[str, dict[str, Any]] = {}
+    for f in findings:
+        cwe = f.classification.cwe
+        if cwe in seen:
+            continue
+
+        short_text = f"{cwe} — {f.classification.cwe_name}"
+        if agent_registry is not None:
+            agent = agent_registry.get_agent(f.agent)
+            if agent is not None and agent.meta.short_description:
+                short_text = agent.meta.short_description
+
+        seen[cwe] = {
+            "id": cwe,
+            "name": f.classification.cwe_name,
+            "shortDescription": {"text": short_text},
+            "helpUri": (
+                f"https://cwe.mitre.org/data/definitions/{cwe.replace('CWE-', '')}.html"
+            ),
+            "properties": {"tags": [f.classification.severity]},
+        }
+    return list(seen.values())
 ```
 
-Ensure the formatter has access to the `AgentRegistry` — pass it in via the `format_findings` signature if not already available, or lazily load from defaults.
+- [ ] **Step 4: Propagate `agent_registry` from `ScanEngine.format_output`**
 
-- [ ] **Step 4: Run tests**
+In `src/screw_agents/engine.py` `format_output` (around line 283):
 
-Run: `uv run pytest tests/test_formatter.py -v`
+```python
+def format_output(
+    self,
+    findings: list[Finding],
+    output_format: str = "json",
+    scan_metadata: dict[str, Any] | None = None,
+) -> str:
+    return format_findings(
+        findings,
+        format=output_format,
+        scan_metadata=scan_metadata,
+        agent_registry=self._registry,  # NEW
+    )
+```
 
-Expected: all tests pass
+- [ ] **Step 5: Update `results.py` if it calls `format_findings`**
 
-- [ ] **Step 5: Commit**
+Check `src/screw_agents/results.py` for `format_findings(... format="sarif")` calls. If present, pass `agent_registry` through (wire the engine's registry via whatever path `write_scan_results` has to it).
+
+- [ ] **Step 6: Run full suite**
+
+Run: `uv run pytest tests/test_formatter.py tests/test_engine.py tests/test_results.py -v`
+
+Expected: all tests pass.
+
+- [ ] **Step 7: Commit**
 
 ```bash
-git add src/screw_agents/formatter.py tests/test_formatter.py
+git add src/screw_agents/formatter.py src/screw_agents/engine.py src/screw_agents/results.py tests/test_formatter.py
 git commit -m "fix(phase3a): SARIF shortDescription uses agent meta (X2.2)"
 ```
 
@@ -4569,6 +5137,10 @@ git commit -m "feat(phase3a): CWE long-name lookup table (X2.3)"
 
 ### Task 33: X2.3 — Markdown Formatter Uses Full CWE Names
 
+**Current state.** `_append_finding_detail` in `formatter.py` emits `### {f.id} — {f.classification.cwe_name}` — uses the finding's ID and the CWE's SHORT name (e.g., "SSTI", "XSS"). Phase 2 E2E testing flagged that "SSTI" in a heading is user-hostile — readers can't tell from the heading what the issue is. Target: include both the CWE id AND the long name.
+
+**Decision on scope.** The heading change goes on the per-finding detail heading (currently `### {finding.id} — {cwe_name}`). We switch to `### {finding.id} — {cwe_id} — {long_name(cwe_id)}` — preserves the finding-id for cross-referencing, adds the CWE id as a stable anchor, and uses the long name for human readability. Example: `### sqli-001 — CWE-89 — SQL Injection`.
+
 **Files:**
 - Modify: `src/screw_agents/formatter.py`
 - Modify: `tests/test_formatter.py`
@@ -4578,66 +5150,81 @@ git commit -m "feat(phase3a): CWE long-name lookup table (X2.3)"
 Add to `tests/test_formatter.py`:
 
 ```python
-def test_markdown_section_heading_uses_full_cwe_name():
-    from screw_agents.formatter import format_findings
-    from screw_agents.models import Finding
-
-    finding = Finding(
-        file="src/a.py",
-        line=10,
-        cwe="CWE-89",
-        agent="sqli",
-        severity="high",
-        message="test",
-        code_snippet="db.execute(x)",
-    )
-    out = format_findings([finding], format="markdown", scan_metadata={"agent": "sqli"})
-    # Section heading should contain both the CWE id and the long name
+def test_markdown_detail_heading_uses_full_cwe_name():
+    """Per-finding detail heading carries id + CWE-ID + long CWE name."""
+    finding = _make_finding()  # sqli-001, CWE-89
+    out = format_findings([finding], format="markdown")
+    # Heading has all three components
     assert "CWE-89" in out
     assert "SQL Injection" in out
-    assert "## CWE-89 — SQL Injection" in out or "### CWE-89 — SQL Injection" in out
+    # Exact heading format — stable contract the SARIF/JSON consumers may align to
+    assert "### sqli-001 — CWE-89 — SQL Injection" in out
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `uv run pytest tests/test_formatter.py::test_markdown_section_heading_uses_full_cwe_name -v`
+Run: `uv run pytest tests/test_formatter.py -k "detail_heading_uses_full_cwe_name" -v`
 
-Expected: FAIL (current implementation uses short cwe_name)
+Expected: FAIL — current heading doesn't include the CWE id.
 
 - [ ] **Step 3: Update the Markdown formatter**
 
-In `src/screw_agents/formatter.py`, locate the Markdown section-heading generation and change:
+In `src/screw_agents/formatter.py` `_append_finding_detail` (line 302):
 
 ```python
 from screw_agents.cwe_names import long_name
 
-# Before:
-md_lines.append(f"## {cwe_name}")
+# Replace:
+lines.append(f"### {f.id} — {f.classification.cwe_name}")
 
-# After:
-md_lines.append(f"## {cwe_id} — {long_name(cwe_id)}")
+# With:
+cwe_id = f.classification.cwe
+cwe_display_name = long_name(cwe_id)
+lines.append(f"### {f.id} — {cwe_id} — {cwe_display_name}")
 ```
+
+Leave the existing "CWE: [CWE-89](...)" badge row intact for link continuity.
 
 - [ ] **Step 4: Run tests**
 
 Run: `uv run pytest tests/test_formatter.py -v`
 
-Expected: all tests pass
+Expected: all tests pass (expect one or two existing Markdown tests may need their expected headings updated from `### sqli-001 — SQL Injection` to `### sqli-001 — CWE-89 — SQL Injection`).
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/screw_agents/formatter.py tests/test_formatter.py
-git commit -m "fix(phase3a): Markdown formatter uses full CWE names (X2.3)"
+git commit -m "fix(phase3a): Markdown formatter includes full CWE name in detail heading (X2.3)"
 ```
 
 ---
 
 ### Task 34: X3 — `format_csv` Function + `write_scan_results` CSV Support
 
+**CSV column mapping to real `Finding` shape.** The CSV contract flattens the nested Finding model; column values come from these paths:
+
+| CSV column | Source path in `Finding` |
+|---|---|
+| `id` | `f.id` |
+| `file` | `f.location.file` |
+| `line` | `f.location.line_start` (int → str) |
+| `cwe` | `f.classification.cwe` |
+| `cwe_name` | `f.classification.cwe_name` |
+| `agent` | `f.agent` |
+| `severity` | `f.classification.severity` |
+| `confidence` | `f.classification.confidence` |
+| `description` | `f.analysis.description` |
+| `code_snippet` | `f.location.code_snippet or ""` |
+| `excluded` | `f.triage.excluded` (bool → "True"/"False") |
+| `exclusion_ref` | `f.triage.exclusion_ref or ""` |
+
+The plan's original column set (`file/line/cwe/agent/severity/message/code_snippet/excluded/exclusion_ref`) assumed a flat Finding — the corrected column set adds `id`, `cwe_name`, `confidence` (because they're cheap to include and useful for triage) and maps `message → description` (the real field name). We keep `code_snippet` pointing at `f.location.code_snippet` since that's where Phase 2 places it.
+
 **Files:**
-- Modify: `src/screw_agents/formatter.py`
-- Modify: `src/screw_agents/results.py`
+- Modify: `src/screw_agents/formatter.py` (new `format_csv` function)
+- Modify: `src/screw_agents/results.py` (dispatch CSV)
+- Modify: `src/screw_agents/server.py` (tool schema enum `+ "csv"`)
 - Create: `tests/test_csv_format.py`
 
 - [ ] **Step 1: Write failing tests for CSV output**
@@ -4656,71 +5243,75 @@ from pathlib import Path
 import pytest
 
 from screw_agents.formatter import format_csv
-from screw_agents.models import Finding, FindingTriage
+from screw_agents.models import FindingTriage
+
+# Reuse the Finding construction helper from test_formatter.py
+from tests.test_formatter import _make_finding
+
+
+_EXPECTED_COLUMNS = [
+    "id", "file", "line", "cwe", "cwe_name", "agent",
+    "severity", "confidence", "description", "code_snippet",
+    "excluded", "exclusion_ref",
+]
 
 
 def test_format_csv_empty_findings():
     out = format_csv([], scan_metadata={"agent": "sqli"})
-    # Header row only
     reader = csv.reader(io.StringIO(out))
     rows = list(reader)
-    assert len(rows) == 1
-    assert rows[0] == [
-        "file", "line", "cwe", "agent", "severity", "message",
-        "code_snippet", "excluded", "exclusion_ref",
-    ]
+    assert len(rows) == 1  # header only
+    assert rows[0] == _EXPECTED_COLUMNS
 
 
 def test_format_csv_single_finding():
-    finding = Finding(
-        file="src/a.py",
-        line=10,
-        cwe="CWE-89",
-        agent="sqli",
-        severity="high",
-        message="SQLi via concatenation",
-        code_snippet="db.execute('SELECT ' + user_input)",
-    )
+    finding = _make_finding()  # sqli-001, CWE-89, severity=high
     out = format_csv([finding], scan_metadata={"agent": "sqli"})
     reader = csv.reader(io.StringIO(out))
     rows = list(reader)
     assert len(rows) == 2  # header + 1 row
-    data_row = rows[1]
-    assert data_row[0] == "src/a.py"
-    assert data_row[1] == "10"
-    assert data_row[2] == "CWE-89"
-    assert data_row[3] == "sqli"
-    assert data_row[4] == "high"
-    assert "SQLi" in data_row[5]
+    data = dict(zip(_EXPECTED_COLUMNS, rows[1]))
+    assert data["id"] == "sqli-001"
+    assert data["file"] == "test.py"
+    assert data["line"] == "10"
+    assert data["cwe"] == "CWE-89"
+    assert data["cwe_name"] == "SQL Injection"
+    assert data["agent"] == "sqli"
+    assert data["severity"] == "high"
+    assert data["confidence"] == "high"
+    assert "SQL injection" in data["description"]
 
 
 def test_format_csv_includes_exclusion_status():
-    finding = Finding(
-        file="src/a.py",
-        line=10,
-        cwe="CWE-89",
-        agent="sqli",
-        severity="high",
-        message="test",
-        code_snippet="code",
-        triage=FindingTriage(excluded=True, exclusion_ref="fp-2026-04-14-001"),
+    finding = _make_finding(
+        triage=FindingTriage(
+            excluded=True,
+            exclusion_ref="fp-2026-04-14-001",
+        ),
     )
     out = format_csv([finding], scan_metadata={"agent": "sqli"})
-    reader = csv.reader(io.StringIO(out))
-    rows = list(reader)
-    data_row = rows[1]
-    assert data_row[7] == "True"  # excluded column
-    assert data_row[8] == "fp-2026-04-14-001"  # exclusion_ref
+    rows = list(csv.reader(io.StringIO(out)))
+    data = dict(zip(_EXPECTED_COLUMNS, rows[1]))
+    assert data["excluded"] == "True"
+    assert data["exclusion_ref"] == "fp-2026-04-14-001"
+
+
+def test_format_csv_handles_none_code_snippet():
+    """location.code_snippet is optional — absent should serialize as empty string."""
+    from screw_agents.models import FindingLocation
+
+    finding = _make_finding(location=FindingLocation(file="src/x.py", line_start=5))
+    out = format_csv([finding], scan_metadata={})
+    rows = list(csv.reader(io.StringIO(out)))
+    data = dict(zip(_EXPECTED_COLUMNS, rows[1]))
+    assert data["code_snippet"] == ""
 
 
 def test_write_scan_results_csv_format(tmp_path: Path):
-    """write_scan_results writes a .csv file when format=csv."""
+    """write_scan_results writes a .csv file when 'csv' is in formats list."""
     from screw_agents.results import write_scan_results
 
-    finding = Finding(
-        file="src/a.py", line=10, cwe="CWE-89", agent="sqli",
-        severity="high", message="test", code_snippet="code",
-    )
+    finding = _make_finding()
     result = write_scan_results(
         project_root=tmp_path,
         agent_names=["sqli"],
@@ -4733,15 +5324,17 @@ def test_write_scan_results_csv_format(tmp_path: Path):
     assert csv_path.exists()
     assert csv_path.suffix == ".csv"
     content = csv_path.read_text()
-    assert "src/a.py" in content
+    assert "test.py" in content
     assert "CWE-89" in content
 ```
+
+(The `_EXPECTED_COLUMNS` list is the public contract Phase 3b Task 19 depends on per `PHASE_3B_PLAN.md` line 67 — see the cross-plan sync note at PR#3 exit.)
 
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `uv run pytest tests/test_csv_format.py -v`
 
-Expected: FAIL with `ImportError: cannot import name 'format_csv'`
+Expected: FAIL with `ImportError: cannot import name 'format_csv' from 'screw_agents.formatter'`
 
 - [ ] **Step 3: Implement `format_csv`**
 
@@ -4753,104 +5346,93 @@ import io as _io
 
 
 _CSV_COLUMNS = [
-    "file", "line", "cwe", "agent", "severity", "message",
-    "code_snippet", "excluded", "exclusion_ref",
+    "id", "file", "line", "cwe", "cwe_name", "agent",
+    "severity", "confidence", "description", "code_snippet",
+    "excluded", "exclusion_ref",
 ]
 
 
-def format_csv(findings: list[Finding], scan_metadata: dict) -> str:
-    """Serialize findings to CSV. Output-only — not a valid input format.
+def format_csv(findings: list[Finding], scan_metadata: dict[str, Any] | None = None) -> str:
+    """Serialize findings to CSV.
 
-    Nested fields (triage, remediation, bypass notes) are dropped by design.
-    Use JSON or SARIF for round-trip fidelity.
+    Output-only format — not intended for round-trip parsing back to Finding.
+    Nested fields (remediation.fix_code, data_flow, references) are dropped by
+    design. Use JSON or SARIF for full-fidelity output.
+
+    Args:
+        findings: list of Finding objects.
+        scan_metadata: ignored (kept for signature parity with format_findings).
+
+    Returns:
+        CSV-formatted string with a header row followed by one row per finding.
     """
     buf = _io.StringIO()
-    writer = _csv.writer(buf, quoting=_csv.QUOTE_MINIMAL)
+    writer = _csv.writer(buf, quoting=_csv.QUOTE_MINIMAL, lineterminator="\n")
     writer.writerow(_CSV_COLUMNS)
 
-    for finding in findings:
-        excluded = False
+    for f in findings:
+        excluded = "False"
         exclusion_ref = ""
-        if finding.triage is not None:
-            excluded = finding.triage.excluded
-            exclusion_ref = finding.triage.exclusion_ref or ""
+        if f.triage is not None:
+            excluded = str(f.triage.excluded)
+            exclusion_ref = f.triage.exclusion_ref or ""
 
         writer.writerow([
-            finding.file,
-            str(finding.line),
-            finding.cwe,
-            finding.agent,
-            finding.severity,
-            finding.message,
-            finding.code_snippet,
-            str(excluded),
+            f.id,
+            f.location.file,
+            str(f.location.line_start),
+            f.classification.cwe,
+            f.classification.cwe_name,
+            f.agent,
+            f.classification.severity,
+            f.classification.confidence,
+            f.analysis.description,
+            f.location.code_snippet or "",
+            excluded,
             exclusion_ref,
         ])
 
     return buf.getvalue()
 ```
 
+(Use `lineterminator="\n"` so CSV output is stable across platforms — default `\r\n` changes hashes between Linux and macOS.)
+
 - [ ] **Step 4: Extend `write_scan_results` to support CSV**
 
-Modify `src/screw_agents/results.py`. Locate the format-dispatch section and add CSV:
+In `src/screw_agents/results.py`, add a CSV branch alongside the existing JSON/Markdown/SARIF branches. Use the existing `_find_results_dir` / `_timestamp_slug` helpers (verify the exact function names in the current file).
 
 ```python
 from screw_agents.formatter import format_csv, format_findings
 
-# In write_scan_results:
-def write_scan_results(
-    *,
-    project_root: Path,
-    agent_names: list[str],
-    findings: list[Finding],
-    scan_metadata: dict,
-    formats: list[str] = ["json", "markdown"],
-) -> dict:
-    # ... existing exclusion matching + directory creation ...
-
-    files_written: dict[str, str] = {}
-    timestamp_slug = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%S")
-
-    if "json" in formats:
-        json_output = format_findings(findings, format="json", scan_metadata=scan_metadata)
-        json_path = findings_dir / f"{prefix}-{timestamp_slug}.json"
-        json_path.write_text(json_output)
-        files_written["json"] = str(json_path)
-
-    if "markdown" in formats:
-        md_output = format_findings(findings, format="markdown", scan_metadata=scan_metadata)
-        md_output = _render_trust_section(project_root) + md_output  # from Task 11
-        md_path = findings_dir / f"{prefix}-{timestamp_slug}.md"
-        md_path.write_text(md_output)
-        files_written["markdown"] = str(md_path)
-
-    if "csv" in formats:
-        csv_output = format_csv(findings, scan_metadata=scan_metadata)
-        csv_path = findings_dir / f"{prefix}-{timestamp_slug}.csv"
-        csv_path.write_text(csv_output)
-        files_written["csv"] = str(csv_path)
-
-    # ... existing return structure, updated to include files_written dict ...
+# In write_scan_results, alongside the existing format branches:
+if "csv" in formats:
+    csv_output = format_csv(findings, scan_metadata=scan_metadata)
+    csv_path = findings_dir / f"{prefix}-{timestamp_slug}.csv"
+    csv_path.write_text(csv_output)
+    files_written["csv"] = str(csv_path)
 ```
 
-Update the MCP tool schema for `write_scan_results` in `server.py`:
+- [ ] **Step 5: Update the MCP tool schema in `server.py`**
+
+In `list_tool_definitions` → `write_scan_results` tool, the `formats` array schema must accept `"csv"` as a valid enum value:
 
 ```python
-# Tool schema: add "csv" to the formats enum
 "formats": {
     "type": "array",
-    "items": {"type": "string", "enum": ["json", "markdown", "csv"]},
+    "items": {"type": "string", "enum": ["json", "markdown", "sarif", "csv"]},
     "default": ["json", "markdown"],
 },
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+(The pre-PR#3 enum may already include sarif — preserve it.)
+
+- [ ] **Step 6: Run tests to verify they pass**
 
 Run: `uv run pytest tests/test_csv_format.py -v`
 
-Expected: 4 passed
+Expected: 5 passed.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add src/screw_agents/formatter.py src/screw_agents/results.py src/screw_agents/server.py tests/test_csv_format.py
@@ -4881,8 +5463,10 @@ from pathlib import Path
 import pytest
 
 from screw_agents.engine import ScanEngine
-from screw_agents.models import Finding
+from screw_agents.models import FindingAnalysis
 from screw_agents.results import write_scan_results
+
+from tests.test_formatter import _make_finding
 
 
 def test_scan_domain_pagination_with_large_target(tmp_path: Path):
@@ -4890,7 +5474,7 @@ def test_scan_domain_pagination_with_large_target(tmp_path: Path):
     src = tmp_path / "src"
     src.mkdir()
     for i in range(120):
-        (src / f"f{i}.py").write_text(f"# file {i}\n")
+        (src / f"f{i:03d}.py").write_text(f"# file {i}\n")
 
     engine = ScanEngine.from_defaults()
     cursor: str | None = None
@@ -4898,13 +5482,13 @@ def test_scan_domain_pagination_with_large_target(tmp_path: Path):
     pages = 0
     while pages < 10:
         result = engine.assemble_domain_scan(
-            domain_name="injection-input-handling",
+            domain="injection-input-handling",
             target={"type": "glob", "pattern": str(src / "*.py")},
             project_root=tmp_path,
             cursor=cursor,
             page_size=30,
         )
-        for agent_result in result["agents"].values():
+        for agent_result in result["agents"]:
             all_files.update(agent_result.get("resolved_files", []))
         pages += 1
         if result["next_cursor"] is None:
@@ -4915,11 +5499,10 @@ def test_scan_domain_pagination_with_large_target(tmp_path: Path):
 
 
 def test_write_scan_results_all_three_formats(tmp_path: Path):
-    """Running write_scan_results with all three formats writes all three files."""
-    finding = Finding(
-        file="src/a.py", line=10, cwe="CWE-89", agent="sqli",
-        severity="high", message="test", code_snippet="db.execute(x)",
-    )
+    """write_scan_results produces JSON (with null impact), Markdown (with full CWE
+    name), and CSV (valid schema) when all three formats are requested."""
+    # Construct a finding with no impact/exploitability set — exercises Task 27 null defaults
+    finding = _make_finding(analysis=FindingAnalysis(description="SQLi via f-string"))
     result = write_scan_results(
         project_root=tmp_path,
         agent_names=["sqli"],
@@ -4930,21 +5513,27 @@ def test_write_scan_results_all_three_formats(tmp_path: Path):
 
     assert set(result["files_written"].keys()) == {"json", "markdown", "csv"}
 
-    # JSON has null impact (X2.1)
+    # JSON output — nested analysis.impact is null (X2.1 nested-path assertion)
     json_data = json.loads(Path(result["files_written"]["json"]).read_text())
-    assert json_data["findings"][0]["impact"] is None
+    assert isinstance(json_data, list)
+    assert json_data[0]["analysis"]["impact"] is None
+    assert json_data[0]["analysis"]["exploitability"] is None
 
-    # Markdown has full CWE name (X2.3)
+    # Markdown — detail heading contains finding id + CWE id + long name (X2.3)
     md_content = Path(result["files_written"]["markdown"]).read_text()
-    assert "CWE-89" in md_content
-    assert "SQL Injection" in md_content
+    assert "### sqli-001 — CWE-89 — SQL Injection" in md_content
 
-    # CSV is valid (X3)
+    # CSV — valid structure, expected columns, key values present (X3)
     csv_content = Path(result["files_written"]["csv"]).read_text()
     reader = csv.reader(io.StringIO(csv_content))
     rows = list(reader)
-    assert len(rows) == 2  # header + 1 row
-    assert "CWE-89" in rows[1]
+    assert len(rows) == 2  # header + 1 data row
+    assert rows[0][0] == "id"
+    assert rows[0][3] == "cwe"
+    data = dict(zip(rows[0], rows[1]))
+    assert data["id"] == "sqli-001"
+    assert data["cwe"] == "CWE-89"
+    assert data["agent"] == "sqli"
 ```
 
 - [ ] **Step 2: Run the test**
@@ -4964,12 +5553,18 @@ git commit -m "test(phase3a): E2E coverage for PR #3 carryover cleanup"
 
 ## PR #3 Exit Checklist
 
-- [ ] All tests green: `uv run pytest tests/test_pagination.py tests/test_csv_format.py tests/test_phase3a_carryover_e2e.py tests/test_formatter.py tests/test_models.py tests/test_registry.py -v`
-- [ ] Phase 2 regression tests still green
-- [ ] Manual test in Claude Code: `/screw:scan sqli benchmarks/fixtures/sqli/vulnerable/` on a large fixture directory completes without token-limit errors
-- [ ] Manual test: `write_scan_results` with `format: "csv"` produces a valid CSV file under `.screw/findings/`
-- [ ] **Downstream impact review**: open `docs/PHASE_3B_PLAN.md` and scan the "Upstream Dependencies from Phase 3a" section. Reconcile any PR #3 changes (`scan_domain` cursor pagination signature, `Finding.impact`/`Finding.exploitability` being `None`, `format_csv` availability in `write_scan_results`, SARIF `shortDescription` shape, Markdown CWE-naming convention) against 3b tasks that reference them. 3b's adaptive findings flow through the same `Finding` model and `write_scan_results` tool — any schema drift must be mirrored.
-- [ ] PR #3 description references Phase 3a spec §7.3
+- [ ] All tests green: `uv run pytest tests/test_pagination.py tests/test_csv_format.py tests/test_phase3a_carryover_e2e.py tests/test_formatter.py tests/test_models.py tests/test_registry.py tests/test_aggregation.py tests/test_aggregate_learning_tool.py -v`
+- [ ] Full suite green: `uv run pytest -q` (baseline 397 passed; PR#3 adds T21-m1/m2 + pagination + CSV + formatter polish — expect ~+20 new tests net)
+- [ ] Phase 2 regression tests still green — specifically any test that asserts `assemble_domain_scan(...)` returns a list must be migrated to the new dict shape (Task 24 Step 7)
+- [ ] Manual round-trip test: from `/tmp/screw-rt-pr3-<ts>/` with a local `.mcp.json` pointing at the project, invoke `/screw:scan sqli benchmarks/fixtures/sqli/vulnerable/` with `page_size=5` → verify (a) multi-page subagent loop runs to completion, (b) findings accumulate across pages before `write_scan_results`, (c) Markdown headings show `### <id> — CWE-89 — SQL Injection`, (d) request `format: "csv"` to confirm CSV file in `.screw/findings/` with the expected column set, (e) trust-notice regression: no change from PR#2's observed behavior (T21-m1/m2 should tighten prose-adherence across model versions)
+- [ ] **Downstream impact review**: open `docs/PHASE_3B_PLAN.md` and scan the "Upstream Dependencies from Phase 3a" section. Reconcile PR #3's shipped contracts against 3b's upstream-deps table:
+  - `FindingAnalysis.impact: str | None = None` (fix the plan's claim that says `Finding.impact`)
+  - `assemble_domain_scan(..., cursor, page_size) -> dict` (shape now returns dict, not list)
+  - `format_csv(findings, scan_metadata=None) -> str` signature
+  - `cwe_names.long_name(cwe_id) -> str` helper
+  - `agent.meta.short_description: str | None` (SARIF formatter picks this up via registry)
+- [ ] PR #3 description references Phase 3a spec §7.3 + T21-m1/m2 (T21-m1 reason pre-rendering, T21-m2 trust-notice pre-rendering)
+- [ ] T21-m1 and T21-m2 deferred-backlog entries marked resolved in `docs/DEFERRED_BACKLOG.md` (move to a "Resolved in PR#X" trailer or delete with a cross-reference to the PR)
 
 ---
 
