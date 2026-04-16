@@ -176,6 +176,11 @@ def aggregate_directory_suggestions(exclusions: list[Exclusion]) -> list[Directo
 
 
 # Thresholds for the FP report (Feature 4 — Phase 4 autoresearch signal).
+# _FP_REPORT_TOP_N caps the number of pattern buckets returned. Rationale:
+# Phase 4 autoresearch iterates the FP report per-agent; with ~18 domains
+# × 10 patterns × N scans, the aggregate signal volume is manageable. If
+# a project has deeper heterogeneity and 10 feels too few, this is the
+# knob to tune. Tracked by T19-N1 (parameterization) in DEFERRED_BACKLOG.md.
 _FP_REPORT_TOP_N = 10
 _FP_REPORT_MIN_COUNT = 3
 _FP_REPORT_MAX_REASONS = 5  # Number of example_reasons to include per FPPattern
@@ -192,10 +197,19 @@ def aggregate_fp_report(exclusions: list[Exclusion]) -> FPReport:
     Only trusted (non-quarantined) exclusions with a non-empty code_pattern are
     counted.
 
+    Field-role separation (important for Phase 4 autoresearch consumers):
+    - Structured fields (`agent`, `cwe`, `pattern`, `fp_count`, `example_reasons`)
+      are the MACHINE-READABLE signal. Phase 4 refinement logic MUST read these
+      directly rather than parsing prose.
+    - `candidate_heuristic_refinement` is a HUMAN-READABLE display string for the
+      screw-learning-analyst subagent's report. Treat it as prose, not as a
+      stable contract — wording may evolve.
+
     The output is consumed by:
-    - Task 21 subagent (human-readable report)
-    - Phase 4 autoresearch loop (machine-readable YAML-refinement signal — Phase 3b
-      Task 18 references this contract in docs/PHASE_3B_PLAN.md lines 56-61).
+    - Task 21 subagent (human-readable report via candidate_heuristic_refinement)
+    - Phase 4 autoresearch loop (machine-readable YAML-refinement signal via
+      structured fields — Phase 3b Task 18 references this contract in
+      docs/PHASE_3B_PLAN.md lines 56-61).
     """
     buckets: dict[tuple[str, str, str], list[Exclusion]] = defaultdict(list)
     for excl in exclusions:
@@ -219,13 +233,24 @@ def aggregate_fp_report(exclusions: list[Exclusion]) -> FPReport:
 
     patterns: list[FPPattern] = []
     for (agent, cwe, pattern), group in ranked:
-        # Take up to _FP_REPORT_MAX_REASONS unique reasons, deterministically
-        # ordered (lexicographic) for stability.
-        reasons = sorted({e.reason for e in group})[:_FP_REPORT_MAX_REASONS]
+        # Frequency-weighted reason selection: count occurrences, sort by
+        # (count desc, reason asc) for deterministic tie-break, take top N.
+        # Lexicographic-only selection would drop "test fixture" (95 occurrences)
+        # in favor of "aborted" (5 occurrences) purely because "a" < "t".
+        reason_counts: dict[str, int] = defaultdict(int)
+        for e in group:
+            reason_counts[e.reason] += 1
+        ranked_reasons = sorted(
+            reason_counts.items(),
+            key=lambda kv: (-kv[1], kv[0]),
+        )
+        reasons = [r for r, _count in ranked_reasons[:_FP_REPORT_MAX_REASONS]]
 
         # The suggestion text embeds the pattern as inline code so user-controlled
         # content doesn't inject into Markdown structure.
-        first_reason = reasons[0] if reasons else "n/a"
+        # Include all (up to 5) example reasons in the prose so the human-readable
+        # refinement string preserves the distribution, not just the top one.
+        reasons_inline = ", ".join(f"'{r}'" for r in reasons) if reasons else "n/a"
         patterns.append(
             FPPattern(
                 agent=agent,
@@ -235,8 +260,8 @@ def aggregate_fp_report(exclusions: list[Exclusion]) -> FPReport:
                 example_reasons=reasons,
                 candidate_heuristic_refinement=(
                     f"{agent} agent may benefit from lower confidence on pattern "
-                    f"`{pattern}` (seen in {len(group)} exclusions with reasons "
-                    f"like '{first_reason}')"
+                    f"`{pattern}` (seen in {len(group)} exclusions with reasons: "
+                    f"{reasons_inline})"
                 ),
             )
         )

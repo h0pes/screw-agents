@@ -426,8 +426,9 @@ def test_aggregate_fp_report_top_n_cap():
 
 
 def test_aggregate_fp_report_deterministic_ordering_across_ties():
-    """Patterns tied on fp_count sort deterministically by (agent, cwe, pattern)."""
+    """Output is stable across insertion order — shuffled input yields the same report."""
     from screw_agents.aggregation import aggregate_fp_report
+    import random
     exclusions = [
         _excl(id=f"fp-2026-04-14-{i:03d}", agent="sqli", pattern="bbb",
               file=f"src/s{i}.py", line=10, reason="r")
@@ -436,30 +437,64 @@ def test_aggregate_fp_report_deterministic_ordering_across_ties():
         _excl(id=f"fp-2026-04-14-{i+100:03d}", agent="sqli", pattern="aaa",
               file=f"src/s{i}.py", line=10, reason="r")
         for i in range(3)
+    ] + [
+        _excl(id=f"fp-2026-04-14-{i+200:03d}", agent="cmdi", pattern="mmm",
+              file=f"src/c{i}.py", line=10, reason="r")
+        for i in range(3)
     ]
-    report = aggregate_fp_report(exclusions)
-    patterns = [p.pattern for p in report.top_fp_patterns]
-    # Tied on count (3 each); secondary sort key is (agent, cwe, pattern) ascending
-    # so "aaa" appears before "bbb"
-    assert patterns == ["aaa", "bbb"]
+    baseline = aggregate_fp_report(list(exclusions))
+    baseline_shape = [
+        (p.agent, p.cwe, p.pattern, p.fp_count) for p in baseline.top_fp_patterns
+    ]
+
+    rng = random.Random(42)
+    for _ in range(10):
+        shuffled = list(exclusions)
+        rng.shuffle(shuffled)
+        report = aggregate_fp_report(shuffled)
+        shape = [
+            (p.agent, p.cwe, p.pattern, p.fp_count) for p in report.top_fp_patterns
+        ]
+        assert shape == baseline_shape
+
+    # Also verify the specific tie-break outcome: sqli/CWE-89/aaa vs sqli/CWE-89/bbb
+    # tie on count=3 — lexicographic pattern ascending puts aaa first.
+    # cmdi/CWE-89/mmm also ties on count=3 — cross-agent tie-break: agent asc,
+    # so cmdi before sqli.
+    patterns_ordered = [(p.agent, p.pattern) for p in baseline.top_fp_patterns]
+    assert patterns_ordered == [("cmdi", "mmm"), ("sqli", "aaa"), ("sqli", "bbb")]
 
 
 def test_aggregate_fp_report_reason_cap_at_five():
-    """example_reasons is capped at _FP_REPORT_MAX_REASONS (5) unique reasons."""
+    """example_reasons is capped at 5 unique reasons, ranked by frequency."""
     from screw_agents.aggregation import aggregate_fp_report
-    # 7 exclusions with 7 unique reasons — report caps at 5
-    exclusions = [
-        _excl(id=f"fp-2026-04-14-{i:03d}", agent="sqli", pattern="p",
-              file=f"src/s{i}.py", line=10, reason=f"reason_{i}")
-        for i in range(7)
+    # Construct exclusions where reason frequencies are clearly ordered:
+    # "most_common" x 10, "second" x 5, "third" x 3, "fourth" x 2, "fifth" x 1, "sixth" x 1
+    # Total = 22 exclusions; one bucket of 22.
+    exclusions = []
+    reason_counts = [
+        ("most_common", 10),
+        ("second", 5),
+        ("third", 3),
+        ("fourth", 2),
+        ("fifth", 1),
+        ("sixth", 1),
     ]
+    idx = 0
+    for reason, count in reason_counts:
+        for _ in range(count):
+            exclusions.append(
+                _excl(id=f"fp-2026-04-14-{idx:03d}", agent="sqli", pattern="p",
+                      file=f"src/s{idx}.py", line=10, reason=reason)
+            )
+            idx += 1
     report = aggregate_fp_report(exclusions)
     assert len(report.top_fp_patterns) == 1
-    assert len(report.top_fp_patterns[0].example_reasons) == 5
-    # Lexicographic order enforced
-    assert report.top_fp_patterns[0].example_reasons == sorted(
-        report.top_fp_patterns[0].example_reasons
-    )
+    reasons = report.top_fp_patterns[0].example_reasons
+    # Top-5 by frequency, tie-break lexicographic ascending on reason string
+    # frequency ranking: most_common (10), second (5), third (3), fourth (2), then fifth (1) vs sixth (1)
+    # fifth < sixth lexicographically, so fifth wins the tie
+    assert reasons == ["most_common", "second", "third", "fourth", "fifth"]
 
 
 def test_aggregate_fp_report_same_pattern_cross_agent_stays_separate():
@@ -477,3 +512,56 @@ def test_aggregate_fp_report_same_pattern_cross_agent_stays_separate():
     report = aggregate_fp_report(exclusions)
     agents = sorted(p.agent for p in report.top_fp_patterns)
     assert agents == ["cmdi", "sqli"]
+
+
+def test_aggregate_fp_report_mixed_fixture_quarantine_empty_below_above_threshold():
+    """Quarantined + empty-pattern + below-threshold + above-threshold all in one fixture."""
+    from screw_agents.aggregation import aggregate_fp_report
+    exclusions = []
+
+    # Bucket A: 5 entries, 1 quarantined -> 4 counted (above threshold)
+    for i in range(5):
+        exclusions.append(
+            _excl(id=f"fp-2026-04-14-a{i:03d}", agent="sqli",
+                  pattern="bucket_a", file=f"src/a{i}.py", line=10,
+                  reason="r")
+        )
+    exclusions[0].quarantined = True
+
+    # Bucket B: 2 entries (below threshold — should not appear)
+    for i in range(2):
+        exclusions.append(
+            _excl(id=f"fp-2026-04-14-b{i:03d}", agent="sqli",
+                  pattern="bucket_b", file=f"src/b{i}.py", line=10,
+                  reason="r")
+        )
+
+    # Bucket C: 3 entries all with empty code_pattern -> should not bucket
+    for i in range(3):
+        exclusions.append(
+            Exclusion(
+                id=f"fp-2026-04-14-c{i:03d}",
+                created="2026-04-14T10:00:00Z",
+                agent="sqli",
+                finding=ExclusionFinding(
+                    file=f"src/c{i}.py", line=10, code_pattern="", cwe="CWE-89"
+                ),
+                reason="r",
+                scope=ExclusionScope(type="exact_line", path=f"src/c{i}.py"),
+            )
+        )
+
+    # Bucket D: 4 entries (above threshold)
+    for i in range(4):
+        exclusions.append(
+            _excl(id=f"fp-2026-04-14-d{i:03d}", agent="cmdi",
+                  pattern="bucket_d", file=f"src/d{i}.py", line=10,
+                  reason="r")
+        )
+
+    report = aggregate_fp_report(exclusions)
+    # Expect only buckets A (count=4) and D (count=4) — both tied, so
+    # deterministic tie-break by (agent, cwe, pattern) applies:
+    # cmdi/CWE-89/bucket_d vs sqli/CWE-89/bucket_a -> cmdi wins
+    patterns = [(p.agent, p.pattern, p.fp_count) for p in report.top_fp_patterns]
+    assert patterns == [("cmdi", "bucket_d", 4), ("sqli", "bucket_a", 4)]
