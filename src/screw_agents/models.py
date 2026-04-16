@@ -263,7 +263,7 @@ class Exclusion(ExclusionInput):
     def model_dump(
         self,
         *,
-        mode: Literal["json", "python"] | str = "python",
+        mode: Literal["json", "python"] = "python",
         include: IncEx | None = None,
         exclude: IncEx | None = None,
         context: Any | None = None,

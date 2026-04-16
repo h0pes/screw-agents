@@ -56,6 +56,13 @@ class ScanEngine:
         Ed25519 verification pass. `assemble_scan` passes this through to avoid
         paying the load cost twice on every scan invocation. MCP tool callers
         (server.py) omit it and let this function self-load.
+
+        Raises:
+            ValueError: Propagated from `learning.load_exclusions` when
+                `.screw/learning/exclusions.yaml` is malformed or
+                `.screw/config.yaml` is schema-invalid. Callers should
+                surface this as a loud trust-relevant error rather than
+                degrade to zero counts.
         """
         if exclusions is None:
             exclusions = load_exclusions(project_root)

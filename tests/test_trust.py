@@ -20,6 +20,7 @@ from screw_agents.models import (
     ScrewConfig,
 )
 from screw_agents.trust import (
+    VerificationResult,
     _public_key_to_openssh_line,
     canonicalize_exclusion,
     canonicalize_script,
@@ -29,7 +30,6 @@ from screw_agents.trust import (
     verify_script,
     verify_signature,
 )
-from screw_agents.trust import VerificationResult
 
 
 @pytest.fixture
