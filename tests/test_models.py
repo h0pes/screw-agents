@@ -566,3 +566,60 @@ def test_screw_config_rejects_invalid_legacy_policy():
         ScrewConfig(legacy_unsigned_exclusions="nonsense")
 
 
+def test_pattern_suggestion_model():
+    from screw_agents.models import PatternSuggestion
+
+    sugg = PatternSuggestion(
+        pattern="db.text_search(*)",
+        agent="sqli",
+        cwe="CWE-89",
+        evidence={"exclusion_count": 12, "files_affected": ["a.py", "b.py"]},
+        suggestion="Consider adding to project-wide safe patterns.",
+        confidence="high",
+    )
+    assert sugg.pattern == "db.text_search(*)"
+    assert sugg.confidence == "high"
+
+
+def test_directory_suggestion_model():
+    from screw_agents.models import DirectorySuggestion
+
+    sugg = DirectorySuggestion(
+        directory="test/",
+        agent="sqli",
+        evidence={"total_findings": 12, "all_fp": True},
+        suggestion="Add test/** directory exclusion.",
+        confidence="high",
+    )
+    assert sugg.directory == "test/"
+
+
+def test_fp_pattern_and_fp_report():
+    from screw_agents.models import FPPattern, FPReport
+
+    pattern = FPPattern(
+        agent="sqli",
+        cwe="CWE-89",
+        pattern="execute\\(f\"",
+        fp_count=47,
+        example_reasons=["static query", "test fixture"],
+        candidate_heuristic_refinement="lower confidence on bounded f-strings",
+    )
+    report = FPReport(
+        generated_at="2026-04-14T10:00:00Z",
+        scope="project",
+        top_fp_patterns=[pattern],
+    )
+    assert report.top_fp_patterns[0].fp_count == 47
+
+
+def test_aggregate_report_model():
+    from screw_agents.models import AggregateReport, FPReport
+
+    report = AggregateReport(
+        pattern_confidence=[],
+        directory_suggestions=[],
+        fp_report=FPReport(generated_at="2026-04-14T10:00:00Z", scope="project", top_fp_patterns=[]),
+    )
+    assert report.pattern_confidence == []
+

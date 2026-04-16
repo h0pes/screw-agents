@@ -354,3 +354,56 @@ class Finding(BaseModel):
     analysis: FindingAnalysis
     remediation: FindingRemediation
     triage: FindingTriage = FindingTriage()
+
+
+# ---------------------------------------------------------------------------
+# Aggregation Models (Phase 3a PR#2 — learning reports)
+# ---------------------------------------------------------------------------
+
+
+class PatternSuggestion(BaseModel):
+    """Feature 1 output: project-wide safe pattern candidates."""
+
+    pattern: str
+    agent: str
+    cwe: str
+    evidence: dict[str, Any]
+    suggestion: str
+    confidence: Literal["low", "medium", "high"]
+
+
+class DirectorySuggestion(BaseModel):
+    """Feature 2 output: directory-scope exclusion candidates."""
+
+    directory: str
+    agent: str
+    evidence: dict[str, Any]
+    suggestion: str
+    confidence: Literal["low", "medium", "high"]
+
+
+class FPPattern(BaseModel):
+    """A single false-positive pattern in the FP report."""
+
+    agent: str
+    cwe: str
+    pattern: str
+    fp_count: int
+    example_reasons: list[str]
+    candidate_heuristic_refinement: str
+
+
+class FPReport(BaseModel):
+    """Feature 4 output: false-positive signal for Phase 4 autoresearch."""
+
+    generated_at: str
+    scope: Literal["project", "global"]
+    top_fp_patterns: list[FPPattern]
+
+
+class AggregateReport(BaseModel):
+    """Unified output of the three aggregation features."""
+
+    pattern_confidence: list[PatternSuggestion]
+    directory_suggestions: list[DirectorySuggestion]
+    fp_report: FPReport
