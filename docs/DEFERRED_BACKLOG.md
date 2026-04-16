@@ -138,6 +138,13 @@
 **Trigger:** Task 21 implementation OR during the first real-world subagent run if a reason contains Markdown-structural characters.
 **Suggested fix:** In `screw-learning-analyst.md`, add rule: "When rendering `evidence.reason_distribution` keys, wrap each reason in backticks to prevent Markdown injection from user-controlled exclusion-reason text."
 
+### T19-N1 — Parameterize `aggregate_fp_report` `scope` and tuning constants
+**Source:** Phase 3a PR#2 Task 19 quality review (commit `156508c`)
+**File:** `src/screw_agents/aggregation.py` `aggregate_fp_report`
+**Why deferred:** Currently `scope` is hardcoded `"project"` and `_FP_REPORT_TOP_N=10` / `_FP_REPORT_MIN_COUNT=3` / `_FP_REPORT_MAX_REASONS=5` are module constants. Phase 4 autoresearch may want `"global"` scope (cross-project rollups), and different consumers may want different top-N caps (Phase 4 per-agent vs. display per-report). Adding parameters now without a known consumer shape would be speculative; the FPReport model already supports `Literal["project", "global"]`.
+**Trigger:** Phase 4 autoresearch implementation, OR when Task 20's MCP tool gets a second consumer that needs different tuning.
+**Suggested fix:** Add `*, scope: Literal["project", "global"] = "project", top_n: int | None = None, min_count: int | None = None, max_reasons: int | None = None` kwargs — defaults fall through to the module constants.
+
 ### T16-N1 — `AggregateReport.generated_at` convenience field
 **Source:** Phase 3a PR#2 Task 16 quality review (commit `bb3b7a0`)
 **File:** `src/screw_agents/models.py` `AggregateReport`
