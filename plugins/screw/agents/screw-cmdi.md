@@ -61,13 +61,20 @@ Read the `core_prompt` — it has detection heuristics, bypass techniques, and e
 }
 ```
 
+**Field-population rules (mandatory):**
+
+- `location.line_start` and `location.line_end` MUST point at the line(s) containing the actual vulnerable expression (e.g., the `os.system(...)` / `subprocess.call(..., shell=True)` call itself), NOT a preceding comment, blank line, decorator, or function declaration. Re-read the source to confirm before emitting. Off-by-one line numbers degrade traceability for the user reading the report and for downstream tools matching exclusions by `(file, line)`.
+- `classification.cwe` and `classification.owasp_top10` MUST be copied verbatim from the agent metadata returned in the scan response — `meta.cwe_primary` and the agent YAML's `meta.owasp.top10` field. Do NOT derive these from your general training knowledge — the project's source of truth is the agent YAML, not your training data, and the values may differ. If the YAML's value seems wrong (e.g., wrong OWASP Top 10 category for the CWE), that is a separate concern for the agent author to fix; your job is to faithfully render what the agent committed to. Specifically: never substitute `A03:2021` (or any other version/category) for the `owasp_top10` field if the agent's value is `A05:2025` — render exactly what the agent provides.
+- `classification.cwe_name` MUST match the canonical CWE name from MITRE for the cwe id you are using. If unclear, use the short standard form (e.g., `"SQL Injection"` for CWE-89, `"OS Command Injection"` for CWE-78).
+
 ### Step 3: Check Trust Status
 
 The scan response from Step 1 contains a `trust_status` dict in its metadata with four keys: `exclusion_quarantine_count`, `exclusion_active_count`, `script_quarantine_count`, `script_active_count`. Read it before moving on — you will reference it in Step 5's conversational summary.
 
-- If `trust_status.exclusion_quarantine_count > 0`: at least one stored false-positive exclusion is quarantined (unsigned, signed by an untrusted key, or its signature is invalid). The exclusion is NOT being applied — the finding it would have suppressed is currently visible. In Step 5, include a trust-verification line:
+- If `trust_status.exclusion_quarantine_count > 0`: at least one stored false-positive exclusion is quarantined (unsigned, signed by an untrusted key, or its signature is invalid). The exclusion is NOT being applied — the finding it would have suppressed is currently visible. **MANDATORY**: in Step 5, your conversational reply MUST include the following trust-verification line as the FIRST item after the finding-count summary, BEFORE any "Want me to apply / mark / run additional agents" follow-up prompt:
   > ⚠ N exclusions quarantined. Review with `screw-agents validate-exclusion <id>` or bulk-sign with `screw-agents migrate-exclusions`.
-- If `trust_status.script_quarantine_count > 0`: Phase 3b adaptive-analysis scripts are quarantined. In Step 5, include a line pointing to `screw-agents validate-script <name>`. (This branch is always zero in Phase 3a — the count becomes nonzero once Phase 3b ships.)
+  This is a load-bearing user-visibility surface for trust issues. Silently omitting it hides tampered-exclusion warnings from the user — even if the finding-count summary alone seems self-explanatory. NEVER skip this line when the count is non-zero.
+- If `trust_status.script_quarantine_count > 0`: Phase 3b adaptive-analysis scripts are quarantined. In Step 5, include a line pointing to `screw-agents validate-script <name>`. (This branch is always zero in Phase 3a — the count becomes nonzero once Phase 3b ships.) Same mandatory inclusion rule as the exclusion quarantine line above.
 - If both counts are zero: omit the trust section from the conversational summary entirely. Do not add "All exclusions trusted" or similar noise — silence is the correct UX.
 
 The `write_scan_results` Markdown report (Step 4) will also render a "## Trust verification" section automatically, populated from the same `trust_status` data. Your Step 5 conversational summary is a user-visible teaser pointing at the detailed report; both surfaces show the same numbers.
@@ -89,7 +96,7 @@ mcp__screw-agents__write_scan_results({
 
 Using the scan response (Step 1) and `write_scan_results` response (Step 4):
 1. Tell the user: finding count, severity breakdown, key highlights
-2. If trust_status had non-zero quarantine counts (from Step 3), include the trust-verification line(s) described there
+2. **MANDATORY**: if trust_status had non-zero quarantine counts (from Step 3), include the trust-verification line(s) described there as the FIRST item after the finding-count summary. Never skip — this is the load-bearing user-visibility surface for trust issues.
 3. Reference the written report files from `files_written`
 4. Mention any suppressed findings from `exclusions_applied`
 5. Offer: "Apply a fix?", "Mark a finding as false positive?", "Run another agent?"

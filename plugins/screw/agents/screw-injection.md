@@ -42,9 +42,10 @@ For each agent payload:
 
 The scan response from Step 1 contains a `trust_status` dict in its metadata with four keys: `exclusion_quarantine_count`, `exclusion_active_count`, `script_quarantine_count`, `script_active_count`. Read it before moving on — you will reference it in Step 5's conversational summary.
 
-- If `trust_status.exclusion_quarantine_count > 0`: at least one stored false-positive exclusion is quarantined (unsigned, signed by an untrusted key, or its signature is invalid). The exclusion is NOT being applied — the finding it would have suppressed is currently visible. In Step 5, include a trust-verification line:
+- If `trust_status.exclusion_quarantine_count > 0`: at least one stored false-positive exclusion is quarantined (unsigned, signed by an untrusted key, or its signature is invalid). The exclusion is NOT being applied — the finding it would have suppressed is currently visible. **MANDATORY**: in Step 5, your conversational reply MUST include the following trust-verification line as the FIRST item after the finding-count summary, BEFORE any "Want me to apply / mark / run additional agents" follow-up prompt:
   > ⚠ N exclusions quarantined. Review with `screw-agents validate-exclusion <id>` or bulk-sign with `screw-agents migrate-exclusions`.
-- If `trust_status.script_quarantine_count > 0`: Phase 3b adaptive-analysis scripts are quarantined. In Step 5, include a line pointing to `screw-agents validate-script <name>`. (This branch is always zero in Phase 3a — the count becomes nonzero once Phase 3b ships.)
+  This is a load-bearing user-visibility surface for trust issues. Silently omitting it hides tampered-exclusion warnings from the user — even if the finding-count summary alone seems self-explanatory. NEVER skip this line when the count is non-zero.
+- If `trust_status.script_quarantine_count > 0`: Phase 3b adaptive-analysis scripts are quarantined. In Step 5, include a line pointing to `screw-agents validate-script <name>`. (This branch is always zero in Phase 3a — the count becomes nonzero once Phase 3b ships.) Same mandatory inclusion rule as the exclusion quarantine line above.
 - If both counts are zero: omit the trust section from the conversational summary entirely. Do not add "All exclusions trusted" or similar noise — silence is the correct UX.
 
 The `write_scan_results` Markdown report (Step 4) will also render a "## Trust verification" section automatically, populated from the same `trust_status` data. Your Step 5 conversational summary is a user-visible teaser pointing at the detailed report; both surfaces show the same numbers.
@@ -68,7 +69,7 @@ This automatically handles exclusion matching, formatting, directory creation, a
 
 Using the scan response (Step 1) and `write_scan_results` response (Step 4):
 1. Total findings, breakdown by agent and severity
-2. If trust_status had non-zero quarantine counts (from Step 3), include the trust-verification line(s) described there
+2. **MANDATORY**: if trust_status had non-zero quarantine counts (from Step 3), include the trust-verification line(s) described there as the FIRST item after the finding-count summary. Never skip — this is the load-bearing user-visibility surface for trust issues.
 3. Reference written report files
 4. Note any suppressed findings
 5. Offer: apply fixes, mark FPs, run deeper scan

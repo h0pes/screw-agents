@@ -54,6 +54,6 @@ After orchestrators return:
 1. Which domains were scanned, which were skipped
 2. Total findings by severity across all domains
 3. Per-domain summary
-4. **Trust verification consolidation**: if any domain orchestrator's output mentioned quarantined exclusions or quarantined scripts, include a consolidated "Trust verification" section listing the affected domains and pointing users to the relevant CLI subcommands (`screw-agents migrate-exclusions`, `screw-agents validate-exclusion <id>`, and Phase 3b `screw-agents validate-script <name>`). If all domain outputs reported clean trust state, omit this section entirely.
+4. **MANDATORY — Trust verification consolidation**: if any domain orchestrator's output mentioned quarantined exclusions or quarantined scripts, include a consolidated "Trust verification" section as the FIRST item after the finding-count summary (BEFORE the per-domain breakdown), listing the affected domains and pointing users to the relevant CLI subcommands (`screw-agents migrate-exclusions`, `screw-agents validate-exclusion <id>`, and Phase 3b `screw-agents validate-script <name>`). Never skip this when any domain reported quarantine — it is the load-bearing user-visibility surface for trust issues. If all domain outputs reported clean trust state, omit this section entirely (silence is correct UX).
 5. The orchestrators already wrote reports to `.screw/findings/` — reference those paths
 6. Offer: "Want to dig into any specific finding or domain?"
