@@ -334,3 +334,146 @@ def test_aggregate_directory_suggestions_tie_break_is_deterministic():
     # With max((count, reason)) tie-break, "beta" > "alpha" lexicographically
     # so beta wins the tie
     assert "'beta'" in suggestions[0].suggestion
+
+
+# ---------------------------------------------------------------------------
+# Task 19 — aggregate_fp_report (Feature 4, Phase 4 autoresearch signal)
+# ---------------------------------------------------------------------------
+
+
+def test_aggregate_fp_report_surfaces_top_patterns():
+    """The FP report sorts patterns by count and includes example reasons."""
+    from screw_agents.aggregation import aggregate_fp_report
+
+    exclusions = [
+        _excl(id=f"fp-2026-04-14-{i:03d}", agent="sqli", pattern="execute(f\"",
+              file=f"src/s{i}.py", line=10, reason="static query")
+        for i in range(15)
+    ] + [
+        _excl(id=f"fp-2026-04-14-{i+100:03d}", agent="sqli", pattern="raw_sql(*)",
+              file=f"src/s{i}.py", line=20, reason="test fixture")
+        for i in range(5)
+    ]
+
+    report = aggregate_fp_report(exclusions)
+    assert report.scope == "project"
+    assert len(report.top_fp_patterns) >= 1
+    # Top pattern should be execute(f" with count 15
+    assert report.top_fp_patterns[0].fp_count == 15
+    assert report.top_fp_patterns[0].pattern == "execute(f\""
+    assert "static query" in report.top_fp_patterns[0].example_reasons
+
+
+def test_aggregate_fp_report_empty_when_no_exclusions():
+    from screw_agents.aggregation import aggregate_fp_report
+
+    report = aggregate_fp_report([])
+    assert report.top_fp_patterns == []
+
+
+def test_aggregate_fp_report_generated_at_is_iso8601_utc():
+    """The timestamp is strict ISO-8601 with trailing Z (UTC, no offset drift)."""
+    from screw_agents.aggregation import aggregate_fp_report
+    import re
+    report = aggregate_fp_report([])
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", report.generated_at)
+
+
+def test_aggregate_fp_report_skips_quarantined_and_empty_pattern():
+    """Quarantined exclusions and empty code_patterns never reach the report."""
+    from screw_agents.aggregation import aggregate_fp_report
+    exclusions = [
+        _excl(id=f"fp-2026-04-14-{i:03d}", agent="sqli", pattern="real_pattern",
+              file=f"src/s{i}.py", line=10, reason=f"r{i}")
+        for i in range(5)
+    ]
+    # Quarantine one of the "real_pattern" entries
+    exclusions[0].quarantined = True
+    # Add 3 empty-pattern entries — these should not form a bucket
+    exclusions += [
+        Exclusion(
+            id=f"fp-2026-04-14-{i+900:03d}",
+            created="2026-04-14T10:00:00Z",
+            agent="sqli",
+            finding=ExclusionFinding(
+                file=f"src/s{i}.py", line=99, code_pattern="", cwe="CWE-89"
+            ),
+            reason="empty-pattern",
+            scope=ExclusionScope(type="exact_line", path=f"src/s{i}.py"),
+        )
+        for i in range(3)
+    ]
+    report = aggregate_fp_report(exclusions)
+    assert len(report.top_fp_patterns) == 1
+    assert report.top_fp_patterns[0].pattern == "real_pattern"
+    assert report.top_fp_patterns[0].fp_count == 4  # 5 - 1 quarantined
+
+
+def test_aggregate_fp_report_top_n_cap():
+    """The report caps at _FP_REPORT_TOP_N patterns even with more qualifying buckets."""
+    from screw_agents.aggregation import aggregate_fp_report
+    # Create 15 distinct patterns, each with 3 exclusions (at min threshold)
+    exclusions = []
+    for p in range(15):
+        for i in range(3):
+            exclusions.append(
+                _excl(id=f"fp-2026-04-14-{p:03d}-{i}", agent="sqli",
+                      pattern=f"pattern_{p}", file=f"src/s{p}_{i}.py",
+                      line=10, reason="r")
+            )
+    report = aggregate_fp_report(exclusions)
+    assert len(report.top_fp_patterns) == 10  # _FP_REPORT_TOP_N
+
+
+def test_aggregate_fp_report_deterministic_ordering_across_ties():
+    """Patterns tied on fp_count sort deterministically by (agent, cwe, pattern)."""
+    from screw_agents.aggregation import aggregate_fp_report
+    exclusions = [
+        _excl(id=f"fp-2026-04-14-{i:03d}", agent="sqli", pattern="bbb",
+              file=f"src/s{i}.py", line=10, reason="r")
+        for i in range(3)
+    ] + [
+        _excl(id=f"fp-2026-04-14-{i+100:03d}", agent="sqli", pattern="aaa",
+              file=f"src/s{i}.py", line=10, reason="r")
+        for i in range(3)
+    ]
+    report = aggregate_fp_report(exclusions)
+    patterns = [p.pattern for p in report.top_fp_patterns]
+    # Tied on count (3 each); secondary sort key is (agent, cwe, pattern) ascending
+    # so "aaa" appears before "bbb"
+    assert patterns == ["aaa", "bbb"]
+
+
+def test_aggregate_fp_report_reason_cap_at_five():
+    """example_reasons is capped at _FP_REPORT_MAX_REASONS (5) unique reasons."""
+    from screw_agents.aggregation import aggregate_fp_report
+    # 7 exclusions with 7 unique reasons — report caps at 5
+    exclusions = [
+        _excl(id=f"fp-2026-04-14-{i:03d}", agent="sqli", pattern="p",
+              file=f"src/s{i}.py", line=10, reason=f"reason_{i}")
+        for i in range(7)
+    ]
+    report = aggregate_fp_report(exclusions)
+    assert len(report.top_fp_patterns) == 1
+    assert len(report.top_fp_patterns[0].example_reasons) == 5
+    # Lexicographic order enforced
+    assert report.top_fp_patterns[0].example_reasons == sorted(
+        report.top_fp_patterns[0].example_reasons
+    )
+
+
+def test_aggregate_fp_report_same_pattern_cross_agent_stays_separate():
+    """Identical pattern under different agents produces two FPPattern entries."""
+    from screw_agents.aggregation import aggregate_fp_report
+    exclusions = [
+        _excl(id=f"fp-2026-04-14-{i:03d}", agent="sqli", pattern="shared",
+              file=f"src/s{i}.py", line=10, reason="r")
+        for i in range(3)
+    ] + [
+        _excl(id=f"fp-2026-04-14-{i+100:03d}", agent="cmdi", pattern="shared",
+              file=f"src/c{i}.py", line=10, reason="r")
+        for i in range(3)
+    ]
+    report = aggregate_fp_report(exclusions)
+    agents = sorted(p.agent for p in report.top_fp_patterns)
+    assert agents == ["cmdi", "sqli"]

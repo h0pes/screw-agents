@@ -11,11 +11,14 @@ of the same signed exclusions database.
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import datetime, timezone
 from typing import Literal
 
 from screw_agents.models import (
     DirectorySuggestion,
     Exclusion,
+    FPPattern,
+    FPReport,
     PatternSuggestion,
 )
 
@@ -170,3 +173,76 @@ def aggregate_directory_suggestions(exclusions: list[Exclusion]) -> list[Directo
             )
         )
     return suggestions
+
+
+# Thresholds for the FP report (Feature 4 — Phase 4 autoresearch signal).
+_FP_REPORT_TOP_N = 10
+_FP_REPORT_MIN_COUNT = 3
+_FP_REPORT_MAX_REASONS = 5  # Number of example_reasons to include per FPPattern
+
+
+def aggregate_fp_report(exclusions: list[Exclusion]) -> FPReport:
+    """Produce a ranked list of FP patterns suitable for Phase 4 autoresearch.
+
+    Groups by (agent, cwe, code_pattern) — same triple as aggregate_pattern_confidence
+    so the two signals are directly comparable. Returns the top _FP_REPORT_TOP_N
+    buckets (ranked by fp_count descending, with deterministic tie-break on
+    (count, agent, cwe, pattern)), filtered to bucket size >= _FP_REPORT_MIN_COUNT.
+
+    Only trusted (non-quarantined) exclusions with a non-empty code_pattern are
+    counted.
+
+    The output is consumed by:
+    - Task 21 subagent (human-readable report)
+    - Phase 4 autoresearch loop (machine-readable YAML-refinement signal — Phase 3b
+      Task 18 references this contract in docs/PHASE_3B_PLAN.md lines 56-61).
+    """
+    buckets: dict[tuple[str, str, str], list[Exclusion]] = defaultdict(list)
+    for excl in exclusions:
+        if excl.quarantined:
+            continue
+        if not excl.finding.code_pattern.strip():
+            continue
+        key = (excl.agent, excl.finding.cwe, excl.finding.code_pattern)
+        buckets[key].append(excl)
+
+    # Sort with deterministic tie-break: primary by count desc, then by
+    # (agent, cwe, pattern) ascending for stability across exclusion reorderings.
+    ranked = sorted(
+        (
+            (key, group)
+            for key, group in buckets.items()
+            if len(group) >= _FP_REPORT_MIN_COUNT
+        ),
+        key=lambda item: (-len(item[1]), item[0]),
+    )[:_FP_REPORT_TOP_N]
+
+    patterns: list[FPPattern] = []
+    for (agent, cwe, pattern), group in ranked:
+        # Take up to _FP_REPORT_MAX_REASONS unique reasons, deterministically
+        # ordered (lexicographic) for stability.
+        reasons = sorted({e.reason for e in group})[:_FP_REPORT_MAX_REASONS]
+
+        # The suggestion text embeds the pattern as inline code so user-controlled
+        # content doesn't inject into Markdown structure.
+        first_reason = reasons[0] if reasons else "n/a"
+        patterns.append(
+            FPPattern(
+                agent=agent,
+                cwe=cwe,
+                pattern=pattern,
+                fp_count=len(group),
+                example_reasons=reasons,
+                candidate_heuristic_refinement=(
+                    f"{agent} agent may benefit from lower confidence on pattern "
+                    f"`{pattern}` (seen in {len(group)} exclusions with reasons "
+                    f"like '{first_reason}')"
+                ),
+            )
+        )
+
+    return FPReport(
+        generated_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        scope="project",
+        top_fp_patterns=patterns,
+    )
