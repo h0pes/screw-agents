@@ -5,6 +5,8 @@ description: "Surface cross-scan learning insights from .screw/learning/exclusio
 
 # /screw:learning-report
 
+> **Slash-command name:** Claude Code 2.x registers this command under its file basename (`learning-report`), not the `name: screw:learning-report` frontmatter. Invoke as `/learning-report` from the slash-command palette. The `name: screw:learning-report` frontmatter is preserved for forward compatibility with Claude Code versions that honor namespaced slash commands.
+
 Delegate to the `screw-learning-analyst` subagent:
 
 "Present the learning report for this project by calling `aggregate_learning` on the current project root. Show pattern-confidence suggestions, directory-scope exclusion candidates, and the false-positive report. Offer to act on any actionable suggestions by calling `record_exclusion` (with confirmation)."
