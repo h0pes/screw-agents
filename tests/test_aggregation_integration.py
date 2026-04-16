@@ -237,6 +237,12 @@ def test_mixed_state_flow_multi_agent_multi_cwe_with_quarantine(tmp_path: Path):
     assert report["trust_status"]["exclusion_quarantine_count"] == 1
     assert report["trust_status"]["exclusion_active_count"] == 15
 
+    # T21-m2: server-side notice rendering survives the full MCP serialization path
+    notice = report["trust_status"]["notice_markdown"]
+    assert notice, "notice_markdown must be populated when quarantine_count > 0"
+    assert "quarantine" in notice.lower()
+    assert "unsigned or signed by an untrusted key" in notice
+
     # 8. Pattern confidence: three distinct buckets (agent, cwe, pattern triple)
     #    must survive the mixed fixture. Quarantined entry reduces the
     #    sqli+CWE-89 bucket from 10 -> 9 (still HIGH).

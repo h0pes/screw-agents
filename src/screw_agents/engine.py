@@ -122,6 +122,11 @@ class ScanEngine:
             honestly: aggregation silently skips quarantined exclusions,
             so the tool must report how many were skipped. Mirrors the
             scan-response ``trust_status`` contract from PR#1 Task 10.
+            The ``trust_status`` dict ALWAYS contains a ``notice_markdown: str``
+            key (T21-m2): an empty string when ``exclusion_quarantine_count == 0``,
+            or a pre-rendered Markdown block when > 0 that the subagent outputs
+            verbatim. Prevents cross-model-version paraphrasing drift observed
+            in PR#2 round-trip testing.
 
         Raises:
             ValueError: If `report_type` is not a recognised value, OR

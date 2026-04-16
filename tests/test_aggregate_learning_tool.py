@@ -168,6 +168,14 @@ def test_aggregate_learning_emits_trust_notice_when_quarantined(tmp_path: Path):
     assert "**" in notice
     assert "`screw-agents validate-exclusion" in notice
     assert "`screw-agents migrate-exclusions`" in notice
+    # Singular noun form when exactly one exclusion quarantined (this test seeds exactly 1)
+    assert "**1 exclusion quarantined**" in notice, \
+        "template must use singular 'exclusion' for count=1 AND bold-wrap the full phrase"
+    # Reason phrase — catches template drift on the operator-facing security explanation
+    assert "unsigned or signed by an untrusted key" in notice
+    # Hint verbs — catches template drift on the remediation instructions
+    assert "Review with" in notice
+    assert "bulk-sign with" in notice
 
 
 def test_aggregate_learning_omits_trust_notice_when_clean(tmp_path: Path):
