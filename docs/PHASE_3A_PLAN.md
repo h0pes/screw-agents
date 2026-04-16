@@ -3323,10 +3323,14 @@ def test_aggregate_learning_with_seeded_exclusions(tmp_path: Path):
     assert report["pattern_confidence"][0]["pattern"] == "db.text_search(*)"
     assert "fp_report" in report
     assert len(report["fp_report"]["top_fp_patterns"]) >= 1
+    # trust_status is always present regardless of report_type
+    assert "trust_status" in report
+    assert report["trust_status"]["exclusion_active_count"] == 12
+    assert report["trust_status"]["exclusion_quarantine_count"] == 0
 
 
 def test_aggregate_learning_filters_report_type(tmp_path: Path):
-    """report_type='pattern_confidence' returns only that section."""
+    """report_type='pattern_confidence' returns only that section (+ trust_status)."""
     engine = ScanEngine.from_defaults()
     report = engine.aggregate_learning(
         project_root=tmp_path, report_type="pattern_confidence"
@@ -3334,6 +3338,46 @@ def test_aggregate_learning_filters_report_type(tmp_path: Path):
     assert "pattern_confidence" in report
     assert "directory_suggestions" not in report
     assert "fp_report" not in report
+    # trust_status is ALWAYS present even when filtering report_type
+    assert "trust_status" in report
+
+
+def test_aggregate_learning_surfaces_quarantined_count(tmp_path: Path):
+    """trust_status reports quarantined exclusions separately from active."""
+    from screw_agents.cli.init_trust import run_init_trust
+    from screw_agents.learning import record_exclusion
+    from screw_agents.models import ExclusionFinding, ExclusionInput, ExclusionScope
+
+    run_init_trust(project_root=tmp_path, name="Marco", email="marco@example.com")
+
+    # Record 3 valid exclusions
+    for i in range(3):
+        record_exclusion(
+            tmp_path,
+            ExclusionInput(
+                agent="sqli",
+                finding=ExclusionFinding(
+                    file=f"src/s{i}.py", line=10, code_pattern="safe_call(*)", cwe="CWE-89"
+                ),
+                reason="safe",
+                scope=ExclusionScope(type="pattern", pattern="safe_call(*)"),
+            ),
+        )
+
+    # Tamper one entry's signature so it quarantines on reload
+    excl_path = tmp_path / ".screw" / "learning" / "exclusions.yaml"
+    text = excl_path.read_text()
+    # Corrupt the first signature by swapping one character in the base64 payload
+    text = text.replace("signature: '", "signature: 'A", 1)
+    excl_path.write_text(text)
+
+    engine = ScanEngine.from_defaults()
+    report = engine.aggregate_learning(project_root=tmp_path, report_type="all")
+    assert report["trust_status"]["exclusion_quarantine_count"] == 1
+    assert report["trust_status"]["exclusion_active_count"] == 2
+    # Only active (2) exclusions count toward aggregation, so no pattern-confidence suggestion
+    # (threshold is >= 3 for _PATTERN_MIN_COUNT).
+    assert report["pattern_confidence"] == []
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -3343,6 +3387,8 @@ Run: `uv run pytest tests/test_aggregate_learning_tool.py -v`
 Expected: FAIL with `AttributeError: 'ScanEngine' object has no attribute 'aggregate_learning'`
 
 - [ ] **Step 3: Add `aggregate_learning` method on ScanEngine**
+
+> **Contract note (resolved 2026-04-16 during pre-task audit):** Every `aggregate_learning` response includes a `trust_status` dict (same shape `verify_trust` returns: `{exclusion_quarantine_count, exclusion_active_count, script_quarantine_count, script_active_count}`). Reasoning: aggregation silently skips quarantined exclusions, so the tool must surface how many were skipped — otherwise the analyst subagent can't honestly tell the user "N entries are quarantined and excluded from this report." Mirrors the scan-response trust_status pattern from PR#1 Task 10. Task 21's subagent prompt depends on this.
 
 In `src/screw_agents/engine.py`, add:
 
@@ -3368,8 +3414,11 @@ def aggregate_learning(
         report_type: one of "all", "pattern_confidence", "directory_suggestions", "fp_report".
 
     Returns:
-        Dict containing the requested report sections. Sections not requested
-        are omitted entirely (not empty — absent). "all" returns all three.
+        Dict containing the requested report sections plus a `trust_status`
+        key. Sections not requested are omitted entirely (not empty —
+        absent). "all" returns all three report sections. `trust_status`
+        is ALWAYS present regardless of report_type so callers can surface
+        quarantine counts honestly.
     """
     exclusions = load_exclusions(project_root)
 
@@ -3385,52 +3434,67 @@ def aggregate_learning(
     if report_type in ("all", "fp_report"):
         result["fp_report"] = aggregate_fp_report(exclusions).model_dump()
 
+    # Reuse the already-loaded list to avoid a duplicate YAML parse + verify pass.
+    result["trust_status"] = self.verify_trust(
+        project_root=project_root, exclusions=exclusions
+    )
     return result
 ```
 
-- [ ] **Step 4: Register the MCP tool in `server.py`**
+- [ ] **Step 4: Register the MCP tool in `engine.list_tool_definitions` + `server._dispatch_tool`**
 
-In `src/screw_agents/server.py`:
+> **Surface note (resolved 2026-04-16 during pre-task audit):** Option A CLI unification (PR#1) left tool registration in `engine.list_tool_definitions()` as `list[dict[str, Any]]` (not `types.Tool` objects), and dispatch in `server._dispatch_tool()` uses top-level `if name == "...": return ...` branches that return raw dicts (the `handle_call_tool` wrapper serializes via `TextContent`). Follow the existing `verify_trust` / `check_exclusions` patterns — do NOT use `Tool(...)` / `elif name == ...` / `[TextContent(...)]` directly (that was a pre-Option-A plan draft).
+
+Add a tool-definition dict entry to `engine.list_tool_definitions()` in `src/screw_agents/engine.py` — matching the existing style (sibling entries `verify_trust`, `check_exclusions`, `record_exclusion`):
 
 ```python
-# In list_tool_definitions():
-Tool(
-    name="aggregate_learning",
-    description=(
+# Phase 3a PR#2: aggregate_learning
+tools.append({
+    "name": "aggregate_learning",
+    "description": (
         "Compute learning reports from the project's exclusions database. "
         "Returns pattern-confidence suggestions, directory-scope exclusion "
         "candidates, and a false-positive report for agent refinement. "
+        "Always includes a trust_status section. "
         "This is on-demand only; do NOT call after every scan."
     ),
-    inputSchema={
+    "input_schema": {
         "type": "object",
         "properties": {
-            "project_root": {"type": "string"},
+            "project_root": {
+                "type": "string",
+                "description": "Absolute path to the project root directory.",
+            },
             "report_type": {
                 "type": "string",
                 "enum": ["all", "pattern_confidence", "directory_suggestions", "fp_report"],
                 "default": "all",
+                "description": "Which report sections to include. 'all' is the default.",
             },
         },
         "required": ["project_root"],
     },
-),
+})
+```
 
-# In _dispatch_tool():
-elif name == "aggregate_learning":
-    project_root = Path(arguments["project_root"])
-    report_type = arguments.get("report_type", "all")
-    result = self.engine.aggregate_learning(
+Add a dispatch branch to `server._dispatch_tool()` in `src/screw_agents/server.py` — following the existing `verify_trust` branch pattern (top-level `if name ==`, returns raw dict, no `TextContent` wrapping):
+
+```python
+# --- Phase 3a PR#2: aggregate_learning ---
+
+if name == "aggregate_learning":
+    project_root = Path(args["project_root"])
+    report_type = args.get("report_type", "all")
+    return engine.aggregate_learning(
         project_root=project_root, report_type=report_type
     )
-    return [TextContent(type="text", text=json.dumps(result))]
 ```
 
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `uv run pytest tests/test_aggregate_learning_tool.py -v`
 
-Expected: 2 passed
+Expected: 3 passed (seeded-exclusions + filters-report-type + surfaces-quarantined-count)
 
 - [ ] **Step 6: Commit**
 
@@ -3472,10 +3536,23 @@ insights" / "aggregation report" / "false positive summary":
 
 1. **Fetch the aggregate report.**
    Call `aggregate_learning(project_root=<absolute path to project root>, report_type="all")`.
-   The response is a dict with three sections: `pattern_confidence`,
-   `directory_suggestions`, `fp_report`.
+   The response is a dict with three report sections (`pattern_confidence`,
+   `directory_suggestions`, `fp_report`) PLUS a mandatory `trust_status` section
+   (always present; counts of active vs quarantined exclusions).
 
-2. **Present each section conversationally.**
+2. **Check trust_status FIRST. MANDATORY.**
+   If `trust_status.exclusion_quarantine_count > 0`, your response MUST open with a
+   warning line BEFORE presenting any report sections:
+
+   > ⚠ **Trust notice:** `{exclusion_quarantine_count}` exclusion(s) are quarantined
+   > and excluded from the reports below. Run
+   > `screw-agents validate-exclusion <id>` to diagnose them, or
+   > `screw-agents migrate-exclusions` if they're legacy unsigned entries.
+
+   Do NOT omit this warning when the count is non-zero — the reports silently skip
+   quarantined entries, so the analyst must surface them explicitly.
+
+3. **Present each section conversationally.**
    - **Pattern Confidence**: "You've marked N exclusions matching pattern X as FP.
      Consider adding it to the project's safe patterns."
    - **Directory Suggestions**: "All N findings in directory/ were marked FP.
@@ -3483,7 +3560,7 @@ insights" / "aggregation report" / "false positive summary":
    - **FP Report**: "Top false-positive patterns for each agent (signal for
      future YAML tuning)."
 
-3. **Offer follow-up actions.**
+4. **Offer follow-up actions.**
    If the user wants to accept a directory suggestion, call `record_exclusion`
    with the suggested scope. Ask for confirmation first.
 
@@ -3493,12 +3570,11 @@ insights" / "aggregation report" / "false positive summary":
   other workflow. Only run it when explicitly asked.
 - Empty reports (no suggestions) are a valid response. Say "No actionable
   patterns yet — keep triaging and check back after you've accumulated more
-  exclusions."
+  exclusions." But still surface `trust_status` if quarantine_count > 0.
 - Never silently accept a suggestion. Always confirm with the user before
   calling `record_exclusion` on their behalf.
-- If `aggregate_learning` returns a `trust_status` section indicating quarantined
-  exclusions, mention it: "Note: some exclusions are quarantined and not counted
-  in this report. Review them with `screw-agents validate-exclusion <id>`."
+- NEVER omit the trust-notice warning when quarantine_count > 0. It is mandatory
+  output, not an optional addendum — users must know their reports are filtered.
 
 ## Output format
 
@@ -3639,10 +3715,11 @@ def test_full_aggregation_flow_signed_exclusions(tmp_path: Path):
     engine = ScanEngine.from_defaults()
     report = engine.aggregate_learning(project_root=tmp_path, report_type="all")
 
-    # 5. Verify all three sections
+    # 5. Verify all three sections + trust_status
     assert "pattern_confidence" in report
     assert "directory_suggestions" in report
     assert "fp_report" in report
+    assert "trust_status" in report
 
     # Pattern confidence: the db.text_search pattern is surfaced
     patterns = {s["pattern"] for s in report["pattern_confidence"]}
@@ -3655,15 +3732,21 @@ def test_full_aggregation_flow_signed_exclusions(tmp_path: Path):
     # FP report: at least one pattern surfaced
     assert len(report["fp_report"]["top_fp_patterns"]) >= 1
 
+    # Trust status: all 17 recorded entries are active, none quarantined
+    assert report["trust_status"]["exclusion_active_count"] == 17
+    assert report["trust_status"]["exclusion_quarantine_count"] == 0
+
 
 def test_empty_exclusions_empty_reports(tmp_path: Path):
-    """With no exclusions, all three sections are present but empty."""
+    """With no exclusions, all three sections are present but empty (+ zero trust counts)."""
     engine = ScanEngine.from_defaults()
     report = engine.aggregate_learning(project_root=tmp_path, report_type="all")
 
     assert report["pattern_confidence"] == []
     assert report["directory_suggestions"] == []
     assert report["fp_report"]["top_fp_patterns"] == []
+    assert report["trust_status"]["exclusion_active_count"] == 0
+    assert report["trust_status"]["exclusion_quarantine_count"] == 0
 ```
 
 - [ ] **Step 2: Run test to verify it passes**
@@ -3684,9 +3767,10 @@ git commit -m "test(phase3a): end-to-end integration test for aggregation flow"
 ## PR #2 Exit Checklist
 
 - [ ] All tests green: `uv run pytest tests/test_aggregation.py tests/test_aggregate_learning_tool.py tests/test_aggregation_integration.py -v`
-- [ ] Manual test: In Claude Code, `/screw:learning-report` produces a report section or a "no patterns yet" message
-- [ ] **Downstream impact review**: open `docs/PHASE_3B_PLAN.md` and scan the "Upstream Dependencies from Phase 3a" section. Reconcile any PR #2 changes (`aggregate_learning` MCP tool schema, aggregation Pydantic model shapes, `screw-learning-analyst` subagent description, FPReport structure) against 3b tasks. 3b's script rejection flow feeds rejection reasons into the FP report — verify the data-flow contract still holds.
-- [ ] PR #2 description references Phase 3a spec §7.2
+- [ ] Full suite green: `uv run pytest -q` (baseline 354 passed; PR#2 adds aggregation + tool + integration tests — expect ~+15)
+- [ ] Manual round-trip test: In a scratch project, `screw-agents init-trust` → seed 12 pattern / 5 test-dir / 3 raw-sql exclusions → tamper one signature → invoke `/screw:learning-report` → verify all three sections render AND the trust notice line for the quarantined entry appears
+- [ ] **Downstream impact review**: open `docs/PHASE_3B_PLAN.md` and scan the "Upstream Dependencies from Phase 3a" section. Reconcile any PR #2 changes (`aggregate_learning` MCP tool schema — note the `trust_status` field is always present, aggregation Pydantic model shapes, `screw-learning-analyst` subagent description, FPReport structure) against 3b tasks. 3b's script rejection flow feeds rejection reasons into the FP report — verify the data-flow contract still holds.
+- [ ] PR #2 description references Phase 3a spec §7.2 AND notes the `trust_status` contract addition (Option B, resolved during pre-task audit)
 
 ---
 
