@@ -14,6 +14,7 @@ from collections import defaultdict
 from typing import Literal
 
 from screw_agents.models import (
+    DirectorySuggestion,
     Exclusion,
     PatternSuggestion,
 )
@@ -77,6 +78,70 @@ def aggregate_pattern_confidence(exclusions: list[Exclusion]) -> list[PatternSug
                 suggestion=(
                     f"Consider adding `{pattern}` to the project-wide safe patterns list "
                     f"for {agent}."
+                ),
+                confidence=confidence,
+            )
+        )
+    return suggestions
+
+
+# Thresholds for confidence levels on directory-scope suggestions.
+_DIR_MIN_COUNT = 3
+_DIR_MEDIUM_COUNT = 5
+_DIR_HIGH_COUNT = 10
+
+
+def aggregate_directory_suggestions(exclusions: list[Exclusion]) -> list[DirectorySuggestion]:
+    """Detect directories where exclusions concentrate, suggesting directory-scope exclusions.
+
+    Groups by (agent, top_dir) where top_dir is the first path component of
+    finding.file plus a trailing slash. Only trusted (non-quarantined) exclusions
+    with a non-empty file path are considered. Buckets meeting _DIR_MIN_COUNT
+    produce a suggestion.
+    """
+    buckets: dict[tuple[str, str], list[Exclusion]] = defaultdict(list)
+    for excl in exclusions:
+        if excl.quarantined:
+            continue
+        # Skip exclusions with no identifiable file path — these are schema-
+        # evolution artifacts or test fixtures and must not synthesize a bogus
+        # directory suggestion.
+        if not excl.finding.file.strip():
+            continue
+        top_dir = excl.finding.file.split("/", 1)[0] + "/"
+        key = (excl.agent, top_dir)
+        buckets[key].append(excl)
+
+    suggestions: list[DirectorySuggestion] = []
+    for (agent, directory), group in buckets.items():
+        if len(group) < _DIR_MIN_COUNT:
+            continue
+
+        reason_counts: dict[str, int] = defaultdict(int)
+        for e in group:
+            reason_counts[e.reason] += 1
+
+        confidence: Literal["low", "medium", "high"]
+        if len(group) >= _DIR_HIGH_COUNT:
+            confidence = "high"
+        elif len(group) >= _DIR_MEDIUM_COUNT:
+            confidence = "medium"
+        else:
+            confidence = "low"
+
+        suggestions.append(
+            DirectorySuggestion(
+                directory=directory,
+                agent=agent,
+                evidence={
+                    "total_findings_in_directory": len(group),
+                    "all_marked_false_positive": True,
+                    "reason_distribution": dict(reason_counts),
+                    "files_affected": sorted({e.finding.file for e in group}),
+                },
+                suggestion=(
+                    f"Add directory-scope exclusion for `{directory}**` "
+                    f"(top reason: '{max(reason_counts, key=reason_counts.get)}')."
                 ),
                 confidence=confidence,
             )

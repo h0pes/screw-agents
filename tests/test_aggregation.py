@@ -153,3 +153,115 @@ def test_aggregate_pattern_confidence_skips_empty_pattern():
         for i in range(5)
     ]
     assert aggregate_pattern_confidence(exclusions) == []
+
+
+# --- Task 18: aggregate_directory_suggestions (Feature 2) ------------------
+
+
+def test_aggregate_directory_suggestions_groups_by_common_prefix():
+    """Exclusions concentrated in a single directory produce a suggestion."""
+    from screw_agents.aggregation import aggregate_directory_suggestions
+
+    exclusions = [
+        _excl(id=f"fp-2026-04-14-{i:03d}", agent="sqli", pattern=f"p{i}",
+              file=f"test/subdir/test_{i}.py", line=10, reason="test fixture")
+        for i in range(8)
+    ]
+    suggestions = aggregate_directory_suggestions(exclusions)
+    assert len(suggestions) >= 1
+    dirs = {s.directory for s in suggestions}
+    assert "test/" in dirs or "test/subdir/" in dirs
+
+
+def test_aggregate_directory_suggestions_requires_min_count():
+    from screw_agents.aggregation import aggregate_directory_suggestions
+
+    exclusions = [
+        _excl(id="fp-2026-04-14-001", agent="sqli", pattern="p", file="test/a.py", line=10, reason="r")
+    ]
+    suggestions = aggregate_directory_suggestions(exclusions)
+    assert len(suggestions) == 0
+
+
+def test_aggregate_directory_suggestions_empty_input():
+    """Empty input returns empty suggestions."""
+    from screw_agents.aggregation import aggregate_directory_suggestions
+    assert aggregate_directory_suggestions([]) == []
+
+
+def test_aggregate_directory_suggestions_skips_empty_file_path():
+    """Empty file paths don't synthesize bogus directory suggestions."""
+    from screw_agents.aggregation import aggregate_directory_suggestions
+    exclusions = [
+        Exclusion(
+            id=f"fp-2026-04-14-{i:03d}",
+            created="2026-04-14T10:00:00Z",
+            agent="sqli",
+            finding=ExclusionFinding(
+                file="", line=10, code_pattern=f"p{i}", cwe="CWE-89"
+            ),
+            reason="r",
+            scope=ExclusionScope(type="pattern", pattern=f"p{i}"),
+        )
+        for i in range(5)
+    ]
+    assert aggregate_directory_suggestions(exclusions) == []
+
+
+def test_aggregate_directory_suggestions_threshold_low_at_min_count():
+    """Exactly _DIR_MIN_COUNT exclusions yields 'low' confidence."""
+    from screw_agents.aggregation import aggregate_directory_suggestions
+    exclusions = [
+        _excl(id=f"fp-2026-04-14-{i:03d}", agent="sqli", pattern=f"p{i}",
+              file=f"test/sub/f{i}.py", line=10, reason="t")
+        for i in range(3)
+    ]
+    suggestions = aggregate_directory_suggestions(exclusions)
+    assert len(suggestions) == 1
+    assert suggestions[0].confidence == "low"
+
+
+def test_aggregate_directory_suggestions_high_threshold_boundary():
+    """Exactly _DIR_HIGH_COUNT (10) exclusions yields 'high' confidence."""
+    from screw_agents.aggregation import aggregate_directory_suggestions
+    exclusions = [
+        _excl(id=f"fp-2026-04-14-{i:03d}", agent="sqli", pattern=f"p{i}",
+              file=f"test/f{i}.py", line=10, reason="t")
+        for i in range(10)
+    ]
+    suggestions = aggregate_directory_suggestions(exclusions)
+    assert len(suggestions) == 1
+    assert suggestions[0].confidence == "high"
+
+
+def test_aggregate_directory_suggestions_skips_quarantined():
+    """Quarantined exclusions don't count toward the directory bucket."""
+    from screw_agents.aggregation import aggregate_directory_suggestions
+    exclusions = [
+        _excl(id=f"fp-2026-04-14-{i:03d}", agent="sqli", pattern=f"p{i}",
+              file=f"test/f{i}.py", line=10, reason="t")
+        for i in range(5)
+    ]
+    exclusions[0].quarantined = True
+    exclusions[1].quarantined = True
+    # Only 3 remaining; still hits min threshold; produces "low" confidence
+    suggestions = aggregate_directory_suggestions(exclusions)
+    assert len(suggestions) == 1
+    assert suggestions[0].confidence == "low"
+
+
+def test_aggregate_directory_suggestions_same_dir_across_agents_doesnt_collapse():
+    """Identical directory under different agents stays separate."""
+    from screw_agents.aggregation import aggregate_directory_suggestions
+    exclusions = [
+        _excl(id=f"fp-2026-04-14-{i:03d}", agent="sqli", pattern=f"p{i}",
+              file=f"test/f{i}.py", line=10, reason="t")
+        for i in range(5)
+    ] + [
+        _excl(id=f"fp-2026-04-14-{i + 100:03d}", agent="cmdi", pattern=f"p{i}",
+              file=f"test/c{i}.py", line=10, reason="t")
+        for i in range(5)
+    ]
+    suggestions = aggregate_directory_suggestions(exclusions)
+    agents = sorted(s.agent for s in suggestions)
+    assert agents == ["cmdi", "sqli"]
