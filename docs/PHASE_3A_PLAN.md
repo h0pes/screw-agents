@@ -40,7 +40,7 @@ PR #1: Trust Infrastructure + Exclusions Retrofit
   │
 PR #2: Learning Aggregation + On-Demand Surface
   ├── Tasks 16-23
-  ├── Goal: pattern/directory/FP-report aggregation via /screw:learning-report
+  ├── Goal: pattern/directory/FP-report aggregation via /screw:learn-report
   ├── Exit: full aggregation flow exercised with seeded exclusions
   │
   ▼ (PR #2 merged, validated)
@@ -73,7 +73,7 @@ Each PR is independently reviewable and mergeable. PR #2 depends on PR #1's sign
 | `src/screw_agents/aggregation.py` | Learning aggregation pipeline (3 feature reports) | PR #2 |
 | `tests/test_aggregation.py` | Unit tests for aggregation module | PR #2 |
 | `plugins/screw/agents/screw-learning-analyst.md` | Subagent that presents aggregation reports conversationally | PR #2 |
-| `plugins/screw/commands/learning-report.md` | `/screw:learning-report` slash command | PR #2 |
+| `plugins/screw/commands/learn-report.md` | `/screw:learn-report` slash command | PR #2 |
 | `tests/test_aggregation_integration.py` | End-to-end tests for aggregation flow | PR #2 |
 | `tests/test_pagination.py` | Integration tests for `scan_domain` cursor pagination | PR #3 |
 | `tests/test_csv_format.py` | Unit tests for CSV formatter | PR #3 |
@@ -89,7 +89,7 @@ Each PR is independently reviewable and mergeable. PR #2 depends on PR #1's sign
 | `src/screw_agents/results.py` | Surface trust status in scan reports; support CSV format in `write_scan_results` | PR #1, PR #3 |
 | `src/screw_agents/formatter.py` | Add `format_csv`; null for empty `impact`/`exploitability`; richer SARIF shortDescription; full CWE names in Markdown | PR #3 |
 | `pyproject.toml` | Add `cryptography` dependency for Ed25519 fallback; register `screw-agents` console script | PR #1 |
-| `plugins/screw/agents/screw-sqli.md` | Updated prompt to surface `trust_status`; mention `/screw:learning-report` | PR #1, PR #2 |
+| `plugins/screw/agents/screw-sqli.md` | Updated prompt to surface `trust_status`; mention `/screw:learn-report` | PR #1, PR #2 |
 | `plugins/screw/agents/screw-cmdi.md` | Same updates | PR #1, PR #2 |
 | `plugins/screw/agents/screw-ssti.md` | Same updates | PR #1, PR #2 |
 | `plugins/screw/agents/screw-xss.md` | Same updates | PR #1, PR #2 |
@@ -2700,7 +2700,7 @@ Before merging PR #1:
 - All three features share one aggregation pipeline, three different projections
 - Data source: signed `.screw/learning/exclusions.yaml` (from PR #1)
 - New subagent `screw-learning-analyst` presents reports conversationally
-- New slash command `/screw:learning-report` triggers the subagent
+- New slash command `/screw:learn-report` triggers the subagent
 
 **PR #2 exit criteria:**
 - All three reports produce correct output for seeded exclusions
@@ -3521,7 +3521,7 @@ Create `plugins/screw/agents/screw-learning-analyst.md`:
 ```markdown
 ---
 name: screw-learning-analyst
-description: Analyzes the project's accumulated .screw/learning/exclusions.yaml data and presents learning insights — safe-pattern candidates, directory-scope exclusion suggestions, and a false-positive report. Invoked on demand via /screw:learning-report.
+description: Analyzes the project's accumulated .screw/learning/exclusions.yaml data and presents learning insights — safe-pattern candidates, directory-scope exclusion suggestions, and a false-positive report. Invoked on demand via /screw:learn-report.
 tools:
   - mcp__screw-agents__aggregate_learning
   - mcp__screw-agents__record_exclusion
@@ -3535,7 +3535,7 @@ act on them.
 
 ## Workflow
 
-When invoked by `/screw:learning-report` or when a user asks for "learning
+When invoked by `/screw:learn-report` or when a user asks for "learning
 insights" / "aggregation report" / "false positive summary":
 
 1. **Fetch the aggregate report.**
@@ -3611,21 +3611,23 @@ git commit -m "feat(phase3a): screw-learning-analyst subagent"
 
 ---
 
-### Task 22: `/screw:learning-report` Slash Command
+### Task 22: `/screw:learn-report` Slash Command
+
+> **Historical note:** Originally scoped as `/screw:learning-report` with a file named `learning-report.md`. Renamed to `/screw:learn-report` in the 2026-04-16 post-audit restructure after `claude-code-guide` research confirmed that Claude Code plugins auto-namespace commands as `/<plugin-name>:<basename>`. Shortening `learning-report` → `learn-report` trims the invocation string without losing meaning. The dev-mode `.claude/commands/` symlinks and the basename-disambiguation blockquotes (Task 22 original fix-up) were obsoleted by the same research finding.
 
 **Files:**
-- Create: `plugins/screw/commands/learning-report.md`
+- Create: `plugins/screw/commands/learn-report.md`
 
 - [ ] **Step 1: Write the slash command markdown**
 
-Create `plugins/screw/commands/learning-report.md`:
+Create `plugins/screw/commands/learn-report.md`:
 
 ```markdown
 ---
 description: Surface cross-scan learning insights from .screw/learning/exclusions.yaml — pattern-confidence suggestions, directory-scope exclusion candidates, and a false-positive report for future agent tuning.
 ---
 
-# /screw:learning-report
+# /screw:learn-report
 
 Delegate to the `screw-learning-analyst` subagent:
 
@@ -3646,8 +3648,8 @@ actionable suggestions by calling `record_exclusion` (with confirmation)."
 - [ ] **Step 2: Commit**
 
 ```bash
-git add plugins/screw/commands/learning-report.md
-git commit -m "feat(phase3a): /screw:learning-report slash command"
+git add plugins/screw/commands/learn-report.md
+git commit -m "feat(phase3a): /screw:learn-report slash command"
 ```
 
 ---
@@ -3772,7 +3774,7 @@ git commit -m "test(phase3a): end-to-end integration test for aggregation flow"
 
 - [ ] All tests green: `uv run pytest tests/test_aggregation.py tests/test_aggregate_learning_tool.py tests/test_aggregation_integration.py -v`
 - [ ] Full suite green: `uv run pytest -q` (baseline 354 passed; PR#2 adds aggregation + tool + integration tests — expect ~+15)
-- [ ] Manual round-trip test: In a scratch project, `screw-agents init-trust` → seed 12 pattern / 5 test-dir / 3 raw-sql exclusions → tamper one signature → invoke `/screw:learning-report` → verify all three sections render AND the trust notice line for the quarantined entry appears
+- [ ] Manual round-trip test: In a scratch project, `screw-agents init-trust` → seed 12 pattern / 5 test-dir / 3 raw-sql exclusions → tamper one signature → invoke `/screw:learn-report` → verify all three sections render AND the trust notice line for the quarantined entry appears
 - [ ] **Downstream impact review**: open `docs/PHASE_3B_PLAN.md` and scan the "Upstream Dependencies from Phase 3a" section. Reconcile any PR #2 changes (`aggregate_learning` MCP tool schema — note the `trust_status` field is always present, aggregation Pydantic model shapes, `screw-learning-analyst` subagent description, FPReport structure) against 3b tasks. 3b's script rejection flow feeds rejection reasons into the FP report — verify the data-flow contract still holds.
 - [ ] PR #2 description references Phase 3a spec §7.2 AND notes the `trust_status` contract addition (Option B, resolved during pre-task audit)
 
@@ -4976,10 +4978,10 @@ git commit -m "test(phase3a): E2E coverage for PR #3 carryover cleanup"
 When all three PRs are merged:
 
 1. **Signing infrastructure live.** Every exclusion in `.screw/learning/exclusions.yaml` is either signed by a trusted reviewer or explicitly quarantined.
-2. **Learning reports available.** `/screw:learning-report` produces the three aggregation outputs on demand.
+2. **Learning reports available.** `/screw:learn-report` produces the three aggregation outputs on demand.
 3. **Carryover items resolved.** `scan_domain` pagination, formatter polish, and CSV output format all working.
 4. **All tests green.** No regression from Phase 2 behavior.
-5. **Manual E2E validation complete.** Run through the full round-trip manual test (PR #1 exit checklist) plus a sample `/screw:learning-report` invocation on seeded exclusions.
+5. **Manual E2E validation complete.** Run through the full round-trip manual test (PR #1 exit checklist) plus a sample `/screw:learn-report` invocation on seeded exclusions.
 6. **PROJECT_STATUS.md updated.** Mark Phase 3a complete with PR references and exit dates.
 7. **Phase 3b plan written.** Draft `docs/PHASE_3B_PLAN.md` based on the stable Phase 3a infrastructure.
 

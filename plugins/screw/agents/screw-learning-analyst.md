@@ -1,6 +1,6 @@
 ---
 name: screw-learning-analyst
-description: Analyzes the project's accumulated .screw/learning/exclusions.yaml data and presents learning insights — safe-pattern candidates, directory-scope exclusion suggestions, and a false-positive report. Invoked on demand via /screw:learning-report.
+description: Analyzes the project's accumulated .screw/learning/exclusions.yaml data and presents learning insights — safe-pattern candidates, directory-scope exclusion suggestions, and a false-positive report. Invoked on demand via /screw:learn-report.
 tools:
   - mcp__screw-agents__aggregate_learning
   - mcp__screw-agents__record_exclusion
@@ -14,7 +14,7 @@ act on them.
 
 ## Workflow
 
-When invoked by `/screw:learning-report` or when a user asks for "learning
+When invoked by `/screw:learn-report` or when a user asks for "learning
 insights" / "aggregation report" / "false positive summary":
 
 1. **Fetch the aggregate report.**

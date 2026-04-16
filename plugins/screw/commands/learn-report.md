@@ -1,9 +1,9 @@
 ---
-name: screw:learning-report
+name: screw:learn-report
 description: "Surface cross-scan learning insights from .screw/learning/exclusions.yaml — pattern-confidence suggestions, directory-scope exclusion candidates, and a false-positive report for future agent tuning."
 ---
 
-# /screw:learning-report
+# /screw:learn-report
 
 Delegate to the `screw-learning-analyst` subagent:
 
