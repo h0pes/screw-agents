@@ -3,6 +3,7 @@ name: screw-injection
 description: "Injection & input handling domain orchestrator — runs all injection agents (sqli, cmdi, ssti, xss)"
 tools:
   - mcp__screw-agents__scan_domain
+  - mcp__screw-agents__get_agent_prompt
   - mcp__screw-agents__write_scan_results
   - mcp__screw-agents__record_exclusion
   - Read
@@ -16,23 +17,18 @@ You orchestrate all injection agents in the `injection-input-handling` domain: S
 
 ## Workflow — follow ALL steps
 
-### Step 1: Run scan_domain with pagination loop (init page + code pages)
+### Step 1: Run scan_domain with pagination loop (init page + code pages; fetch prompts lazily)
 
-Determine the project root and target spec (same format as individual agents). The pagination sequence is:
+Determine the project root and target spec (same format as individual agents). The pagination sequence has two stages; prompts are fetched separately via `get_agent_prompt` on first encounter per agent.
 
-- **Init page** (`cursor` omitted or null): returns the top-level `prompts` dict + per-agent metadata + exclusions. **No code on this page.**
-- **Code pages** (`cursor` set to the prior response's `next_cursor`): returns per-agent code slices, no prompts, no exclusions.
+- **Init page** (`cursor` omitted or null): returns per-agent metadata + exclusions + trust_status. **No prompts, no code** on this page.
+- **Code pages** (`cursor` set to the prior response's `next_cursor`): returns per-agent code slices (no prompts, no exclusions).
+- **Prompts** are fetched on-demand via `get_agent_prompt(agent_name, thoroughness)` when you first encounter an agent_name on a code page, then cached in your working context for reuse on subsequent pages.
 
 ```json
 // Init-page response (cursor=None):
 {
   "domain": "injection-input-handling",
-  "prompts": {
-    "sqli": "<full core_prompt for sqli agent>",
-    "cmdi": "<full core_prompt for cmdi agent>",
-    "ssti": "<full core_prompt for ssti agent>",
-    "xss":  "<full core_prompt for xss agent>"
-  },
   "agents": [
     {"agent_name": "sqli", "meta": {...}, "exclusions": [...]},
     {"agent_name": "cmdi", "meta": {...}, "exclusions": [...]},
@@ -74,17 +70,20 @@ Determine the project root and target spec (same format as individual agents). T
      "thoroughness": "standard"
    })
    ```
-2. **Cache the `prompts` dict from the init-page response.** You will apply `prompts[agent_name]` on every subsequent code page when analyzing that agent's `code`.
-3. **Save the init-page `trust_status`** — it is project-wide, identical on every page. You will reference it in Step 2b and Step 4.
-4. **Save the init-page `exclusions` per agent** — they are project-wide and do not reappear on code pages. Use them to suppress findings that match a prior exclusion.
+2. **Save the init-page `trust_status`** — it is project-wide, identical on every page. You will reference it in Step 2b and Step 4.
+3. **Save the init-page `exclusions` per agent** — they are project-wide and do not reappear on code pages. Use them to suppress findings that match a prior exclusion.
+4. **Initialize an empty `prompts_cache: dict[agent_name, core_prompt]` in your working context.** You will populate it lazily as you encounter agents on code pages.
 5. **If `response.next_cursor` is null**, pagination is complete (typically because `total_files == 0`). Skip ahead to Step 3.
 6. **Otherwise, call `scan_domain` again** with the same `domain`/`target`/`project_root` and `cursor` set to the returned value. This returns a code page.
-7. **For each `agent_entry` in the code page's `agents` list**, analyze `prompts[agent_entry.agent_name]` + `agent_entry.code` and produce findings (id prefix: sqli-001, cmdi-001, ssti-001, xss-001). **Accumulate findings — do NOT call `write_scan_results` yet.**
+7. **For each `agent_entry` in the code page's `agents` list**:
+   - **If `agent_entry.agent_name` is NOT yet in `prompts_cache`**: call `mcp__screw-agents__get_agent_prompt({"agent_name": agent_entry.agent_name, "thoroughness": "standard"})` and store the returned `core_prompt` in `prompts_cache[agent_entry.agent_name]`. Do this exactly once per agent per scan session.
+   - Analyze `prompts_cache[agent_entry.agent_name]` + `agent_entry.code` and produce findings (id prefix: sqli-001, cmdi-001, ssti-001, xss-001). **Accumulate findings — do NOT call `write_scan_results` yet.**
 8. **If `response.next_cursor` is a string**, loop back to step 6. When `next_cursor` is null, pagination is complete — proceed to Step 2.
 
 **Critical rules:**
-- **Cache `prompts` from the init page exactly once.** The `prompts` dict is ONLY returned on the init page (cursor=None); code pages omit it. You MUST carry the dict in your working context across every `scan_domain` call.
-- **Before analyzing any code page**, verify the `prompts` dict is still present in your context. If it is not (e.g., a prior summarization dropped it), discard any accumulated findings and RESTART the scan by calling `scan_domain` with `cursor=None`. Do not attempt to analyze code without the matching prompt — the resulting findings would be unreliable.
+- **Populate `prompts_cache` lazily on first encounter, not eagerly before the loop.** Calling `get_agent_prompt` for all 4 agents upfront also works, but is wasteful if the scan terminates early; lazy is cheaper and scales to any number of agents.
+- **Each `get_agent_prompt` call is small** (~4-7k tokens per agent) and safely fits the inline tool-response budget. Do NOT attempt to fetch multiple prompts in a single call — the tool only supports one agent_name per call.
+- **Before analyzing a code page**, verify `prompts_cache` contains the required `agent_name`. If not (e.g., a prior summarization dropped it), re-fetch via `get_agent_prompt`. Do not attempt to analyze code without the matching prompt.
 - Do NOT call `write_scan_results` per-page — it overwrites the previous page's output file. Accumulate all findings, then write once in Step 3.
 - Do NOT re-resolve the target between pages — the cursor carries the binding. A cursor from one target is invalid for another.
 - If `response.total_files` is 0 on the init page, `next_cursor` is null — skip the code-page loop.
@@ -93,7 +92,7 @@ Determine the project root and target spec (same format as individual agents). T
 
 After the pagination loop completes:
 1. Review all accumulated per-agent code slices from all code pages.
-2. For each agent's cached `prompts[agent_name]` + accumulated `code`, produce findings tagged by agent.
+2. For each agent's cached `prompts_cache[agent_name]` + accumulated `code`, produce findings tagged by agent.
 
 ### Step 2b: Check Trust Status
 
