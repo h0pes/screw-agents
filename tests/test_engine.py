@@ -274,9 +274,11 @@ class TestAssembleScanExclusions:
         if not py_files:
             pytest.skip("no Python fixtures")
         target = {"type": "file", "path": str(py_files[0])}
-        results = engine.assemble_full_scan(target=target, project_root=tmp_path)
-        for r in results:
+        result = engine.assemble_full_scan(target=target, project_root=tmp_path)
+        for r in result["agents"]:
             assert "exclusions" in r
+        # Top-level trust_status is present when project_root is set
+        assert "trust_status" in result
 
 
 def test_assemble_scan_default_includes_core_prompt(tmp_path: Path):
@@ -309,3 +311,44 @@ def test_assemble_scan_include_prompt_false_omits_core_prompt(tmp_path: Path):
     assert "code" in result
     assert "resolved_files" in result
     assert "meta" in result
+
+
+def test_assemble_full_scan_returns_dict_with_top_level_prompts(tmp_path: Path):
+    """BREAKING CHANGE: assemble_full_scan now returns a dict (not list).
+    Top-level `prompts` keyed by agent_name; `agents` list carries per-agent
+    entries without core_prompt."""
+    (tmp_path / "a.py").write_text(
+        "cursor.execute('SELECT * FROM t WHERE x = ' + user_input)\n"
+    )
+    engine = ScanEngine.from_defaults()
+    target = {"type": "glob", "pattern": str(tmp_path / "*.py")}
+
+    result = engine.assemble_full_scan(target)
+
+    assert isinstance(result, dict)
+    assert "prompts" in result
+    assert "agents" in result
+    assert isinstance(result["prompts"], dict)
+    assert isinstance(result["agents"], list)
+
+    agent_names_in_agents = {a["agent_name"] for a in result["agents"]}
+    assert set(result["prompts"].keys()) == agent_names_in_agents
+
+    for agent_entry in result["agents"]:
+        assert "core_prompt" not in agent_entry
+        assert "code" in agent_entry
+        assert "meta" in agent_entry
+
+
+def test_assemble_full_scan_includes_trust_status_when_project_root_set(tmp_path: Path):
+    """trust_status appears at the top level of the full-scan response when
+    project_root is provided. Bare tmp_path (no .screw/) still yields a
+    present, all-zero trust_status dict."""
+    (tmp_path / "a.py").write_text("cursor.execute('SELECT 1')\n")
+    engine = ScanEngine.from_defaults()
+    target = {"type": "glob", "pattern": str(tmp_path / "*.py")}
+
+    result = engine.assemble_full_scan(target, project_root=tmp_path)
+
+    assert "trust_status" in result
+    assert "exclusion_quarantine_count" in result["trust_status"]

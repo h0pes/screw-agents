@@ -491,8 +491,19 @@ class ScanEngine:
         target: dict[str, Any],
         thoroughness: str = "standard",
         project_root: Path | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> dict[str, Any]:
         """Assemble scan payloads for all registered agents.
+
+        Returns a single response dict with top-level ``prompts`` (one entry
+        per agent) and ``agents`` (list of per-agent code + metadata entries,
+        no core_prompt). Use ``prompts[agent_name]`` to look up the detection
+        prompt for each agent.
+
+        Note: this function is NOT paginated — it returns all code for all
+        files for all agents in one response. On large codebases the code
+        payload may exceed the caller's token budget even with prompts
+        deduped. Tracked as ``T-FULL-P1`` in ``docs/DEFERRED_BACKLOG.md``
+        for Phase 4+ (pagination + Option A').
 
         Args:
             target: Target spec dict.
@@ -500,12 +511,47 @@ class ScanEngine:
             project_root: Optional project root for exclusion loading.
 
         Returns:
-            List of assemble_scan results for every registered agent.
+            Dict with keys:
+                prompts: dict[str, str] -- keyed by agent_name
+                agents: list[dict] -- per-agent code + meta (no core_prompt)
+                trust_status: dict -- only when project_root is provided
         """
-        return [
-            self.assemble_scan(name, target, thoroughness, project_root)
-            for name in self._registry.agents
+        all_agent_names = list(self._registry.agents)
+
+        if project_root is not None:
+            all_exclusions = load_exclusions(project_root)
+        else:
+            all_exclusions = None
+
+        prompts_dict: dict[str, str] = {}
+        for name in all_agent_names:
+            agent = self._registry.get_agent(name)
+            prompts_dict[name] = self._build_prompt(agent, thoroughness)
+
+        agents_responses = [
+            self.assemble_scan(
+                name,
+                target,
+                thoroughness,
+                project_root,
+                _preloaded_exclusions=all_exclusions,
+                include_prompt=False,
+            )
+            for name in all_agent_names
         ]
+
+        for entry in agents_responses:
+            entry.pop("trust_status", None)
+
+        result: dict[str, Any] = {
+            "prompts": prompts_dict,
+            "agents": agents_responses,
+        }
+        if project_root is not None:
+            result["trust_status"] = self.verify_trust(
+                project_root=project_root, exclusions=all_exclusions
+            )
+        return result
 
     def format_output(
         self,
