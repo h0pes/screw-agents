@@ -4,7 +4,8 @@ description: "Injection & input handling domain orchestrator — runs all inject
 tools:
   - mcp__screw-agents__scan_domain
   - mcp__screw-agents__get_agent_prompt
-  - mcp__screw-agents__write_scan_results
+  - mcp__screw-agents__accumulate_findings
+  - mcp__screw-agents__finalize_scan_results
   - mcp__screw-agents__record_exclusion
   - Read
   - Glob
@@ -77,14 +78,14 @@ Determine the project root and target spec (same format as individual agents). T
 6. **Otherwise, call `scan_domain` again** with the same `domain`/`target`/`project_root` and `cursor` set to the returned value. This returns a code page.
 7. **For each `agent_entry` in the code page's `agents` list**:
    - **If `agent_entry.agent_name` is NOT yet in `prompts_cache`**: call `mcp__screw-agents__get_agent_prompt({"agent_name": agent_entry.agent_name, "thoroughness": "standard"})` and store the returned `core_prompt` in `prompts_cache[agent_entry.agent_name]`. Do this exactly once per agent per scan session.
-   - Analyze `prompts_cache[agent_entry.agent_name]` + `agent_entry.code` and produce findings (id prefix: sqli-001, cmdi-001, ssti-001, xss-001). **Accumulate findings — do NOT call `write_scan_results` yet.**
+   - Analyze `prompts_cache[agent_entry.agent_name]` + `agent_entry.code` and produce findings (id prefix: sqli-001, cmdi-001, ssti-001, xss-001). **Accumulate findings in-context across pages; persist them via the Step 3 `accumulate_findings` + `finalize_scan_results` protocol — do NOT call `finalize_scan_results` yet.**
 8. **If `response.next_cursor` is a string**, loop back to step 6. When `next_cursor` is null, pagination is complete — proceed to Step 2.
 
 **Critical rules:**
 - **Populate `prompts_cache` lazily on first encounter, not eagerly before the loop.** Calling `get_agent_prompt` for all 4 agents upfront also works, but is wasteful if the scan terminates early; lazy is cheaper and scales to any number of agents.
 - **Each `get_agent_prompt` call is small** (~4-7k tokens per agent) and safely fits the inline tool-response budget. Do NOT attempt to fetch multiple prompts in a single call — the tool only supports one agent_name per call.
 - **Before analyzing a code page**, verify `prompts_cache` contains the required `agent_name`. If not (e.g., a prior summarization dropped it), re-fetch via `get_agent_prompt`. Do not attempt to analyze code without the matching prompt.
-- Do NOT call `write_scan_results` per-page — it overwrites the previous page's output file. Accumulate all findings, then write once in Step 3.
+- Do NOT call `finalize_scan_results` per-page — it is a one-shot terminal operation that cleans the staging buffer. Use `accumulate_findings` (idempotent by finding.id) for incremental persistence during the pagination loop, then call `finalize_scan_results` exactly once in Step 3 after the loop terminates.
 - Do NOT re-resolve the target between pages — the cursor carries the binding. A cursor from one target is invalid for another.
 - If `response.total_files` is 0 on the init page, `next_cursor` is null — skip the code-page loop.
 
@@ -104,26 +105,52 @@ The `trust_status` dict cached from Step 1's init-page response has four keys: `
 - If `trust_status.script_quarantine_count > 0`: Phase 3b adaptive-analysis scripts are quarantined. Include a line pointing to `screw-agents validate-script <name>`. (This count is always zero in Phase 3a.)
 - If both counts are zero: omit the trust section entirely. Silence is the correct UX.
 
-The `write_scan_results` Markdown report (Step 3) will also render a "## Trust verification" section automatically from the same data.
+The `finalize_scan_results` Markdown report (Step 3) will also render a "## Trust verification" section automatically from the same data.
 
-### Step 3: Write Results — MANDATORY
+### Step 3: Persist Results — MANDATORY
 
-**After accumulating ALL findings from ALL pages and ALL agents, call `write_scan_results` ONCE:**
+**After accumulating ALL findings from ALL pages and ALL agents, persist them in two phases:**
+
+#### 3a. Accumulate findings
+
+Call `accumulate_findings` with your accumulated findings list. If this is your FIRST call of this scan session, omit `session_id` (server generates one; returned in response). On subsequent calls within the same scan, pass the returned `session_id` to append.
 
 ```
-mcp__screw-agents__write_scan_results({
+mcp__screw-agents__accumulate_findings({
   "project_root": "<same project root>",
-  "findings": [<all accumulated findings from all pages and all 4 agents>],
+  "findings_chunk": [<all accumulated findings from all pages and all 4 agents>],
+  "session_id": null  // first call; subsequent calls pass the returned id
+})
+```
+
+**You MAY call this multiple times during the scan** (e.g., after each agent's batch or per code-page-per-agent) — each call merges by finding.id. This is cheaper than waiting for all 4 agents before the first persist. Choice is yours; either pattern works.
+
+**Response shape:**
+```json
+{
+  "session_id": "<opaque token>",
+  "accumulated_count": 12
+}
+```
+
+#### 3b. Finalize the scan results
+
+**Call `finalize_scan_results` ONCE after the pagination loop terminates AND all accumulate calls are done:**
+
+```
+mcp__screw-agents__finalize_scan_results({
+  "project_root": "<same project root>",
+  "session_id": "<session_id from accumulate_findings response>",
   "agent_names": ["sqli", "cmdi", "ssti", "xss"],
   "scan_metadata": { "target": "<what was scanned>", "timestamp": "<ISO8601>" }
 })
 ```
 
-This automatically handles exclusion matching, formatting, directory creation, and file writing. Do NOT call this per-page — it overwrites previous output.
+This reads the staging buffer, applies exclusion matching, renders JSON + Markdown (+ optional SARIF/CSV), writes to `.screw/findings/`, and cleans up the staging directory. **Do NOT call `finalize_scan_results` more than once** — it is a one-shot operation; a second call with the same session_id will raise an error (staging already cleaned).
 
 ### Step 4: Present Summary and Offer Follow-Up
 
-Using the accumulated scan data (Step 1 loop) and `write_scan_results` response (Step 3):
+Using the accumulated scan data (Step 1 loop) and `finalize_scan_results` response (Step 3b):
 1. Total findings, breakdown by agent and severity
 2. **MANDATORY**: if trust_status had non-zero quarantine counts (from Step 2b), include the trust-verification line(s) described there as the FIRST item after the finding-count summary. Never skip — this is the load-bearing user-visibility surface for trust issues.
 3. Reference written report files

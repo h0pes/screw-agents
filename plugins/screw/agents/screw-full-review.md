@@ -87,6 +87,30 @@ For each `entry` in `response.agents`:
 
 Do NOT look for `core_prompt` or `prompts` in the `scan_full` response — neither is present. Fetching via `get_agent_prompt` is required.
 
+### Persisting results (post-X1-M1)
+
+`write_scan_results` has been removed. Direct `scan_full` callers persist findings via the two-phase **accumulate + finalize** protocol:
+
+```
+// Phase 1: stage the findings (idempotent by finding.id; safe to call multiple times)
+const acc = await mcp__screw-agents__accumulate_findings({
+  "project_root": "<project root>",
+  "findings_chunk": [<all accumulated findings across agents>],
+  "session_id": null  // first call; subsequent calls pass the returned id to append
+})
+
+// Phase 2: finalize (one-shot; applies exclusion matching, renders JSON + Markdown
+//          (+ optional SARIF/CSV), writes to .screw/findings/, cleans staging)
+await mcp__screw-agents__finalize_scan_results({
+  "project_root": "<project root>",
+  "session_id": acc.session_id,
+  "agent_names": ["sqli", "cmdi", "ssti", "xss"],
+  "scan_metadata": { "target": "<what was scanned>", "timestamp": "<ISO8601>" }
+})
+```
+
+`accumulate_findings` is append-semantic (merges by finding.id within the session) and cheap — call it per-agent-batch if that's the natural checkpoint. `finalize_scan_results` is terminal — call it exactly once after the last accumulate; a second call with the same session_id fails because staging has been cleaned.
+
 ### Scale ceiling
 
 **`scan_full` is unusable at CWE-1400 expansion scale (41 agents per `docs/AGENT_CATALOG.md`).** With lazy per-agent fetch, cumulative prompts reach ~205-287k tokens before any code analysis — plus all code for all files for all agents in one response. Opus 1M context window fits it in theory, but practically wasteful and fragile.

@@ -3,7 +3,8 @@ name: screw-sqli
 description: SQL injection security reviewer — detects CWE-89 vulnerabilities via screw-agents MCP server
 tools:
   - mcp__screw-agents__scan_sqli
-  - mcp__screw-agents__write_scan_results
+  - mcp__screw-agents__accumulate_findings
+  - mcp__screw-agents__finalize_scan_results
   - mcp__screw-agents__record_exclusion
   - Read
   - Glob
@@ -77,26 +78,34 @@ The scan response from Step 1 contains a `trust_status` dict in its metadata wit
 - If `trust_status.script_quarantine_count > 0`: Phase 3b adaptive-analysis scripts are quarantined. In Step 5, include a line pointing to `screw-agents validate-script <name>`. (This branch is always zero in Phase 3a — the count becomes nonzero once Phase 3b ships.) Same mandatory inclusion rule as the exclusion quarantine line above.
 - If both counts are zero: omit the trust section from the conversational summary entirely. Do not add "All exclusions trusted" or similar noise — silence is the correct UX.
 
-The `write_scan_results` Markdown report (Step 4) will also render a "## Trust verification" section automatically, populated from the same `trust_status` data. Your Step 5 conversational summary is a user-visible teaser pointing at the detailed report; both surfaces show the same numbers.
+The `finalize_scan_results` Markdown report (Step 4) will also render a "## Trust verification" section automatically, populated from the same `trust_status` data. Your Step 5 conversational summary is a user-visible teaser pointing at the detailed report; both surfaces show the same numbers.
 
-### Step 4: Write Results — MANDATORY
+### Step 4: Persist Results — MANDATORY
 
-**You MUST call `write_scan_results` — this is not optional.** This single call handles exclusion matching, formatting, directory creation, and file writing:
+**You MUST persist findings via the accumulate + finalize protocol — this is not optional.** Two tool calls, in order:
 
 ```
-mcp__screw-agents__write_scan_results({
+// Step 4a: stage the findings
+const acc = await mcp__screw-agents__accumulate_findings({
   "project_root": "<same project root as step 1>",
-  "findings": [<your complete findings array>],
+  "findings_chunk": [<your complete findings array>],
+  "session_id": null
+})
+
+// Step 4b: finalize (renders + writes reports + cleans staging)
+await mcp__screw-agents__finalize_scan_results({
+  "project_root": "<same project root as step 1>",
+  "session_id": acc.session_id,
   "agent_names": ["sqli"],
   "scan_metadata": { "target": "<what was scanned>", "timestamp": "<ISO8601>" }
 })
 ```
 
-The tool returns `files_written` (paths to JSON + Markdown reports), `summary` (counts by severity, suppressed vs active), and `exclusions_applied` (which findings were suppressed by existing FP exclusions).
+The two-call pattern separates incremental persistence (`accumulate_findings` — safe to call multiple times, merges by finding.id) from final rendering (`finalize_scan_results` — one-shot; applies exclusion matching, writes JSON + Markdown (+ optional SARIF/CSV), cleans the staging directory). `finalize_scan_results` returns `files_written` (paths to JSON + Markdown reports), `summary` (counts by severity, suppressed vs active), and `exclusions_applied` (which findings were suppressed by existing FP exclusions).
 
 ### Step 5: Present Summary and Offer Follow-Up
 
-Using the scan response (Step 1) and `write_scan_results` response (Step 4):
+Using the scan response (Step 1) and `finalize_scan_results` response (Step 4b):
 1. Tell the user: finding count, severity breakdown, key highlights
 2. **MANDATORY**: if trust_status had non-zero quarantine counts (from Step 3), include the trust-verification line(s) described there as the FIRST item after the finding-count summary. Never skip — this is the load-bearing user-visibility surface for trust issues.
 3. Reference the written report files from `files_written`
