@@ -26,40 +26,22 @@ _GITIGNORE_CONTENT = (
 )
 
 
-def write_scan_results(
+def _render_and_write(
     project_root: Path,
     findings_raw: list[dict[str, Any]],
     agent_names: list[str],
     scan_metadata: dict[str, Any] | None = None,
     formats: list[str] | None = None,
-    agent_registry: AgentRegistry | None = None,
+    agent_registry: "AgentRegistry | None" = None,
 ) -> dict[str, Any]:
-    """Write scan findings to .screw/findings/ with server-side exclusion matching.
+    """Pure render + exclusion + write logic, shared by the legacy
+    ``write_scan_results`` single-shot wrapper and the new
+    ``ScanEngine.finalize_scan_results`` path.
 
-    Creates .screw/ directory structure, applies exclusion matching using
-    correct scope semantics, formats requested output files, writes them.
-
-    Args:
-        project_root: Absolute path to the project root.
-        findings_raw: List of finding dicts (parsed as Finding models).
-        agent_names: Agent names that produced findings (e.g. ["sqli"]).
-        scan_metadata: Optional metadata dict (target, timestamp).
-        formats: Output formats to write. Defaults to ``["json", "markdown"]``.
-            Accepted values: ``"json"``, ``"markdown"``, ``"sarif"``, ``"csv"``.
-        agent_registry: Optional registry threaded to ``format_findings`` for
-            SARIF output (provides ``agent.meta.short_description`` per rule).
-
-    Returns:
-        Dict with keys:
-            - files_written: dict[str, str] — format name → file path
-            - summary: dict — total, suppressed, active, by_severity counts
-            - exclusions_applied: list[dict] — finding_id + exclusion_ref pairs
-            - trust_status: dict — 4-field trust verification counts
-              (matches `ScanEngine.verify_trust` shape)
-
-    Raises:
-        ValueError: If `.screw/` exists as a non-directory (T6-I1) or is not
-            accessible due to permissions (T6-I2).
+    Extracted verbatim from the original ``write_scan_results`` body so
+    both entry points share one implementation (see T17 of the X1-M1
+    plan). Behavior is intentionally identical to the pre-refactor
+    function; only the call site changes.
     """
     if formats is None:
         formats = ["json", "markdown"]
@@ -216,3 +198,55 @@ def write_scan_results(
         "exclusions_applied": exclusions_applied,
         "trust_status": trust_status,
     }
+
+
+def write_scan_results(
+    project_root: Path,
+    findings_raw: list[dict[str, Any]],
+    agent_names: list[str],
+    scan_metadata: dict[str, Any] | None = None,
+    formats: list[str] | None = None,
+    agent_registry: "AgentRegistry | None" = None,
+) -> dict[str, Any]:
+    """Write scan findings to .screw/findings/ with server-side exclusion matching.
+
+    .. deprecated:: X1-M1 T17
+        Superseded by the ``accumulate_findings`` + ``finalize_scan_results``
+        protocol on :class:`~screw_agents.engine.ScanEngine`. Kept in T17 as
+        a thin wrapper around :func:`_render_and_write` so existing tests
+        keep passing; T18 removes it and wires the new tools into the MCP
+        dispatcher.
+
+    Creates .screw/ directory structure, applies exclusion matching using
+    correct scope semantics, formats requested output files, writes them.
+
+    Args:
+        project_root: Absolute path to the project root.
+        findings_raw: List of finding dicts (parsed as Finding models).
+        agent_names: Agent names that produced findings (e.g. ["sqli"]).
+        scan_metadata: Optional metadata dict (target, timestamp).
+        formats: Output formats to write. Defaults to ``["json", "markdown"]``.
+            Accepted values: ``"json"``, ``"markdown"``, ``"sarif"``, ``"csv"``.
+        agent_registry: Optional registry threaded to ``format_findings`` for
+            SARIF output (provides ``agent.meta.short_description`` per rule).
+
+    Returns:
+        Dict with keys:
+            - files_written: dict[str, str] — format name → file path
+            - summary: dict — total, suppressed, active, by_severity counts
+            - exclusions_applied: list[dict] — finding_id + exclusion_ref pairs
+            - trust_status: dict — 4-field trust verification counts
+              (matches `ScanEngine.verify_trust` shape)
+
+    Raises:
+        ValueError: If `.screw/` exists as a non-directory (T6-I1) or is not
+            accessible due to permissions (T6-I2).
+    """
+    return _render_and_write(
+        project_root=project_root,
+        findings_raw=findings_raw,
+        agent_names=agent_names,
+        scan_metadata=scan_metadata,
+        formats=formats,
+        agent_registry=agent_registry,
+    )

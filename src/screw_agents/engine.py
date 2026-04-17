@@ -585,6 +585,89 @@ class ScanEngine:
             "meta": self._agent_meta_summary(agent),
         }
 
+    def accumulate_findings(
+        self,
+        project_root: Path,
+        findings_chunk: list[dict[str, Any]],
+        session_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Append a chunk of findings to the per-session staging buffer.
+
+        Part of the accumulate + finalize protocol (paired with
+        ``finalize_scan_results``). Called by orchestrator subagents as many
+        times as convenient during a scan — once per agent pass, once per
+        code page, per batch, whatever matches the subagent's mental model.
+        Dedup by finding.id: re-accumulating the same id REPLACES the prior
+        entry (allowing corrections / reclassifications mid-scan).
+
+        Args:
+            project_root: Absolute path to project root. Staging lives under
+                ``.screw/staging/{session_id}/findings.json``.
+            findings_chunk: List of finding dicts (each must have an 'id'
+                field). Shape matches ``Finding.model_dump()``.
+            session_id: Opaque session token. Pass None on the FIRST call of
+                a scan — server generates a fresh id and returns it. Pass
+                the returned id on subsequent calls to append to the same
+                session.
+
+        Returns:
+            Dict with keys:
+                session_id: str -- echoed or newly generated
+                accumulated_count: int -- total findings in staging after
+                    merge (not just this chunk)
+        """
+        from screw_agents.staging import accumulate
+        new_session_id, count = accumulate(project_root, findings_chunk, session_id)
+        return {"session_id": new_session_id, "accumulated_count": count}
+
+    def finalize_scan_results(
+        self,
+        project_root: Path,
+        session_id: str,
+        agent_names: list[str],
+        scan_metadata: dict[str, Any] | None = None,
+        formats: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Read the staging buffer for a session, render reports, clean up.
+
+        Paired with ``accumulate_findings``. Call ONCE at the end of a scan
+        after all pagination + analysis is complete. Produces the same output
+        as the legacy ``write_scan_results`` (JSON, Markdown, optional SARIF,
+        optional CSV), applies server-side exclusion matching, and removes
+        the staging directory.
+
+        Args:
+            project_root: Absolute path to project root.
+            session_id: The id returned by the first ``accumulate_findings``
+                call (or echoed on subsequent accumulate calls).
+            agent_names: Agent names that produced findings (e.g. ["sqli"]).
+            scan_metadata: Optional metadata (target, timestamp).
+            formats: Output formats. Defaults to ["json", "markdown"].
+                Accepted: "json", "markdown", "sarif", "csv".
+
+        Returns:
+            Same shape as the legacy ``write_scan_results`` return:
+                files_written: dict[str, str]
+                summary: dict
+                exclusions_applied: list[dict]
+                trust_status: dict
+
+        Raises:
+            ValueError: If session_id does not correspond to an active
+                staging session (already finalized or never accumulated).
+        """
+        from screw_agents.results import _render_and_write
+        from screw_agents.staging import read_and_clear
+        findings_raw = read_and_clear(project_root, session_id)
+        return _render_and_write(
+            project_root=project_root,
+            findings_raw=findings_raw,
+            agent_names=agent_names,
+            scan_metadata=scan_metadata,
+            formats=formats,
+            agent_registry=self._registry,
+        )
+
     def format_output(
         self,
         findings: list[Finding],
