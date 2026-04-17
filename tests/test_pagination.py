@@ -9,6 +9,81 @@ import pytest
 from screw_agents.engine import ScanEngine
 
 
+def _seed_injection_fixture(root: Path, n: int = 12) -> None:
+    """Helper: write n Python files with sqli-visible patterns so the
+    sqli relevance filter retains them."""
+    for i in range(n):
+        (root / f"file_{i:02d}.py").write_text(
+            f"cursor.execute('SELECT * FROM t WHERE x = ' + user_input_{i})\n"
+        )
+
+
+def test_domain_scan_init_page_shape(tmp_path: Path):
+    """Init page (cursor=None) returns top-level `prompts` dict keyed by
+    agent_name, per-agent entries without core_prompt, zero code chunks, and
+    a next_cursor encoding offset=0."""
+    _seed_injection_fixture(tmp_path)
+    engine = ScanEngine.from_defaults()
+    target = {"type": "glob", "pattern": str(tmp_path / "*.py")}
+
+    result = engine.assemble_domain_scan(
+        "injection-input-handling", target, cursor=None
+    )
+
+    # Top-level prompts dict
+    assert "prompts" in result
+    assert isinstance(result["prompts"], dict)
+    assert {"sqli", "cmdi", "ssti", "xss"}.issubset(set(result["prompts"].keys()))
+    for prompt in result["prompts"].values():
+        assert isinstance(prompt, str)
+        assert len(prompt) > 0
+
+    # Per-agent entries: metadata only on init, no core_prompt, no code
+    assert "agents" in result
+    for agent_entry in result["agents"]:
+        assert "agent_name" in agent_entry
+        assert "core_prompt" not in agent_entry
+        assert "meta" in agent_entry
+        assert agent_entry.get("code", "") == "" or "code" not in agent_entry
+
+    # Init-page metadata
+    assert result["code_chunks_on_page"] == 0
+    assert result["offset"] == 0
+    assert result["next_cursor"] is not None  # non-empty scan → next cursor for code pages
+
+
+def test_domain_scan_init_page_idempotent(tmp_path: Path):
+    """Calling assemble_domain_scan with cursor=None twice returns the same
+    init-page shape both times. No state change between calls."""
+    _seed_injection_fixture(tmp_path)
+    engine = ScanEngine.from_defaults()
+    target = {"type": "glob", "pattern": str(tmp_path / "*.py")}
+
+    r1 = engine.assemble_domain_scan("injection-input-handling", target, cursor=None)
+    r2 = engine.assemble_domain_scan("injection-input-handling", target, cursor=None)
+
+    assert r1.keys() == r2.keys()
+    assert set(r1["prompts"].keys()) == set(r2["prompts"].keys())
+    assert r1["code_chunks_on_page"] == r2["code_chunks_on_page"] == 0
+    assert r1["next_cursor"] == r2["next_cursor"]
+
+
+def test_domain_scan_init_page_empty_target(tmp_path: Path):
+    """When total_files == 0, init page still ships with prompts; next_cursor
+    is None (no code pages to fetch)."""
+    engine = ScanEngine.from_defaults()
+    target = {"type": "glob", "pattern": str(tmp_path / "*.py")}  # empty dir
+
+    result = engine.assemble_domain_scan(
+        "injection-input-handling", target, cursor=None
+    )
+
+    assert "prompts" in result
+    assert result["total_files"] == 0
+    assert result["code_chunks_on_page"] == 0
+    assert result["next_cursor"] is None  # nothing to paginate
+
+
 def test_scan_domain_empty_cursor_returns_dict_with_cursor_key(tmp_path: Path):
     """Even the first call (cursor=None) returns the new dict shape with next_cursor key.
 
