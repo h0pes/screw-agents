@@ -24,25 +24,36 @@
 
 ## Phase 4+ (autoresearch / scale)
 
-### T-FULL-P1 — Paginate `assemble_full_scan` + apply Option A′
-**Source:** X1-M1 (PR #9, 2026-04-17) — decided to apply Option A dedup only to `assemble_full_scan`; pagination + A′ deferred.
-**File:** `src/screw_agents/engine.py` `assemble_full_scan`
-**Priority:** **HIGH** — must address before `scan_full` is used on a large codebase at scale.
+### T-FULL-P1 — Paginate `assemble_full_scan` + apply lazy-fetch + agent-relevance filter
+**Source:** X1-M1 (PR #9, 2026-04-17) — incremental dedup landed; full architectural fix deferred.
+**File:** `src/screw_agents/engine.py` `assemble_full_scan`, `plugins/screw/agents/screw-full-review.md`
+**Priority:** **HIGH** — `scan_full` is unusable at CWE-1400 expansion scale (41 agents per `docs/AGENT_CATALOG.md`).
 
-**Why deferred:** X1-M1 shipped prompt dedup for `assemble_full_scan` (`list[dict]` → `dict` with top-level `prompts`). However, the function remains non-paginated — the single response contains all code for all files for all agents. On large codebases this will exceed the subagent's token budget on the code payload alone, regardless of the prompt dedup.
+**Why deferred:** X1-M1 shipped incremental improvements to `assemble_full_scan`:
+- PR #9 T5: changed return shape from `list[dict]` to `dict` with top-level `prompts`
+- PR #9 T14: dropped top-level `prompts` dict; per-agent entries carry only `{agent_name, code, meta, exclusions?}`; subagents fetch prompts lazily via `get_agent_prompt`
+
+However, the function remains:
+1. **Non-paginated** — returns all code for all files for all agents in a single response
+2. **Agent-relevance blind** — invokes every registered agent regardless of whether the target contains code the agent can usefully analyze (e.g., PHP-specific agents on a Python-only target)
+
+At CWE-1400 expansion scale (41 agents × ~5-7k tokens prompt each + all code), even lazy per-agent prompt fetch cannot prevent the cumulative subagent context from approaching practical limits:
+- 41 agents × 5-7k tokens cached prompts = ~205-287k tokens
+- Plus cumulative code across all files × 41 agent analyses
+- Opus 1M context window fits it in theory, but practically wasteful and fragile
 
 **Trigger:** Any of:
-- A round-trip test confirms `scan_full` hits the subagent budget on a realistic project
-- Phase 4 autoresearch begins using `scan_full` in volume
-- A user reports `scan_full` failures due to payload size
+- A round-trip test confirms `scan_full` stalls on a realistic project at Phase 3b+ agent count (≥10)
+- Phase 4 autoresearch uses `scan_full` in volume and trips budget limits
+- A user reports `scan_full` failures due to payload size or context exhaustion
 
-**Suggested fix:**
-1. Introduce cursor-based pagination over the flattened `(agent, file_chunk)` space. Cursor carries `{target_hash, agent_offset, file_offset}`.
-2. Apply Option A′: init page returns `prompts` for all agents + empty code; subsequent pages return code slices.
-3. Update `screw-full-review.md` orchestrator for the pagination loop.
-4. Add pagination tests equivalent to `scan_domain` coverage.
+**Suggested fix (three components, ship as one or sequential PRs):**
 
-**Estimated scope:** ~400-500 LOC, separate PR.
+1. **Pagination** — cursor-based over the flattened `(agent, file_chunk)` space. Cursor carries `{target_hash, agent_offset, file_offset}`. Same init-page/code-page split as `scan_domain` post-T13.
+2. **Lazy per-agent prompt fetch** — scan_full response never includes `prompts`; orchestrator uses `get_agent_prompt` on first-encounter per agent, caches for reuse across pages. This is already the pattern T13-T16 applies to scan_domain.
+3. **Agent-relevance pre-filter** — scan_full returns only agents whose `target_strategy.relevance_signals` match files present in the target. For example, on a Python-only target, skip LDAP/NoSQL/PHP-specific agents that would produce no findings anyway. Could halve active-agent count on typical targets. New `ScanEngine._filter_relevant_agents(codes, agents)` helper.
+
+**Estimated scope:** ~500-700 LOC across engine.py, server.py, orchestrator prompts, tests. Separate focused PR (likely Phase 4 prerequisite).
 
 ### T5-M4 — Lazy fingerprint computation in `verify_signature`
 **Source:** Phase 3a PR#1 punchlist (commit `27d147d`)

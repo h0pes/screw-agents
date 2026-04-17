@@ -309,10 +309,10 @@ def test_assemble_scan_include_prompt_false_omits_core_prompt(tmp_path: Path):
     assert "meta" in result
 
 
-def test_assemble_full_scan_returns_dict_with_top_level_prompts(tmp_path: Path):
-    """BREAKING CHANGE: assemble_full_scan now returns a dict (not list).
-    Top-level `prompts` keyed by agent_name; `agents` list carries per-agent
-    entries without core_prompt."""
+def test_assemble_full_scan_returns_dict_shape(tmp_path: Path):
+    """assemble_full_scan returns a dict with an `agents` list. Per-agent
+    entries carry no core_prompt (subagents fetch prompts lazily via
+    get_agent_prompt)."""
     (tmp_path / "a.py").write_text(
         "cursor.execute('SELECT * FROM t WHERE x = ' + user_input)\n"
     )
@@ -322,18 +322,38 @@ def test_assemble_full_scan_returns_dict_with_top_level_prompts(tmp_path: Path):
     result = engine.assemble_full_scan(target)
 
     assert isinstance(result, dict)
-    assert "prompts" in result
     assert "agents" in result
-    assert isinstance(result["prompts"], dict)
     assert isinstance(result["agents"], list)
 
-    agent_names_in_agents = {a["agent_name"] for a in result["agents"]}
-    assert set(result["prompts"].keys()) == agent_names_in_agents
-
     for agent_entry in result["agents"]:
+        assert "agent_name" in agent_entry
         assert "core_prompt" not in agent_entry
         assert "code" in agent_entry
         assert "meta" in agent_entry
+
+
+def test_assemble_full_scan_no_longer_emits_prompts(tmp_path: Path):
+    """X1-M1 extension: scan_full drops the top-level `prompts` dict for the
+    same reason scan_domain's init page did — aggregate prompts across N
+    agents exceed the inline tool-response budget. Subagents fetch each
+    agent's prompt via the `get_agent_prompt` MCP tool lazily."""
+    (tmp_path / "a.py").write_text(
+        "cursor.execute('SELECT * FROM t WHERE x = ' + user_input)\n"
+    )
+    engine = ScanEngine.from_defaults()
+    target = {"type": "glob", "pattern": str(tmp_path / "*.py")}
+
+    result = engine.assemble_full_scan(target)
+
+    assert isinstance(result, dict)
+    assert "prompts" not in result, "full_scan must not emit aggregate prompts dict"
+    assert "agents" in result
+
+    for agent_entry in result["agents"]:
+        assert "agent_name" in agent_entry
+        assert "meta" in agent_entry
+        assert "core_prompt" not in agent_entry
+        assert "code" in agent_entry
 
 
 def test_assemble_full_scan_includes_trust_status_when_project_root_set(tmp_path: Path):

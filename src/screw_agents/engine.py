@@ -481,16 +481,22 @@ class ScanEngine:
     ) -> dict[str, Any]:
         """Assemble scan payloads for all registered agents.
 
-        Returns a single response dict with top-level ``prompts`` (one entry
-        per agent) and ``agents`` (list of per-agent code + metadata entries,
-        no core_prompt). Use ``prompts[agent_name]`` to look up the detection
-        prompt for each agent.
+        Returns a single response dict with ``agents`` (list of per-agent
+        code + metadata entries, no core_prompt). Per-agent detection
+        prompts are NOT emitted inline — subagents must fetch each agent's
+        prompt lazily via the ``get_agent_prompt`` MCP tool on first
+        encounter and cache it for reuse across all code entries for that
+        agent. This matches the X1-M1 T13 pattern used by
+        ``assemble_domain_scan`` and keeps the response under Claude Code's
+        inline tool-response token budget.
 
         Note: this function is NOT paginated — it returns all code for all
-        files for all agents in one response. On large codebases the code
-        payload may exceed the caller's token budget even with prompts
-        deduped. Tracked as ``T-FULL-P1`` in ``docs/DEFERRED_BACKLOG.md``
-        for Phase 4+ (pagination + Option A').
+        files for all agents in one response. On large codebases (especially
+        at CWE-1400 expansion scale, 41 agents per ``docs/AGENT_CATALOG.md``)
+        the code payload may exceed the caller's token budget even with
+        prompts deduped via lazy fetch. Tracked as ``T-FULL-P1`` in
+        ``docs/DEFERRED_BACKLOG.md`` for Phase 4+ (pagination +
+        agent-relevance pre-filter).
 
         Args:
             target: Target spec dict.
@@ -499,8 +505,9 @@ class ScanEngine:
 
         Returns:
             Dict with keys:
-                prompts: dict[str, str] -- keyed by agent_name
-                agents: list[dict] -- per-agent code + meta (no core_prompt)
+                agents: list[dict] -- per-agent code + meta (no core_prompt);
+                    each entry has agent_name, code, resolved_files, meta,
+                    and exclusions when project_root is set
                 trust_status: dict -- only when project_root is provided
         """
         all_agent_names = list(self._registry.agents)
@@ -510,10 +517,6 @@ class ScanEngine:
             all_exclusions = load_exclusions(project_root)
         else:
             all_exclusions = None
-
-        prompts_dict: dict[str, str] = {
-            a.meta.name: self._build_prompt(a, thoroughness) for a in agents
-        }
 
         agents_responses = [
             self.assemble_scan(
@@ -531,7 +534,6 @@ class ScanEngine:
             entry.pop("trust_status", None)
 
         result: dict[str, Any] = {
-            "prompts": prompts_dict,
             "agents": agents_responses,
         }
         if project_root is not None:
