@@ -276,6 +276,27 @@ At CWE-1400 expansion scale (41 agents × ~5-7k tokens prompt each + all code), 
 2. Provide a one-shot CLI migration (`screw-agents sanitize-exclusions`) that rewrites existing exclusions.yaml entries with sanitized reasons (preserving signatures via re-signing with the local key).
 3. Remove the render-layer escape in aggregation.py as redundant (optional — can keep as defense-in-depth).
 
+### T-ACCUMULATE-ONCE — UX polish: encourage single accumulate_findings call per scan
+**Source:** Phase 3a X1-M1 round-trip testing (PR #9, 2026-04-17)
+**File:** `plugins/screw/agents/screw-injection.md` (Step 3 critical rules), and other orchestrators if the pattern spreads
+**Priority:** **Low** — UX annoyance, not a correctness issue
+
+**Why deferred:** Final round-trip showed the subagent making 3 × `accumulate_findings` calls (one per agent batch), each carrying a cumulative findings payload. Each call required user confirmation with a "wall of text" approval prompt. The current `screw-injection.md` prompt explicitly permits multiple accumulate calls ("You MAY call this multiple times"). Narrowing to "prefer ONE accumulate call at the end with all findings" would reduce tool-call approvals from 4-6 to 2 in typical scans.
+
+**Why not now:** The current behavior is correct (findings deduped by id; final output right). The wall-of-text approvals are annoying but not blocking. Tightening the prompt is a simple doc-only change, but without round-trip validation there's risk of over-constraining (e.g., if a subagent hits an LLM context limit partway through a scan, per-batch persistence is actually useful). Defer until: (a) users complain, OR (b) a round-trip test proves single-accumulate works reliably at current scale.
+
+**Trigger:** Any of:
+- User-visible complaint about approval-prompt fatigue during `/screw:scan domain ...`
+- Round-trip test at larger scale (injection domain at full 10 agents per AGENT_CATALOG.md) shows single-accumulate is reliable
+- Dedicated prompt-polish commit that tackles multiple orchestrator UX issues together
+
+**Suggested fix:**
+1. Update `plugins/screw/agents/screw-injection.md` Step 3a to soften "you MAY call this multiple times" → "prefer a SINGLE call at the end with all findings; multiple calls are safe (dedup by id) but each requires approval and is noisy".
+2. Run round-trip. Confirm single-accumulate works.
+3. Apply same softening to per-agent orchestrators if needed (they already call accumulate once since single-agent scans have only one batch).
+
+**Estimated scope:** ~5-10 LOC of prompt text + round-trip validation.
+
 ---
 
 ## Shipped
@@ -293,6 +314,7 @@ At CWE-1400 expansion scale (41 agents × ~5-7k tokens prompt each + all code), 
 - `T-ORCHESTRATOR-SCHEMA` (project-wide) — backfill finding-object schema in domain orchestrator subagents
 - `T-WRITE-SPLIT` (Shipped in this PR) — split write_scan_results into accumulate + finalize
 - `T-STAGING-ORPHAN-GC` (Phase 4+) — clean up orphaned .screw/staging/ directories
+- `T-ACCUMULATE-ONCE` (project-wide, Low) — prompt polish to prefer single accumulate call
 
 ### T-WRITE-SPLIT — Split `write_scan_results` into `accumulate_findings` + `finalize_scan_results`
 **Source:** Phase 3a X1-M1 round-trip testing (PR #9, 2026-04-17)
