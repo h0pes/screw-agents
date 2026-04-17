@@ -196,6 +196,7 @@ class ScanEngine:
         *,
         preloaded_codes: list[ResolvedCode] | None = None,
         _preloaded_exclusions: list[Exclusion] | None = None,
+        include_prompt: bool = True,
     ) -> dict[str, Any]:
         """Assemble a scan payload for a single agent.
 
@@ -211,11 +212,16 @@ class ScanEngine:
                 resolve_target and use this pre-resolved list. Used by
                 ``assemble_domain_scan`` to avoid re-reading files per agent
                 on a paginated domain scan.
+            include_prompt: When True (default), the response dict contains
+                ``core_prompt``. When False, ``core_prompt`` is omitted
+                entirely (not empty string — key absent). Used by
+                ``assemble_domain_scan`` on code pages and by
+                ``assemble_full_scan``'s per-agent fan-out.
 
         Returns:
             Dict with keys:
                 - agent_name: str
-                - core_prompt: str  (assembled prompt)
+                - core_prompt: str  (assembled prompt; only when include_prompt=True)
                 - code: str         (formatted code context)
                 - resolved_files: list[str]
                 - meta: dict        (agent metadata summary)
@@ -240,12 +246,10 @@ class ScanEngine:
             signals = agent.target_strategy.relevance_signals
             codes = filter_by_relevance(codes, signals)
 
-        prompt = self._build_prompt(agent, thoroughness)
         code_context = self._format_code_context(codes)
 
         result: dict[str, Any] = {
             "agent_name": agent_name,
-            "core_prompt": prompt,
             "code": code_context,
             "resolved_files": [c.file_path for c in codes],
             "meta": {
@@ -256,6 +260,8 @@ class ScanEngine:
                 "cwe_related": agent.meta.cwes.related,
             },
         }
+        if include_prompt:
+            result["core_prompt"] = self._build_prompt(agent, thoroughness)
         if project_root is not None:
             all_exclusions = _preloaded_exclusions if _preloaded_exclusions is not None else load_exclusions(project_root)
             # Subagent-facing exclusions list excludes quarantined entries —

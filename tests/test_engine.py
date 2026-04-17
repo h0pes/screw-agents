@@ -251,3 +251,35 @@ class TestAssembleScanExclusions:
         results = engine.assemble_full_scan(target=target, project_root=tmp_path)
         for r in results:
             assert "exclusions" in r
+
+
+def test_assemble_scan_default_includes_core_prompt(tmp_path: Path):
+    """Regression: assemble_scan's default behavior is unchanged — core_prompt
+    is present in the result. Phase 3a per-agent callers (scan_sqli, scan_cmdi,
+    etc.) depend on this default."""
+    (tmp_path / "a.py").write_text("cursor.execute('SELECT * FROM t')\n")
+    engine = ScanEngine.from_defaults()
+    target = {"type": "glob", "pattern": str(tmp_path / "*.py")}
+
+    result = engine.assemble_scan("sqli", target)
+
+    assert "core_prompt" in result
+    assert isinstance(result["core_prompt"], str)
+    assert len(result["core_prompt"]) > 0
+
+
+def test_assemble_scan_include_prompt_false_omits_core_prompt(tmp_path: Path):
+    """When include_prompt=False, the response does not contain a core_prompt
+    key at all (not empty string — absent). Used by domain-level and
+    full-scan-level callers on code pages / fan-out iterations."""
+    (tmp_path / "a.py").write_text("cursor.execute('SELECT * FROM t')\n")
+    engine = ScanEngine.from_defaults()
+    target = {"type": "glob", "pattern": str(tmp_path / "*.py")}
+
+    result = engine.assemble_scan("sqli", target, include_prompt=False)
+
+    assert "core_prompt" not in result
+    assert result["agent_name"] == "sqli"
+    assert "code" in result
+    assert "resolved_files" in result
+    assert "meta" in result
