@@ -128,7 +128,17 @@ def test_full_pipeline_sqli(engine, fixtures_dir):
 
 
 def test_full_pipeline_domain_scan(engine, fixtures_dir):
-    """Integration: domain scan assembles prompts for all 4 agents."""
+    """Integration: domain-scan init page (cursor=None) ships prompts for all
+    4 agents at the top level and per-agent metadata entries without code.
+
+    Post X1-M1 Task 2, assemble_domain_scan(cursor=None) returns an init page
+    whose contract is:
+      - top-level ``prompts`` dict keyed by agent_name → detection prompt string
+      - per-agent entries carry ``agent_name`` + ``meta`` only (no core_prompt,
+        no code; ``exclusions`` is optional, only when project_root is set)
+      - ``code_chunks_on_page == 0`` and ``offset == 0`` on the init page
+    Full code-page walking is exercised in tests/test_pagination.py.
+    """
     vuln_dir = fixtures_dir / "sqli" / "vulnerable"
     py_files = list(vuln_dir.glob("*.py"))
     if not py_files:
@@ -139,12 +149,28 @@ def test_full_pipeline_domain_scan(engine, fixtures_dir):
         domain="injection-input-handling", target=target,
     )
     assert isinstance(result, dict)
+
+    # Top-level prompts dict keyed by agent_name.
+    assert "prompts" in result
+    assert isinstance(result["prompts"], dict)
+    assert set(result["prompts"].keys()) == {"sqli", "cmdi", "ssti", "xss"}
+    for prompt in result["prompts"].values():
+        assert isinstance(prompt, str)
+        assert len(prompt) > 0
+
+    # Per-agent entries: metadata only on init; no code, no core_prompt.
     assert "agents" in result
     assert len(result["agents"]) == 4
     agent_names = {r["agent_name"] for r in result["agents"]}
     assert agent_names == {"sqli", "cmdi", "ssti", "xss"}
     for r in result["agents"]:
-        assert len(r["code"]) > 0
+        assert "meta" in r
+        assert "code" not in r
+        assert "core_prompt" not in r
+
+    # Init-page metadata.
+    assert result["code_chunks_on_page"] == 0
+    assert result["offset"] == 0
 
 
 import yaml
