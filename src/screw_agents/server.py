@@ -162,6 +162,13 @@ def _dispatch_tool(
             project_root=project_root,
         )
 
+    # Phase 3a X1-M1 (T12): per-agent prompt fetch
+    if name == "get_agent_prompt":
+        return engine.get_agent_prompt(
+            agent_name=args["agent_name"],
+            thoroughness=args.get("thoroughness", "standard"),
+        )
+
     # Per-agent scan tools: scan_{agent_name}
     if name.startswith("scan_"):
         agent_name = name[len("scan_"):]

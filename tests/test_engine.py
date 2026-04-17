@@ -352,3 +352,45 @@ def test_assemble_full_scan_includes_trust_status_when_project_root_set(tmp_path
 
     assert "trust_status" in result
     assert "exclusion_quarantine_count" in result["trust_status"]
+
+
+def test_get_agent_prompt_returns_expected_shape(tmp_path: Path):
+    """New MCP-facing method: returns {agent_name, core_prompt, meta} for a
+    registered agent, so orchestrator subagents can fetch prompts lazily
+    per-agent instead of receiving an aggregate prompts dict on scan_domain."""
+    engine = ScanEngine.from_defaults()
+
+    result = engine.get_agent_prompt("sqli", "standard")
+
+    assert isinstance(result, dict)
+    assert result["agent_name"] == "sqli"
+    assert isinstance(result["core_prompt"], str)
+    assert len(result["core_prompt"]) > 0
+    # meta subset (same keys as assemble_scan emits)
+    meta = result["meta"]
+    assert meta["name"] == "sqli"
+    assert "display_name" in meta
+    assert "domain" in meta
+    assert "cwe_primary" in meta
+
+
+def test_get_agent_prompt_thoroughness_affects_prompt(tmp_path: Path):
+    """quick vs standard vs deep produce different prompt sizes (different
+    tiers of heuristics/examples included)."""
+    engine = ScanEngine.from_defaults()
+
+    quick = engine.get_agent_prompt("sqli", "quick")
+    standard = engine.get_agent_prompt("sqli", "standard")
+    deep = engine.get_agent_prompt("sqli", "deep")
+
+    # quick < standard < deep (monotonic inclusion of tiers)
+    assert len(quick["core_prompt"]) < len(standard["core_prompt"])
+    assert len(standard["core_prompt"]) <= len(deep["core_prompt"])
+
+
+def test_get_agent_prompt_unknown_agent_raises(tmp_path: Path):
+    """Unknown agent name raises ValueError (consistent with assemble_scan)."""
+    engine = ScanEngine.from_defaults()
+
+    with pytest.raises(ValueError, match="Unknown agent"):
+        engine.get_agent_prompt("nonexistent", "standard")

@@ -553,6 +553,48 @@ class ScanEngine:
             )
         return result
 
+    def get_agent_prompt(
+        self,
+        agent_name: str,
+        thoroughness: str = "standard",
+    ) -> dict[str, Any]:
+        """Return the detection prompt and metadata for a single agent.
+
+        Used by orchestrator subagents to fetch prompts lazily per-agent,
+        avoiding the tool-response token budget blow-up of emitting all
+        agent prompts in one ``scan_domain`` init-page response.
+
+        Args:
+            agent_name: Registered agent identifier (e.g. "sqli").
+            thoroughness: One of "quick", "standard", "deep".
+
+        Returns:
+            Dict with keys:
+                agent_name: str
+                core_prompt: str -- assembled detection prompt (same shape as
+                    the legacy ``assemble_scan`` ``core_prompt`` field)
+                meta: dict -- {name, display_name, domain, cwe_primary,
+                    cwe_related} (same shape as assemble_scan's meta)
+
+        Raises:
+            ValueError: If agent_name is not registered.
+        """
+        agent = self._registry.get_agent(agent_name)
+        if agent is None:
+            raise ValueError(f"Unknown agent: {agent_name!r}")
+
+        return {
+            "agent_name": agent_name,
+            "core_prompt": self._build_prompt(agent, thoroughness),
+            "meta": {
+                "name": agent.meta.name,
+                "display_name": agent.meta.display_name,
+                "domain": agent.meta.domain,
+                "cwe_primary": agent.meta.cwes.primary,
+                "cwe_related": agent.meta.cwes.related,
+            },
+        }
+
     def format_output(
         self,
         findings: list[Finding],
@@ -656,6 +698,34 @@ class ScanEngine:
                     "project_root": _project_root_schema(),
                 },
             ),
+        })
+
+        # Phase 3a X1-M1 (T12): per-agent prompt fetch
+        tools.append({
+            "name": "get_agent_prompt",
+            "description": (
+                "Return the detection prompt + metadata for a single registered "
+                "agent. Used by orchestrator subagents to fetch prompts lazily "
+                "per-agent, avoiding the tool-response token budget ceiling "
+                "that scan_domain init pages used to hit when shipping all "
+                "domain prompts at once."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "agent_name": {
+                        "type": "string",
+                        "description": "Registered agent identifier (e.g. 'sqli').",
+                    },
+                    "thoroughness": {
+                        "type": "string",
+                        "enum": ["quick", "standard", "deep"],
+                        "default": "standard",
+                        "description": "Prompt-tier control. Default 'standard'.",
+                    },
+                },
+                "required": ["agent_name"],
+            },
         })
 
         # Per-agent scan tools
