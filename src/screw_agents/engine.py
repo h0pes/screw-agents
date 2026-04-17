@@ -305,8 +305,12 @@ class ScanEngine:
         to paginate.
 
         **Code page (cursor is set):** Emits a paged slice of code chunks
-        fanned out per agent — implemented in Task 3 of X1-M1. This branch
-        currently raises ``NotImplementedError``.
+        fanned out per agent. No top-level ``prompts`` (subagents cached them
+        on the init page and reference by ``agent_name``). Per-agent entries
+        carry ``code``, ``resolved_files``, ``meta`` — but no ``core_prompt``
+        and no ``exclusions`` (exclusions are init-only). ``trust_status``
+        is re-emitted at the top level when ``project_root`` is provided so
+        any single page carries the quarantine counts.
 
         The cursor is an opaque base64url-encoded JSON token encoding
         ``{"target_hash": str, "offset": int}``. Cursors are bound to their
@@ -345,8 +349,6 @@ class ScanEngine:
         Raises:
             ValueError: If cursor is bound to a different target, or is
                 malformed.
-            NotImplementedError: Code-page branch (cursor != None). Arrives
-                in Task 3 of the X1-M1 core-prompt dedup plan.
         """
         if page_size < 1:
             raise ValueError(f"page_size must be >= 1, got {page_size}")
@@ -441,12 +443,48 @@ class ScanEngine:
                 )
             return result
 
-        # Code-page branch — Task 3 of X1-M1 implements. Stub with a clear
-        # error for now so intermediate-state pagination tests fail loudly
-        # rather than silently producing the pre-dedup shape.
-        raise NotImplementedError(
-            "code-page branch (cursor != None) is implemented in Task 3 of X1-M1"
-        )
+        # Code-page branch (cursor was non-None)
+        page_codes = all_codes[offset : offset + page_size]
+        next_offset = offset + len(page_codes)
+        if next_offset < total_files:
+            next_cursor = base64.urlsafe_b64encode(
+                _json.dumps(
+                    {"target_hash": target_hash, "offset": next_offset},
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            ).decode("ascii")
+        else:
+            next_cursor = None
+
+        agents_responses = [
+            self.assemble_scan(
+                a.meta.name,
+                target,
+                thoroughness,
+                project_root,
+                preloaded_codes=page_codes,
+                _preloaded_exclusions=[],
+                include_prompt=False,
+            )
+            for a in agents
+        ]
+
+        for entry in agents_responses:
+            entry.pop("exclusions", None)
+            entry.pop("trust_status", None)
+
+        result = {
+            "domain": domain,
+            "agents": agents_responses,
+            "next_cursor": next_cursor,
+            "page_size": page_size,
+            "total_files": total_files,
+            "code_chunks_on_page": len(page_codes),
+            "offset": offset,
+        }
+        if project_root is not None:
+            result["trust_status"] = self.verify_trust(project_root=project_root)
+        return result
 
     def assemble_full_scan(
         self,
