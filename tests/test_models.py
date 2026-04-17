@@ -648,6 +648,18 @@ def test_fp_report_rejects_invalid_scope():
         FPReport(generated_at="2026-04-14T10:00:00Z", scope="team", top_fp_patterns=[])
 
 
+def test_finding_analysis_impact_default_is_none():
+    """FindingAnalysis.impact defaults to None (not empty string)."""
+    fa = FindingAnalysis(description="test")
+    assert fa.impact is None
+
+
+def test_finding_analysis_impact_accepts_explicit_string():
+    """FindingAnalysis.impact accepts an explicit string value."""
+    fa = FindingAnalysis(description="test", impact="Data exfiltration")
+    assert fa.impact == "Data exfiltration"
+
+
 def test_aggregate_report_round_trip_model_dump_validate():
     """model_dump -> model_validate round-trips losslessly for MCP JSON serialization."""
     original = AggregateReport(
@@ -666,4 +678,35 @@ def test_aggregate_report_round_trip_model_dump_validate():
     )
     roundtrip = AggregateReport.model_validate(original.model_dump())
     assert roundtrip == original
+
+
+def test_agent_meta_short_description_populated():
+    from screw_agents.models import OWASPMapping
+
+    meta = AgentMeta(
+        name="sqli",
+        display_name="SQL Injection",
+        domain="injection-input-handling",
+        version="1.0.0",
+        last_updated="2026-04-16",
+        cwes=CWEs(primary="CWE-89", related=[]),
+        owasp=OWASPMapping(top10="A03:2025"),
+        short_description="Detects SQL injection vulnerabilities via tainted query construction.",
+    )
+    assert meta.short_description == "Detects SQL injection vulnerabilities via tainted query construction."
+
+
+def test_agent_meta_short_description_defaults_to_none():
+    from screw_agents.models import OWASPMapping
+
+    meta = AgentMeta(
+        name="sqli",
+        display_name="SQL Injection",
+        domain="injection-input-handling",
+        version="1.0.0",
+        last_updated="2026-04-16",
+        cwes=CWEs(primary="CWE-89", related=[]),
+        owasp=OWASPMapping(top10="A03:2025"),
+    )
+    assert meta.short_description is None
 

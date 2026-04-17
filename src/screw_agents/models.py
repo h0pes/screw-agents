@@ -55,6 +55,7 @@ class AgentMeta(BaseModel):
     capec: list[str] = []
     owasp: OWASPMapping
     sources: list[Source] = []
+    short_description: str | None = None
     # Optional — some agents use sans_top25, others cwe_top25
     sans_top25: dict[str, Any] | None = None
     cwe_top25: dict[str, Any] | None = None
