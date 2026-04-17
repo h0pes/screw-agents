@@ -298,3 +298,20 @@ def test_format_findings_json_ignores_trust_status():
         },
     )
     assert json.loads(output) == []
+
+
+# === Task 32 — CWE long-name lookup table ===
+
+
+def test_cwe_long_name_lookup():
+    from screw_agents.cwe_names import CWE_LONG_NAMES
+    assert CWE_LONG_NAMES["CWE-89"] == "SQL Injection"
+    assert CWE_LONG_NAMES["CWE-78"] == "OS Command Injection"
+    assert CWE_LONG_NAMES["CWE-79"] == "Cross-site Scripting"
+    assert CWE_LONG_NAMES["CWE-1336"] == "Improper Neutralization of Special Elements Used in a Template Engine"
+
+
+def test_cwe_long_name_fallback_unknown():
+    from screw_agents.cwe_names import long_name
+    assert long_name("CWE-999") == "CWE-999"
+    assert long_name("CWE-89") == "SQL Injection"
