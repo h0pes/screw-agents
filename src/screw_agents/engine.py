@@ -517,27 +517,27 @@ class ScanEngine:
                 trust_status: dict -- only when project_root is provided
         """
         all_agent_names = list(self._registry.agents)
+        agents = [self._registry.get_agent(name) for name in all_agent_names]
 
         if project_root is not None:
             all_exclusions = load_exclusions(project_root)
         else:
             all_exclusions = None
 
-        prompts_dict: dict[str, str] = {}
-        for name in all_agent_names:
-            agent = self._registry.get_agent(name)
-            prompts_dict[name] = self._build_prompt(agent, thoroughness)
+        prompts_dict: dict[str, str] = {
+            a.meta.name: self._build_prompt(a, thoroughness) for a in agents
+        }
 
         agents_responses = [
             self.assemble_scan(
-                name,
+                a.meta.name,
                 target,
                 thoroughness,
                 project_root,
                 _preloaded_exclusions=all_exclusions,
                 include_prompt=False,
             )
-            for name in all_agent_names
+            for a in agents
         ]
 
         for entry in agents_responses:
