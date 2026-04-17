@@ -70,6 +70,8 @@
 | `screw_agents.cwe_names.long_name(cwe_id: str) -> str` | CWE long-name lookup. Returns the long name if known, else the CWE id unchanged. | Task 3b-16 (adaptive findings use same Markdown detail-heading format: `### {id} — {cwe_id} — {long_name}`) |
 | `screw_agents.models.AgentMeta.short_description: str \| None = None` | Optional one-sentence human-readable description used by the SARIF formatter's `shortDescription.text`. | Task 3b-16 (adaptive scripts' agents should populate this for SARIF consistency) |
 | `screw_agents.formatter.format_findings(..., agent_registry=None)` | Formatter accepts an optional `AgentRegistry` to thread agent-meta lookups into SARIF rule construction. | Task 3b-16 (if adaptive findings flow through `format_findings`, propagate the registry) |
+| `screw_agents.results.write_scan_results(project_root, findings_raw, agent_names, scan_metadata=None, formats=None, agent_registry=None) -> dict` | **PR#3 signature change:** takes `findings_raw: list[dict]` (NOT `findings: list[Finding]` — callers must `model_dump()` first). `formats` defaults to `["json", "markdown"]`; accepts `"sarif"` and `"csv"` too. `agent_registry` threads to `format_findings` for SARIF. Returns `{"files_written": dict[str, str], "summary": dict, "exclusions_applied": list, "trust_status": dict}` — note `files_written` is a `dict[str, str]` (format→path), NOT `list[str]`. | Task 3b-19 (adaptive findings merge through this function; use `findings_raw=[f.model_dump() for f in findings]` and access `result["files_written"]["markdown"]` by key) |
+| **X1-M1 — core-prompt deduplication** | **TOP-PRIORITY deferred item** logged in `docs/DEFERRED_BACKLOG.md`. `scan_domain` pagination is mechanically correct but operationally ineffective for multi-agent domains (~60k+ token core_prompt baseline per page). Must ship before Phase 3b starts — Phase 3b Task 3b-19 depends on functional domain-level pagination. | Task 3b-19 (adaptive findings in domain scans; blocked until X1-M1 ships) |
 
 ### Cross-plan sync protocol
 
@@ -4046,8 +4048,8 @@ def test_write_scan_results_merges_adaptive_and_yaml_findings(tmp_path: Path):
 
     result = write_scan_results(
         project_root=tmp_path,
+        findings_raw=[f.model_dump() for f in [yaml_finding, adaptive_finding_duplicate, adaptive_finding_unique]],
         agent_names=["sqli"],
-        findings=[yaml_finding, adaptive_finding_duplicate, adaptive_finding_unique],
         scan_metadata={"agent": "sqli", "timestamp": "2026-04-14T10:00:00Z"},
     )
     md_content = Path(result["files_written"]["markdown"]).read_text()
