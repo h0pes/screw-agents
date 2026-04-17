@@ -55,6 +55,25 @@ At CWE-1400 expansion scale (41 agents × ~5-7k tokens prompt each + all code), 
 
 **Estimated scope:** ~500-700 LOC across engine.py, server.py, orchestrator prompts, tests. Separate focused PR (likely Phase 4 prerequisite).
 
+### T-STAGING-ORPHAN-GC — Clean up orphaned `.screw/staging/` directories
+**Source:** T-WRITE-SPLIT (PR #9, 2026-04-17) — staging-dir cleanup is per-session on finalize only; no sweeper for abandoned sessions
+**File:** `src/screw_agents/staging.py`, new CLI subcommand or hook
+**Priority:** Medium — benign bloat (each orphan is small), but accumulates over time with crashed/aborted scans
+
+**Why deferred:** When `accumulate_findings` is called but `finalize_scan_results` is never called (subagent crashed, user aborted with Ctrl-C, scan timed out), the staging directory at `.screw/staging/{session_id}/` is not cleaned up. Current scope: single-process MCP server; orphan directories are benign but accumulate. Out of scope for PR #9's correctness fix.
+
+**Trigger:** Any of:
+- User reports `.screw/staging/` with many orphan directories
+- Phase 4 autoresearch generates many scan sessions and staging bloat becomes visible
+- A dedicated `screw-agents gc` CLI subcommand is added
+
+**Suggested fix:**
+1. Add `screw-agents gc-staging [--older-than N]` CLI subcommand that removes staging directories older than N hours (default 24h)
+2. OR: have `finalize_scan_results` opportunistically sweep staging directories older than 24h on each call (cheap, no new surface)
+3. Document the manual cleanup: `rm -rf .screw/staging/` is safe (only affects in-flight scans, which would fail at `finalize_scan_results` anyway)
+
+**Estimated scope:** ~50-100 LOC (new CLI subcommand + unit tests + docs). Small PR.
+
 ### T5-M4 — Lazy fingerprint computation in `verify_signature`
 **Source:** Phase 3a PR#1 punchlist (commit `27d147d`)
 **File:** `src/screw_agents/trust.py` `_fingerprint_public_key` and `verify_signature`
@@ -272,3 +291,20 @@ At CWE-1400 expansion scale (41 agents × ~5-7k tokens prompt each + all code), 
 **Follow-ups:**
 - `T-FULL-P1` (Phase 4+) — paginate `assemble_full_scan` and apply Option A'
 - `T-ORCHESTRATOR-SCHEMA` (project-wide) — backfill finding-object schema in domain orchestrator subagents
+- `T-WRITE-SPLIT` (Shipped in this PR) — split write_scan_results into accumulate + finalize
+- `T-STAGING-ORPHAN-GC` (Phase 4+) — clean up orphaned .screw/staging/ directories
+
+### T-WRITE-SPLIT — Split `write_scan_results` into `accumulate_findings` + `finalize_scan_results`
+**Source:** Phase 3a X1-M1 round-trip testing (PR #9, 2026-04-17)
+**Shipped in:** PR #9 (`phase-3a-prompt-dedup`), merge commit `<fill in at merge time>`
+**Plan:** `docs/PHASE_3A_X1_M1_PLAN.md`
+
+**Problem:** Round-trip testing after the lazy-fetch fix (T12-T16) revealed a second defect — subagents called `write_scan_results` once per agent-batch (4 times for a 4-agent injection scan). Overwrite semantics masked this as "just wasteful" (the final call had all findings), but each intermediate call triggered file rewrites + user approvals + tool-call tokens. Prompt-level "call once" discipline was not load-bearing.
+
+**Solution:** Option D — architectural split into two tools:
+- `accumulate_findings(project_root, findings_chunk, session_id?) -> {session_id, accumulated_count}` — incremental staging in `.screw/staging/{session_id}/findings.json`; dedup by finding.id on merge; atomic tmp+replace writes
+- `finalize_scan_results(project_root, session_id, agent_names, scan_metadata?, formats?) -> {files_written, summary, exclusions_applied, trust_status}` — one-shot render+write; reads staging, applies exclusions, renders formats, cleans up staging; second call raises ValueError
+
+The subagent's natural "persist after each batch" instinct is channeled into cheap `accumulate_findings` calls; `finalize_scan_results` is an explicit terminal event. The legacy `write_scan_results` function and MCP tool were removed.
+
+**Follow-up:** `T-STAGING-ORPHAN-GC` (Phase 4+) — orphan cleanup for scans that accumulate but never finalize.
