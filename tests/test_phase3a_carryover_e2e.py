@@ -11,7 +11,6 @@ import pytest
 
 from screw_agents.engine import ScanEngine
 from screw_agents.models import FindingAnalysis
-from screw_agents.results import write_scan_results
 
 from tests.test_formatter import _make_finding
 
@@ -47,14 +46,21 @@ def test_scan_domain_pagination_with_large_target(tmp_path: Path):
     assert len(all_files) == 120
 
 
-def test_write_scan_results_all_three_formats(tmp_path: Path):
-    """write_scan_results produces JSON (with null impact), Markdown (with full CWE
-    name), and CSV (valid schema) when all three formats are requested."""
+def test_finalize_scan_results_all_three_formats(tmp_path: Path):
+    """The accumulate + finalize protocol produces JSON (with null impact),
+    Markdown (with full CWE name), and CSV (valid schema) when all three
+    formats are requested."""
     # Construct a finding with no impact/exploitability set — exercises Task 27 null defaults
     finding = _make_finding(analysis=FindingAnalysis(description="SQLi via f-string"))
-    result = write_scan_results(
+    engine = ScanEngine.from_defaults()
+    acc = engine.accumulate_findings(
         project_root=tmp_path,
-        findings_raw=[finding.model_dump()],
+        findings_chunk=[finding.model_dump()],
+        session_id=None,
+    )
+    result = engine.finalize_scan_results(
+        project_root=tmp_path,
+        session_id=acc["session_id"],
         agent_names=["sqli"],
         scan_metadata={"agent": "sqli", "timestamp": "2026-04-14T10:00:00Z"},
         formats=["json", "markdown", "csv"],

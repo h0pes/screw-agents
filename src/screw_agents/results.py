@@ -1,8 +1,11 @@
-"""Scan results writer — formats, applies exclusions, writes to .screw/.
+"""Render + write helper used by ``ScanEngine.finalize_scan_results``.
 
-Collapses the subagent workflow steps (exclusion matching, formatting,
-directory creation, file writing) into a single server-side operation.
-This ensures results are always persisted regardless of subagent behavior.
+Produces JSON, Markdown, optional SARIF, and optional CSV reports under
+``.screw/findings/`` with server-side exclusion matching and trust-status
+accounting. The canonical entry point is
+:meth:`screw_agents.engine.ScanEngine.finalize_scan_results`; this module
+implements the rendering + file I/O half of the protocol while
+``screw_agents.staging`` owns the incremental accumulation half.
 """
 
 from __future__ import annotations
@@ -26,18 +29,22 @@ _GITIGNORE_CONTENT = (
 )
 
 
-def write_scan_results(
+def render_and_write(
     project_root: Path,
     findings_raw: list[dict[str, Any]],
     agent_names: list[str],
     scan_metadata: dict[str, Any] | None = None,
     formats: list[str] | None = None,
-    agent_registry: AgentRegistry | None = None,
+    agent_registry: "AgentRegistry | None" = None,
 ) -> dict[str, Any]:
-    """Write scan findings to .screw/findings/ with server-side exclusion matching.
+    """Render findings to disk under ``.screw/findings/`` and apply
+    server-side exclusion matching.
 
-    Creates .screw/ directory structure, applies exclusion matching using
-    correct scope semantics, formats requested output files, writes them.
+    Called by :meth:`screw_agents.engine.ScanEngine.finalize_scan_results`
+    once the staging buffer has been drained for a session. Kept as a
+    module-level function (rather than an engine method) so unit tests can
+    exercise the render/exclusion pipeline without constructing an engine
+    and a session.
 
     Args:
         project_root: Absolute path to the project root.
@@ -51,15 +58,15 @@ def write_scan_results(
 
     Returns:
         Dict with keys:
-            - files_written: dict[str, str] — format name → file path
-            - summary: dict — total, suppressed, active, by_severity counts
-            - exclusions_applied: list[dict] — finding_id + exclusion_ref pairs
-            - trust_status: dict — 4-field trust verification counts
-              (matches `ScanEngine.verify_trust` shape)
+            - files_written: dict[str, str] -- format name → file path
+            - summary: dict -- total, suppressed, active, by_severity counts
+            - exclusions_applied: list[dict] -- finding_id + exclusion_ref pairs
+            - trust_status: dict -- 4-field trust verification counts
+              (matches :meth:`ScanEngine.verify_trust` shape)
 
     Raises:
-        ValueError: If `.screw/` exists as a non-directory (T6-I1) or is not
-            accessible due to permissions (T6-I2).
+        ValueError: If ``.screw/`` exists as a non-directory (T6-I1) or is
+            not accessible due to permissions (T6-I2).
     """
     if formats is None:
         formats = ["json", "markdown"]

@@ -19,7 +19,6 @@ from mcp.server.models import InitializationOptions
 from screw_agents.engine import ScanEngine, _DEFAULT_DOMAINS_DIR
 from screw_agents.learning import load_exclusions, record_exclusion
 from screw_agents.models import ExclusionInput, Finding
-from screw_agents.results import write_scan_results
 from screw_agents.registry import AgentRegistry
 
 logger = logging.getLogger(__name__)
@@ -131,14 +130,22 @@ def _dispatch_tool(
             project_root=project_root, report_type=report_type
         )
 
-    if name == "write_scan_results":
-        return write_scan_results(
+    # --- Phase 3a X1-M1 (T18): accumulate + finalize (replaces write_scan_results) ---
+
+    if name == "accumulate_findings":
+        return engine.accumulate_findings(
             project_root=Path(args["project_root"]),
-            findings_raw=args.get("findings", []),
-            agent_names=args.get("agent_names", []),
+            findings_chunk=args["findings_chunk"],
+            session_id=args.get("session_id"),
+        )
+
+    if name == "finalize_scan_results":
+        return engine.finalize_scan_results(
+            project_root=Path(args["project_root"]),
+            session_id=args["session_id"],
+            agent_names=args["agent_names"],
             scan_metadata=args.get("scan_metadata"),
             formats=args.get("formats"),
-            agent_registry=engine._registry,
         )
 
     # --- Scan tools (Phase 1 + Phase 2 project_root) ---
@@ -160,6 +167,13 @@ def _dispatch_tool(
             target=args["target"],
             thoroughness=args.get("thoroughness", "standard"),
             project_root=project_root,
+        )
+
+    # Phase 3a X1-M1 (T12): per-agent prompt fetch
+    if name == "get_agent_prompt":
+        return engine.get_agent_prompt(
+            agent_name=args["agent_name"],
+            thoroughness=args.get("thoroughness", "standard"),
         )
 
     # Per-agent scan tools: scan_{agent_name}

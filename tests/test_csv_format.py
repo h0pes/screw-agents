@@ -73,12 +73,12 @@ def test_format_csv_handles_none_code_snippet():
     assert data["code_snippet"] == ""
 
 
-def test_write_scan_results_csv_format(tmp_path: Path):
-    """write_scan_results writes a .csv file when 'csv' is in formats list."""
-    from screw_agents.results import write_scan_results
+def test_render_and_write_csv_format(tmp_path: Path):
+    """render_and_write writes a .csv file when 'csv' is in formats list."""
+    from screw_agents.results import render_and_write
 
     finding = _make_finding()
-    result = write_scan_results(
+    result = render_and_write(
         project_root=tmp_path,
         findings_raw=[finding.model_dump()],
         agent_names=["sqli"],

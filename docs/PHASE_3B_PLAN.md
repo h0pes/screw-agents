@@ -22,7 +22,7 @@
 - `src/screw_agents/engine.py` — ScanEngine (extended by Phase 3a, further extended here)
 - `src/screw_agents/server.py` — MCP server with `_dispatch_tool`, `list_tool_definitions`
 - `src/screw_agents/formatter.py` — `format_findings`, `format_csv` (from Phase 3a)
-- `src/screw_agents/results.py` — `write_scan_results` (Phase 2, extended in 3a and 3b)
+- `src/screw_agents/results.py` — `render_and_write` helper used by `finalize_scan_results` (Phase 2, extended in 3a X1-M1 to split accumulate + finalize)
 - `tests/conftest.py` — shared fixtures
 - `plugins/screw/agents/screw-sqli.md` — existing subagent format reference
 - `docs/PHASE_3A_PLAN.md` — upstream-phase plan; cross-reference during implementation
@@ -66,12 +66,14 @@
 |---|---|---|
 | `screw_agents.formatter.format_csv(findings, scan_metadata=None) -> str` | CSV output format for findings. Columns: `id, file, line, cwe, cwe_name, agent, severity, confidence, description, code_snippet, excluded, exclusion_ref`. Output-only; nested fields dropped by design. | Task 3b-19 (adaptive findings merge into the same formatter pipeline) |
 | `screw_agents.models.FindingAnalysis.impact: str \| None = None` + `FindingAnalysis.exploitability: str \| None = None` | Null defaults on the nested `FindingAnalysis` submodel (NOT on top-level `Finding`). Pydantic serializes `None → null` at any nesting depth, so JSON output is `{"analysis": {"impact": null, ...}}`. | Task 3b-16 (adaptive scripts emit findings through the same model; construct `FindingAnalysis(description=...)` without impact to get the null default) |
-| `screw_agents.engine.ScanEngine.assemble_domain_scan(domain, target, thoroughness="standard", project_root=None, *, cursor=None, page_size=50) -> dict` | Cursor-based pagination. **Breaking change from pre-PR#3**: return shape is `{"domain", "agents" (list), "next_cursor", "page_size", "total_files", "offset", "trust_status"?}`, not `list[dict]`. Cursor is base64url-encoded `{"target_hash", "offset"}`; replay across targets raises `ValueError`. | Task 3b-19 (adaptive findings must survive pagination — no duplication across pages; iterate `response["agents"]`, not the response directly) |
+| `screw_agents.engine.ScanEngine.assemble_domain_scan(domain, target, thoroughness="standard", project_root=None, *, cursor=None, page_size=50) -> dict` | Two-stage pagination (X1-M1 shipped in PR #9). **Init page** (cursor=None): returns `{"domain", "agents" (agent_name + meta + exclusions, NO core_prompt, NO code), "next_cursor", "page_size", "total_files", "code_chunks_on_page": 0, "offset": 0, "trust_status"?}`. **Code pages** (cursor set): returns `{"domain", "agents" (agent_name + code + meta, no core_prompt, no exclusions), "next_cursor", "page_size", "total_files", "code_chunks_on_page": N, "offset", "trust_status"?}`. **Prompts are NOT emitted inline** — subagents fetch each agent's prompt lazily via `mcp__screw-agents__get_agent_prompt(agent_name, thoroughness)` on first encounter and cache for reuse across pages. Cursor schema unchanged: base64url `{"target_hash", "offset"}`. | Task 3b-19 (adaptive findings cache prompts from get_agent_prompt on first-encounter per agent; pagination loop unchanged; iterate `response["agents"]` on each page) |
 | `screw_agents.cwe_names.long_name(cwe_id: str) -> str` | CWE long-name lookup. Returns the long name if known, else the CWE id unchanged. | Task 3b-16 (adaptive findings use same Markdown detail-heading format: `### {id} — {cwe_id} — {long_name}`) |
 | `screw_agents.models.AgentMeta.short_description: str \| None = None` | Optional one-sentence human-readable description used by the SARIF formatter's `shortDescription.text`. | Task 3b-16 (adaptive scripts' agents should populate this for SARIF consistency) |
 | `screw_agents.formatter.format_findings(..., agent_registry=None)` | Formatter accepts an optional `AgentRegistry` to thread agent-meta lookups into SARIF rule construction. | Task 3b-16 (if adaptive findings flow through `format_findings`, propagate the registry) |
-| `screw_agents.results.write_scan_results(project_root, findings_raw, agent_names, scan_metadata=None, formats=None, agent_registry=None) -> dict` | **PR#3 signature change:** takes `findings_raw: list[dict]` (NOT `findings: list[Finding]` — callers must `model_dump()` first). `formats` defaults to `["json", "markdown"]`; accepts `"sarif"` and `"csv"` too. `agent_registry` threads to `format_findings` for SARIF. Returns `{"files_written": dict[str, str], "summary": dict, "exclusions_applied": list, "trust_status": dict}` — note `files_written` is a `dict[str, str]` (format→path), NOT `list[str]`. | Task 3b-19 (adaptive findings merge through this function; use `findings_raw=[f.model_dump() for f in findings]` and access `result["files_written"]["markdown"]` by key) |
-| **X1-M1 — core-prompt deduplication** | **TOP-PRIORITY deferred item** logged in `docs/DEFERRED_BACKLOG.md`. `scan_domain` pagination is mechanically correct but operationally ineffective for multi-agent domains (~60k+ token core_prompt baseline per page). Must ship before Phase 3b starts — Phase 3b Task 3b-19 depends on functional domain-level pagination. | Task 3b-19 (adaptive findings in domain scans; blocked until X1-M1 ships) |
+| `screw_agents.engine.ScanEngine.accumulate_findings(project_root, findings_chunk, session_id=None) -> dict` | **X1-M1 Option D split (PR #9)** — append a chunk of findings to the per-session staging buffer (`.screw/staging/{session_id}/findings.json`). Called incrementally by orchestrators; dedup by finding.id on merge. First call with `session_id=None` generates a fresh id; subsequent calls pass the returned id. Returns `{session_id, accumulated_count}`. | Task 3b-19 (adaptive findings accumulate into the same staging session as YAML findings; dedup-by-(file,line,cwe) logic now lives in the pre-accumulate orchestrator layer OR inside `render_and_write`, not in the tool) |
+| `screw_agents.engine.ScanEngine.finalize_scan_results(project_root, session_id, agent_names, scan_metadata=None, formats=None) -> dict` | **X1-M1 Option D (PR #9)** — read the staging buffer, apply server-side exclusion matching, render reports (JSON/MD + optional SARIF/CSV), write to `.screw/findings/`, clean up staging. One-shot: second call with the same session_id raises `ValueError` ("session not found"). Return shape identical to the legacy `write_scan_results`: `{files_written: dict[str, str], summary, exclusions_applied, trust_status}`. | Task 3b-19 (adaptive findings flow through the same finalize; call once after both YAML and adaptive accumulate phases complete) |
+| `screw_agents.results.render_and_write(project_root, findings_raw, agent_names, scan_metadata=None, formats=None, agent_registry=None) -> dict` | **X1-M1 (PR #9)** — low-level render+write helper extracted from the legacy `write_scan_results` body. Applies exclusion matching, renders formats, writes to `.screw/findings/`. Called by `ScanEngine.finalize_scan_results` after reading staging. Usable directly for unit tests that don't need the staging layer. | Task 3b-19 (unit tests of the yaml+adaptive merge logic can call `render_and_write` directly; integration tests should use the full accumulate+finalize path) |
+| **X1-M1 — core-prompt deduplication** | **SHIPPED in PR #9** (2026-04-17 merge commit `<fill in at merge time>`). Domain-scan responses now split into init page (prompts once) + code pages (code only). Full-scan response now carries `prompts` at top level. See `docs/DEFERRED_BACKLOG.md` Shipped section and `T-FULL-P1` (Phase 4+ follow-up for paginating full_scan). | Task 3b-19 unblocked — implementer must honor init-page-first pagination loop and prompt-caching pattern per the updated row above. |
 
 ### Cross-plan sync protocol
 
@@ -3928,7 +3930,7 @@ the standard YAML findings as `source: yaml` for the augmentative merge later.
 
 After the standard scan, inspect the `coverage_gaps` field in the scan response
 (populated by engine.detect_coverage_gaps). If the list is empty, adaptive mode
-has no work to do — proceed to write_scan_results with only the YAML findings.
+has no work to do — proceed to `finalize_scan_results` after accumulating only the YAML findings.
 
 ### Step: Layer 0e — Injection blocklist check
 
@@ -3990,14 +3992,14 @@ Wait for the user's response.
 - Call `execute_adaptive_script(project_root, script_name)` to run it
 - Merge adaptive findings with YAML findings (augmentative, dedup by
   (file, line, cwe) tuple, label source)
-- Proceed to `write_scan_results` with the merged list
+- Proceed to `finalize_scan_results` (staging already contains the merged findings)
 
 ### Step: On reject
 
 - Discard the script — never write it to disk
 - Log the rejection reason (if provided) to `.screw/local/review_log.jsonl`
 - Update `.screw/local/adaptive_prompts.json` to mark this target as `declined`
-- Proceed to `write_scan_results` with only YAML findings
+- Proceed to `finalize_scan_results` with only YAML findings staged
 
 ### Non-interactive environments
 
@@ -4027,10 +4029,11 @@ git commit -m "feat(phase3b): subagent prompts support --adaptive flag and gener
 Add to `tests/test_results.py`:
 
 ```python
-def test_write_scan_results_merges_adaptive_and_yaml_findings(tmp_path: Path):
+def test_render_and_write_merges_adaptive_and_yaml_findings(tmp_path: Path):
     """YAML findings and adaptive findings are merged with source labels;
-    duplicates by (file, line, cwe) are deduplicated."""
-    from screw_agents.results import write_scan_results
+    duplicates by (file, line, cwe) are deduplicated. Tested at the
+    render_and_write layer (post-X1-M1 Option D split)."""
+    from screw_agents.results import render_and_write
     from screw_agents.models import Finding
 
     yaml_finding = Finding(
@@ -4046,7 +4049,7 @@ def test_write_scan_results_merges_adaptive_and_yaml_findings(tmp_path: Path):
         severity="high", message="Adaptive found extra", code_snippet="db.execute_raw(y)",
     )
 
-    result = write_scan_results(
+    result = render_and_write(
         project_root=tmp_path,
         findings_raw=[f.model_dump() for f in [yaml_finding, adaptive_finding_duplicate, adaptive_finding_unique]],
         agent_names=["sqli"],
@@ -4065,11 +4068,11 @@ def test_write_scan_results_merges_adaptive_and_yaml_findings(tmp_path: Path):
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `uv run pytest tests/test_results.py::test_write_scan_results_merges_adaptive_and_yaml_findings -v`
+Run: `uv run pytest tests/test_results.py::test_render_and_write_merges_adaptive_and_yaml_findings -v`
 
 Expected: FAIL — current implementation does not deduplicate by (file, line, cwe)
 
-- [ ] **Step 3: Add dedup logic in `write_scan_results`**
+- [ ] **Step 3: Add dedup logic in `render_and_write`**
 
 Modify `src/screw_agents/results.py`. Before writing findings, deduplicate:
 
@@ -4102,7 +4105,7 @@ def _merge_findings_by_dedup_key(findings: list[Finding]) -> list[Finding]:
     return merged
 
 
-# In write_scan_results, BEFORE formatting:
+# In render_and_write, BEFORE formatting:
 findings = _merge_findings_by_dedup_key(findings)
 ```
 

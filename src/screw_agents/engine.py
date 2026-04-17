@@ -196,6 +196,7 @@ class ScanEngine:
         *,
         preloaded_codes: list[ResolvedCode] | None = None,
         _preloaded_exclusions: list[Exclusion] | None = None,
+        include_prompt: bool = True,
     ) -> dict[str, Any]:
         """Assemble a scan payload for a single agent.
 
@@ -211,11 +212,16 @@ class ScanEngine:
                 resolve_target and use this pre-resolved list. Used by
                 ``assemble_domain_scan`` to avoid re-reading files per agent
                 on a paginated domain scan.
+            include_prompt: When True (default), the response dict contains
+                ``core_prompt``. When False, ``core_prompt`` is omitted
+                entirely (not empty string — key absent). Used by
+                ``assemble_domain_scan`` on code pages and by
+                ``assemble_full_scan``'s per-agent fan-out.
 
         Returns:
             Dict with keys:
                 - agent_name: str
-                - core_prompt: str  (assembled prompt)
+                - core_prompt: str  (assembled prompt; only when include_prompt=True)
                 - code: str         (formatted code context)
                 - resolved_files: list[str]
                 - meta: dict        (agent metadata summary)
@@ -240,22 +246,16 @@ class ScanEngine:
             signals = agent.target_strategy.relevance_signals
             codes = filter_by_relevance(codes, signals)
 
-        prompt = self._build_prompt(agent, thoroughness)
         code_context = self._format_code_context(codes)
 
         result: dict[str, Any] = {
             "agent_name": agent_name,
-            "core_prompt": prompt,
             "code": code_context,
             "resolved_files": [c.file_path for c in codes],
-            "meta": {
-                "name": agent.meta.name,
-                "display_name": agent.meta.display_name,
-                "domain": agent.meta.domain,
-                "cwe_primary": agent.meta.cwes.primary,
-                "cwe_related": agent.meta.cwes.related,
-            },
+            "meta": self._agent_meta_summary(agent),
         }
+        if include_prompt:
+            result["core_prompt"] = self._build_prompt(agent, thoroughness)
         if project_root is not None:
             all_exclusions = _preloaded_exclusions if _preloaded_exclusions is not None else load_exclusions(project_root)
             # Subagent-facing exclusions list excludes quarantined entries —
@@ -287,11 +287,33 @@ class ScanEngine:
     ) -> dict[str, Any]:
         """Assemble paginated scan payloads for every agent in a domain.
 
+        The response has TWO shapes keyed by the cursor discriminator:
+
+        **Init page (cursor is None):** Returns per-agent metadata (and,
+        if ``project_root`` is set, agent-scoped exclusions) without any
+        code. Each per-agent ``agents`` entry carries ``agent_name`` and
+        ``meta`` but NO ``core_prompt`` and NO ``code``. There is NO
+        top-level ``prompts`` dict — orchestrators fetch each agent's
+        prompt lazily via the ``get_agent_prompt`` MCP tool on first
+        encounter and cache for reuse across code pages (the aggregate
+        prompts dict exceeded Claude Code's inline tool-response budget,
+        triggering cache-to-file fallback; shipping prompts lazily keeps
+        every response under the ceiling). ``code_chunks_on_page == 0``
+        and ``offset == 0``. ``next_cursor`` encodes offset=0 when files
+        exist (pointing at the first code page); it is None when there
+        is nothing to paginate.
+
+        **Code page (cursor is set):** Emits a paged slice of code chunks
+        fanned out per agent. Per-agent entries carry ``code``,
+        ``resolved_files``, ``meta`` — but no ``core_prompt`` and no
+        ``exclusions`` (exclusions are init-only). ``trust_status`` is
+        re-emitted at the top level when ``project_root`` is provided so
+        any single page carries the quarantine counts.
+
         The cursor is an opaque base64url-encoded JSON token encoding
-        ``{"target_hash": str, "offset": int}``. An empty/None cursor starts
-        at offset 0; the response's ``next_cursor`` is None when pagination
-        is complete. Cursors are bound to their originating target: replaying
-        a cursor against a different target raises ``ValueError``.
+        ``{"target_hash": str, "offset": int}``. Cursors are bound to their
+        originating target: replaying a cursor against a different target
+        raises ``ValueError``.
 
         Args:
             domain: CWE-1400 domain name (e.g. "injection-input-handling").
@@ -299,19 +321,22 @@ class ScanEngine:
             thoroughness: Per-agent tier control ("standard" | "deep").
             project_root: Optional project root for exclusions + trust.
             cursor: Opaque pagination token from a previous call; None
-                starts at page 1.
+                requests the init page.
             page_size: Max number of resolved code chunks per page
                 (default 50).
 
         Returns:
-            Dict with keys:
-                domain: str -- the domain that was scanned
-                agents: list[dict[str, Any]] -- per-agent scan payloads for this page
-                next_cursor: str | None -- token for the next page, or None when done
-                page_size: int -- echoed for caller convenience
-                total_files: int -- count of resolved code chunks pre-paging
-                offset: int -- the starting offset of this page
-                trust_status: dict -- only when project_root is provided
+            Dict with keys shared across both shapes:
+                domain: str
+                agents: list[dict[str, Any]]
+                next_cursor: str | None
+                page_size: int
+                total_files: int
+                offset: int
+                code_chunks_on_page: int
+                trust_status: dict  (only when project_root is provided)
+            Neither shape emits a top-level ``prompts`` key; callers must
+            use ``get_agent_prompt(agent_name, thoroughness)`` instead.
 
         Note: if files are deleted between page requests, the cursor's offset may
         exceed the current file count. This results in an empty ``agents`` list
@@ -326,13 +351,11 @@ class ScanEngine:
         if page_size < 1:
             raise ValueError(f"page_size must be >= 1, got {page_size}")
 
-        agents = self._registry.get_agents_by_domain(domain)
-
         # Canonical target hash binds the cursor to the target -- rejects replay across targets
         canonical = _json.dumps(target, sort_keys=True, separators=(",", ":"))
         target_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
 
-        # Decode cursor
+        # Decode cursor — preserves existing ValueError semantics
         if cursor:
             try:
                 decoded = _json.loads(
@@ -352,13 +375,66 @@ class ScanEngine:
         else:
             offset = 0
 
-        # Resolve once at domain level, page, fan out to per-agent assemble_scan
+        agents = self._registry.get_agents_by_domain(domain)
+
+        # Resolve target once — both branches need total_files.
         all_codes = resolve_target(target)
         total_files = len(all_codes)
+
+        is_init_page = cursor is None
+
+        # Load exclusions only on the init page — project-wide, included once
+        # in the subagent's context. Code pages do NOT re-ship exclusions.
+        if project_root is not None and is_init_page:
+            domain_exclusions: list[Exclusion] | None = load_exclusions(project_root)
+        else:
+            domain_exclusions = None
+
+        if is_init_page:
+            agents_responses: list[dict[str, Any]] = []
+            for a in agents:
+                entry: dict[str, Any] = {
+                    "agent_name": a.meta.name,
+                    "meta": self._agent_meta_summary(a),
+                }
+                if project_root is not None and domain_exclusions is not None:
+                    agent_exclusions = [
+                        e for e in domain_exclusions
+                        if e.agent == a.meta.name and not e.quarantined
+                    ]
+                    entry["exclusions"] = [e.model_dump() for e in agent_exclusions]
+                agents_responses.append(entry)
+
+            if total_files > 0:
+                next_cursor: str | None = base64.urlsafe_b64encode(
+                    _json.dumps(
+                        {"target_hash": target_hash, "offset": 0},
+                        separators=(",", ":"),
+                    ).encode("utf-8")
+                ).decode("ascii")
+            else:
+                next_cursor = None
+
+            result: dict[str, Any] = {
+                "domain": domain,
+                "agents": agents_responses,
+                "next_cursor": next_cursor,
+                "page_size": page_size,
+                "total_files": total_files,
+                "code_chunks_on_page": 0,
+                "offset": 0,
+            }
+            if project_root is not None:
+                result["trust_status"] = self.verify_trust(
+                    project_root=project_root, exclusions=domain_exclusions
+                )
+            return result
+
+        # Code-page branch (cursor was non-None)
         page_codes = all_codes[offset : offset + page_size]
         next_offset = offset + len(page_codes)
         if next_offset < total_files:
-            next_cursor: str | None = base64.urlsafe_b64encode(
+            next_cursor = base64.urlsafe_b64encode(
                 _json.dumps(
                     {"target_hash": target_hash, "offset": next_offset},
                     separators=(",", ":"),
@@ -367,13 +443,6 @@ class ScanEngine:
         else:
             next_cursor = None
 
-        # Load exclusions ONCE for the entire domain scan — avoids N+1 YAML parse
-        # + Ed25519 verify calls (one per agent + one domain-level).
-        if project_root is not None:
-            domain_exclusions = load_exclusions(project_root)
-        else:
-            domain_exclusions = None
-
         agents_responses = [
             self.assemble_scan(
                 a.meta.name,
@@ -381,23 +450,27 @@ class ScanEngine:
                 thoroughness,
                 project_root,
                 preloaded_codes=page_codes,
-                _preloaded_exclusions=domain_exclusions,
+                _preloaded_exclusions=[],
+                include_prompt=False,
             )
             for a in agents
         ]
 
-        result: dict[str, Any] = {
+        for entry in agents_responses:
+            entry.pop("exclusions", None)
+            entry.pop("trust_status", None)
+
+        result = {
             "domain": domain,
             "agents": agents_responses,
             "next_cursor": next_cursor,
             "page_size": page_size,
             "total_files": total_files,
+            "code_chunks_on_page": len(page_codes),
             "offset": offset,
         }
         if project_root is not None:
-            result["trust_status"] = self.verify_trust(
-                project_root=project_root, exclusions=domain_exclusions
-            )
+            result["trust_status"] = self.verify_trust(project_root=project_root)
         return result
 
     def assemble_full_scan(
@@ -405,8 +478,25 @@ class ScanEngine:
         target: dict[str, Any],
         thoroughness: str = "standard",
         project_root: Path | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> dict[str, Any]:
         """Assemble scan payloads for all registered agents.
+
+        Returns a single response dict with ``agents`` (list of per-agent
+        code + metadata entries, no core_prompt). Per-agent detection
+        prompts are NOT emitted inline — subagents must fetch each agent's
+        prompt lazily via the ``get_agent_prompt`` MCP tool on first
+        encounter and cache it for reuse across all code entries for that
+        agent. This matches the X1-M1 T13 pattern used by
+        ``assemble_domain_scan`` and keeps the response under Claude Code's
+        inline tool-response token budget.
+
+        Note: this function is NOT paginated — it returns all code for all
+        files for all agents in one response. On large codebases (especially
+        at CWE-1400 expansion scale, 41 agents per ``docs/AGENT_CATALOG.md``)
+        the code payload may exceed the caller's token budget even with
+        prompts deduped via lazy fetch. Tracked as ``T-FULL-P1`` in
+        ``docs/DEFERRED_BACKLOG.md`` for Phase 4+ (pagination +
+        agent-relevance pre-filter).
 
         Args:
             target: Target spec dict.
@@ -414,12 +504,191 @@ class ScanEngine:
             project_root: Optional project root for exclusion loading.
 
         Returns:
-            List of assemble_scan results for every registered agent.
+            Dict with keys:
+                agents: list[dict] -- per-agent code + meta (no core_prompt);
+                    each entry has agent_name, code, resolved_files, meta,
+                    and exclusions when project_root is set
+                trust_status: dict -- only when project_root is provided
         """
-        return [
-            self.assemble_scan(name, target, thoroughness, project_root)
-            for name in self._registry.agents
+        all_agent_names = list(self._registry.agents)
+        agents = [self._registry.get_agent(name) for name in all_agent_names]
+
+        if project_root is not None:
+            all_exclusions = load_exclusions(project_root)
+        else:
+            all_exclusions = None
+
+        agents_responses = [
+            self.assemble_scan(
+                a.meta.name,
+                target,
+                thoroughness,
+                project_root,
+                _preloaded_exclusions=all_exclusions,
+                include_prompt=False,
+            )
+            for a in agents
         ]
+
+        for entry in agents_responses:
+            entry.pop("trust_status", None)
+
+        result: dict[str, Any] = {
+            "agents": agents_responses,
+        }
+        if project_root is not None:
+            result["trust_status"] = self.verify_trust(
+                project_root=project_root, exclusions=all_exclusions
+            )
+        return result
+
+    def get_agent_prompt(
+        self,
+        agent_name: str,
+        thoroughness: str = "standard",
+    ) -> dict[str, Any]:
+        """Return the detection prompt and metadata for a single agent.
+
+        Used by orchestrator subagents to fetch prompts lazily per-agent,
+        avoiding the tool-response token budget blow-up of emitting all
+        agent prompts in one ``scan_domain`` init-page response.
+
+        Args:
+            agent_name: Registered agent identifier (e.g. "sqli").
+            thoroughness: One of "quick", "standard", "deep".
+
+        Returns:
+            Dict with keys:
+                agent_name: str
+                core_prompt: str -- assembled detection prompt (same shape as
+                    the legacy ``assemble_scan`` ``core_prompt`` field)
+                meta: dict -- {name, display_name, domain, cwe_primary,
+                    cwe_related} (same shape as assemble_scan's meta)
+
+        Raises:
+            ValueError: If agent_name is not registered, or if thoroughness
+                is not one of ``"quick"``, ``"standard"``, ``"deep"``.
+        """
+        agent = self._registry.get_agent(agent_name)
+        if agent is None:
+            raise ValueError(f"Unknown agent: {agent_name!r}")
+
+        if thoroughness not in {"quick", "standard", "deep"}:
+            raise ValueError(
+                f"Invalid thoroughness: {thoroughness!r}. "
+                f"Must be one of: 'quick', 'standard', 'deep'."
+            )
+
+        return {
+            "agent_name": agent_name,
+            "core_prompt": self._build_prompt(agent, thoroughness),
+            "meta": self._agent_meta_summary(agent),
+        }
+
+    def accumulate_findings(
+        self,
+        project_root: Path,
+        findings_chunk: list[dict[str, Any]],
+        session_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Append a chunk of findings to the per-session staging buffer.
+
+        Part of the accumulate + finalize protocol (paired with
+        ``finalize_scan_results``). Called by orchestrator subagents as many
+        times as convenient during a scan — once per agent pass, once per
+        code page, per batch, whatever matches the subagent's mental model.
+        Dedup by finding.id: re-accumulating the same id REPLACES the prior
+        entry (allowing corrections / reclassifications mid-scan).
+
+        Args:
+            project_root: Absolute path to project root. Staging lives under
+                ``.screw/staging/{session_id}/findings.json``.
+            findings_chunk: List of finding dicts (each must have an 'id'
+                field). Shape matches ``Finding.model_dump()``.
+            session_id: Opaque session token. Pass None on the FIRST call of
+                a scan — server generates a fresh id and returns it. Pass
+                the returned id on subsequent calls to append to the same
+                session.
+
+        Returns:
+            Dict with keys:
+                session_id: str -- echoed or newly generated
+                accumulated_count: int -- total findings in staging after
+                    merge (not just this chunk)
+        """
+        from screw_agents.staging import accumulate
+        new_session_id, count = accumulate(project_root, findings_chunk, session_id)
+        return {"session_id": new_session_id, "accumulated_count": count}
+
+    def finalize_scan_results(
+        self,
+        project_root: Path,
+        session_id: str,
+        agent_names: list[str],
+        scan_metadata: dict[str, Any] | None = None,
+        formats: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Read the staging buffer for a session, render reports, cache result.
+
+        Paired with ``accumulate_findings``. Call ONCE at the end of a scan
+        after all pagination + analysis is complete. Produces JSON, Markdown,
+        optional SARIF, and optional CSV reports, applies server-side
+        exclusion matching, and caches the result dict in
+        ``.screw/staging/{session_id}/result.json`` for idempotent re-calls.
+
+        Idempotent — subsequent calls with the same session_id return the
+        cached result dict without re-rendering. The staging directory
+        persists (it holds the result.json sidecar); only findings.json is
+        consumed on the first call. ValueError is raised only if the
+        session_id is truly unknown (neither staged nor finalized).
+
+        Args:
+            project_root: Absolute path to project root.
+            session_id: The id returned by the first ``accumulate_findings``
+                call (or echoed on subsequent accumulate calls).
+            agent_names: Agent names that produced findings (e.g. ["sqli"]).
+            scan_metadata: Optional metadata (target, timestamp).
+            formats: Output formats. Defaults to ["json", "markdown"].
+                Accepted: "json", "markdown", "sarif", "csv".
+
+        Returns:
+            Dict with:
+                files_written: dict[str, str] -- format name → file path
+                summary: dict -- total, suppressed, active, by_severity
+                exclusions_applied: list[dict] -- finding_id + exclusion_ref pairs
+                trust_status: dict -- 4-field trust verification counts
+
+        Raises:
+            ValueError: If session_id does not correspond to any staging
+                session (neither a staged findings.json nor a cached
+                result.json exists).
+        """
+        from screw_agents.results import render_and_write
+        from screw_agents.staging import (
+            finalize_result_cached,
+            read_for_finalize,
+            save_finalize_result,
+        )
+
+        # Idempotent re-call path: if the session was already finalized,
+        # return the cached result without re-rendering or erroring.
+        cached = finalize_result_cached(project_root, session_id)
+        if cached is not None:
+            return cached
+
+        # Normal first-call path: read staged findings, render reports,
+        # cache the result for idempotent re-calls.
+        findings_raw = read_for_finalize(project_root, session_id)
+        result = render_and_write(
+            project_root=project_root,
+            findings_raw=findings_raw,
+            agent_names=agent_names,
+            scan_metadata=scan_metadata,
+            formats=formats,
+            agent_registry=self._registry,
+        )
+        save_finalize_result(project_root, session_id, result)
+        return result
 
     def format_output(
         self,
@@ -479,7 +748,7 @@ class ScanEngine:
                 "Run all agents in a vulnerability domain against the target. "
                 "Returns a paginated response: {agents, next_cursor, page_size, total_files, "
                 "offset, trust_status?}. Subagents MUST loop until next_cursor is None "
-                "before calling write_scan_results."
+                "before calling finalize_scan_results."
             ),
             "input_schema": self._scan_input_schema(
                 extra_required=["target", "domain"],
@@ -526,6 +795,34 @@ class ScanEngine:
             ),
         })
 
+        # Phase 3a X1-M1 (T12): per-agent prompt fetch
+        tools.append({
+            "name": "get_agent_prompt",
+            "description": (
+                "Return the detection prompt + metadata for a single registered "
+                "agent. Used by orchestrator subagents to fetch prompts lazily "
+                "per-agent, avoiding the tool-response token budget ceiling "
+                "that scan_domain init pages used to hit when shipping all "
+                "domain prompts at once."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "agent_name": {
+                        "type": "string",
+                        "description": "Registered agent identifier (e.g. 'sqli').",
+                    },
+                    "thoroughness": {
+                        "type": "string",
+                        "enum": ["quick", "standard", "deep"],
+                        "default": "standard",
+                        "description": "Prompt-tier control. Default 'standard'.",
+                    },
+                },
+                "required": ["agent_name"],
+            },
+        })
+
         # Per-agent scan tools
         for agent in self._registry.agents.values():
             tools.append({
@@ -544,49 +841,86 @@ class ScanEngine:
                 ),
             })
 
-        # Phase 2: write_scan_results
+        # Phase 3a X1-M1 (T18): accumulate_findings + finalize_scan_results
+        # (replaces the legacy single-shot write_scan_results tool).
         tools.append({
-            "name": "write_scan_results",
+            "name": "accumulate_findings",
             "description": (
-                "Write scan findings to .screw/findings/ as JSON and Markdown reports. "
-                "Automatically applies exclusion matching from .screw/learning/exclusions.yaml "
-                "using correct scope semantics, creates the .screw/ directory structure, and "
-                "returns a summary with file paths and counts. "
-                "YOU MUST call this after analyzing code — pass your complete findings array."
+                "Append a chunk of findings to the per-session staging buffer. "
+                "Called incrementally by orchestrator subagents as they produce "
+                "findings — once per agent pass, once per code page, per batch, "
+                "whatever matches the subagent's mental model. Dedup is by "
+                "finding.id (re-accumulating replaces the prior entry). Pair "
+                "with `finalize_scan_results` (call once at the end of the scan)."
             ),
             "input_schema": {
                 "type": "object",
                 "properties": {
                     "project_root": {
                         "type": "string",
-                        "description": "Absolute path to the project root directory.",
+                        "description": "Absolute path to the project root.",
                     },
-                    "findings": {
+                    "findings_chunk": {
                         "type": "array",
-                        "description": "Array of Finding objects from your analysis.",
+                        "items": {"type": "object"},
+                        "description": (
+                            "List of finding dicts (each must have an 'id' field). "
+                            "Shape matches the Finding Pydantic model."
+                        ),
+                    },
+                    "session_id": {
+                        "type": ["string", "null"],
+                        "description": (
+                            "Pass null (or omit) on the FIRST call of a scan — "
+                            "server generates a fresh id and returns it. Pass "
+                            "the returned id on subsequent calls to append to "
+                            "the same session."
+                        ),
+                    },
+                },
+                "required": ["project_root", "findings_chunk"],
+            },
+        })
+        tools.append({
+            "name": "finalize_scan_results",
+            "description": (
+                "Read the staging buffer for a scan session, render reports "
+                "(JSON/Markdown/SARIF/CSV), apply server-side exclusion matching, "
+                "write to .screw/findings/, and clean up staging. Call ONCE at "
+                "the end of a scan after all pagination + analysis is complete. "
+                "Paired with `accumulate_findings` (called incrementally during "
+                "the scan)."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "project_root": {
+                        "type": "string",
+                        "description": "Absolute path to the project root.",
+                    },
+                    "session_id": {
+                        "type": "string",
+                        "description": "The session id returned by accumulate_findings.",
                     },
                     "agent_names": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": (
-                            "Agent names that produced the findings "
-                            "(e.g. ['sqli'] or ['sqli', 'cmdi', 'ssti', 'xss'])."
-                        ),
+                        "description": "Agent names that produced findings (e.g. ['sqli']).",
                     },
                     "scan_metadata": {
-                        "type": "object",
-                        "description": "Optional metadata: target, timestamp.",
+                        "type": ["object", "null"],
+                        "description": "Optional metadata (target, timestamp).",
                     },
                     "formats": {
-                        "type": "array",
-                        "items": {"type": "string", "enum": ["json", "sarif", "markdown", "csv"]},
-                        "default": ["json", "markdown"],
+                        "type": ["array", "null"],
+                        "items": {"type": "string", "enum": ["json", "markdown", "sarif", "csv"]},
                         "description": (
-                            "Output formats to write. Defaults to ['json', 'markdown']."
+                            "Output formats to write. Defaults to ['json', 'markdown'] "
+                            "when null/omitted."
                         ),
                     },
                 },
-                "required": ["project_root", "findings", "agent_names"],
+                "required": ["project_root", "session_id", "agent_names"],
             },
         })
 
@@ -753,6 +1087,20 @@ class ScanEngine:
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
+
+    def _agent_meta_summary(self, agent: AgentDefinition) -> dict[str, Any]:
+        """Return the canonical 5-field meta summary for an agent response entry.
+
+        Used by assemble_scan, assemble_domain_scan (init branch), and
+        get_agent_prompt so the meta shape is defined in one place.
+        """
+        return {
+            "name": agent.meta.name,
+            "display_name": agent.meta.display_name,
+            "domain": agent.meta.domain,
+            "cwe_primary": agent.meta.cwes.primary,
+            "cwe_related": agent.meta.cwes.related,
+        }
 
     def _build_prompt(self, agent: AgentDefinition, thoroughness: str) -> str:
         """Assemble the detection prompt from agent fields.

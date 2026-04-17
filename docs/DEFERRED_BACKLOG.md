@@ -4,41 +4,6 @@
 
 ---
 
-## **TOP PRIORITY — Must address before Phase 3b starts**
-
-### X1-M1 — Core-prompt deduplication in `scan_domain` paginated responses
-**Source:** Phase 3a PR#3 manual round-trip test, 2026-04-17
-**File:** `src/screw_agents/engine.py` `assemble_domain_scan`, `assemble_scan`
-**Severity:** High — pagination is mechanically correct but operationally ineffective for multi-agent domain scans.
-**Why deferred:** Discovered during PR#3 round-trip testing. The pagination infrastructure (cursor, offset, next_cursor, page_size) works correctly (430 pytest tests validate the mechanics). However, each paginated page carries the **full core_prompt per agent** (detection heuristics, bypass techniques, code examples — ~15k tokens each). For the injection-input-handling domain with 4 agents, a single page's baseline is ~60k+ tokens of core_prompt alone, BEFORE any file content. Even `page_size=1` produces ~60k tokens per page. During the round-trip, `page_size=5` produced ~113k chars on page 1, exceeding the subagent's single-read token budget. The subagent fell back to direct file inspection (still found findings, but bypassed the designed pagination loop).
-
-**Root cause:** `assemble_scan` embeds the agent's full core_prompt in every response. When `assemble_domain_scan` calls `assemble_scan` for 4 agents per page, the prompt is repeated 4× per page and again on every subsequent page. The prompt is the dominant payload — file content is comparatively small.
-
-**Impact on Phase 3b:** Phase 3b's adaptive scripts produce additional findings that merge into the same `scan_domain` pipeline. Without fixing this, adaptive scripts would further inflate per-page payloads and could push the subagent into the same fallback behavior, defeating both pagination AND adaptive coverage.
-
-**Trigger:** After PR#3 merges, before Phase 3b implementation begins. This is a prerequisite for Phase 3b's `scan_domain`-based adaptive workflow (Task 3b-19) to function as designed.
-
-**Suggested fix (two options, can be combined):**
-
-**Option A — Core-prompt-once protocol:**
-1. `assemble_domain_scan` emits a `prompts: dict[str, str]` key in its first-page response, keyed by agent_name → core_prompt. Subsequent pages omit `prompts` (or set it to `{}`).
-2. Each per-agent entry in `agents` drops its `core_prompt` field and instead carries a `prompt_ref: str` pointing at the key in `prompts`.
-3. The subagent reads `prompts` from page 1, caches them for the session, and applies each prompt to its referenced agent's code on every page.
-4. Backward-compatible: if `core_prompt` is present in the per-agent entry (legacy callers), use it directly; if absent, look up via `prompt_ref`.
-5. Estimated savings: 4 agents × ~15k tokens × (N-1) pages eliminated. For a 10-page scan, ~540k tokens saved.
-
-**Option B — Prompt-hash deduplication:**
-1. `assemble_scan` computes a hash of the core_prompt and includes it as `prompt_hash` in the response.
-2. First time the subagent sees a `prompt_hash`, it ingests the full `core_prompt`. On subsequent pages with the same hash, it skips re-reading (the prompt hasn't changed between pages — agent YAML is static within a scan session).
-3. Requires subagent-side caching logic in the prompt (teach the subagent to track seen hashes).
-4. Simpler server change (add one field) but pushes complexity into the subagent prompt.
-
-**Recommendation:** Option A is cleaner (server handles deduplication; subagent loop is simpler). ~200 LOC in engine.py + subagent prompt update + tests. Scope is a focused PR between PR#3 and Phase 3b.
-
-**Round-trip evidence:** The per-agent scan path (`scan_sqli`) works perfectly — 36 findings from 12 files, no token-budget issue, because there's only 1 agent payload. The domain path (`scan_domain` via `screw-injection` orchestrator) hits the budget with 4 agents. The subagent's adaptive fallback (direct file inspection) still produced 37 findings, proving the detection knowledge is sound — the delivery mechanism is the bottleneck.
-
----
-
 ## Phase 3b Task 13 (init-trust extends trust.py)
 
 ### T4-M6 — Split `src/screw_agents/trust.py` into a package
@@ -58,6 +23,56 @@
 ---
 
 ## Phase 4+ (autoresearch / scale)
+
+### T-FULL-P1 — Paginate `assemble_full_scan` + apply lazy-fetch + agent-relevance filter
+**Source:** X1-M1 (PR #9, 2026-04-17) — incremental dedup landed; full architectural fix deferred.
+**File:** `src/screw_agents/engine.py` `assemble_full_scan`, `plugins/screw/agents/screw-full-review.md`
+**Priority:** **HIGH** — `scan_full` is unusable at CWE-1400 expansion scale (41 agents per `docs/AGENT_CATALOG.md`).
+
+**Why deferred:** X1-M1 shipped incremental improvements to `assemble_full_scan`:
+- PR #9 T5: changed return shape from `list[dict]` to `dict` with top-level `prompts`
+- PR #9 T14: dropped top-level `prompts` dict; per-agent entries carry only `{agent_name, code, meta, exclusions?}`; subagents fetch prompts lazily via `get_agent_prompt`
+
+However, the function remains:
+1. **Non-paginated** — returns all code for all files for all agents in a single response
+2. **Agent-relevance blind** — invokes every registered agent regardless of whether the target contains code the agent can usefully analyze (e.g., PHP-specific agents on a Python-only target)
+
+At CWE-1400 expansion scale (41 agents × ~5-7k tokens prompt each + all code), even lazy per-agent prompt fetch cannot prevent the cumulative subagent context from approaching practical limits:
+- 41 agents × 5-7k tokens cached prompts = ~205-287k tokens
+- Plus cumulative code across all files × 41 agent analyses
+- Opus 1M context window fits it in theory, but practically wasteful and fragile
+
+**Trigger:** Any of:
+- A round-trip test confirms `scan_full` stalls on a realistic project at Phase 3b+ agent count (≥10)
+- Phase 4 autoresearch uses `scan_full` in volume and trips budget limits
+- A user reports `scan_full` failures due to payload size or context exhaustion
+
+**Suggested fix (three components, ship as one or sequential PRs):**
+
+1. **Pagination** — cursor-based over the flattened `(agent, file_chunk)` space. Cursor carries `{target_hash, agent_offset, file_offset}`. Same init-page/code-page split as `scan_domain` post-T13.
+2. **Lazy per-agent prompt fetch** — scan_full response never includes `prompts`; orchestrator uses `get_agent_prompt` on first-encounter per agent, caches for reuse across pages. This is already the pattern T13-T16 applies to scan_domain.
+3. **Agent-relevance pre-filter** — scan_full returns only agents whose `target_strategy.relevance_signals` match files present in the target. For example, on a Python-only target, skip LDAP/NoSQL/PHP-specific agents that would produce no findings anyway. Could halve active-agent count on typical targets. New `ScanEngine._filter_relevant_agents(codes, agents)` helper.
+
+**Estimated scope:** ~500-700 LOC across engine.py, server.py, orchestrator prompts, tests. Separate focused PR (likely Phase 4 prerequisite).
+
+### T-STAGING-ORPHAN-GC — Clean up orphaned `.screw/staging/` directories
+**Source:** T-WRITE-SPLIT (PR #9, 2026-04-17) — staging-dir cleanup is per-session on finalize only; no sweeper for abandoned sessions
+**File:** `src/screw_agents/staging.py`, new CLI subcommand or hook
+**Priority:** Medium — benign bloat (each orphan is small), but accumulates over time with crashed/aborted scans
+
+**Why deferred:** When `accumulate_findings` is called but `finalize_scan_results` is never called (subagent crashed, user aborted with Ctrl-C, scan timed out), the staging directory at `.screw/staging/{session_id}/` is not cleaned up. Current scope: single-process MCP server; orphan directories are benign but accumulate. Out of scope for PR #9's correctness fix.
+
+**Trigger:** Any of:
+- User reports `.screw/staging/` with many orphan directories
+- Phase 4 autoresearch generates many scan sessions and staging bloat becomes visible
+- A dedicated `screw-agents gc` CLI subcommand is added
+
+**Suggested fix:**
+1. Add `screw-agents gc-staging [--older-than N]` CLI subcommand that removes staging directories older than N hours (default 24h)
+2. OR: have `finalize_scan_results` opportunistically sweep staging directories older than 24h on each call (cheap, no new surface)
+3. Document the manual cleanup: `rm -rf .screw/staging/` is safe (only affects in-flight scans, which would fail at `finalize_scan_results` anyway)
+
+**Estimated scope:** ~50-100 LOC (new CLI subcommand + unit tests + docs). Small PR.
 
 ### T5-M4 — Lazy fingerprint computation in `verify_signature`
 **Source:** Phase 3a PR#1 punchlist (commit `27d147d`)
@@ -116,6 +131,23 @@
 ---
 
 ## Project-wide (not Phase-tagged)
+
+### T-ORCHESTRATOR-SCHEMA — Backfill finding-object schema in domain orchestrator subagents
+**Source:** X1-M1 PR#9 T6 quality review, 2026-04-17 (gap pre-existing, not introduced by T6)
+**File:** `plugins/screw/agents/screw-injection.md` (and any future domain orchestrators)
+**Priority:** Medium — determinism regression, not a correctness bug.
+
+**Why deferred:** Single-agent orchestrators like `plugins/screw/agents/screw-sqli.md` carry the full finding-object JSON schema + field-population rules (line_start precision, verbatim CWE/OWASP copy, severity/confidence guidance). Domain orchestrators (currently just `screw-injection.md`, more will land in Phase 3b) delegate analysis to the per-agent prompts via `prompts[agent_name]` but don't carry an output-contract schema themselves. Two LLM sessions analyzing the same code under `/screw:injection` may produce differently-formatted findings (different field coverage, different severity interpretations). Pre-existing gap — not introduced by X1-M1. Worth addressing before Phase 3b multiplies the number of domain orchestrators (copy-paste amplifies the gap).
+
+**Trigger:** Before Phase 3b adds a second or third domain orchestrator template, OR if a round-trip test shows cross-session finding-format drift under `/screw:injection`.
+
+**Suggested fix:**
+1. Extract the finding-object schema + field-population rules from `screw-sqli.md` into a reusable snippet (could live in a shared Markdown fragment or be duplicated verbatim for now).
+2. Apply to `screw-injection.md` in Step 2 (the "Analyze All Accumulated Payloads" step).
+3. Apply to future Phase 3b domain orchestrators.
+4. Optional: add a lightweight round-trip test that invokes `/screw:injection` twice on a small fixture and asserts findings-format stability.
+
+**Estimated scope:** ~50 LOC per orchestrator + optional test. Small PR.
 
 ### T10-M1 — `additionalProperties: false` on tool input schemas
 **Source:** Phase 3a PR#1 punchlist (commit `27d147d`)
@@ -243,3 +275,58 @@
 1. Add `@field_validator("reason")` to `ExclusionInput` that either strips backticks (silent sanitization) or raises ValueError (fail-closed). Recommend fail-closed so the user knows their reason was altered.
 2. Provide a one-shot CLI migration (`screw-agents sanitize-exclusions`) that rewrites existing exclusions.yaml entries with sanitized reasons (preserving signatures via re-signing with the local key).
 3. Remove the render-layer escape in aggregation.py as redundant (optional — can keep as defense-in-depth).
+
+### T-ACCUMULATE-ONCE — UX polish: encourage single accumulate_findings call per scan
+**Source:** Phase 3a X1-M1 round-trip testing (PR #9, 2026-04-17)
+**File:** `plugins/screw/agents/screw-injection.md` (Step 3 critical rules), and other orchestrators if the pattern spreads
+**Priority:** **Low** — UX annoyance, not a correctness issue
+
+**Why deferred:** Final round-trip showed the subagent making 3 × `accumulate_findings` calls (one per agent batch), each carrying a cumulative findings payload. Each call required user confirmation with a "wall of text" approval prompt. The current `screw-injection.md` prompt explicitly permits multiple accumulate calls ("You MAY call this multiple times"). Narrowing to "prefer ONE accumulate call at the end with all findings" would reduce tool-call approvals from 4-6 to 2 in typical scans.
+
+**Why not now:** The current behavior is correct (findings deduped by id; final output right). The wall-of-text approvals are annoying but not blocking. Tightening the prompt is a simple doc-only change, but without round-trip validation there's risk of over-constraining (e.g., if a subagent hits an LLM context limit partway through a scan, per-batch persistence is actually useful). Defer until: (a) users complain, OR (b) a round-trip test proves single-accumulate works reliably at current scale.
+
+**Trigger:** Any of:
+- User-visible complaint about approval-prompt fatigue during `/screw:scan domain ...`
+- Round-trip test at larger scale (injection domain at full 10 agents per AGENT_CATALOG.md) shows single-accumulate is reliable
+- Dedicated prompt-polish commit that tackles multiple orchestrator UX issues together
+
+**Suggested fix:**
+1. Update `plugins/screw/agents/screw-injection.md` Step 3a to soften "you MAY call this multiple times" → "prefer a SINGLE call at the end with all findings; multiple calls are safe (dedup by id) but each requires approval and is noisy".
+2. Run round-trip. Confirm single-accumulate works.
+3. Apply same softening to per-agent orchestrators if needed (they already call accumulate once since single-agent scans have only one batch).
+
+**Estimated scope:** ~5-10 LOC of prompt text + round-trip validation.
+
+---
+
+## Shipped
+
+### X1-M1 — Core-prompt deduplication in `scan_domain` paginated responses
+**Source:** Phase 3a PR#3 manual round-trip test, 2026-04-17
+**Shipped in:** PR #9 (`phase-3a-prompt-dedup`), merge commit `<fill in at merge time>`
+**Final design:** `docs/specs/2026-04-17-prompt-dedup-x1-m1-design.md` (local, not in git)
+**Plan:** `docs/PHASE_3A_X1_M1_PLAN.md`
+
+**Solution:** Applied Option A′ (init page + code pages) to `assemble_domain_scan` and Option A (top-level `prompts` dedup) to `assemble_full_scan`. `assemble_scan` gained `include_prompt: bool = True` kwarg. Cursor schema unchanged. `assemble_full_scan` return type changed from `list[dict]` to `dict` — breaking change to `scan_full` MCP tool.
+
+**Follow-ups:**
+- `T-FULL-P1` (Phase 4+) — paginate `assemble_full_scan` and apply Option A'
+- `T-ORCHESTRATOR-SCHEMA` (project-wide) — backfill finding-object schema in domain orchestrator subagents
+- `T-WRITE-SPLIT` (Shipped in this PR) — split write_scan_results into accumulate + finalize
+- `T-STAGING-ORPHAN-GC` (Phase 4+) — clean up orphaned .screw/staging/ directories
+- `T-ACCUMULATE-ONCE` (project-wide, Low) — prompt polish to prefer single accumulate call
+
+### T-WRITE-SPLIT — Split `write_scan_results` into `accumulate_findings` + `finalize_scan_results`
+**Source:** Phase 3a X1-M1 round-trip testing (PR #9, 2026-04-17)
+**Shipped in:** PR #9 (`phase-3a-prompt-dedup`), merge commit `<fill in at merge time>`
+**Plan:** `docs/PHASE_3A_X1_M1_PLAN.md`
+
+**Problem:** Round-trip testing after the lazy-fetch fix (T12-T16) revealed a second defect — subagents called `write_scan_results` once per agent-batch (4 times for a 4-agent injection scan). Overwrite semantics masked this as "just wasteful" (the final call had all findings), but each intermediate call triggered file rewrites + user approvals + tool-call tokens. Prompt-level "call once" discipline was not load-bearing.
+
+**Solution:** Option D — architectural split into two tools:
+- `accumulate_findings(project_root, findings_chunk, session_id?) -> {session_id, accumulated_count}` — incremental staging in `.screw/staging/{session_id}/findings.json`; dedup by finding.id on merge; atomic tmp+replace writes
+- `finalize_scan_results(project_root, session_id, agent_names, scan_metadata?, formats?) -> {files_written, summary, exclusions_applied, trust_status}` — one-shot render+write; reads staging, applies exclusions, renders formats, cleans up staging; second call raises ValueError
+
+The subagent's natural "persist after each batch" instinct is channeled into cheap `accumulate_findings` calls; `finalize_scan_results` is an explicit terminal event. The legacy `write_scan_results` function and MCP tool were removed.
+
+**Follow-up:** `T-STAGING-ORPHAN-GC` (Phase 4+) — orphan cleanup for scans that accumulate but never finalize.

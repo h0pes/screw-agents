@@ -1,4 +1,12 @@
-"""Tests for the results module — write_scan_results."""
+"""Tests for the results module — render_and_write.
+
+Migrated from the legacy ``write_scan_results`` tests (X1-M1 T18). The
+rendering pipeline is now reached via :meth:`ScanEngine.finalize_scan_results`;
+these tests call the lower-level :func:`render_and_write` helper directly
+so they exercise exclusion matching, trust-status accounting, and file
+I/O without the staging round-trip (covered separately in
+``test_accumulate_finalize.py``).
+"""
 
 import json
 
@@ -6,7 +14,7 @@ import pytest
 import yaml
 from pathlib import Path
 
-from screw_agents.results import write_scan_results
+from screw_agents.results import render_and_write
 
 
 @pytest.fixture
@@ -58,9 +66,9 @@ def finding_sqli_line30():
     }
 
 
-class TestWriteScanResults:
+class TestRenderAndWrite:
     def test_creates_screw_directory_structure(self, tmp_path, finding_sqli):
-        result = write_scan_results(
+        result = render_and_write(
             project_root=tmp_path,
             findings_raw=[finding_sqli],
             agent_names=["sqli"],
@@ -70,7 +78,7 @@ class TestWriteScanResults:
         assert (tmp_path / ".screw" / ".gitignore").exists()
 
     def test_gitignore_content(self, tmp_path, finding_sqli):
-        write_scan_results(
+        render_and_write(
             project_root=tmp_path,
             findings_raw=[finding_sqli],
             agent_names=["sqli"],
@@ -84,7 +92,7 @@ class TestWriteScanResults:
         screw_dir = tmp_path / ".screw"
         screw_dir.mkdir()
         (screw_dir / ".gitignore").write_text("custom content\n")
-        write_scan_results(
+        render_and_write(
             project_root=tmp_path,
             findings_raw=[finding_sqli],
             agent_names=["sqli"],
@@ -92,7 +100,7 @@ class TestWriteScanResults:
         assert (screw_dir / ".gitignore").read_text() == "custom content\n"
 
     def test_writes_json_and_markdown_files(self, tmp_path, finding_sqli):
-        result = write_scan_results(
+        result = render_and_write(
             project_root=tmp_path,
             findings_raw=[finding_sqli],
             agent_names=["sqli"],
@@ -114,7 +122,7 @@ class TestWriteScanResults:
         assert "Security Scan Report" in md
 
     def test_filename_prefix_single_agent(self, tmp_path, finding_sqli):
-        result = write_scan_results(
+        result = render_and_write(
             project_root=tmp_path,
             findings_raw=[finding_sqli],
             agent_names=["sqli"],
@@ -123,7 +131,7 @@ class TestWriteScanResults:
         assert "/sqli-" in json_file
 
     def test_filename_prefix_injection_domain(self, tmp_path, finding_sqli):
-        result = write_scan_results(
+        result = render_and_write(
             project_root=tmp_path,
             findings_raw=[finding_sqli],
             agent_names=["sqli", "cmdi", "ssti", "xss"],
@@ -132,7 +140,7 @@ class TestWriteScanResults:
         assert "/injection-" in json_file
 
     def test_summary_counts(self, tmp_path, finding_sqli, finding_sqli_line30):
-        result = write_scan_results(
+        result = render_and_write(
             project_root=tmp_path,
             findings_raw=[finding_sqli, finding_sqli_line30],
             agent_names=["sqli"],
@@ -144,7 +152,7 @@ class TestWriteScanResults:
         assert summary["by_severity"]["high"] == 2
 
     def test_empty_findings(self, tmp_path):
-        result = write_scan_results(
+        result = render_and_write(
             project_root=tmp_path,
             findings_raw=[],
             agent_names=["sqli"],
@@ -154,7 +162,7 @@ class TestWriteScanResults:
         assert len(result["files_written"]) == 2  # still writes empty report
 
     def test_scan_metadata_passed_through(self, tmp_path, finding_sqli):
-        result = write_scan_results(
+        result = render_and_write(
             project_root=tmp_path,
             findings_raw=[finding_sqli],
             agent_names=["sqli"],
@@ -165,8 +173,8 @@ class TestWriteScanResults:
         assert "src/api.py" in md
 
 
-class TestWriteScanResultsExclusions:
-    """D5 fix: write_scan_results applies exclusions server-side."""
+class TestRenderAndWriteExclusions:
+    """D5 fix: render_and_write applies exclusions server-side."""
 
     def _setup_exclusion(self, tmp_path, scope_type, **scope_kwargs):
         """Write an exclusion to .screw/learning/exclusions.yaml.
@@ -214,7 +222,7 @@ class TestWriteScanResultsExclusions:
     ):
         """D5 core test: file scope must suppress ALL findings in that file."""
         self._setup_exclusion(tmp_path, "file", path="src/api.py")
-        result = write_scan_results(
+        result = render_and_write(
             project_root=tmp_path,
             findings_raw=[finding_sqli, finding_sqli_line30],
             agent_names=["sqli"],
@@ -227,7 +235,7 @@ class TestWriteScanResultsExclusions:
         self, tmp_path, finding_sqli, finding_sqli_line30
     ):
         self._setup_exclusion(tmp_path, "exact_line", path="src/api.py")
-        result = write_scan_results(
+        result = render_and_write(
             project_root=tmp_path,
             findings_raw=[finding_sqli, finding_sqli_line30],
             agent_names=["sqli"],
@@ -240,7 +248,7 @@ class TestWriteScanResultsExclusions:
         self, tmp_path, finding_sqli
     ):
         self._setup_exclusion(tmp_path, "directory", path="src/")
-        result = write_scan_results(
+        result = render_and_write(
             project_root=tmp_path,
             findings_raw=[finding_sqli],
             agent_names=["sqli"],
@@ -248,7 +256,7 @@ class TestWriteScanResultsExclusions:
         assert result["summary"]["suppressed"] == 1
 
     def test_no_exclusions_file_no_suppressions(self, tmp_path, finding_sqli):
-        result = write_scan_results(
+        result = render_and_write(
             project_root=tmp_path,
             findings_raw=[finding_sqli],
             agent_names=["sqli"],
@@ -282,7 +290,7 @@ class TestWriteScanResultsExclusions:
             ]
         }
         (learning_dir / "exclusions.yaml").write_text(yaml.dump(data))
-        result = write_scan_results(
+        result = render_and_write(
             project_root=tmp_path,
             findings_raw=[finding_sqli],
             agent_names=["sqli"],
@@ -294,7 +302,7 @@ class TestWriteScanResultsExclusions:
     ):
         """Excluded findings should appear in JSON with excluded=true."""
         self._setup_exclusion(tmp_path, "file", path="src/api.py")
-        result = write_scan_results(
+        result = render_and_write(
             project_root=tmp_path,
             findings_raw=[finding_sqli, finding_sqli_line30],
             agent_names=["sqli"],
@@ -343,7 +351,7 @@ class TestWriteScanResultsExclusions:
             )
         )
 
-        result = write_scan_results(
+        result = render_and_write(
             project_root=tmp_path,
             findings_raw=[finding_sqli],
             agent_names=["sqli"],
@@ -364,12 +372,12 @@ class TestWriteScanResultsExclusions:
         assert data[0]["triage"]["exclusion_ref"] is None
 
 
-class TestWriteScanResultsTrustStatus:
+class TestRenderAndWriteTrustStatus:
     """Task 11 — surface trust verification status in scan reports."""
 
-    def test_write_scan_results_returns_trust_status_in_dict(self, tmp_path, finding_sqli):
+    def test_render_and_write_returns_trust_status_in_dict(self, tmp_path, finding_sqli):
         """The return dict has a trust_status key with the 4-field shape."""
-        result = write_scan_results(
+        result = render_and_write(
             project_root=tmp_path,
             findings_raw=[finding_sqli],
             agent_names=["sqli"],
@@ -386,11 +394,11 @@ class TestWriteScanResultsTrustStatus:
         assert ts["exclusion_quarantine_count"] == 0
         assert ts["exclusion_active_count"] == 0
 
-    def test_write_scan_results_trust_section_absent_in_empty_project(
+    def test_render_and_write_trust_section_absent_in_empty_project(
         self, tmp_path, finding_sqli
     ):
         """Empty project (no exclusions) → trust section not rendered in Markdown."""
-        result = write_scan_results(
+        result = render_and_write(
             project_root=tmp_path,
             findings_raw=[finding_sqli],
             agent_names=["sqli"],
@@ -399,7 +407,7 @@ class TestWriteScanResultsTrustStatus:
         md = Path(md_file).read_text()
         assert "## Trust verification" not in md
 
-    def test_write_scan_results_quarantined_exclusion_surfaces_in_markdown(
+    def test_render_and_write_quarantined_exclusion_surfaces_in_markdown(
         self, tmp_path, finding_sqli
     ):
         """When an unsigned exclusion is quarantined (default reject policy),
@@ -430,7 +438,7 @@ class TestWriteScanResultsTrustStatus:
             )
         )
 
-        result = write_scan_results(
+        result = render_and_write(
             project_root=tmp_path,
             findings_raw=[finding_sqli],
             agent_names=["sqli"],
@@ -447,7 +455,7 @@ class TestWriteScanResultsTrustStatus:
         assert "1 exclusion quarantined" in md
         assert "screw-agents validate-exclusion" in md
 
-    def test_write_scan_results_warn_policy_surfaces_in_markdown(
+    def test_render_and_write_warn_policy_surfaces_in_markdown(
         self, tmp_path, finding_sqli
     ):
         """Under warn policy, unsigned exclusions end up as trust_state='warned'
@@ -486,7 +494,7 @@ class TestWriteScanResultsTrustStatus:
             )
         )
 
-        result = write_scan_results(
+        result = render_and_write(
             project_root=tmp_path,
             findings_raw=[finding_sqli],
             agent_names=["sqli"],
@@ -500,16 +508,16 @@ class TestWriteScanResultsTrustStatus:
         assert "## Trust verification" in md
         assert "1 trusted exclusion applied" in md
 
-    def test_write_scan_results_friendly_error_when_dot_screw_is_file(
+    def test_render_and_write_friendly_error_when_dot_screw_is_file(
         self, tmp_path, finding_sqli
     ):
-        """When `.screw` exists as a FILE (not directory), write_scan_results
+        """When `.screw` exists as a FILE (not directory), render_and_write
         raises ValueError with actionable message (T6-I1)."""
         # Create `.screw` as a file
         (tmp_path / ".screw").write_text("i am not a directory")
 
         with pytest.raises(ValueError, match="not a directory"):
-            write_scan_results(
+            render_and_write(
                 project_root=tmp_path,
                 findings_raw=[finding_sqli],
                 agent_names=["sqli"],

@@ -128,7 +128,18 @@ def test_full_pipeline_sqli(engine, fixtures_dir):
 
 
 def test_full_pipeline_domain_scan(engine, fixtures_dir):
-    """Integration: domain scan assembles prompts for all 4 agents."""
+    """Integration: domain-scan init page (cursor=None) carries per-agent
+    metadata entries without code and without a top-level prompts dict.
+
+    Post X1-M1 Task 13, assemble_domain_scan(cursor=None) returns an init page
+    whose contract is:
+      - NO top-level ``prompts`` key (orchestrators fetch prompts lazily per
+        agent via the ``get_agent_prompt`` MCP tool)
+      - per-agent entries carry ``agent_name`` + ``meta`` only (no core_prompt,
+        no code; ``exclusions`` is optional, only when project_root is set)
+      - ``code_chunks_on_page == 0`` and ``offset == 0`` on the init page
+    Full code-page walking is exercised in tests/test_pagination.py.
+    """
     vuln_dir = fixtures_dir / "sqli" / "vulnerable"
     py_files = list(vuln_dir.glob("*.py"))
     if not py_files:
@@ -139,12 +150,23 @@ def test_full_pipeline_domain_scan(engine, fixtures_dir):
         domain="injection-input-handling", target=target,
     )
     assert isinstance(result, dict)
+
+    # No aggregate prompts dict — X1-M1 T13.
+    assert "prompts" not in result
+
+    # Per-agent entries: metadata only on init; no code, no core_prompt.
     assert "agents" in result
     assert len(result["agents"]) == 4
     agent_names = {r["agent_name"] for r in result["agents"]}
     assert agent_names == {"sqli", "cmdi", "ssti", "xss"}
     for r in result["agents"]:
-        assert len(r["code"]) > 0
+        assert "meta" in r
+        assert "code" not in r
+        assert "core_prompt" not in r
+
+    # Init-page metadata.
+    assert result["code_chunks_on_page"] == 0
+    assert result["offset"] == 0
 
 
 import yaml
@@ -248,6 +270,151 @@ class TestAssembleScanExclusions:
         if not py_files:
             pytest.skip("no Python fixtures")
         target = {"type": "file", "path": str(py_files[0])}
-        results = engine.assemble_full_scan(target=target, project_root=tmp_path)
-        for r in results:
+        result = engine.assemble_full_scan(target=target, project_root=tmp_path)
+        for r in result["agents"]:
             assert "exclusions" in r
+        # Top-level trust_status is present when project_root is set
+        assert "trust_status" in result
+
+
+def test_assemble_scan_default_includes_core_prompt(tmp_path: Path):
+    """Regression: assemble_scan's default behavior is unchanged — core_prompt
+    is present in the result. Phase 3a per-agent callers (scan_sqli, scan_cmdi,
+    etc.) depend on this default."""
+    (tmp_path / "a.py").write_text("cursor.execute('SELECT * FROM t')\n")
+    engine = ScanEngine.from_defaults()
+    target = {"type": "glob", "pattern": str(tmp_path / "*.py")}
+
+    result = engine.assemble_scan("sqli", target)
+
+    assert "core_prompt" in result
+    assert isinstance(result["core_prompt"], str)
+    assert len(result["core_prompt"]) > 0
+
+
+def test_assemble_scan_include_prompt_false_omits_core_prompt(tmp_path: Path):
+    """When include_prompt=False, the response does not contain a core_prompt
+    key at all (not empty string — absent). Used by domain-level and
+    full-scan-level callers on code pages / fan-out iterations."""
+    (tmp_path / "a.py").write_text("cursor.execute('SELECT * FROM t')\n")
+    engine = ScanEngine.from_defaults()
+    target = {"type": "glob", "pattern": str(tmp_path / "*.py")}
+
+    result = engine.assemble_scan("sqli", target, include_prompt=False)
+
+    assert "core_prompt" not in result
+    assert result["agent_name"] == "sqli"
+    assert "code" in result
+    assert "resolved_files" in result
+    assert "meta" in result
+
+
+def test_assemble_full_scan_returns_dict_shape(tmp_path: Path):
+    """assemble_full_scan returns a dict with an `agents` list. Per-agent
+    entries carry no core_prompt (subagents fetch prompts lazily via
+    get_agent_prompt)."""
+    (tmp_path / "a.py").write_text(
+        "cursor.execute('SELECT * FROM t WHERE x = ' + user_input)\n"
+    )
+    engine = ScanEngine.from_defaults()
+    target = {"type": "glob", "pattern": str(tmp_path / "*.py")}
+
+    result = engine.assemble_full_scan(target)
+
+    assert isinstance(result, dict)
+    assert "agents" in result
+    assert isinstance(result["agents"], list)
+
+    for agent_entry in result["agents"]:
+        assert "agent_name" in agent_entry
+        assert "core_prompt" not in agent_entry
+        assert "code" in agent_entry
+        assert "meta" in agent_entry
+
+
+def test_assemble_full_scan_no_longer_emits_prompts(tmp_path: Path):
+    """X1-M1 extension: scan_full drops the top-level `prompts` dict for the
+    same reason scan_domain's init page did — aggregate prompts across N
+    agents exceed the inline tool-response budget. Subagents fetch each
+    agent's prompt via the `get_agent_prompt` MCP tool lazily."""
+    (tmp_path / "a.py").write_text(
+        "cursor.execute('SELECT * FROM t WHERE x = ' + user_input)\n"
+    )
+    engine = ScanEngine.from_defaults()
+    target = {"type": "glob", "pattern": str(tmp_path / "*.py")}
+
+    result = engine.assemble_full_scan(target)
+
+    assert isinstance(result, dict)
+    assert "prompts" not in result, "full_scan must not emit aggregate prompts dict"
+    assert "agents" in result
+
+    for agent_entry in result["agents"]:
+        assert "agent_name" in agent_entry
+        assert "meta" in agent_entry
+        assert "core_prompt" not in agent_entry
+        assert "code" in agent_entry
+
+
+def test_assemble_full_scan_includes_trust_status_when_project_root_set(tmp_path: Path):
+    """trust_status appears at the top level of the full-scan response when
+    project_root is provided. Bare tmp_path (no .screw/) still yields a
+    present, all-zero trust_status dict."""
+    (tmp_path / "a.py").write_text("cursor.execute('SELECT 1')\n")
+    engine = ScanEngine.from_defaults()
+    target = {"type": "glob", "pattern": str(tmp_path / "*.py")}
+
+    result = engine.assemble_full_scan(target, project_root=tmp_path)
+
+    assert "trust_status" in result
+    assert "exclusion_quarantine_count" in result["trust_status"]
+
+
+def test_get_agent_prompt_returns_expected_shape(tmp_path: Path):
+    """New MCP-facing method: returns {agent_name, core_prompt, meta} for a
+    registered agent, so orchestrator subagents can fetch prompts lazily
+    per-agent instead of receiving an aggregate prompts dict on scan_domain."""
+    engine = ScanEngine.from_defaults()
+
+    result = engine.get_agent_prompt("sqli", "standard")
+
+    assert isinstance(result, dict)
+    assert result["agent_name"] == "sqli"
+    assert isinstance(result["core_prompt"], str)
+    assert len(result["core_prompt"]) > 0
+    # meta subset (same keys as assemble_scan emits)
+    meta = result["meta"]
+    assert meta["name"] == "sqli"
+    assert "display_name" in meta
+    assert "domain" in meta
+    assert "cwe_primary" in meta
+
+
+def test_get_agent_prompt_thoroughness_affects_prompt(tmp_path: Path):
+    """quick vs standard vs deep produce different prompt sizes (different
+    tiers of heuristics/examples included)."""
+    engine = ScanEngine.from_defaults()
+
+    quick = engine.get_agent_prompt("sqli", "quick")
+    standard = engine.get_agent_prompt("sqli", "standard")
+    deep = engine.get_agent_prompt("sqli", "deep")
+
+    # quick < standard < deep (monotonic inclusion of tiers)
+    assert len(quick["core_prompt"]) < len(standard["core_prompt"])
+    assert len(standard["core_prompt"]) <= len(deep["core_prompt"])
+
+
+def test_get_agent_prompt_unknown_agent_raises(tmp_path: Path):
+    """Unknown agent name raises ValueError (consistent with assemble_scan)."""
+    engine = ScanEngine.from_defaults()
+
+    with pytest.raises(ValueError, match="Unknown agent"):
+        engine.get_agent_prompt("nonexistent", "standard")
+
+
+def test_get_agent_prompt_invalid_thoroughness_raises(tmp_path: Path):
+    """Invalid thoroughness values raise ValueError (Python-side validation;
+    MCP schema enforces the enum for tool callers)."""
+    engine = ScanEngine.from_defaults()
+    with pytest.raises(ValueError, match="Invalid thoroughness"):
+        engine.get_agent_prompt("sqli", "extreme")
