@@ -92,3 +92,18 @@ def test_write_scan_results_csv_format(tmp_path: Path):
     content = csv_path.read_text()
     assert "test.py" in content
     assert "CWE-89" in content
+
+
+def test_format_csv_sanitizes_formula_injection():
+    """Cells starting with = + - @ get a tab prefix to prevent spreadsheet formula execution."""
+    from screw_agents.models import FindingAnalysis, FindingLocation
+
+    finding = _make_finding(
+        analysis=FindingAnalysis(description="=cmd('calc')"),
+        location=FindingLocation(file="src/a.py", line_start=10, code_snippet='+HYPERLINK("evil")'),
+    )
+    out = format_csv([finding])
+    rows = list(csv.reader(io.StringIO(out)))
+    data = dict(zip(rows[0], rows[1]))
+    assert data["description"].startswith("\t=")
+    assert data["code_snippet"].startswith("\t+")

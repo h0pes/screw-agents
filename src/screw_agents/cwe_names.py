@@ -1,6 +1,7 @@
 """CWE long-name lookup table for user-facing output.
 
-Only covers CWEs in the Phase 1 active set. Extend as agents are added.
+Covers CWEs in the Phase 1 active set plus commonly related IDs.
+Extend as agents are added.
 """
 
 CWE_LONG_NAMES: dict[str, str] = {

@@ -9,11 +9,14 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from screw_agents.formatter import format_csv, format_findings
 from screw_agents.learning import load_exclusions, match_exclusions
 from screw_agents.models import Finding
+
+if TYPE_CHECKING:
+    from screw_agents.registry import AgentRegistry
 
 _GITIGNORE_CONTENT = (
     "# Scan results are point-in-time — don't track in version control\n"
@@ -29,6 +32,7 @@ def write_scan_results(
     agent_names: list[str],
     scan_metadata: dict[str, Any] | None = None,
     formats: list[str] | None = None,
+    agent_registry: AgentRegistry | None = None,
 ) -> dict[str, Any]:
     """Write scan findings to .screw/findings/ with server-side exclusion matching.
 
@@ -42,6 +46,8 @@ def write_scan_results(
         scan_metadata: Optional metadata dict (target, timestamp).
         formats: Output formats to write. Defaults to ``["json", "markdown"]``.
             Accepted values: ``"json"``, ``"markdown"``, ``"sarif"``, ``"csv"``.
+        agent_registry: Optional registry threaded to ``format_findings`` for
+            SARIF output (provides ``agent.meta.short_description`` per rule).
 
     Returns:
         Dict with keys:
@@ -160,21 +166,28 @@ def write_scan_results(
     files_written: dict[str, str] = {}
 
     if "json" in formats:
-        json_content = format_findings(findings, format="json", scan_metadata=meta)
+        json_content = format_findings(
+            findings, format="json", scan_metadata=meta,
+            agent_registry=agent_registry,
+        )
         json_path = findings_dir / f"{prefix}-{ts}.json"
         json_path.write_text(json_content)
         files_written["json"] = str(json_path)
 
     if "markdown" in formats:
         md_content = format_findings(
-            findings, format="markdown", scan_metadata=meta, trust_status=trust_status
+            findings, format="markdown", scan_metadata=meta,
+            trust_status=trust_status, agent_registry=agent_registry,
         )
         md_path = findings_dir / f"{prefix}-{ts}.md"
         md_path.write_text(md_content)
         files_written["markdown"] = str(md_path)
 
     if "sarif" in formats:
-        sarif_content = format_findings(findings, format="sarif", scan_metadata=meta)
+        sarif_content = format_findings(
+            findings, format="sarif", scan_metadata=meta,
+            agent_registry=agent_registry,
+        )
         sarif_path = findings_dir / f"{prefix}-{ts}.sarif.json"
         sarif_path.write_text(sarif_content)
         files_written["sarif"] = str(sarif_path)

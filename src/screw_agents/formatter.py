@@ -86,6 +86,18 @@ _CSV_COLUMNS = [
 ]
 
 
+def _sanitize_csv_cell(value: str) -> str:
+    """Neutralize formula injection in CSV cells.
+
+    Spreadsheet applications (Excel, LibreOffice Calc) interpret cells
+    starting with = + - @ as formulas. A tab prefix disables formula
+    interpretation while remaining invisible in most spreadsheet UIs.
+    """
+    if value and value[0] in ("=", "+", "-", "@"):
+        return "\t" + value
+    return value
+
+
 def format_csv(findings: list[Finding], scan_metadata: dict[str, Any] | None = None) -> str:
     """Serialize findings to CSV.
 
@@ -120,10 +132,10 @@ def format_csv(findings: list[Finding], scan_metadata: dict[str, Any] | None = N
             f.agent,
             f.classification.severity,
             f.classification.confidence,
-            f.analysis.description,
-            f.location.code_snippet or "",
+            _sanitize_csv_cell(f.analysis.description),
+            _sanitize_csv_cell(f.location.code_snippet or ""),
             excluded,
-            exclusion_ref,
+            _sanitize_csv_cell(exclusion_ref),
         ])
 
     return buf.getvalue()
@@ -178,6 +190,9 @@ def _sarif_rules(
     agent_registry: AgentRegistry | None = None,
 ) -> list[dict[str, Any]]:
     """Build deduplicated rules list from the findings' CWE IDs."""
+    # Rules are deduped by CWE, not by agent. If future agents share a primary CWE,
+    # only the first agent's short_description will be used. Acceptable for Phase 1
+    # (each agent has a unique primary CWE); may need agent-scoped rule IDs later.
     seen: dict[str, dict[str, Any]] = {}
     for f in findings:
         cwe = f.classification.cwe
