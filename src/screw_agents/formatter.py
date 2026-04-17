@@ -12,6 +12,7 @@ import json
 from collections import Counter
 from typing import Any
 
+from screw_agents.cwe_names import long_name
 from screw_agents.models import Finding
 
 _SARIF_SCHEMA = (
@@ -299,7 +300,9 @@ def _append_finding_detail(lines: list[str], f: Finding) -> None:
     cwe = f.classification.cwe
     cwe_url = f"https://cwe.mitre.org/data/definitions/{cwe.replace('CWE-', '')}.html"
 
-    lines.append(f"### {f.id} — {f.classification.cwe_name}")
+    cwe_id = f.classification.cwe
+    cwe_display_name = long_name(cwe_id)
+    lines.append(f"### {f.id} — {cwe_id} — {cwe_display_name}")
     lines.append("")
 
     # Classification badge row

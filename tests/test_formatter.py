@@ -328,3 +328,13 @@ def test_cwe_long_name_fallback_unknown():
     from screw_agents.cwe_names import long_name
     assert long_name("CWE-999") == "CWE-999"
     assert long_name("CWE-89") == "SQL Injection"
+
+
+# === Task 33 — Markdown formatter uses full CWE name in detail heading ===
+
+
+def test_markdown_detail_heading_uses_full_cwe_name():
+    """Per-finding detail heading carries id + CWE-ID + long CWE name."""
+    finding = _make_finding()  # sqli-001, CWE-89
+    out = format_findings([finding], format="markdown")
+    assert "### sqli-001 — CWE-89 — SQL Injection" in out
