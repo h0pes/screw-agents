@@ -149,6 +149,8 @@ def _dispatch_tool(
             target=args["target"],
             thoroughness=args.get("thoroughness", "standard"),
             project_root=project_root,
+            cursor=args.get("cursor"),
+            page_size=args.get("page_size", 50),
         )
 
     if name == "scan_full":

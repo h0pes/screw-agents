@@ -44,12 +44,14 @@ def test_engine_assemble_domain_scan(engine, fixtures_dir):
         pytest.skip("no Python fixtures")
 
     target = {"type": "file", "path": str(py_files[0])}
-    results = engine.assemble_domain_scan(
+    result = engine.assemble_domain_scan(
         domain="injection-input-handling",
         target=target,
     )
-    assert len(results) == 4
-    agent_names = {r["agent_name"] for r in results}
+    assert isinstance(result, dict)
+    assert "agents" in result
+    assert len(result["agents"]) == 4
+    agent_names = {r["agent_name"] for r in result["agents"]}
     assert agent_names == {"sqli", "cmdi", "ssti", "xss"}
 
 
@@ -133,13 +135,15 @@ def test_full_pipeline_domain_scan(engine, fixtures_dir):
         pytest.skip("no Python fixtures")
 
     target = {"type": "file", "path": str(py_files[0])}
-    results = engine.assemble_domain_scan(
+    result = engine.assemble_domain_scan(
         domain="injection-input-handling", target=target,
     )
-    assert len(results) == 4
-    agent_names = {r["agent_name"] for r in results}
+    assert isinstance(result, dict)
+    assert "agents" in result
+    assert len(result["agents"]) == 4
+    agent_names = {r["agent_name"] for r in result["agents"]}
     assert agent_names == {"sqli", "cmdi", "ssti", "xss"}
-    for r in results:
+    for r in result["agents"]:
         assert len(r["code"]) > 0
 
 
@@ -229,11 +233,13 @@ class TestAssembleScanExclusions:
         if not py_files:
             pytest.skip("no Python fixtures")
         target = {"type": "file", "path": str(py_files[0])}
-        results = engine.assemble_domain_scan(
+        result = engine.assemble_domain_scan(
             domain="injection-input-handling", target=target, project_root=tmp_path,
         )
-        for r in results:
+        for r in result["agents"]:
             assert "exclusions" in r
+        # Domain-level trust_status is present when project_root is set
+        assert "trust_status" in result
 
     def test_assemble_full_scan_with_project_root(self, engine, fixtures_dir, tmp_path):
         """Full scan passes project_root through."""

@@ -8,6 +8,9 @@ format_findings() for output formatting.
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import json as _json
 from pathlib import Path
 from typing import Any
 
@@ -190,6 +193,8 @@ class ScanEngine:
         target: dict[str, Any],
         thoroughness: str = "standard",
         project_root: Path | None = None,
+        *,
+        preloaded_codes: list[ResolvedCode] | None = None,
     ) -> dict[str, Any]:
         """Assemble a scan payload for a single agent.
 
@@ -201,6 +206,10 @@ class ScanEngine:
             project_root: Optional project root for exclusion loading.
                 When provided, exclusions from .screw/learning/exclusions.yaml
                 are filtered by agent and included in the payload.
+            preloaded_codes: Internal optimization -- when provided, skip
+                resolve_target and use this pre-resolved list. Used by
+                ``assemble_domain_scan`` to avoid re-reading files per agent
+                on a paginated domain scan.
 
         Returns:
             Dict with keys:
@@ -218,10 +227,13 @@ class ScanEngine:
         if agent is None:
             raise ValueError(f"Unknown agent: {agent_name!r}")
 
-        # Resolve target to code chunks
-        codes = resolve_target(target)
+        # Resolve target to code chunks (or use pre-resolved list from domain-level caller)
+        if preloaded_codes is not None:
+            codes = preloaded_codes
+        else:
+            codes = resolve_target(target)
 
-        # For broad targets, filter by agent relevance signals
+        # Per-agent relevance filter still applies for broad targets (including paged slices)
         target_type = target.get("type", "")
         if target_type in ("codebase", "glob"):
             signals = agent.target_strategy.relevance_signals
@@ -268,23 +280,109 @@ class ScanEngine:
         target: dict[str, Any],
         thoroughness: str = "standard",
         project_root: Path | None = None,
-    ) -> list[dict[str, Any]]:
-        """Assemble scan payloads for every agent in a domain.
+        *,
+        cursor: str | None = None,
+        page_size: int = 50,
+    ) -> dict[str, Any]:
+        """Assemble paginated scan payloads for every agent in a domain.
+
+        The cursor is an opaque base64url-encoded JSON token encoding
+        ``{"target_hash": str, "offset": int}``. An empty/None cursor starts
+        at offset 0; the response's ``next_cursor`` is None when pagination
+        is complete. Cursors are bound to their originating target: replaying
+        a cursor against a different target raises ``ValueError``.
 
         Args:
-            domain: Domain name (e.g. "injection-input-handling").
-            target: Target spec dict.
-            thoroughness: Passed through to assemble_scan.
-            project_root: Optional project root for exclusion loading.
+            domain: CWE-1400 domain name (e.g. "injection-input-handling").
+            target: Target spec dict (PRD S5).
+            thoroughness: Per-agent tier control ("standard" | "deep").
+            project_root: Optional project root for exclusions + trust.
+            cursor: Opaque pagination token from a previous call; None
+                starts at page 1.
+            page_size: Max number of resolved code chunks per page
+                (default 50).
 
         Returns:
-            List of assemble_scan results, one per agent in the domain.
+            Dict with keys:
+                domain: str -- the domain that was scanned
+                agents: list[dict[str, Any]] -- per-agent scan payloads for this page
+                next_cursor: str | None -- token for the next page, or None when done
+                page_size: int -- echoed for caller convenience
+                total_files: int -- count of resolved code chunks pre-paging
+                offset: int -- the starting offset of this page
+                trust_status: dict -- only when project_root is provided
+
+        Raises:
+            ValueError: If cursor is bound to a different target, or is
+                malformed.
         """
         agents = self._registry.get_agents_by_domain(domain)
-        return [
-            self.assemble_scan(a.meta.name, target, thoroughness, project_root)
+
+        # Canonical target hash binds the cursor to the target -- rejects replay across targets
+        canonical = _json.dumps(target, sort_keys=True, separators=(",", ":"))
+        target_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+
+        # Decode cursor
+        if cursor:
+            try:
+                decoded = _json.loads(
+                    base64.urlsafe_b64decode(cursor.encode("ascii")).decode("utf-8")
+                )
+                if decoded.get("target_hash") != target_hash:
+                    raise ValueError(
+                        "cursor is bound to a different target; refusing to use"
+                    )
+                offset = int(decoded["offset"])
+                if offset < 0:
+                    raise ValueError("cursor offset is negative")
+            except ValueError:
+                raise
+            except Exception as exc:
+                raise ValueError(f"Invalid cursor: {exc}") from exc
+        else:
+            offset = 0
+
+        # Resolve once at domain level, page, fan out to per-agent assemble_scan
+        all_codes = resolve_target(target)
+        total_files = len(all_codes)
+        page_codes = all_codes[offset : offset + page_size]
+        next_offset = offset + len(page_codes)
+        if next_offset < total_files:
+            next_cursor: str | None = base64.urlsafe_b64encode(
+                _json.dumps(
+                    {"target_hash": target_hash, "offset": next_offset},
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            ).decode("ascii")
+        else:
+            next_cursor = None
+
+        agents_responses = [
+            self.assemble_scan(
+                a.meta.name,
+                target,
+                thoroughness,
+                project_root,
+                preloaded_codes=page_codes,
+            )
             for a in agents
         ]
+
+        result: dict[str, Any] = {
+            "domain": domain,
+            "agents": agents_responses,
+            "next_cursor": next_cursor,
+            "page_size": page_size,
+            "total_files": total_files,
+            "offset": offset,
+        }
+        if project_root is not None:
+            # Compute trust_status ONCE at domain level -- don't duplicate per-agent
+            all_exclusions = load_exclusions(project_root)
+            result["trust_status"] = self.verify_trust(
+                project_root=project_root, exclusions=all_exclusions
+            )
+        return result
 
     def assemble_full_scan(
         self,
@@ -358,7 +456,9 @@ class ScanEngine:
             "name": "scan_domain",
             "description": (
                 "Run all agents in a vulnerability domain against the target. "
-                "Returns assembled prompt payloads for each agent."
+                "Returns a paginated response: {agents, next_cursor, page_size, total_files, "
+                "offset, trust_status?}. Subagents MUST loop until next_cursor is None "
+                "before calling write_scan_results."
             ),
             "input_schema": self._scan_input_schema(
                 extra_required=["target", "domain"],
@@ -370,6 +470,22 @@ class ScanEngine:
                     },
                     "thoroughness": _thoroughness_schema(),
                     "project_root": _project_root_schema(),
+                    "cursor": {
+                        "type": ["string", "null"],
+                        "description": (
+                            "Opaque pagination token from a previous scan_domain call. "
+                            "Pass null (or omit) on the first call. When next_cursor in the "
+                            "response is null, pagination is complete."
+                        ),
+                        "default": None,
+                    },
+                    "page_size": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 500,
+                        "description": "Max resolved code chunks per page (default 50).",
+                        "default": 50,
+                    },
                 },
             ),
         })
