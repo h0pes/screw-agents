@@ -123,3 +123,43 @@ def test_scan_domain_rejects_cursor_from_different_target(tmp_path: Path):
             cursor=result_a["next_cursor"],
             page_size=20,
         )
+
+
+def test_pagination_walks_all_files_without_duplicates(tmp_path: Path):
+    """Full pagination loop: walk all 150 files across pages with no duplicates."""
+    src = tmp_path / "src"
+    src.mkdir()
+    total_files = 150
+    for i in range(total_files):
+        # Zero-padded names for deterministic sort; sqli relevance signal retained
+        (src / f"file_{i:03d}.py").write_text(
+            f"cursor.execute('SELECT * FROM t{i}')\n"
+        )
+
+    engine = ScanEngine.from_defaults()
+    all_visited: set[str] = set()
+    cursor: str | None = None
+    pages_consumed = 0
+
+    while True:
+        result = engine.assemble_domain_scan(
+            domain="injection-input-handling",
+            target={"type": "glob", "pattern": str(src / "*.py")},
+            project_root=tmp_path,
+            cursor=cursor,
+            page_size=25,
+        )
+        pages_consumed += 1
+        for agent_result in result["agents"]:
+            for path in agent_result.get("resolved_files", []):
+                assert path not in all_visited, f"duplicate file across pages: {path}"
+                all_visited.add(path)
+
+        cursor = result["next_cursor"]
+        if cursor is None:
+            break
+
+        # Safety: don't loop forever in a broken impl
+        assert pages_consumed < 20, "pagination did not terminate"
+
+    assert len(all_visited) == total_files
