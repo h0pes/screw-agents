@@ -111,27 +111,37 @@ class TestExclusionTools:
         assert result["exclusions"][0]["agent"] == "sqli"
 
 
-class TestWriteScanResultsTool:
-    def test_dispatch_write_scan_results(self, engine, tmp_path):
-        result = _dispatch_tool(engine, "write_scan_results", {
+class TestAccumulateFinalizeTools:
+    """X1-M1 T18 replacement: the accumulate_findings + finalize_scan_results
+    tools supersede the legacy write_scan_results dispatch path."""
+
+    def test_dispatch_accumulate_then_finalize(self, engine, tmp_path):
+        finding = {
+            "id": "test-001",
+            "agent": "sqli",
+            "domain": "injection-input-handling",
+            "timestamp": "2026-04-11T14:30:00Z",
+            "location": {"file": "src/api.py", "line_start": 42},
+            "classification": {
+                "cwe": "CWE-89",
+                "cwe_name": "SQL Injection",
+                "severity": "high",
+                "confidence": "high",
+            },
+            "analysis": {"description": "SQL injection found"},
+            "remediation": {"recommendation": "Use parameterized queries"},
+        }
+
+        acc = _dispatch_tool(engine, "accumulate_findings", {
             "project_root": str(tmp_path),
-            "findings": [
-                {
-                    "id": "test-001",
-                    "agent": "sqli",
-                    "domain": "injection-input-handling",
-                    "timestamp": "2026-04-11T14:30:00Z",
-                    "location": {"file": "src/api.py", "line_start": 42},
-                    "classification": {
-                        "cwe": "CWE-89",
-                        "cwe_name": "SQL Injection",
-                        "severity": "high",
-                        "confidence": "high",
-                    },
-                    "analysis": {"description": "SQL injection found"},
-                    "remediation": {"recommendation": "Use parameterized queries"},
-                }
-            ],
+            "findings_chunk": [finding],
+        })
+        assert "session_id" in acc
+        assert acc["accumulated_count"] == 1
+
+        result = _dispatch_tool(engine, "finalize_scan_results", {
+            "project_root": str(tmp_path),
+            "session_id": acc["session_id"],
             "agent_names": ["sqli"],
             "scan_metadata": {"target": "src/api.py"},
         })
@@ -140,6 +150,8 @@ class TestWriteScanResultsTool:
         assert result["summary"]["total"] == 1
         assert (tmp_path / ".screw" / "findings").is_dir()
         assert (tmp_path / ".screw" / ".gitignore").exists()
+        # Staging cleaned up
+        assert not (tmp_path / ".screw" / "staging" / acc["session_id"]).exists()
 
 
 class TestScanToolProjectRoot:
@@ -176,11 +188,16 @@ class TestNewToolsRegistered:
         assert "record_exclusion" in names
         assert "check_exclusions" in names
 
-    def test_write_scan_results_in_tool_list(self, domains_dir):
+    def test_accumulate_and_finalize_in_tool_list(self, domains_dir):
+        """X1-M1 T18: write_scan_results replaced by accumulate_findings +
+        finalize_scan_results in the MCP tool surface."""
         _, engine = create_server(domains_dir)
         tools = engine.list_tool_definitions()
         names = {t["name"] for t in tools}
-        assert "write_scan_results" in names
+        assert "accumulate_findings" in names
+        assert "finalize_scan_results" in names
+        # Legacy tool is gone
+        assert "write_scan_results" not in names
 
     def test_scan_tools_have_project_root(self, domains_dir):
         _, engine = create_server(domains_dir)

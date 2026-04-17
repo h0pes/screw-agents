@@ -631,10 +631,9 @@ class ScanEngine:
         """Read the staging buffer for a session, render reports, clean up.
 
         Paired with ``accumulate_findings``. Call ONCE at the end of a scan
-        after all pagination + analysis is complete. Produces the same output
-        as the legacy ``write_scan_results`` (JSON, Markdown, optional SARIF,
-        optional CSV), applies server-side exclusion matching, and removes
-        the staging directory.
+        after all pagination + analysis is complete. Produces JSON, Markdown,
+        optional SARIF, and optional CSV reports, applies server-side
+        exclusion matching, and removes the staging directory.
 
         Args:
             project_root: Absolute path to project root.
@@ -646,20 +645,20 @@ class ScanEngine:
                 Accepted: "json", "markdown", "sarif", "csv".
 
         Returns:
-            Same shape as the legacy ``write_scan_results`` return:
-                files_written: dict[str, str]
-                summary: dict
-                exclusions_applied: list[dict]
-                trust_status: dict
+            Dict with:
+                files_written: dict[str, str] -- format name → file path
+                summary: dict -- total, suppressed, active, by_severity
+                exclusions_applied: list[dict] -- finding_id + exclusion_ref pairs
+                trust_status: dict -- 4-field trust verification counts
 
         Raises:
             ValueError: If session_id does not correspond to an active
                 staging session (already finalized or never accumulated).
         """
-        from screw_agents.results import _render_and_write
+        from screw_agents.results import render_and_write
         from screw_agents.staging import read_and_clear
         findings_raw = read_and_clear(project_root, session_id)
-        return _render_and_write(
+        return render_and_write(
             project_root=project_root,
             findings_raw=findings_raw,
             agent_names=agent_names,
@@ -726,7 +725,7 @@ class ScanEngine:
                 "Run all agents in a vulnerability domain against the target. "
                 "Returns a paginated response: {agents, next_cursor, page_size, total_files, "
                 "offset, trust_status?}. Subagents MUST loop until next_cursor is None "
-                "before calling write_scan_results."
+                "before calling finalize_scan_results."
             ),
             "input_schema": self._scan_input_schema(
                 extra_required=["target", "domain"],
@@ -819,49 +818,86 @@ class ScanEngine:
                 ),
             })
 
-        # Phase 2: write_scan_results
+        # Phase 3a X1-M1 (T18): accumulate_findings + finalize_scan_results
+        # (replaces the legacy single-shot write_scan_results tool).
         tools.append({
-            "name": "write_scan_results",
+            "name": "accumulate_findings",
             "description": (
-                "Write scan findings to .screw/findings/ as JSON and Markdown reports. "
-                "Automatically applies exclusion matching from .screw/learning/exclusions.yaml "
-                "using correct scope semantics, creates the .screw/ directory structure, and "
-                "returns a summary with file paths and counts. "
-                "YOU MUST call this after analyzing code — pass your complete findings array."
+                "Append a chunk of findings to the per-session staging buffer. "
+                "Called incrementally by orchestrator subagents as they produce "
+                "findings — once per agent pass, once per code page, per batch, "
+                "whatever matches the subagent's mental model. Dedup is by "
+                "finding.id (re-accumulating replaces the prior entry). Pair "
+                "with `finalize_scan_results` (call once at the end of the scan)."
             ),
             "input_schema": {
                 "type": "object",
                 "properties": {
                     "project_root": {
                         "type": "string",
-                        "description": "Absolute path to the project root directory.",
+                        "description": "Absolute path to the project root.",
                     },
-                    "findings": {
+                    "findings_chunk": {
                         "type": "array",
-                        "description": "Array of Finding objects from your analysis.",
+                        "items": {"type": "object"},
+                        "description": (
+                            "List of finding dicts (each must have an 'id' field). "
+                            "Shape matches the Finding Pydantic model."
+                        ),
+                    },
+                    "session_id": {
+                        "type": ["string", "null"],
+                        "description": (
+                            "Pass null (or omit) on the FIRST call of a scan — "
+                            "server generates a fresh id and returns it. Pass "
+                            "the returned id on subsequent calls to append to "
+                            "the same session."
+                        ),
+                    },
+                },
+                "required": ["project_root", "findings_chunk"],
+            },
+        })
+        tools.append({
+            "name": "finalize_scan_results",
+            "description": (
+                "Read the staging buffer for a scan session, render reports "
+                "(JSON/Markdown/SARIF/CSV), apply server-side exclusion matching, "
+                "write to .screw/findings/, and clean up staging. Call ONCE at "
+                "the end of a scan after all pagination + analysis is complete. "
+                "Paired with `accumulate_findings` (called incrementally during "
+                "the scan)."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "project_root": {
+                        "type": "string",
+                        "description": "Absolute path to the project root.",
+                    },
+                    "session_id": {
+                        "type": "string",
+                        "description": "The session id returned by accumulate_findings.",
                     },
                     "agent_names": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": (
-                            "Agent names that produced the findings "
-                            "(e.g. ['sqli'] or ['sqli', 'cmdi', 'ssti', 'xss'])."
-                        ),
+                        "description": "Agent names that produced findings (e.g. ['sqli']).",
                     },
                     "scan_metadata": {
-                        "type": "object",
-                        "description": "Optional metadata: target, timestamp.",
+                        "type": ["object", "null"],
+                        "description": "Optional metadata (target, timestamp).",
                     },
                     "formats": {
-                        "type": "array",
-                        "items": {"type": "string", "enum": ["json", "sarif", "markdown", "csv"]},
-                        "default": ["json", "markdown"],
+                        "type": ["array", "null"],
+                        "items": {"type": "string", "enum": ["json", "markdown", "sarif", "csv"]},
                         "description": (
-                            "Output formats to write. Defaults to ['json', 'markdown']."
+                            "Output formats to write. Defaults to ['json', 'markdown'] "
+                            "when null/omitted."
                         ),
                     },
                 },
-                "required": ["project_root", "findings", "agent_names"],
+                "required": ["project_root", "session_id", "agent_names"],
             },
         })
 
