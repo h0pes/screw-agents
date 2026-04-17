@@ -303,6 +303,19 @@ def test_format_findings_json_ignores_trust_status():
 # === Task 32 — CWE long-name lookup table ===
 
 
+def test_json_formatter_emits_null_for_none_impact():
+    """When FindingAnalysis omits impact, JSON serializes analysis.impact as null."""
+    from screw_agents.models import FindingAnalysis
+
+    finding = _make_finding(analysis=FindingAnalysis(description="SQLi via f-string"))
+    assert finding.analysis.impact is None  # guard
+    output = format_findings([finding], format="json")
+    parsed = json.loads(output)
+    assert isinstance(parsed, list)
+    assert parsed[0]["analysis"]["impact"] is None
+    assert parsed[0]["analysis"]["exploitability"] is None
+
+
 def test_cwe_long_name_lookup():
     from screw_agents.cwe_names import CWE_LONG_NAMES
     assert CWE_LONG_NAMES["CWE-89"] == "SQL Injection"
