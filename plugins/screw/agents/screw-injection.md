@@ -83,7 +83,8 @@ Determine the project root and target spec (same format as individual agents). T
 8. **If `response.next_cursor` is a string**, loop back to step 6. When `next_cursor` is null, pagination is complete — proceed to Step 2.
 
 **Critical rules:**
-- **Cache `prompts` from the init page exactly once.** If you fail to cache them, the code pages will have no prompts to apply — restart the scan with `cursor=None` to re-fetch the init page.
+- **Cache `prompts` from the init page exactly once.** The `prompts` dict is ONLY returned on the init page (cursor=None); code pages omit it. You MUST carry the dict in your working context across every `scan_domain` call.
+- **Before analyzing any code page**, verify the `prompts` dict is still present in your context. If it is not (e.g., a prior summarization dropped it), discard any accumulated findings and RESTART the scan by calling `scan_domain` with `cursor=None`. Do not attempt to analyze code without the matching prompt — the resulting findings would be unreliable.
 - Do NOT call `write_scan_results` per-page — it overwrites the previous page's output file. Accumulate all findings, then write once in Step 3.
 - Do NOT re-resolve the target between pages — the cursor carries the binding. A cursor from one target is invalid for another.
 - If `response.total_files` is 0 on the init page, `next_cursor` is null — skip the code-page loop.
