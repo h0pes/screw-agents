@@ -9,6 +9,7 @@ meta:
   domain: injection-input-handling
   version: "1.0.0"
   last_updated: "2026-04-06"
+  short_description: "Server-side template injection via user input reaching template engine rendering without sandboxing or autoescape"
 
   cwes:
     primary: CWE-1336

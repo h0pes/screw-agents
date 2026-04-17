@@ -9,6 +9,7 @@ meta:
   domain: injection-input-handling
   version: "1.0.0"
   last_updated: "2026-04-06"
+  short_description: "Cross-site scripting via unsanitized user input reflected into HTML, JavaScript, or other browser-executed contexts"
 
   cwes:
     primary: CWE-79

@@ -56,3 +56,13 @@ def test_registry_malformed_yaml_raises(tmp_path):
     (bad_dir / "broken.yaml").write_text("meta:\n  name: broken\n")
     with pytest.raises(Exception):
         AgentRegistry(tmp_path)
+
+
+def test_all_phase1_agents_have_short_description(domains_dir):
+    from screw_agents.registry import AgentRegistry
+    registry = AgentRegistry(domains_dir)
+    for agent_name in ("sqli", "cmdi", "ssti", "xss"):
+        agent = registry.get_agent(agent_name)
+        assert agent is not None, f"{agent_name} not loaded"
+        assert agent.meta.short_description is not None, f"{agent_name} missing short_description"
+        assert len(agent.meta.short_description) > 20, f"{agent_name} short_description too short"
