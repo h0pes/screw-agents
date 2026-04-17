@@ -101,7 +101,7 @@ await mcp__screw-agents__finalize_scan_results({
 })
 ```
 
-The two-call pattern separates incremental persistence (`accumulate_findings` — safe to call multiple times, merges by finding.id) from final rendering (`finalize_scan_results` — one-shot; applies exclusion matching, writes JSON + Markdown (+ optional SARIF/CSV), cleans the staging directory). `finalize_scan_results` returns `files_written` (paths to JSON + Markdown reports), `summary` (counts by severity, suppressed vs active), and `exclusions_applied` (which findings were suppressed by existing FP exclusions).
+The two-call pattern separates incremental persistence (`accumulate_findings` — safe to call multiple times, merges by finding.id) from final rendering (`finalize_scan_results` — call ONCE; applies exclusion matching, writes JSON + Markdown (+ optional SARIF/CSV), caches the result). The call is idempotent: if you accidentally invoke it twice with the same session_id, the second call returns the same cached result without re-rendering, so duplicate calls are safe. "Exactly once" is still the intended protocol. `finalize_scan_results` returns `files_written` (paths to JSON + Markdown reports), `summary` (counts by severity, suppressed vs active), and `exclusions_applied` (which findings were suppressed by existing FP exclusions).
 
 ### Step 5: Present Summary and Offer Follow-Up
 

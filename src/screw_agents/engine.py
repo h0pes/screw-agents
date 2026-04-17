@@ -628,12 +628,19 @@ class ScanEngine:
         scan_metadata: dict[str, Any] | None = None,
         formats: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Read the staging buffer for a session, render reports, clean up.
+        """Read the staging buffer for a session, render reports, cache result.
 
         Paired with ``accumulate_findings``. Call ONCE at the end of a scan
         after all pagination + analysis is complete. Produces JSON, Markdown,
         optional SARIF, and optional CSV reports, applies server-side
-        exclusion matching, and removes the staging directory.
+        exclusion matching, and caches the result dict in
+        ``.screw/staging/{session_id}/result.json`` for idempotent re-calls.
+
+        Idempotent — subsequent calls with the same session_id return the
+        cached result dict without re-rendering. The staging directory
+        persists (it holds the result.json sidecar); only findings.json is
+        consumed on the first call. ValueError is raised only if the
+        session_id is truly unknown (neither staged nor finalized).
 
         Args:
             project_root: Absolute path to project root.
@@ -652,13 +659,27 @@ class ScanEngine:
                 trust_status: dict -- 4-field trust verification counts
 
         Raises:
-            ValueError: If session_id does not correspond to an active
-                staging session (already finalized or never accumulated).
+            ValueError: If session_id does not correspond to any staging
+                session (neither a staged findings.json nor a cached
+                result.json exists).
         """
         from screw_agents.results import render_and_write
-        from screw_agents.staging import read_and_clear
-        findings_raw = read_and_clear(project_root, session_id)
-        return render_and_write(
+        from screw_agents.staging import (
+            finalize_result_cached,
+            read_for_finalize,
+            save_finalize_result,
+        )
+
+        # Idempotent re-call path: if the session was already finalized,
+        # return the cached result without re-rendering or erroring.
+        cached = finalize_result_cached(project_root, session_id)
+        if cached is not None:
+            return cached
+
+        # Normal first-call path: read staged findings, render reports,
+        # cache the result for idempotent re-calls.
+        findings_raw = read_for_finalize(project_root, session_id)
+        result = render_and_write(
             project_root=project_root,
             findings_raw=findings_raw,
             agent_names=agent_names,
@@ -666,6 +687,8 @@ class ScanEngine:
             formats=formats,
             agent_registry=self._registry,
         )
+        save_finalize_result(project_root, session_id, result)
+        return result
 
     def format_output(
         self,

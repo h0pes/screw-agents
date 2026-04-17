@@ -99,8 +99,8 @@ const acc = await mcp__screw-agents__accumulate_findings({
   "session_id": null  // first call; subsequent calls pass the returned id to append
 })
 
-// Phase 2: finalize (one-shot; applies exclusion matching, renders JSON + Markdown
-//          (+ optional SARIF/CSV), writes to .screw/findings/, cleans staging)
+// Phase 2: finalize (call ONCE; applies exclusion matching, renders JSON + Markdown
+//          (+ optional SARIF/CSV), writes to .screw/findings/, caches result)
 await mcp__screw-agents__finalize_scan_results({
   "project_root": "<project root>",
   "session_id": acc.session_id,
@@ -109,7 +109,7 @@ await mcp__screw-agents__finalize_scan_results({
 })
 ```
 
-`accumulate_findings` is append-semantic (merges by finding.id within the session) and cheap — call it per-agent-batch if that's the natural checkpoint. `finalize_scan_results` is terminal — call it exactly once after the last accumulate; a second call with the same session_id fails because staging has been cleaned.
+`accumulate_findings` is append-semantic (merges by finding.id within the session) and cheap — call it per-agent-batch if that's the natural checkpoint. `finalize_scan_results` is terminal — call it exactly once after the last accumulate. The call is idempotent: a duplicate call with the same session_id returns the same cached result without re-rendering, so accidental duplicates are safe; but "exactly once" is still the intended protocol.
 
 ### Scale ceiling
 

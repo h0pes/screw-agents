@@ -85,7 +85,7 @@ Determine the project root and target spec (same format as individual agents). T
 - **Populate `prompts_cache` lazily on first encounter, not eagerly before the loop.** Calling `get_agent_prompt` for all 4 agents upfront also works, but is wasteful if the scan terminates early; lazy is cheaper and scales to any number of agents.
 - **Each `get_agent_prompt` call is small** (~4-7k tokens per agent) and safely fits the inline tool-response budget. Do NOT attempt to fetch multiple prompts in a single call — the tool only supports one agent_name per call.
 - **Before analyzing a code page**, verify `prompts_cache` contains the required `agent_name`. If not (e.g., a prior summarization dropped it), re-fetch via `get_agent_prompt`. Do not attempt to analyze code without the matching prompt.
-- Do NOT call `finalize_scan_results` per-page — it is a one-shot terminal operation that cleans the staging buffer. Use `accumulate_findings` (idempotent by finding.id) for incremental persistence during the pagination loop, then call `finalize_scan_results` exactly once in Step 3 after the loop terminates.
+- Do NOT call `finalize_scan_results` per-page — it is a terminal rendering step. Use `accumulate_findings` (idempotent by finding.id) for incremental persistence during the pagination loop, then call `finalize_scan_results` exactly once in Step 3 after the loop terminates. (The call itself is idempotent — a duplicate call with the same session_id returns the cached result — but calling it per-page would still waste render work; "exactly once, after the loop" is the intended protocol.)
 - Do NOT re-resolve the target between pages — the cursor carries the binding. A cursor from one target is invalid for another.
 - If `response.total_files` is 0 on the init page, `next_cursor` is null — skip the code-page loop.
 
@@ -146,7 +146,7 @@ mcp__screw-agents__finalize_scan_results({
 })
 ```
 
-This reads the staging buffer, applies exclusion matching, renders JSON + Markdown (+ optional SARIF/CSV), writes to `.screw/findings/`, and cleans up the staging directory. **Do NOT call `finalize_scan_results` more than once** — it is a one-shot operation; a second call with the same session_id will raise an error (staging already cleaned).
+This reads the staging buffer, applies exclusion matching, renders JSON + Markdown (+ optional SARIF/CSV), writes to `.screw/findings/`, and caches the result dict alongside the staging directory. The call is idempotent: if you accidentally call it twice with the same session_id, the second call returns the same cached result without re-rendering, so duplicate calls are safe. But "exactly once" is still the intended protocol — don't call it in a retry loop or per-page.
 
 ### Step 4: Present Summary and Offer Follow-Up
 

@@ -150,8 +150,12 @@ class TestAccumulateFinalizeTools:
         assert result["summary"]["total"] == 1
         assert (tmp_path / ".screw" / "findings").is_dir()
         assert (tmp_path / ".screw" / ".gitignore").exists()
-        # Staging cleaned up
-        assert not (tmp_path / ".screw" / "staging" / acc["session_id"]).exists()
+        # Staging dir persists (holds result.json sidecar for idempotent finalize);
+        # findings.json is consumed on first finalize call (T23).
+        staging_dir = tmp_path / ".screw" / "staging" / acc["session_id"]
+        assert staging_dir.exists()
+        assert not (staging_dir / "findings.json").exists()
+        assert (staging_dir / "result.json").exists()
 
 
 class TestScanToolProjectRoot:

@@ -147,9 +147,12 @@ def test_finalize_scan_results_reads_staging_and_writes_reports(tmp_path: Path):
     assert "markdown" in result["files_written"]
     assert Path(result["files_written"]["json"]).exists()
 
-    # Staging cleaned up
+    # Staging dir persists (holds the result.json sidecar for idempotency);
+    # findings.json is consumed on the first finalize call.
     staging_dir = tmp_path / ".screw" / "staging" / sid
-    assert not staging_dir.exists()
+    assert staging_dir.exists()  # persists (holds result.json sidecar)
+    assert not (staging_dir / "findings.json").exists()  # consumed
+    assert (staging_dir / "result.json").exists()  # cached
 
     # Summary carries expected shape
     assert result["summary"]["total"] == 1
@@ -167,9 +170,40 @@ def test_finalize_scan_results_unknown_session_raises(tmp_path: Path):
         )
 
 
-def test_finalize_scan_results_twice_second_call_errors(tmp_path: Path):
-    """After finalize, the staging is removed; a second finalize with the
-    same session_id errors (protocol: finalize is single-shot)."""
+def test_finalize_scan_results_idempotent_on_second_call(tmp_path: Path):
+    """After finalize, subsequent calls with the same session_id return the
+    SAME cached result without error or re-rendering. Idempotent protocol
+    (T23) — first call does the work, subsequent calls just return the
+    cached dict."""
+    engine = ScanEngine.from_defaults()
+    acc = engine.accumulate_findings(
+        project_root=tmp_path,
+        findings_chunk=[_make_finding("sqli-001")],
+        session_id=None,
+    )
+    sid = acc["session_id"]
+
+    first = engine.finalize_scan_results(
+        project_root=tmp_path, session_id=sid, agent_names=["sqli"]
+    )
+    second = engine.finalize_scan_results(
+        project_root=tmp_path, session_id=sid, agent_names=["sqli"]
+    )
+
+    assert first == second
+    assert "files_written" in first
+    # Staging dir persists (holds result.json sidecar for idempotency)
+    staging_dir = tmp_path / ".screw" / "staging" / sid
+    assert staging_dir.exists()
+    # findings.json is gone (consumed during first finalize)
+    assert not (staging_dir / "findings.json").exists()
+    # result.json sidecar is present
+    assert (staging_dir / "result.json").exists()
+
+
+def test_accumulate_after_finalize_raises(tmp_path: Path):
+    """Accumulating into an already-finalized session raises a clear error.
+    Finalized sessions are locked — use a fresh session_id for a new scan."""
     engine = ScanEngine.from_defaults()
     acc = engine.accumulate_findings(
         project_root=tmp_path,
@@ -182,9 +216,11 @@ def test_finalize_scan_results_twice_second_call_errors(tmp_path: Path):
         project_root=tmp_path, session_id=sid, agent_names=["sqli"]
     )
 
-    with pytest.raises(ValueError, match="not found"):
-        engine.finalize_scan_results(
-            project_root=tmp_path, session_id=sid, agent_names=["sqli"]
+    with pytest.raises(ValueError, match="already been finalized"):
+        engine.accumulate_findings(
+            project_root=tmp_path,
+            findings_chunk=[_make_finding("sqli-002")],
+            session_id=sid,
         )
 
 
