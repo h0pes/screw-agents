@@ -10,10 +10,13 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from screw_agents.cwe_names import long_name
 from screw_agents.models import Finding
+
+if TYPE_CHECKING:
+    from screw_agents.registry import AgentRegistry
 
 _SARIF_SCHEMA = (
     "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/"
@@ -36,6 +39,7 @@ def format_findings(
     format: str = "json",
     scan_metadata: dict[str, Any] | None = None,
     trust_status: dict[str, int] | None = None,
+    agent_registry: AgentRegistry | None = None,
 ) -> str:
     """Dispatch findings to the requested output formatter.
 
@@ -47,6 +51,10 @@ def format_findings(
             returned by `ScanEngine.verify_trust`. Only the markdown formatter
             surfaces this (as a "Trust verification" section); JSON and SARIF
             ignore it.
+        agent_registry: Optional registry used by the SARIF formatter to look up
+            ``agent.meta.short_description`` for each rule's ``shortDescription``
+            field.  When absent, the SARIF formatter falls back to
+            ``"{cwe} — {cwe_name}"``.
 
     Returns:
         Formatted string output.
@@ -58,7 +66,7 @@ def format_findings(
     if format == "json":
         return _format_json(findings)
     if format == "sarif":
-        return _format_sarif(findings, meta)
+        return _format_sarif(findings, meta, agent_registry=agent_registry)
     if format == "markdown":
         return _format_markdown(findings, meta, trust_status=trust_status)
     raise ValueError(f"Unsupported format: {format!r}. Choose 'json', 'sarif', or 'markdown'.")
@@ -80,9 +88,13 @@ def _format_json(findings: list[Finding]) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _format_sarif(findings: list[Finding], metadata: dict[str, Any]) -> str:
+def _format_sarif(
+    findings: list[Finding],
+    metadata: dict[str, Any],
+    agent_registry: AgentRegistry | None = None,
+) -> str:
     """Produce a SARIF 2.1.0 document from findings."""
-    rules = _sarif_rules(findings)
+    rules = _sarif_rules(findings, agent_registry=agent_registry)
     results = [_sarif_result(f) for f in findings]
 
     doc: dict[str, Any] = {
@@ -104,16 +116,24 @@ def _format_sarif(findings: list[Finding], metadata: dict[str, Any]) -> str:
     return json.dumps(doc, indent=2)
 
 
-def _sarif_rules(findings: list[Finding]) -> list[dict[str, Any]]:
+def _sarif_rules(
+    findings: list[Finding],
+    agent_registry: AgentRegistry | None = None,
+) -> list[dict[str, Any]]:
     """Build deduplicated rules list from the findings' CWE IDs."""
     seen: dict[str, dict[str, Any]] = {}
     for f in findings:
         cwe = f.classification.cwe
         if cwe not in seen:
+            short_text = f"{cwe} — {f.classification.cwe_name}"
+            if agent_registry is not None:
+                agent = agent_registry.get_agent(f.agent)
+                if agent is not None and agent.meta.short_description:
+                    short_text = agent.meta.short_description
             seen[cwe] = {
                 "id": cwe,
                 "name": f.classification.cwe_name,
-                "shortDescription": {"text": f.classification.cwe_name},
+                "shortDescription": {"text": short_text},
                 "helpUri": (
                     f"https://cwe.mitre.org/data/definitions/{cwe.replace('CWE-', '')}.html"
                 ),

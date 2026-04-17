@@ -338,3 +338,31 @@ def test_markdown_detail_heading_uses_full_cwe_name():
     finding = _make_finding()  # sqli-001, CWE-89
     out = format_findings([finding], format="markdown")
     assert "### sqli-001 — CWE-89 — SQL Injection" in out
+
+
+# === Task 31 — SARIF shortDescription uses agent meta ===
+
+
+def test_sarif_short_description_uses_agent_meta(domains_dir):
+    """SARIF shortDescription.text uses agent.meta.short_description when
+    agent_registry is provided and the agent has a short_description."""
+    from screw_agents.registry import AgentRegistry
+
+    finding = _make_finding()  # agent="sqli", CWE-89
+    registry = AgentRegistry(domains_dir)
+    out = format_findings([finding], format="sarif", agent_registry=registry)
+    parsed = json.loads(out)
+    rules = parsed["runs"][0]["tool"]["driver"]["rules"]
+    short = rules[0]["shortDescription"]["text"]
+    assert "SQL injection" in short
+
+
+def test_sarif_short_description_fallback_without_registry():
+    """SARIF shortDescription.text falls back to 'CWE-ID — cwe_name' when no
+    agent_registry is provided."""
+    finding = _make_finding()  # CWE-89, cwe_name="SQL Injection"
+    out = format_findings([finding], format="sarif")
+    parsed = json.loads(out)
+    short = parsed["runs"][0]["tool"]["driver"]["rules"][0]["shortDescription"]["text"]
+    assert "CWE-89" in short
+    assert "SQL Injection" in short

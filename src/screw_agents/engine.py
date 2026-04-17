@@ -437,7 +437,12 @@ class ScanEngine:
         Returns:
             Formatted string output.
         """
-        return format_findings(findings, format=output_format, scan_metadata=scan_metadata)
+        return format_findings(
+            findings,
+            format=output_format,
+            scan_metadata=scan_metadata,
+            agent_registry=self._registry,
+        )
 
     def list_tool_definitions(self) -> list[dict[str, Any]]:
         """Return MCP tool definitions for all registered agents + static tools.
