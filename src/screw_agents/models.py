@@ -178,8 +178,8 @@ class FindingClassification(BaseModel):
 
 class FindingAnalysis(BaseModel):
     description: str
-    impact: str = ""
-    exploitability: str = ""
+    impact: str | None = None
+    exploitability: str | None = None
     false_positive_reasoning: str | None = None
 
 
