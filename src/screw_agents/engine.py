@@ -195,6 +195,7 @@ class ScanEngine:
         project_root: Path | None = None,
         *,
         preloaded_codes: list[ResolvedCode] | None = None,
+        _preloaded_exclusions: list[Exclusion] | None = None,
     ) -> dict[str, Any]:
         """Assemble a scan payload for a single agent.
 
@@ -256,7 +257,7 @@ class ScanEngine:
             },
         }
         if project_root is not None:
-            all_exclusions = load_exclusions(project_root)
+            all_exclusions = _preloaded_exclusions if _preloaded_exclusions is not None else load_exclusions(project_root)
             # Subagent-facing exclusions list excludes quarantined entries —
             # exposing tampered/unsigned-under-reject entries here risks the
             # subagent (or a downstream consumer) treating them as actionable.
@@ -312,10 +313,19 @@ class ScanEngine:
                 offset: int -- the starting offset of this page
                 trust_status: dict -- only when project_root is provided
 
+        Note: if files are deleted between page requests, the cursor's offset may
+        exceed the current file count. This results in an empty ``agents`` list
+        with ``next_cursor=None`` — clean termination rather than an error. The
+        caller's accumulated results from prior pages remain valid but may be
+        incomplete. This is expected behavior for a stateless cursor scheme.
+
         Raises:
             ValueError: If cursor is bound to a different target, or is
                 malformed.
         """
+        if page_size < 1:
+            raise ValueError(f"page_size must be >= 1, got {page_size}")
+
         agents = self._registry.get_agents_by_domain(domain)
 
         # Canonical target hash binds the cursor to the target -- rejects replay across targets
@@ -357,6 +367,13 @@ class ScanEngine:
         else:
             next_cursor = None
 
+        # Load exclusions ONCE for the entire domain scan — avoids N+1 YAML parse
+        # + Ed25519 verify calls (one per agent + one domain-level).
+        if project_root is not None:
+            domain_exclusions = load_exclusions(project_root)
+        else:
+            domain_exclusions = None
+
         agents_responses = [
             self.assemble_scan(
                 a.meta.name,
@@ -364,6 +381,7 @@ class ScanEngine:
                 thoroughness,
                 project_root,
                 preloaded_codes=page_codes,
+                _preloaded_exclusions=domain_exclusions,
             )
             for a in agents
         ]
@@ -377,10 +395,8 @@ class ScanEngine:
             "offset": offset,
         }
         if project_root is not None:
-            # Compute trust_status ONCE at domain level -- don't duplicate per-agent
-            all_exclusions = load_exclusions(project_root)
             result["trust_status"] = self.verify_trust(
-                project_root=project_root, exclusions=all_exclusions
+                project_root=project_root, exclusions=domain_exclusions
             )
         return result
 

@@ -40,7 +40,9 @@ def test_scan_domain_pagination_returns_distinct_pages(tmp_path: Path):
     src = tmp_path / "src"
     src.mkdir()
     for i in range(100):
-        (src / f"file_{i:03d}.py").write_text(f"# fixture {i}\n")
+        # Include a relevance signal so at least the sqli agent retains these files
+        # after per-agent relevance filtering (sqli matches "SELECT", "cursor.execute", etc.)
+        (src / f"file_{i:03d}.py").write_text(f"cursor.execute('SELECT * FROM t{i}')\n")
 
     engine = ScanEngine.from_defaults()
     page1 = engine.assemble_domain_scan(
@@ -68,6 +70,8 @@ def test_scan_domain_pagination_returns_distinct_pages(tmp_path: Path):
     files_page2: set[str] = set()
     for agent_result in page1["agents"]:
         files_page1.update(agent_result.get("resolved_files", []))
+    # At least one agent must have resolved files on the first page to validate disjointness meaningfully
+    assert files_page1, "page 1 resolved no files — test is vacuously true (check relevance signals)"
     for agent_result in page2["agents"]:
         files_page2.update(agent_result.get("resolved_files", []))
     # Either disjoint, OR one page is empty (tolerated for relevance-filtered agents)
