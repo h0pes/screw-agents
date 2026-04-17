@@ -60,6 +60,8 @@ After orchestrators return:
 
 ## Reference: Direct `scan_full` invocation
 
+> **NOTE:** This subagent does NOT invoke `scan_full` directly — `scan_full` is not in its frontmatter `tools` list, so any such attempt would fail at the tool-permission layer. This section exists only as documentation for downstream consumers (screw.nvim, CI/CD tooling, future orchestrators) that read this file for the `scan_full` response shape. If you are operating as the `screw-full-review` subagent, continue following the dispatcher workflow above — do NOT attempt to call `scan_full`.
+
 Your default workflow dispatches domain orchestrators (Step 3). This preserves context budget and is the recommended path. For completeness — and for downstream agents that may need to invoke the underlying MCP tool directly — this section documents the `scan_full` response shape as of X1-M1.
 
 ### Scan invocation
