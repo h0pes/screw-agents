@@ -62,28 +62,38 @@ After orchestrators return:
 
 > **NOTE:** This subagent does NOT invoke `scan_full` directly — `scan_full` is not in its frontmatter `tools` list, so any such attempt would fail at the tool-permission layer. This section exists only as documentation for downstream consumers (screw.nvim, CI/CD tooling, future orchestrators) that read this file for the `scan_full` response shape. If you are operating as the `screw-full-review` subagent, continue following the dispatcher workflow above — do NOT attempt to call `scan_full`.
 
-Your default workflow dispatches domain orchestrators (Step 3). This preserves context budget and is the recommended path. For completeness — and for downstream agents that may need to invoke the underlying MCP tool directly — this section documents the `scan_full` response shape as of X1-M1.
+### Response shape (post-X1-M1)
 
-### Scan invocation
-
-Call `mcp__screw-agents__scan_full` with the target spec and optional project_root. The response is a **dict** (breaking change — was `list[dict]` pre-X1-M1):
+`scan_full` returns a **dict** (breaking change from pre-X1-M1 `list[dict]`) with no inline prompts — prompts are fetched separately via `get_agent_prompt`:
 
 ```json
 {
-  "prompts": {
-    "sqli": "<core_prompt>",
-    "cmdi": "<core_prompt>",
-    "ssti": "<core_prompt>",
-    "xss":  "<core_prompt>"
-  },
   "agents": [
-    {"agent_name": "sqli", "code": "<slice>", "resolved_files": [...], "meta": {...}, "exclusions": [...]},
-    {"agent_name": "cmdi", "code": "<slice>", "resolved_files": [...], "meta": {...}, "exclusions": [...]}
+    {"agent_name": "sqli", "code": "<all code for all files>", "resolved_files": [...], "meta": {...}, "exclusions": [...]},
+    {"agent_name": "cmdi", "code": "<all code for all files>", "resolved_files": [...], "meta": {...}, "exclusions": [...]},
+    {"agent_name": "ssti", "code": "<all code for all files>", "resolved_files": [...], "meta": {...}, "exclusions": [...]},
+    {"agent_name": "xss",  "code": "<all code for all files>", "resolved_files": [...], "meta": {...}, "exclusions": [...]}
   ],
   "trust_status": {...}
 }
 ```
 
-**For each entry in `response.agents`:** analyze `response.prompts[entry.agent_name]` + `entry.code` to produce findings. Do NOT look for `core_prompt` in the per-agent entries — it is not present.
+### Per-agent analysis pattern
 
-**Note on scale:** `scan_full` returns all code for all agents in a single response. On a large codebase this may exceed the subagent's token budget. If you hit overflow, fall back to per-domain scans (`scan_domain`) or per-agent scans (`scan_sqli`, etc.). A follow-up PR (`T-FULL-P1` in DEFERRED_BACKLOG) will add pagination to `scan_full`.
+For each `entry` in `response.agents`:
+1. Call `mcp__screw-agents__get_agent_prompt({"agent_name": entry.agent_name, "thoroughness": "standard"})` — returns `{agent_name, core_prompt, meta}` in a single small tool response (~4-7k tokens per agent).
+2. Analyze `result.core_prompt` + `entry.code` to produce findings.
+3. Optional: cache `core_prompt` keyed on `agent_name` if you need to re-reference it.
+
+Do NOT look for `core_prompt` or `prompts` in the `scan_full` response — neither is present. Fetching via `get_agent_prompt` is required.
+
+### Scale ceiling
+
+**`scan_full` is unusable at CWE-1400 expansion scale (41 agents per `docs/AGENT_CATALOG.md`).** With lazy per-agent fetch, cumulative prompts reach ~205-287k tokens before any code analysis — plus all code for all files for all agents in one response. Opus 1M context window fits it in theory, but practically wasteful and fragile.
+
+Tracked as `T-FULL-P1` in `docs/DEFERRED_BACKLOG.md` (HIGH priority). The full architectural fix requires:
+1. **Pagination** — cursor-based over `(agent, file_chunk)` space (parallel to `scan_domain` post-X1-M1).
+2. **Lazy per-agent fetch** — already documented above; don't try to fetch all prompts upfront.
+3. **Agent-relevance pre-filter** — skip agents whose `target_strategy.relevance_signals` don't match files present in the target.
+
+For `scan_full` on realistic targets beyond the current 4 agents, fall back to per-domain scans (`scan_domain`) or per-agent scans (`scan_sqli`, `scan_cmdi`, etc.) until T-FULL-P1 lands.
