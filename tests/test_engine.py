@@ -128,12 +128,13 @@ def test_full_pipeline_sqli(engine, fixtures_dir):
 
 
 def test_full_pipeline_domain_scan(engine, fixtures_dir):
-    """Integration: domain-scan init page (cursor=None) ships prompts for all
-    4 agents at the top level and per-agent metadata entries without code.
+    """Integration: domain-scan init page (cursor=None) carries per-agent
+    metadata entries without code and without a top-level prompts dict.
 
-    Post X1-M1 Task 2, assemble_domain_scan(cursor=None) returns an init page
+    Post X1-M1 Task 13, assemble_domain_scan(cursor=None) returns an init page
     whose contract is:
-      - top-level ``prompts`` dict keyed by agent_name → detection prompt string
+      - NO top-level ``prompts`` key (orchestrators fetch prompts lazily per
+        agent via the ``get_agent_prompt`` MCP tool)
       - per-agent entries carry ``agent_name`` + ``meta`` only (no core_prompt,
         no code; ``exclusions`` is optional, only when project_root is set)
       - ``code_chunks_on_page == 0`` and ``offset == 0`` on the init page
@@ -150,13 +151,8 @@ def test_full_pipeline_domain_scan(engine, fixtures_dir):
     )
     assert isinstance(result, dict)
 
-    # Top-level prompts dict keyed by agent_name.
-    assert "prompts" in result
-    assert isinstance(result["prompts"], dict)
-    assert set(result["prompts"].keys()) == {"sqli", "cmdi", "ssti", "xss"}
-    for prompt in result["prompts"].values():
-        assert isinstance(prompt, str)
-        assert len(prompt) > 0
+    # No aggregate prompts dict — X1-M1 T13.
+    assert "prompts" not in result
 
     # Per-agent entries: metadata only on init; no code, no core_prompt.
     assert "agents" in result
@@ -394,3 +390,11 @@ def test_get_agent_prompt_unknown_agent_raises(tmp_path: Path):
 
     with pytest.raises(ValueError, match="Unknown agent"):
         engine.get_agent_prompt("nonexistent", "standard")
+
+
+def test_get_agent_prompt_invalid_thoroughness_raises(tmp_path: Path):
+    """Invalid thoroughness values raise ValueError (Python-side validation;
+    MCP schema enforces the enum for tool callers)."""
+    engine = ScanEngine.from_defaults()
+    with pytest.raises(ValueError, match="Invalid thoroughness"):
+        engine.get_agent_prompt("sqli", "extreme")

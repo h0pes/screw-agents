@@ -19,9 +19,9 @@ def _seed_injection_fixture(root: Path, n: int = 12) -> None:
 
 
 def test_domain_scan_init_page_shape(tmp_path: Path):
-    """Init page (cursor=None) returns top-level `prompts` dict keyed by
-    agent_name, per-agent entries without core_prompt, zero code chunks, and
-    a next_cursor encoding offset=0."""
+    """Init page (cursor=None) carries per-agent entries without core_prompt
+    and no top-level prompts dict (X1-M1 T13: prompts fetched lazily via
+    get_agent_prompt), zero code chunks, and a next_cursor encoding offset=0."""
     _seed_injection_fixture(tmp_path)
     engine = ScanEngine.from_defaults()
     target = {"type": "glob", "pattern": str(tmp_path / "*.py")}
@@ -29,14 +29,6 @@ def test_domain_scan_init_page_shape(tmp_path: Path):
     result = engine.assemble_domain_scan(
         "injection-input-handling", target, cursor=None
     )
-
-    # Top-level prompts dict
-    assert "prompts" in result
-    assert isinstance(result["prompts"], dict)
-    assert {"sqli", "cmdi", "ssti", "xss"}.issubset(set(result["prompts"].keys()))
-    for prompt in result["prompts"].values():
-        assert isinstance(prompt, str)
-        assert len(prompt) > 0
 
     # Per-agent entries: metadata only on init, no core_prompt, no code
     assert "agents" in result
@@ -47,6 +39,7 @@ def test_domain_scan_init_page_shape(tmp_path: Path):
         assert "code" not in agent_entry
 
     # Init-page metadata
+    assert "prompts" not in result  # X1-M1 T13: no aggregate prompts dict
     assert result["code_chunks_on_page"] == 0
     assert result["offset"] == 0
     assert result["next_cursor"] is not None  # non-empty scan → next cursor for code pages
@@ -63,7 +56,6 @@ def test_domain_scan_init_page_idempotent(tmp_path: Path):
     r2 = engine.assemble_domain_scan("injection-input-handling", target, cursor=None)
 
     assert r1.keys() == r2.keys()
-    assert set(r1["prompts"].keys()) == set(r2["prompts"].keys())
     assert r1["code_chunks_on_page"] == r2["code_chunks_on_page"] == 0
     assert r1["next_cursor"] == r2["next_cursor"]
 
@@ -78,10 +70,39 @@ def test_domain_scan_init_page_empty_target(tmp_path: Path):
         "injection-input-handling", target, cursor=None
     )
 
-    assert "prompts" in result
+    assert "prompts" not in result
     assert result["total_files"] == 0
     assert result["code_chunks_on_page"] == 0
     assert result["next_cursor"] is None  # nothing to paginate
+
+
+def test_domain_scan_init_page_no_longer_emits_prompts(tmp_path: Path):
+    """X1-M1 extension: init page must NOT include a top-level `prompts` dict.
+    Aggregate prompts (4 agents × ~5-7k tokens each) exceeded Claude Code's
+    inline tool-response budget, triggering cache-to-file fallback. Orchestrators
+    now fetch prompts lazily per-agent via the `get_agent_prompt` MCP tool."""
+    _seed_injection_fixture(tmp_path)
+    engine = ScanEngine.from_defaults()
+    target = {"type": "glob", "pattern": str(tmp_path / "*.py")}
+
+    result = engine.assemble_domain_scan(
+        "injection-input-handling", target, cursor=None
+    )
+
+    # The key invariant: no aggregate prompts dict on any response
+    assert "prompts" not in result, "init page must not emit aggregate prompts dict"
+
+    # Per-agent entries still carry metadata + exclusions — unchanged
+    assert "agents" in result
+    for agent_entry in result["agents"]:
+        assert "agent_name" in agent_entry
+        assert "meta" in agent_entry
+        assert "core_prompt" not in agent_entry  # still absent from entries, as before
+        assert agent_entry.get("code", "") == "" or "code" not in agent_entry
+
+    # Init-page metadata still the same
+    assert result["code_chunks_on_page"] == 0
+    assert result["offset"] == 0
 
 
 def test_scan_domain_empty_cursor_returns_dict_with_cursor_key(tmp_path: Path):

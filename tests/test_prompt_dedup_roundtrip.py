@@ -1,7 +1,8 @@
 """Integration-style tests simulating the multi-page orchestration a subagent
 would run against scan_domain. Asserts structural correctness of the full
-walk: prompts on init only, code on code pages only, no duplicate coverage,
-all expected files processed exactly once across the walk."""
+walk: no aggregate prompts dict on any page (X1-M1 T13: subagents fetch each
+agent's prompt lazily via get_agent_prompt), code on code pages only, no
+duplicate coverage, all expected files processed exactly once across the walk."""
 
 from __future__ import annotations
 
@@ -24,7 +25,8 @@ def _seed(root: Path, n: int = 12) -> None:
 def test_domain_scan_full_walk_no_prompt_duplication(tmp_path: Path):
     """Walk the entire pagination sequence: init → code pages → null cursor.
     Assert:
-      - `prompts` present exactly once (init page)
+      - `prompts` never present on any page (X1-M1 T13 — orchestrators fetch
+        prompts lazily via get_agent_prompt instead)
       - `core_prompt` never present in any `agents[]` entry on any page
       - Every file appears in exactly one code page's `resolved_files`
       - `agents[].code` has meaningful content on every code page
@@ -36,7 +38,7 @@ def test_domain_scan_full_walk_no_prompt_duplication(tmp_path: Path):
     init = engine.assemble_domain_scan(
         "injection-input-handling", target, cursor=None, page_size=3
     )
-    assert "prompts" in init
+    assert "prompts" not in init
     assert init["code_chunks_on_page"] == 0
     for agent_entry in init["agents"]:
         assert "core_prompt" not in agent_entry
@@ -71,8 +73,9 @@ def test_domain_scan_full_walk_no_prompt_duplication(tmp_path: Path):
 
 
 def test_domain_scan_full_walk_payload_size_regression(tmp_path: Path):
-    """Smoke-check the intended token savings: prompts should appear in exactly
-    one page's wire payload, not N pages."""
+    """Smoke-check the intended token savings: X1-M1 T13 — no page should ship
+    any aggregate prompts dict. Subagents fetch each agent's prompt lazily via
+    the get_agent_prompt MCP tool on first encounter and cache for reuse."""
     _seed(tmp_path, n=12)
     engine = ScanEngine.from_defaults()
     target = {"type": "glob", "pattern": str(tmp_path / "*.py")}
@@ -89,8 +92,7 @@ def test_domain_scan_full_walk_payload_size_regression(tmp_path: Path):
             break
 
     pages_with_prompts = [p for p in pages if "prompts" in p]
-    assert len(pages_with_prompts) == 1
-    assert pages_with_prompts[0] is pages[0]
+    assert pages_with_prompts == []
 
     for page in pages:
         for agent_entry in page["agents"]:

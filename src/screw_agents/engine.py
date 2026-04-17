@@ -252,13 +252,7 @@ class ScanEngine:
             "agent_name": agent_name,
             "code": code_context,
             "resolved_files": [c.file_path for c in codes],
-            "meta": {
-                "name": agent.meta.name,
-                "display_name": agent.meta.display_name,
-                "domain": agent.meta.domain,
-                "cwe_primary": agent.meta.cwes.primary,
-                "cwe_related": agent.meta.cwes.related,
-            },
+            "meta": self._agent_meta_summary(agent),
         }
         if include_prompt:
             result["core_prompt"] = self._build_prompt(agent, thoroughness)
@@ -295,21 +289,25 @@ class ScanEngine:
 
         The response has TWO shapes keyed by the cursor discriminator:
 
-        **Init page (cursor is None):** Returns the per-domain prompt bundle
-        once, without any code. Top-level ``prompts`` is a dict keyed by
-        agent_name; each per-agent ``agents`` entry carries metadata (and,
-        if ``project_root`` is set, agent-scoped exclusions) but NO
-        ``core_prompt`` and NO ``code``. ``code_chunks_on_page == 0`` and
-        ``offset == 0``. ``next_cursor`` encodes offset=0 when files exist
-        (pointing at the first code page); it is None when there is nothing
-        to paginate.
+        **Init page (cursor is None):** Returns per-agent metadata (and,
+        if ``project_root`` is set, agent-scoped exclusions) without any
+        code. Each per-agent ``agents`` entry carries ``agent_name`` and
+        ``meta`` but NO ``core_prompt`` and NO ``code``. There is NO
+        top-level ``prompts`` dict — orchestrators fetch each agent's
+        prompt lazily via the ``get_agent_prompt`` MCP tool on first
+        encounter and cache for reuse across code pages (the aggregate
+        prompts dict exceeded Claude Code's inline tool-response budget,
+        triggering cache-to-file fallback; shipping prompts lazily keeps
+        every response under the ceiling). ``code_chunks_on_page == 0``
+        and ``offset == 0``. ``next_cursor`` encodes offset=0 when files
+        exist (pointing at the first code page); it is None when there
+        is nothing to paginate.
 
         **Code page (cursor is set):** Emits a paged slice of code chunks
-        fanned out per agent. No top-level ``prompts`` (subagents cached them
-        on the init page and reference by ``agent_name``). Per-agent entries
-        carry ``code``, ``resolved_files``, ``meta`` — but no ``core_prompt``
-        and no ``exclusions`` (exclusions are init-only). ``trust_status``
-        is re-emitted at the top level when ``project_root`` is provided so
+        fanned out per agent. Per-agent entries carry ``code``,
+        ``resolved_files``, ``meta`` — but no ``core_prompt`` and no
+        ``exclusions`` (exclusions are init-only). ``trust_status`` is
+        re-emitted at the top level when ``project_root`` is provided so
         any single page carries the quarantine counts.
 
         The cursor is an opaque base64url-encoded JSON token encoding
@@ -337,8 +335,8 @@ class ScanEngine:
                 offset: int
                 code_chunks_on_page: int
                 trust_status: dict  (only when project_root is provided)
-            Init-page only adds:
-                prompts: dict[str, str]  (keyed by agent_name)
+            Neither shape emits a top-level ``prompts`` key; callers must
+            use ``get_agent_prompt(agent_name, thoroughness)`` instead.
 
         Note: if files are deleted between page requests, the cursor's offset may
         exceed the current file count. This results in an empty ``agents`` list
@@ -393,21 +391,11 @@ class ScanEngine:
             domain_exclusions = None
 
         if is_init_page:
-            prompts_dict: dict[str, str] = {
-                a.meta.name: self._build_prompt(a, thoroughness) for a in agents
-            }
-
             agents_responses: list[dict[str, Any]] = []
             for a in agents:
                 entry: dict[str, Any] = {
                     "agent_name": a.meta.name,
-                    "meta": {
-                        "name": a.meta.name,
-                        "display_name": a.meta.display_name,
-                        "domain": a.meta.domain,
-                        "cwe_primary": a.meta.cwes.primary,
-                        "cwe_related": a.meta.cwes.related,
-                    },
+                    "meta": self._agent_meta_summary(a),
                 }
                 if project_root is not None and domain_exclusions is not None:
                     agent_exclusions = [
@@ -429,7 +417,6 @@ class ScanEngine:
 
             result: dict[str, Any] = {
                 "domain": domain,
-                "prompts": prompts_dict,
                 "agents": agents_responses,
                 "next_cursor": next_cursor,
                 "page_size": page_size,
@@ -577,22 +564,23 @@ class ScanEngine:
                     cwe_related} (same shape as assemble_scan's meta)
 
         Raises:
-            ValueError: If agent_name is not registered.
+            ValueError: If agent_name is not registered, or if thoroughness
+                is not one of ``"quick"``, ``"standard"``, ``"deep"``.
         """
         agent = self._registry.get_agent(agent_name)
         if agent is None:
             raise ValueError(f"Unknown agent: {agent_name!r}")
 
+        if thoroughness not in {"quick", "standard", "deep"}:
+            raise ValueError(
+                f"Invalid thoroughness: {thoroughness!r}. "
+                f"Must be one of: 'quick', 'standard', 'deep'."
+            )
+
         return {
             "agent_name": agent_name,
             "core_prompt": self._build_prompt(agent, thoroughness),
-            "meta": {
-                "name": agent.meta.name,
-                "display_name": agent.meta.display_name,
-                "domain": agent.meta.domain,
-                "cwe_primary": agent.meta.cwes.primary,
-                "cwe_related": agent.meta.cwes.related,
-            },
+            "meta": self._agent_meta_summary(agent),
         }
 
     def format_output(
@@ -955,6 +943,20 @@ class ScanEngine:
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
+
+    def _agent_meta_summary(self, agent: AgentDefinition) -> dict[str, Any]:
+        """Return the canonical 5-field meta summary for an agent response entry.
+
+        Used by assemble_scan, assemble_domain_scan (init branch), and
+        get_agent_prompt so the meta shape is defined in one place.
+        """
+        return {
+            "name": agent.meta.name,
+            "display_name": agent.meta.display_name,
+            "domain": agent.meta.domain,
+            "cwe_primary": agent.meta.cwes.primary,
+            "cwe_related": agent.meta.cwes.related,
+        }
 
     def _build_prompt(self, agent: AgentDefinition, thoroughness: str) -> str:
         """Assemble the detection prompt from agent fields.
