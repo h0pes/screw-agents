@@ -577,6 +577,14 @@ class ScanEngine:
                         "type": "object",
                         "description": "Optional metadata: target, timestamp.",
                     },
+                    "formats": {
+                        "type": "array",
+                        "items": {"type": "string", "enum": ["json", "sarif", "markdown", "csv"]},
+                        "default": ["json", "markdown"],
+                        "description": (
+                            "Output formats to write. Defaults to ['json', 'markdown']."
+                        ),
+                    },
                 },
                 "required": ["project_root", "findings", "agent_names"],
             },

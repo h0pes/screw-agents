@@ -137,6 +137,7 @@ def _dispatch_tool(
             findings_raw=args.get("findings", []),
             agent_names=args.get("agent_names", []),
             scan_metadata=args.get("scan_metadata"),
+            formats=args.get("formats"),
         )
 
     # --- Scan tools (Phase 1 + Phase 2 project_root) ---

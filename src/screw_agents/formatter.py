@@ -8,6 +8,8 @@ Supports three output formats:
 
 from __future__ import annotations
 
+import csv as _csv
+import io as _io
 import json
 from collections import Counter
 from typing import TYPE_CHECKING, Any
@@ -70,6 +72,61 @@ def format_findings(
     if format == "markdown":
         return _format_markdown(findings, meta, trust_status=trust_status)
     raise ValueError(f"Unsupported format: {format!r}. Choose 'json', 'sarif', or 'markdown'.")
+
+
+# ---------------------------------------------------------------------------
+# CSV formatter
+# ---------------------------------------------------------------------------
+
+
+_CSV_COLUMNS = [
+    "id", "file", "line", "cwe", "cwe_name", "agent",
+    "severity", "confidence", "description", "code_snippet",
+    "excluded", "exclusion_ref",
+]
+
+
+def format_csv(findings: list[Finding], scan_metadata: dict[str, Any] | None = None) -> str:
+    """Serialize findings to CSV.
+
+    Output-only format — not intended for round-trip parsing back to Finding.
+    Nested fields (remediation.fix_code, data_flow, references) are dropped by
+    design. Use JSON or SARIF for full-fidelity output.
+
+    Args:
+        findings: list of Finding objects.
+        scan_metadata: ignored (kept for signature parity with format_findings).
+
+    Returns:
+        CSV-formatted string with a header row followed by one row per finding.
+    """
+    buf = _io.StringIO()
+    writer = _csv.writer(buf, quoting=_csv.QUOTE_MINIMAL, lineterminator="\n")
+    writer.writerow(_CSV_COLUMNS)
+
+    for f in findings:
+        excluded = "False"
+        exclusion_ref = ""
+        if f.triage is not None:
+            excluded = str(f.triage.excluded)
+            exclusion_ref = f.triage.exclusion_ref or ""
+
+        writer.writerow([
+            f.id,
+            f.location.file,
+            str(f.location.line_start),
+            f.classification.cwe,
+            f.classification.cwe_name,
+            f.agent,
+            f.classification.severity,
+            f.classification.confidence,
+            f.analysis.description,
+            f.location.code_snippet or "",
+            excluded,
+            exclusion_ref,
+        ])
+
+    return buf.getvalue()
 
 
 # ---------------------------------------------------------------------------
