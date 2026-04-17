@@ -103,6 +103,17 @@ def test_full_aggregation_flow_signed_exclusions(tmp_path: Path):
     assert db_fp["cwe"] == "CWE-89"
     assert "full-text search with parameterized internals" in db_fp["example_reasons"]
 
+    # T21-m1 fix-up: rendered fields cross the MCP boundary intact.
+    # These assertions fence the serialized wire contract: aggregation-layer
+    # backtick-wrapping must survive through Pydantic.model_dump() into the
+    # dict returned by ScanEngine.aggregate_learning.
+    assert "reason_distribution_rendered" in test_sugg["evidence"]
+    # The rendered field carries backtick wrapping.
+    assert "`" in test_sugg["evidence"]["reason_distribution_rendered"]
+    assert "example_reasons_rendered" in db_fp
+    # Parallel length to example_reasons — index-aligned invariant.
+    assert len(db_fp["example_reasons_rendered"]) == len(db_fp["example_reasons"])
+
     # Trust status: all 17 recorded entries are active, none quarantined
     assert report["trust_status"]["exclusion_active_count"] == _N_TOTAL_HAPPY_PATH
     assert report["trust_status"]["exclusion_quarantine_count"] == 0
@@ -225,6 +236,12 @@ def test_mixed_state_flow_multi_agent_multi_cwe_with_quarantine(tmp_path: Path):
     # 7. Trust status: exactly 1 quarantined, 15 active
     assert report["trust_status"]["exclusion_quarantine_count"] == 1
     assert report["trust_status"]["exclusion_active_count"] == 15
+
+    # T21-m2: server-side notice rendering survives the full MCP serialization path
+    notice = report["trust_status"]["notice_markdown"]
+    assert notice, "notice_markdown must be populated when quarantine_count > 0"
+    assert "quarantine" in notice.lower()
+    assert "unsigned or signed by an untrusted key" in notice
 
     # 8. Pattern confidence: three distinct buckets (agent, cwe, pattern triple)
     #    must survive the mixed fixture. Quarantined entry reduces the

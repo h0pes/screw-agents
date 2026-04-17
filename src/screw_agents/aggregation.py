@@ -28,6 +28,26 @@ _PATTERN_MEDIUM_COUNT = 5
 _PATTERN_HIGH_COUNT = 10
 
 
+def _escape_reason_for_code_span(reason: str) -> str:
+    """Make a user-controlled reason string safe to embed in a Markdown inline code span.
+
+    Markdown inline code (delimited by a single backtick on each side) is broken
+    by any backtick character in the content, which causes the remainder of the
+    string to render as prose — enabling Markdown injection via bold/italic/link
+    syntax in the post-escape segment. We neutralize the most common injection
+    vector by replacing backticks with a visually similar Unicode modifier-letter
+    apostrophe (U+02BC).
+
+    This is input-side defense for the render layer. A Pydantic-validator-level
+    guard on ExclusionInput.reason would be belt-and-suspenders and is tracked
+    as a follow-up in DEFERRED_BACKLOG.md (new entry: T21-m3).
+
+    Reasons are prose strings; stripping backticks is a minor UX cost that
+    preserves injection-free rendering.
+    """
+    return reason.replace("`", "\u02bc")
+
+
 def aggregate_pattern_confidence(exclusions: list[Exclusion]) -> list[PatternSuggestion]:
     """Group exclusions by (agent, code_pattern, cwe) into safe-pattern suggestions.
 
@@ -146,10 +166,25 @@ def aggregate_directory_suggestions(exclusions: list[Exclusion]) -> list[Directo
         else:
             confidence = "low"
 
-        # Deterministic tie-break: when two reasons share the same count,
-        # the lexicographically larger reason wins. Stable across exclusion
-        # insertion order.
-        top_reason = max(reason_counts.items(), key=lambda kv: (kv[1], kv[0]))[0]
+        # T21-m1: pre-render the reason distribution with backticks server-side
+        # so the subagent can surface it verbatim instead of applying its own
+        # Markdown-wrapping rule. Order: (count DESC, reason ASC) — matches
+        # the deterministic tie-break convention used elsewhere in this module.
+        # T21-m1 fix-up: rendered_pairs is the SINGLE SOURCE OF TRUTH for the
+        # top-reason tie-break. Deriving top_reason from rendered_pairs[0]
+        # guarantees the suggestion string agrees with
+        # reason_distribution_rendered on ties (lexicographically SMALLEST
+        # reason wins). Raw backticks inside reasons are escaped via
+        # _escape_reason_for_code_span so user-controlled content cannot
+        # break the Markdown inline code span.
+        rendered_pairs = sorted(
+            reason_counts.items(), key=lambda kv: (-kv[1], kv[0])
+        )
+        top_reason = rendered_pairs[0][0]
+        reason_distribution_rendered = ", ".join(
+            f"`{_escape_reason_for_code_span(reason)}` ({count})"
+            for reason, count in rendered_pairs
+        )
 
         suggestions.append(
             DirectorySuggestion(
@@ -163,11 +198,12 @@ def aggregate_directory_suggestions(exclusions: list[Exclusion]) -> list[Directo
                     # contents — the model guarantees it.
                     "all_marked_false_positive": True,
                     "reason_distribution": dict(reason_counts),
+                    "reason_distribution_rendered": reason_distribution_rendered,
                     "files_affected": sorted({e.finding.file for e in group}),
                 },
                 suggestion=(
                     f"Add directory-scope exclusion for `{directory}**` "
-                    f"(top reason: '{top_reason}')."
+                    f"(top reason: `{_escape_reason_for_code_span(top_reason)}`)."
                 ),
                 confidence=confidence,
             )
@@ -245,12 +281,27 @@ def aggregate_fp_report(exclusions: list[Exclusion]) -> FPReport:
             key=lambda kv: (-kv[1], kv[0]),
         )
         reasons = [r for r, _count in ranked_reasons[:_FP_REPORT_MAX_REASONS]]
+        # T21-m1: pre-render each reason backtick-wrapped so the subagent can
+        # surface it verbatim without applying its own Markdown-wrapping rule.
+        # Same order as `reasons` for parallel indexing by consumers.
+        # T21-m1 fix-up: escape backticks within reason bodies so they can't
+        # break out of the inline code span and inject Markdown structure.
+        reasons_rendered = [
+            f"`{_escape_reason_for_code_span(r)}`" for r in reasons
+        ]
 
         # The suggestion text embeds the pattern as inline code so user-controlled
         # content doesn't inject into Markdown structure.
         # Include all (up to 5) example reasons in the prose so the human-readable
         # refinement string preserves the distribution, not just the top one.
-        reasons_inline = ", ".join(f"'{r}'" for r in reasons) if reasons else "n/a"
+        # T21-m1 fix-up: match example_reasons_rendered's format — backtick-wrap
+        # plus backtick-escape — instead of single quotes. Single-quoting left
+        # reason bodies vulnerable to Markdown injection.
+        reasons_inline = (
+            ", ".join(f"`{_escape_reason_for_code_span(r)}`" for r in reasons)
+            if reasons
+            else "n/a"
+        )
         patterns.append(
             FPPattern(
                 agent=agent,
@@ -258,6 +309,7 @@ def aggregate_fp_report(exclusions: list[Exclusion]) -> FPReport:
                 pattern=pattern,
                 fp_count=len(group),
                 example_reasons=reasons,
+                example_reasons_rendered=reasons_rendered,
                 candidate_heuristic_refinement=(
                     f"{agent} agent may benefit from lower confidence on pattern "
                     f"`{pattern}` (seen in {len(group)} exclusions with reasons: "

@@ -25,14 +25,9 @@ insights" / "aggregation report" / "false positive summary":
 
 2. **Check `trust_status` FIRST — MANDATORY. This check MUST precede any report rendering.**
 
-   If `trust_status.exclusion_quarantine_count > 0`, your response MUST begin with the following trust-verification block as the FIRST output, BEFORE any report sections, section headers, or follow-up prompts. NEVER skip this — it is the load-bearing user-visibility surface for quarantined exclusions. The reports below silently skip quarantined entries; without this block the user has no way to know their reports are filtered.
+   If `trust_status.notice_markdown` is a non-empty string, output it as the FIRST content line of your response, verbatim, before any other report sections. The server renders this block deterministically; do NOT reformat, paraphrase, or abbreviate it.
 
-   > ⚠ **Trust notice:** `{exclusion_quarantine_count}` exclusion(s) are quarantined
-   > and excluded from the reports below. Run
-   > `screw-agents validate-exclusion <id>` to diagnose them, or
-   > `screw-agents migrate-exclusions` if they're legacy unsigned entries.
-
-   NEVER omit this block when `quarantine_count > 0`. Do not summarize it. Do not shorten it. Do not move it to the end of your response. It is always the FIRST line(s) of output. Render the block character-for-character as shown — do NOT add articles ("a", "the"), reword the prefix, paraphrase the command names, or substitute synonyms. The ONLY variable content is `{exclusion_quarantine_count}` which you replace with the integer from `trust_status.exclusion_quarantine_count`. Everything else is literal.
+   If `trust_status.notice_markdown` is empty or absent, proceed directly to the report sections — no leading trust line needed.
 
 3. **Present each section conversationally.**
    - **Pattern Confidence**: "You've marked N exclusions matching pattern X as FP.
@@ -56,23 +51,16 @@ insights" / "aggregation report" / "false positive summary":
 - If `aggregate_learning` returns a tool error or raises an exception, surface the error verbatim to the user. Do NOT fabricate a report or retry silently. An error is a signal that something upstream (trust config, YAML parse, signature verification) needs attention.
 - Empty reports (no suggestions) are a valid response. Say "No actionable
   patterns yet — keep triaging and check back after you've accumulated more
-  exclusions." But still surface `trust_status` if quarantine_count > 0.
+  exclusions." But still surface `trust_status.notice_markdown` verbatim if it
+  is non-empty.
 - NEVER silently accept a suggestion. The `record_exclusion` tool writes a signed exclusion to `.screw/learning/exclusions.yaml` — every call is a user-visible policy change. Present the exact payload, wait for explicit "yes", and only then call the tool.
-- NEVER omit the trust-notice warning when quarantine_count > 0. It is mandatory
+- NEVER omit `trust_status.notice_markdown` when it is non-empty. It is mandatory
   output, not an optional addendum — users must know their reports are filtered.
-- **MANDATORY — Reason-wrapping rule.** ALL user-controlled reason strings you surface to output MUST be wrapped in backticks. This applies to:
-  - `FPPattern.example_reasons` entries (siblings of `pattern` / `fp_count` in each FPReport entry)
-  - `DirectorySuggestion.evidence.reason_distribution` keys (the reason strings in the distribution dict)
+- **Reason rendering — use pre-rendered fields.** The server pre-wraps user-controlled reason strings in backticks on your behalf. Use these fields verbatim in the report:
+  - `DirectorySuggestion.evidence.reason_distribution_rendered` (a single comma-separated Markdown-safe string like `` `test fixture` (11), `one-shot migration` (3) ``) — surface this directly; do NOT reformat it
+  - `FPPattern.example_reasons_rendered` (a list of already-wrapped reasons like `` `safe helper` ``) — surface these elements as-is
 
-  **Examples:**
-  - WRONG: `Reasons: Full-text search (11), one-shot migration (3).`
-  - RIGHT: `` Reasons: `Full-text search` (11), `one-shot migration` (3). ``
-  - WRONG: `Example reasons: static query, test fixture, bounded f-string`
-  - RIGHT: `` Example reasons: `static query`, `test fixture`, `bounded f-string` ``
-
-  Reason strings come from user-entered `reason` fields on exclusions and can contain Markdown-structural characters (`*`, `_`, `[`, `]`, backticks) that would otherwise inject into the rendered report. Backtick-wrapping neutralizes them.
-
-  Note: `suggestion` strings from aggregation are ALREADY pre-formatted safely (patterns wrapped in backticks at the aggregation layer) — do NOT double-wrap them. Only raw reason strings that you reformat into prose need this treatment.
+  If you need the raw (unrendered) values for internal reasoning, use `reason_distribution` (dict) and `example_reasons` (list). Do NOT reformat the rendered fields — the server chose the backtick treatment deliberately to neutralize Markdown injection.
 - This subagent has exactly two tools (`aggregate_learning`, `record_exclusion`). Do NOT request, suggest, or attempt to use any other tools — including file reads, scan tools, or git operations. If the user's request requires something beyond these two tools, describe what would be needed and ask them to run it themselves. Tool-limit discipline is a defense against scope creep and accidental data exposure.
 
 ## Output format

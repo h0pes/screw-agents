@@ -137,6 +137,8 @@ def _dispatch_tool(
             findings_raw=args.get("findings", []),
             agent_names=args.get("agent_names", []),
             scan_metadata=args.get("scan_metadata"),
+            formats=args.get("formats"),
+            agent_registry=engine._registry,
         )
 
     # --- Scan tools (Phase 1 + Phase 2 project_root) ---
@@ -149,6 +151,8 @@ def _dispatch_tool(
             target=args["target"],
             thoroughness=args.get("thoroughness", "standard"),
             project_root=project_root,
+            cursor=args.get("cursor"),
+            page_size=args.get("page_size", 50),
         )
 
     if name == "scan_full":

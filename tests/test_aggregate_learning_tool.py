@@ -118,3 +118,77 @@ def test_aggregate_learning_surfaces_quarantined_count(tmp_path: Path):
     # Only active (2) exclusions count toward aggregation, so no pattern-confidence suggestion
     # (threshold is >= 3 for _PATTERN_MIN_COUNT).
     assert report["pattern_confidence"] == []
+
+
+def test_aggregate_learning_emits_trust_notice_when_quarantined(tmp_path: Path):
+    """When exclusion_quarantine_count > 0, trust_status.notice_markdown is populated
+    with a server-rendered block that the subagent can output verbatim.
+
+    T21-m2: eliminates LLM discretion from the trust-notice render path. The
+    server composes the Markdown; the subagent copies it. Covers Markdown-
+    injection drift across LLM model versions.
+    """
+    from screw_agents.cli.init_trust import run_init_trust
+    from screw_agents.learning import record_exclusion
+    from screw_agents.models import ExclusionFinding, ExclusionInput, ExclusionScope
+
+    run_init_trust(project_root=tmp_path, name="Marco", email="marco@example.com")
+
+    # Seed one exclusion, then tamper its signature so it quarantines on reload.
+    # Mirrors the pattern in test_aggregate_learning_surfaces_quarantined_count
+    # above — YAML emits the signature as a bare scalar, so prefix-injecting
+    # 'A' yields valid base64 with a different ciphertext than Ed25519 signed.
+    record_exclusion(
+        tmp_path,
+        ExclusionInput(
+            agent="sqli",
+            finding=ExclusionFinding(
+                file="src/s0.py", line=10, code_pattern="safe_call(*)", cwe="CWE-89"
+            ),
+            reason="safe",
+            scope=ExclusionScope(type="pattern", pattern="safe_call(*)"),
+        ),
+    )
+    excl_path = tmp_path / ".screw" / "learning" / "exclusions.yaml"
+    text = excl_path.read_text()
+    text = text.replace("signature: ", "signature: A", 1)
+    excl_path.write_text(text)
+
+    engine = ScanEngine.from_defaults()
+    report = engine.aggregate_learning(project_root=tmp_path, report_type="all")
+
+    trust = report["trust_status"]
+    assert trust["exclusion_quarantine_count"] >= 1
+    assert "notice_markdown" in trust
+    notice = trust["notice_markdown"]
+    # Deterministic server-rendered Markdown block — verbatim for the subagent.
+    assert notice.startswith("⚠")
+    assert "quarantine" in notice.lower()
+    # Bold marker + both backticked CLI hints present.
+    assert "**" in notice
+    assert "`screw-agents validate-exclusion" in notice
+    assert "`screw-agents migrate-exclusions`" in notice
+    # Singular noun form when exactly one exclusion quarantined (this test seeds exactly 1)
+    assert "**1 exclusion quarantined**" in notice, \
+        "template must use singular 'exclusion' for count=1 AND bold-wrap the full phrase"
+    # Reason phrase — catches template drift on the operator-facing security explanation
+    assert "unsigned or signed by an untrusted key" in notice
+    # Hint verbs — catches template drift on the remediation instructions
+    assert "Review with" in notice
+    assert "bulk-sign with" in notice
+
+
+def test_aggregate_learning_omits_trust_notice_when_clean(tmp_path: Path):
+    """No quarantined entries => notice_markdown is empty string.
+
+    T21-m2: the key is always present (even when empty) so the subagent can do
+    a simple truthy check without KeyError-handling gymnastics.
+    """
+    engine = ScanEngine.from_defaults()
+    report = engine.aggregate_learning(project_root=tmp_path, report_type="all")
+
+    trust = report["trust_status"]
+    assert trust["exclusion_quarantine_count"] == 0
+    # Presence-with-empty, not absence — stable contract for the subagent.
+    assert "notice_markdown" in trust
+    assert trust["notice_markdown"] == ""

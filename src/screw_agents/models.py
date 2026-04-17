@@ -55,6 +55,7 @@ class AgentMeta(BaseModel):
     capec: list[str] = []
     owasp: OWASPMapping
     sources: list[Source] = []
+    short_description: str | None = None
     # Optional — some agents use sans_top25, others cwe_top25
     sans_top25: dict[str, Any] | None = None
     cwe_top25: dict[str, Any] | None = None
@@ -177,8 +178,8 @@ class FindingClassification(BaseModel):
 
 class FindingAnalysis(BaseModel):
     description: str
-    impact: str = ""
-    exploitability: str = ""
+    impact: str | None = None
+    exploitability: str | None = None
     false_positive_reasoning: str | None = None
 
 
@@ -395,6 +396,11 @@ class FPPattern(BaseModel):
     pattern: str
     fp_count: int = Field(ge=0)
     example_reasons: list[str]
+    # Pre-rendered parallel field — each reason backtick-wrapped by aggregation
+    # so the subagent does not have discretion on Markdown-injection defense.
+    # See T21-m1 in docs/DEFERRED_BACKLOG.md for rationale. Default `[]` keeps
+    # existing inline FPPattern constructions backward-compatible.
+    example_reasons_rendered: list[str] = []
     candidate_heuristic_refinement: str
 
 

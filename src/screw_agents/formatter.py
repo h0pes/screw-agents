@@ -8,11 +8,17 @@ Supports three output formats:
 
 from __future__ import annotations
 
+import csv as _csv
+import io as _io
 import json
 from collections import Counter
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from screw_agents.cwe_names import long_name
 from screw_agents.models import Finding
+
+if TYPE_CHECKING:
+    from screw_agents.registry import AgentRegistry
 
 _SARIF_SCHEMA = (
     "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/"
@@ -35,6 +41,7 @@ def format_findings(
     format: str = "json",
     scan_metadata: dict[str, Any] | None = None,
     trust_status: dict[str, int] | None = None,
+    agent_registry: AgentRegistry | None = None,
 ) -> str:
     """Dispatch findings to the requested output formatter.
 
@@ -46,6 +53,10 @@ def format_findings(
             returned by `ScanEngine.verify_trust`. Only the markdown formatter
             surfaces this (as a "Trust verification" section); JSON and SARIF
             ignore it.
+        agent_registry: Optional registry used by the SARIF formatter to look up
+            ``agent.meta.short_description`` for each rule's ``shortDescription``
+            field.  When absent, the SARIF formatter falls back to
+            ``"{cwe} — {cwe_name}"``.
 
     Returns:
         Formatted string output.
@@ -57,10 +68,77 @@ def format_findings(
     if format == "json":
         return _format_json(findings)
     if format == "sarif":
-        return _format_sarif(findings, meta)
+        return _format_sarif(findings, meta, agent_registry=agent_registry)
     if format == "markdown":
         return _format_markdown(findings, meta, trust_status=trust_status)
     raise ValueError(f"Unsupported format: {format!r}. Choose 'json', 'sarif', or 'markdown'.")
+
+
+# ---------------------------------------------------------------------------
+# CSV formatter
+# ---------------------------------------------------------------------------
+
+
+_CSV_COLUMNS = [
+    "id", "file", "line", "cwe", "cwe_name", "agent",
+    "severity", "confidence", "description", "code_snippet",
+    "excluded", "exclusion_ref",
+]
+
+
+def _sanitize_csv_cell(value: str) -> str:
+    """Neutralize formula injection in CSV cells.
+
+    Spreadsheet applications (Excel, LibreOffice Calc) interpret cells
+    starting with = + - @ as formulas. A tab prefix disables formula
+    interpretation while remaining invisible in most spreadsheet UIs.
+    """
+    if value and value[0] in ("=", "+", "-", "@"):
+        return "\t" + value
+    return value
+
+
+def format_csv(findings: list[Finding], scan_metadata: dict[str, Any] | None = None) -> str:
+    """Serialize findings to CSV.
+
+    Output-only format — not intended for round-trip parsing back to Finding.
+    Nested fields (remediation.fix_code, data_flow, references) are dropped by
+    design. Use JSON or SARIF for full-fidelity output.
+
+    Args:
+        findings: list of Finding objects.
+        scan_metadata: ignored (kept for signature parity with format_findings).
+
+    Returns:
+        CSV-formatted string with a header row followed by one row per finding.
+    """
+    buf = _io.StringIO()
+    writer = _csv.writer(buf, quoting=_csv.QUOTE_MINIMAL, lineterminator="\n")
+    writer.writerow(_CSV_COLUMNS)
+
+    for f in findings:
+        excluded = "False"
+        exclusion_ref = ""
+        if f.triage is not None:
+            excluded = str(f.triage.excluded)
+            exclusion_ref = f.triage.exclusion_ref or ""
+
+        writer.writerow([
+            f.id,
+            f.location.file,
+            str(f.location.line_start),
+            f.classification.cwe,
+            f.classification.cwe_name,
+            f.agent,
+            f.classification.severity,
+            f.classification.confidence,
+            _sanitize_csv_cell(f.analysis.description),
+            _sanitize_csv_cell(f.location.code_snippet or ""),
+            excluded,
+            _sanitize_csv_cell(exclusion_ref),
+        ])
+
+    return buf.getvalue()
 
 
 # ---------------------------------------------------------------------------
@@ -79,9 +157,13 @@ def _format_json(findings: list[Finding]) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _format_sarif(findings: list[Finding], metadata: dict[str, Any]) -> str:
+def _format_sarif(
+    findings: list[Finding],
+    metadata: dict[str, Any],
+    agent_registry: AgentRegistry | None = None,
+) -> str:
     """Produce a SARIF 2.1.0 document from findings."""
-    rules = _sarif_rules(findings)
+    rules = _sarif_rules(findings, agent_registry=agent_registry)
     results = [_sarif_result(f) for f in findings]
 
     doc: dict[str, Any] = {
@@ -103,16 +185,27 @@ def _format_sarif(findings: list[Finding], metadata: dict[str, Any]) -> str:
     return json.dumps(doc, indent=2)
 
 
-def _sarif_rules(findings: list[Finding]) -> list[dict[str, Any]]:
+def _sarif_rules(
+    findings: list[Finding],
+    agent_registry: AgentRegistry | None = None,
+) -> list[dict[str, Any]]:
     """Build deduplicated rules list from the findings' CWE IDs."""
+    # Rules are deduped by CWE, not by agent. If future agents share a primary CWE,
+    # only the first agent's short_description will be used. Acceptable for Phase 1
+    # (each agent has a unique primary CWE); may need agent-scoped rule IDs later.
     seen: dict[str, dict[str, Any]] = {}
     for f in findings:
         cwe = f.classification.cwe
         if cwe not in seen:
+            short_text = f"{cwe} — {f.classification.cwe_name}"
+            if agent_registry is not None:
+                agent = agent_registry.get_agent(f.agent)
+                if agent is not None and agent.meta.short_description:
+                    short_text = agent.meta.short_description
             seen[cwe] = {
                 "id": cwe,
                 "name": f.classification.cwe_name,
-                "shortDescription": {"text": f.classification.cwe_name},
+                "shortDescription": {"text": short_text},
                 "helpUri": (
                     f"https://cwe.mitre.org/data/definitions/{cwe.replace('CWE-', '')}.html"
                 ),
@@ -299,7 +392,9 @@ def _append_finding_detail(lines: list[str], f: Finding) -> None:
     cwe = f.classification.cwe
     cwe_url = f"https://cwe.mitre.org/data/definitions/{cwe.replace('CWE-', '')}.html"
 
-    lines.append(f"### {f.id} — {f.classification.cwe_name}")
+    cwe_id = f.classification.cwe
+    cwe_display_name = long_name(cwe_id)
+    lines.append(f"### {f.id} — {cwe_id} — {cwe_display_name}")
     lines.append("")
 
     # Classification badge row

@@ -9,6 +9,7 @@ meta:
   domain: injection-input-handling
   version: "1.0.0"
   last_updated: "2026-04-06"
+  short_description: "OS command injection via unsanitized user input reaching shell execution, subprocess calls, or argument construction"
 
   cwes:
     primary: CWE-78

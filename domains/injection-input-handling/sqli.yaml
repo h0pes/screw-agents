@@ -9,6 +9,7 @@ meta:
   domain: injection-input-handling
   version: "1.0.0"
   last_updated: "2026-04-05"
+  short_description: "SQL injection via unsafe string concatenation, interpolation, or ORM raw query misuse reaching database query execution paths"
 
   cwes:
     primary: CWE-89

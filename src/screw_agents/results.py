@@ -9,11 +9,14 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from screw_agents.formatter import format_findings
+from screw_agents.formatter import format_csv, format_findings
 from screw_agents.learning import load_exclusions, match_exclusions
 from screw_agents.models import Finding
+
+if TYPE_CHECKING:
+    from screw_agents.registry import AgentRegistry
 
 _GITIGNORE_CONTENT = (
     "# Scan results are point-in-time — don't track in version control\n"
@@ -28,21 +31,27 @@ def write_scan_results(
     findings_raw: list[dict[str, Any]],
     agent_names: list[str],
     scan_metadata: dict[str, Any] | None = None,
+    formats: list[str] | None = None,
+    agent_registry: AgentRegistry | None = None,
 ) -> dict[str, Any]:
     """Write scan findings to .screw/findings/ with server-side exclusion matching.
 
     Creates .screw/ directory structure, applies exclusion matching using
-    correct scope semantics, formats as JSON + Markdown, writes files.
+    correct scope semantics, formats requested output files, writes them.
 
     Args:
         project_root: Absolute path to the project root.
         findings_raw: List of finding dicts (parsed as Finding models).
         agent_names: Agent names that produced findings (e.g. ["sqli"]).
         scan_metadata: Optional metadata dict (target, timestamp).
+        formats: Output formats to write. Defaults to ``["json", "markdown"]``.
+            Accepted values: ``"json"``, ``"markdown"``, ``"sarif"``, ``"csv"``.
+        agent_registry: Optional registry threaded to ``format_findings`` for
+            SARIF output (provides ``agent.meta.short_description`` per rule).
 
     Returns:
         Dict with keys:
-            - files_written: list[str] — paths to JSON and Markdown files
+            - files_written: dict[str, str] — format name → file path
             - summary: dict — total, suppressed, active, by_severity counts
             - exclusions_applied: list[dict] — finding_id + exclusion_ref pairs
             - trust_status: dict — 4-field trust verification counts
@@ -52,6 +61,8 @@ def write_scan_results(
         ValueError: If `.screw/` exists as a non-directory (T6-I1) or is not
             accessible due to permissions (T6-I2).
     """
+    if formats is None:
+        formats = ["json", "markdown"]
     # Parse findings via Pydantic
     findings = [Finding(**f) for f in findings_raw]
 
@@ -152,15 +163,40 @@ def write_scan_results(
     meta.setdefault("timestamp", now.strftime("%Y-%m-%dT%H:%M:%SZ"))
 
     # Format and write
-    json_content = format_findings(findings, format="json", scan_metadata=meta)
-    md_content = format_findings(
-        findings, format="markdown", scan_metadata=meta, trust_status=trust_status
-    )
+    files_written: dict[str, str] = {}
 
-    json_path = findings_dir / f"{prefix}-{ts}.json"
-    md_path = findings_dir / f"{prefix}-{ts}.md"
-    json_path.write_text(json_content)
-    md_path.write_text(md_content)
+    if "json" in formats:
+        json_content = format_findings(
+            findings, format="json", scan_metadata=meta,
+            agent_registry=agent_registry,
+        )
+        json_path = findings_dir / f"{prefix}-{ts}.json"
+        json_path.write_text(json_content)
+        files_written["json"] = str(json_path)
+
+    if "markdown" in formats:
+        md_content = format_findings(
+            findings, format="markdown", scan_metadata=meta,
+            trust_status=trust_status, agent_registry=agent_registry,
+        )
+        md_path = findings_dir / f"{prefix}-{ts}.md"
+        md_path.write_text(md_content)
+        files_written["markdown"] = str(md_path)
+
+    if "sarif" in formats:
+        sarif_content = format_findings(
+            findings, format="sarif", scan_metadata=meta,
+            agent_registry=agent_registry,
+        )
+        sarif_path = findings_dir / f"{prefix}-{ts}.sarif.json"
+        sarif_path.write_text(sarif_content)
+        files_written["sarif"] = str(sarif_path)
+
+    if "csv" in formats:
+        csv_content = format_csv(findings, scan_metadata=meta)
+        csv_path = findings_dir / f"{prefix}-{ts}.csv"
+        csv_path.write_text(csv_content)
+        files_written["csv"] = str(csv_path)
 
     # Build summary
     active_findings = [f for f in findings if not f.triage.excluded]
@@ -170,7 +206,7 @@ def write_scan_results(
         by_severity[sev] = by_severity.get(sev, 0) + 1
 
     return {
-        "files_written": [str(json_path), str(md_path)],
+        "files_written": files_written,
         "summary": {
             "total": len(findings),
             "suppressed": suppressed_count,

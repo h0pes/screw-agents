@@ -310,7 +310,9 @@ def test_aggregate_directory_suggestions_tie_break_is_deterministic():
     # Now: alpha=3, beta=2 → top reason = alpha (unambiguous)
     suggestions = aggregate_directory_suggestions(exclusions)
     assert len(suggestions) == 1
-    assert "'alpha'" in suggestions[0].suggestion
+    # Post-T21-m1 fix-up: suggestion wraps top_reason in backticks (same
+    # rendering as evidence.reason_distribution_rendered, single source of truth).
+    assert "`alpha`" in suggestions[0].suggestion
 
     # Now test tie-break: 2 alpha, 2 beta (equal count)
     exclusions_tied = [
@@ -328,12 +330,13 @@ def test_aggregate_directory_suggestions_tie_break_is_deterministic():
               file="test/h.py", line=10, reason="gamma")
     )
     # Now: alpha=2, beta=2, gamma=1 → tie between alpha and beta
-    # Tie-break rule: (count, reason_text) with max means larger string wins
+    # Post-T21-m1 fix-up: tie-break aligned with reason_distribution_rendered's
+    # (count DESC, reason ASC) order — lexicographically SMALLEST reason wins.
     suggestions = aggregate_directory_suggestions(exclusions_tied)
     assert len(suggestions) == 1
-    # With max((count, reason)) tie-break, "beta" > "alpha" lexicographically
-    # so beta wins the tie
-    assert "'beta'" in suggestions[0].suggestion
+    # alpha < beta lexicographically, so alpha wins the tie.
+    assert "`alpha`" in suggestions[0].suggestion
+    assert "`beta`" not in suggestions[0].suggestion
 
 
 # ---------------------------------------------------------------------------
@@ -514,6 +517,83 @@ def test_aggregate_fp_report_same_pattern_cross_agent_stays_separate():
     assert agents == ["cmdi", "sqli"]
 
 
+# ---------------------------------------------------------------------------
+# T21-m1 — Server-side reason backtick-wrapping (rendered parallel fields)
+# ---------------------------------------------------------------------------
+
+
+def test_directory_suggestions_emit_rendered_reasons():
+    """evidence.reason_distribution_rendered is a pre-formatted Markdown string
+    with each reason wrapped in backticks."""
+    from screw_agents.aggregation import aggregate_directory_suggestions
+
+    # Seed exclusions reproducing a realistic test-fixture concentration:
+    # three "test fixture" + two "one-shot migration" in the same directory.
+    reasons = [
+        "test fixture",
+        "test fixture",
+        "test fixture",
+        "one-shot migration",
+        "one-shot migration",
+    ]
+    exclusions = [
+        _excl(
+            id=f"fp-2026-04-14-{i:03d}",
+            agent="sqli",
+            pattern=f"p{i}",
+            file=f"test/f{i}.py",
+            line=10,
+            reason=reason,
+        )
+        for i, reason in enumerate(reasons)
+    ]
+    suggestions = aggregate_directory_suggestions(exclusions)
+    assert len(suggestions) == 1
+    evidence = suggestions[0].evidence
+    # Keep the machine-readable dict for programmatic consumers
+    assert evidence["reason_distribution"] == {"test fixture": 3, "one-shot migration": 2}
+    # NEW: pre-rendered string with backticks around each reason
+    rendered = evidence["reason_distribution_rendered"]
+    assert "`test fixture`" in rendered
+    assert "`one-shot migration`" in rendered
+    assert rendered.count("`") % 2 == 0  # balanced pairs
+    # Determinism: (count DESC, reason ASC) ordering — "test fixture" (3)
+    # precedes "one-shot migration" (2).
+    assert rendered.index("`test fixture`") < rendered.index("`one-shot migration`")
+
+
+def test_fp_report_emits_rendered_example_reasons():
+    """FPPattern.example_reasons_rendered is a list of backtick-wrapped reasons."""
+    from screw_agents.aggregation import aggregate_fp_report
+
+    # Three "safe helper" + two "validated input" sharing the same pattern.
+    reasons = [
+        "safe helper",
+        "safe helper",
+        "safe helper",
+        "validated input",
+        "validated input",
+    ]
+    exclusions = [
+        _excl(
+            id=f"fp-2026-04-14-{i:03d}",
+            agent="sqli",
+            pattern="db.text_search(*)",
+            file=f"src/s{i}.py",
+            line=10,
+            reason=reason,
+        )
+        for i, reason in enumerate(reasons)
+    ]
+    report = aggregate_fp_report(exclusions)
+    assert len(report.top_fp_patterns) == 1
+    pattern = report.top_fp_patterns[0]
+    # Keep raw list for machine consumers (Phase 4 autoresearch)
+    assert pattern.example_reasons == ["safe helper", "validated input"]
+    # NEW: each element pre-wrapped in backticks, same order as example_reasons
+    assert pattern.example_reasons_rendered == ["`safe helper`", "`validated input`"]
+
+
 def test_aggregate_fp_report_mixed_fixture_quarantine_empty_below_above_threshold():
     """Quarantined + empty-pattern + below-threshold + above-threshold all in one fixture."""
     from screw_agents.aggregation import aggregate_fp_report
@@ -565,3 +645,114 @@ def test_aggregate_fp_report_mixed_fixture_quarantine_empty_below_above_threshol
     # cmdi/CWE-89/bucket_d vs sqli/CWE-89/bucket_a -> cmdi wins
     patterns = [(p.agent, p.pattern, p.fp_count) for p in report.top_fp_patterns]
     assert patterns == [("cmdi", "bucket_d", 4), ("sqli", "bucket_a", 4)]
+
+
+# ---------------------------------------------------------------------------
+# T21-m1 fix-up — Backtick-escape + tie-break + suggestion parity
+# ---------------------------------------------------------------------------
+
+
+def test_directory_suggestions_escape_backticks_in_reasons():
+    """A reason containing a backtick does NOT break the Markdown code span."""
+    # Seed a bucket where reason contains a backtick
+    exclusions = [
+        _excl(id=f"fp-2026-04-16-{i:03d}", agent="sqli",
+              pattern="q(*)", file=f"test/t{i}.py", line=10,
+              reason="safe `wrapped` helper")
+        for i in range(3)
+    ]
+    # Force into the directory-suggestion path by using a directory-grouped file path
+    # (already satisfied — all files under test/)
+    # Note: must meet _DIR_MIN_COUNT (3) for suggestion to be emitted
+    from screw_agents.aggregation import aggregate_directory_suggestions
+    suggestions = aggregate_directory_suggestions(exclusions)
+    assert len(suggestions) == 1
+    rendered = suggestions[0].evidence["reason_distribution_rendered"]
+    # Original backticks are replaced, preserving balanced code-span pairs
+    assert "`" in rendered  # the wrapping backticks remain
+    # Count of un-escaped backticks should be EVEN (the wrappers)
+    assert rendered.count("`") == 2  # one open, one close — single reason bucket
+    # The suggestion string's top_reason is also backtick-wrapped and escaped
+    assert "top reason: `safe " in suggestions[0].suggestion
+    # U+02BC is present in place of the raw backtick
+    assert "\u02bc" in rendered
+
+
+def test_directory_suggestions_tie_break_alignment():
+    """top_reason in `suggestion` must agree with the first entry of
+    reason_distribution_rendered. Equal-count reasons pick lex-smallest."""
+    # 3× "alpha" + 3× "bravo" → both count=3, tie → should pick "alpha"
+    exclusions = [
+        _excl(id=f"fp-2026-04-16-1{i:02d}", agent="sqli",
+              pattern="q(*)", file=f"test/t{i}.py", line=10, reason="alpha")
+        for i in range(3)
+    ] + [
+        _excl(id=f"fp-2026-04-16-2{i:02d}", agent="sqli",
+              pattern="q(*)", file=f"test/t{i+3}.py", line=10, reason="bravo")
+        for i in range(3)
+    ]
+    from screw_agents.aggregation import aggregate_directory_suggestions
+    suggestions = aggregate_directory_suggestions(exclusions)
+    assert len(suggestions) == 1
+    # suggestion.top_reason → "alpha" (lex smallest on tied count)
+    assert "top reason: `alpha`" in suggestions[0].suggestion
+    # rendered order: alpha first, then bravo
+    rendered = suggestions[0].evidence["reason_distribution_rendered"]
+    assert rendered.index("`alpha`") < rendered.index("`bravo`")
+
+
+def test_fp_report_escapes_backticks_in_example_reasons():
+    """example_reasons_rendered sanitizes backticks in raw reason strings."""
+    from screw_agents.aggregation import aggregate_fp_report
+    exclusions = [
+        _excl(id=f"fp-2026-04-16-3{i:02d}", agent="sqli",
+              pattern="db.text_search(*)", file=f"src/s{i}.py",
+              line=10, reason="safe `helper` call")
+        for i in range(3)
+    ]
+    report = aggregate_fp_report(exclusions)
+    assert len(report.top_fp_patterns) == 1
+    pattern = report.top_fp_patterns[0]
+    assert len(pattern.example_reasons_rendered) == 1
+    rendered = pattern.example_reasons_rendered[0]
+    # Outer wrapping backticks preserved
+    assert rendered.startswith("`") and rendered.endswith("`")
+    # Internal raw backticks replaced with U+02BC
+    assert "\u02bc" in rendered
+    # Total backtick count is exactly 2 (the wrappers)
+    assert rendered.count("`") == 2
+
+
+def test_fp_report_rendered_parallels_example_reasons():
+    """example_reasons_rendered is index-aligned with example_reasons."""
+    from screw_agents.aggregation import aggregate_fp_report
+    exclusions = [
+        _excl(id=f"fp-2026-04-16-4{i:02d}", agent="sqli",
+              pattern="q(*)", file=f"src/s{i}.py", line=10,
+              reason=reason)
+        for i, reason in enumerate(["zeta"] * 3 + ["alpha"] * 5)
+    ]
+    report = aggregate_fp_report(exclusions)
+    pattern = report.top_fp_patterns[0]
+    # Length invariant
+    assert len(pattern.example_reasons_rendered) == len(pattern.example_reasons)
+    # Element-wise alignment (modulo backtick wrapping + escape)
+    for raw, rendered in zip(pattern.example_reasons, pattern.example_reasons_rendered):
+        expected = raw.replace("`", "\u02bc")
+        assert rendered == f"`{expected}`"
+
+
+def test_directory_suggestions_benign_markdown_chars_still_wrapped():
+    """Non-backtick Markdown-structural chars (*, _, [, ]) are safely contained
+    by the code-span wrapping — the escape helper does NOT need to touch them."""
+    exclusions = [
+        _excl(id=f"fp-2026-04-16-5{i:02d}", agent="sqli",
+              pattern="q(*)", file=f"test/t{i}.py", line=10,
+              reason=reason)
+        for i, reason in enumerate(["*star* _under_ [link]"] * 3)
+    ]
+    from screw_agents.aggregation import aggregate_directory_suggestions
+    suggestions = aggregate_directory_suggestions(exclusions)
+    rendered = suggestions[0].evidence["reason_distribution_rendered"]
+    # Wrapping backticks render the whole reason as code — structural chars neutralized
+    assert "`*star* _under_ [link]`" in rendered

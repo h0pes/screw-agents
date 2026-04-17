@@ -99,8 +99,10 @@ class TestWriteScanResults:
         )
         files = result["files_written"]
         assert len(files) == 2
-        json_file = [f for f in files if f.endswith(".json")][0]
-        md_file = [f for f in files if f.endswith(".md")][0]
+        assert "json" in files
+        assert "markdown" in files
+        json_file = files["json"]
+        md_file = files["markdown"]
         assert Path(json_file).exists()
         assert Path(md_file).exists()
         # JSON is valid
@@ -117,7 +119,7 @@ class TestWriteScanResults:
             findings_raw=[finding_sqli],
             agent_names=["sqli"],
         )
-        json_file = result["files_written"][0]
+        json_file = result["files_written"]["json"]
         assert "/sqli-" in json_file
 
     def test_filename_prefix_injection_domain(self, tmp_path, finding_sqli):
@@ -126,7 +128,7 @@ class TestWriteScanResults:
             findings_raw=[finding_sqli],
             agent_names=["sqli", "cmdi", "ssti", "xss"],
         )
-        json_file = result["files_written"][0]
+        json_file = result["files_written"]["json"]
         assert "/injection-" in json_file
 
     def test_summary_counts(self, tmp_path, finding_sqli, finding_sqli_line30):
@@ -158,7 +160,7 @@ class TestWriteScanResults:
             agent_names=["sqli"],
             scan_metadata={"target": "src/api.py"},
         )
-        md_file = [f for f in result["files_written"] if f.endswith(".md")][0]
+        md_file = result["files_written"]["markdown"]
         md = Path(md_file).read_text()
         assert "src/api.py" in md
 
@@ -297,7 +299,7 @@ class TestWriteScanResultsExclusions:
             findings_raw=[finding_sqli, finding_sqli_line30],
             agent_names=["sqli"],
         )
-        json_file = [f for f in result["files_written"] if f.endswith(".json")][0]
+        json_file = result["files_written"]["json"]
         data = json.loads(Path(json_file).read_text())
         assert all(f["triage"]["excluded"] for f in data)
         assert all(f["triage"]["exclusion_ref"] == "fp-2026-04-11-001" for f in data)
@@ -356,7 +358,7 @@ class TestWriteScanResultsExclusions:
         assert result["summary"]["active"] == 1
         assert result["exclusions_applied"] == []
         # JSON also reflects active status
-        json_file = [f for f in result["files_written"] if f.endswith(".json")][0]
+        json_file = result["files_written"]["json"]
         data = json.loads(Path(json_file).read_text())
         assert data[0]["triage"]["excluded"] is False
         assert data[0]["triage"]["exclusion_ref"] is None
@@ -393,7 +395,7 @@ class TestWriteScanResultsTrustStatus:
             findings_raw=[finding_sqli],
             agent_names=["sqli"],
         )
-        md_file = [f for f in result["files_written"] if f.endswith(".md")][0]
+        md_file = result["files_written"]["markdown"]
         md = Path(md_file).read_text()
         assert "## Trust verification" not in md
 
@@ -439,7 +441,7 @@ class TestWriteScanResultsTrustStatus:
         assert result["trust_status"]["exclusion_active_count"] == 0
 
         # Markdown report surfaces the section
-        md_file = [f for f in result["files_written"] if f.endswith(".md")][0]
+        md_file = result["files_written"]["markdown"]
         md = Path(md_file).read_text()
         assert "## Trust verification" in md
         assert "1 exclusion quarantined" in md
@@ -493,7 +495,7 @@ class TestWriteScanResultsTrustStatus:
         assert result["trust_status"]["exclusion_quarantine_count"] == 0
         assert result["trust_status"]["exclusion_active_count"] == 1
 
-        md_file = [f for f in result["files_written"] if f.endswith(".md")][0]
+        md_file = result["files_written"]["markdown"]
         md = Path(md_file).read_text()
         assert "## Trust verification" in md
         assert "1 trusted exclusion applied" in md
