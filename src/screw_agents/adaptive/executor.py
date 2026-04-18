@@ -71,6 +71,15 @@ class SignatureFailure(RuntimeError):
 # This is trusted executor output — NOT subject to Layer 1 lint (which only
 # inspects the user's script source). The `if True:` block avoids __name__
 # dependency and keeps the invocation tightly scoped.
+#
+# SAFETY INVARIANT: this template's injection-safety depends on Layer 1 lint
+# catching malformed user scripts (unclosed strings, trailing backslashes,
+# unindented def bodies) as SyntaxError BEFORE the template is appended.
+# Python's ast.parse raises SyntaxError which the lint returns as a
+# rule="syntax" violation → LintFailure is raised in execute_script BEFORE
+# the template is written. If lint_script is ever weakened to tolerate
+# syntax errors (e.g., "warn only"), the template becomes an injection
+# surface — re-audit.
 _ENTRY_POINT_TEMPLATE = """
 
 # --- executor-injected entry-point template (post-lint; trusted) ---
@@ -262,6 +271,7 @@ def _parse_findings(findings_json: str | None, meta: AdaptiveScriptMeta) -> list
                 line=entry["line"],
                 cwe=cwe,
                 message=entry["message"],
+                column=entry.get("column", 0),
             )
             findings.append(Finding(
                 id=finding_id,
@@ -276,7 +286,11 @@ def _parse_findings(findings_json: str | None, meta: AdaptiveScriptMeta) -> list
                 classification=FindingClassification(
                     cwe=cwe,
                     cwe_name=cwe_long_name(cwe),
-                    severity=entry["severity"],
+                    # Map adaptive vocab → project Finding vocab.
+                    # emit_finding allows {high, medium, low, info}; Finding expects
+                    # {critical, high, medium, low}. `info` → `low` per the contract
+                    # documented in findings.py's module docstring.
+                    severity="low" if entry["severity"] == "info" else entry["severity"],
                     confidence="medium",  # adaptive scripts don't carry confidence; default medium
                 ),
                 analysis=FindingAnalysis(description=entry["message"]),
@@ -291,9 +305,10 @@ def _parse_findings(findings_json: str | None, meta: AdaptiveScriptMeta) -> list
     return findings
 
 
-def _compute_finding_id(*, agent: str, file: str, line: int, cwe: str, message: str) -> str:
+def _compute_finding_id(*, agent: str, file: str, line: int, cwe: str, message: str, column: int = 0) -> str:
     """Content-hash-based ID for a Finding. Stable across runs of the same
-    script against the same code (so duplicate findings across scans dedupe
-    naturally via id equality)."""
-    key = f"{agent}|{file}|{line}|{cwe}|{message}".encode("utf-8")
+    script against the same code + column (so duplicate findings across
+    scans dedupe naturally via id equality; different-column findings at
+    the same line get distinct IDs)."""
+    key = f"{agent}|{file}|{line}|{column}|{cwe}|{message}".encode("utf-8")
     return hashlib.sha256(key).hexdigest()[:16]
