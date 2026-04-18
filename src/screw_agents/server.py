@@ -130,6 +130,15 @@ def _dispatch_tool(
             project_root=project_root, report_type=report_type
         )
 
+    # --- Phase 3b PR#4 Task 12: execute_adaptive_script ---
+
+    if name == "execute_adaptive_script":
+        return engine.execute_adaptive_script(
+            project_root=Path(args["project_root"]),
+            script_name=args["script_name"],
+            wall_clock_s=args.get("wall_clock_s", 30),
+        )
+
     # --- Phase 3a X1-M1 (T18): accumulate + finalize (replaces write_scan_results) ---
 
     if name == "accumulate_findings":
