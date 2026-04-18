@@ -2090,6 +2090,53 @@ carry the host worktree name or project name).
 4 new regression tests pin the new defenses (symlink refuse, residual-symlink
 defense, aggregate cap, aggregate-under-cap sanity).
 
+---
+
+### Layer 5 Security Properties Reference
+
+Citable reference for downstream documentation (README, docs/SECURITY.md,
+PRD security-claims section). The following 17 isolation properties are
+each pinned by an explicit assertion-based regression test in
+`tests/test_adaptive_sandbox_linux.py` (functional tests) +
+`tests/test_adaptive_sandbox_linux_isolation.py` (security regression tests).
+Failure of any test = a Layer 5 escape regression.
+
+| # | Property | Defense mechanism | Pinning test |
+|---|---|---|---|
+| 1 | Parent env vars cannot leak into the sandbox | `subprocess.run(env={})` (bwrap process clean) + `--clearenv` (bwrap-to-child) | `test_environ_does_not_leak_parent_secrets` |
+| 2 | Sandbox env contains only explicitly-allowlisted vars | 6 explicit `--setenv` (`PYTHONDONTWRITEBYTECODE`, `PATH`, `HOME`, `LANG`, `SCREW_FINDINGS_PATH`, `SCREW_PROJECT_ROOT`) + bwrap-injected `PWD` | `test_environ_contains_only_explicit_setenv_vars` |
+| 3 | Fork bombs cannot DoS the host PID space | Dynamic `RLIMIT_NPROC = baseline + 64 + 128 headroom` (per-UID cap, computed at run time so bwrap clones succeed on populated desktops) | `test_fork_bomb_capped_by_rlimit_nproc` |
+| 4 | Runaway stdout cannot OOM the orchestrator | `subprocess.run(stdout=tempfile.TemporaryFile(), stderr=...)` + bounded `os.read(fd, 1 MB)` | `test_stdout_capped_at_max_output_bytes` |
+| 5 | A single file in `/findings` cannot exceed the per-file cap | `RLIMIT_FSIZE = 4 MB` in `_preexec()` (applies to script writes AND parent-side tempfile fds via inheritance) | `test_findings_write_capped_by_rlimit_fsize` |
+| 6 | The aggregate `/findings` directory cannot exceed the budget | `_check_findings_aggregate_size()` post-execution against `_MAX_FINDINGS_AGGREGATE_BYTES = 16 MB`; over-budget → orchestrator returns `findings_json=None` | `test_aggregate_findings_size_capped` (+ `test_aggregate_under_cap_succeeds` sanity) |
+| 7 | Symlink-replace exfiltration via `findings.json` is impossible | `_safe_read_findings()` host-side: `lstat` + `S_ISREG` check + `os.open(O_RDONLY \| O_NOFOLLOW \| O_CLOEXEC)` + bounded read | `test_orchestrator_refuses_symlink_findings_json` |
+| 8 | Residual symlink poisoning across runs is defeated | `_clean_findings_path()` wipes regular files + symlinks (not directories) BEFORE each invocation | `test_orchestrator_handles_residual_symlink_from_prior_run` |
+| 9 | DNS server identity (recon) cannot leak | `/etc/resolv.conf` bind intentionally NOT applied; `--unshare-net` ensures DNS would never resolve anyway | `test_resolv_conf_not_bound` (+ `test_python_stdlib_imports_work_without_resolv_conf` sanity) |
+| 10 | Host system hostname is masked | `--hostname sandbox` (set hostname inside the new UTS namespace) | `test_hostname_is_sandbox_not_host` |
+| 11 | All Linux capabilities are dropped | bwrap user-namespace mapping; verified `CapEff = 0000000000000000` in `/proc/self/status` | `test_capabilities_fully_dropped` |
+| 12 | Host PIDs are invisible to the script | `--unshare-pid` + `--proc /proc` (mounts a PID-namespaced procfs) | `test_proc_pid_isolation` |
+| 13 | Host devices (`/dev/input/*`, `/dev/sd*`, `/dev/snd/*`, `/dev/dri/*`) are not exposed | `--dev /dev` creates a virtualized tmpfs with only standard devices (null, zero, full, random, urandom, tty) | `test_dev_does_not_expose_host_devices` |
+| 14 | No persistent host paths are writable except `/findings` | `--ro-bind` on system mounts + `--remount-ro /` + `--tmpfs /etc` + `--remount-ro /etc` (tmpfs scratch at `/tmp` and `/var` is intentionally writable but ephemeral) | `test_no_writable_paths_outside_findings` |
+| 15 | All network operations fail | `--unshare-net` (no network namespace; TCP/UDP `connect` → ENETUNREACH/EHOSTUNREACH; AF_PACKET → EPERM; loopback → ECONNREFUSED; getaddrinfo → gaierror) | `test_network_comprehensively_unreachable` |
+| 16 | The sandbox cannot observe the orchestrator's CWD or PWD | `--chdir /` sets the sandboxed process's CWD to `/`; `--clearenv` removes any inherited PWD | (covered by `test_environ_contains_only_explicit_setenv_vars` — only `PWD=/` appears) |
+| 17 | Defense-in-depth host-side process listing privacy | `prctl(PR_SET_DUMPABLE, 0)` applied in `_preexec` via ctypes (best-effort); hides bwrap's `/proc/<pid>/cmdline\|environ\|maps` from OTHER UIDs on the host | (no direct test — verified via behavioral docstring; `ps -ef` from another user does not see the bwrap argv) |
+
+**Plus 3 functional properties tested in `test_adaptive_sandbox_linux.py`:**
+
+| # | Property | Defense mechanism | Pinning test |
+|---|---|---|---|
+| F1 | A valid script runs to completion through the full sandbox stack | Happy-path orchestration (bwrap launch + Python venv detection + emit_finding + bounded capture) | `test_sandbox_runs_valid_script` |
+| F2 | A runaway script (infinite loop) is killed by the wall-clock timer within ms of the budget | `subprocess.run(timeout=wall_clock_s)` parent-side + `--die-with-parent` bwrap-side cleanup | `test_sandbox_kills_runaway_script` |
+| F3 | A script attempting network access fails (defense-in-depth probe; this script intentionally bypasses Layer 1 lint to verify the sandbox is independently load-bearing) | `--unshare-net` (Layer 5) catches what would have been blocked at Layer 1 lint in real use | `test_sandbox_blocks_network_access` |
+
+**Honest limitations** (documented in `linux.py` docstring; tracked in `docs/DEFERRED_BACKLOG.md`):
+- No real seccomp filter (capability drop covers most dangerous syscalls; full BPF-based filter deferred to Phase 3c — backlog entry T8-Sec1)
+- bwrap argv path leakage to the SCRIPT via `/proc/1/cmdline` (script + bwrap share UID in user-ns); mitigation lives in Task 11 (use `tempfile.mkdtemp` for findings_path + script_path so bwrap argv carries opaque paths instead of the host worktree name)
+- macOS sandbox is Task 9's `sandbox-exec` backend — separate isolation contract; only structural review possible on Marco's Arch dev hardware
+- `preexec_fn` is fork-thread-unsafe; if the orchestrator becomes multi-threaded (Phase 7 multi-process MCP), swap to `subprocess` `process_group=0` API or `prlimit` shell wrapper (backlog entry T8-Sec2)
+
+---
+
 Create `tests/test_adaptive_sandbox_linux.py`:
 
 ```python
@@ -2729,6 +2776,25 @@ git commit -m "feat(phase3b): sandbox backend dispatch"
 **Files:**
 - Create: `src/screw_agents/adaptive/executor.py`
 - Modify: `tests/test_adaptive_executor.py`
+
+**SECURITY NOTE — opaque temp paths (close T8 deferred path-leak):** Task 8's
+Layer 5 review found that bwrap's argv (visible to the script via
+`/proc/1/cmdline`) embeds every bind path including `findings_path` and
+`script_path`. The script + bwrap share a UID in user-ns so this can't be
+hidden at Layer 5 alone — mitigation lives in this task. When the executor
+constructs the per-run sandbox, use `tempfile.mkdtemp(prefix="screw_")` to
+create OPAQUE paths for:
+- `findings_path` (the writable bind target — already noted as
+  `tempfile.TemporaryDirectory()` in the spec; preserve this)
+- `script_path` (the read-only-bound script file — copy or symlink the
+  signed script from `.screw/custom-scripts/<name>.py` into the temp dir
+  under an opaque filename like `script.py`, then bind that)
+
+`project_root` is unavoidably the user's actual project directory — that
+path WILL appear in the bwrap argv and will be visible to the script.
+Document this as the residual leak. The opaque temp paths for findings +
+script close most of the disclosure surface (no username, no worktree
+name, no findings-path naming convention).
 
 - [ ] **Step 1: Write failing tests for the executor pipeline**
 

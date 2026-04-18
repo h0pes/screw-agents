@@ -30,6 +30,52 @@
 
 ---
 
+## Phase 3c (sandbox hardening follow-ups)
+
+### T8-Sec1 — Real seccomp filter for the Linux sandbox
+**Source:** Phase 3b PR #4 Task 8 quality reviews (commits `7d07dc2`, `be9ccfc`), 2026-04-18
+**File:** `src/screw_agents/adaptive/sandbox/linux.py`
+**Priority:** **HIGH** (security depth) — currently the sandbox relies on bwrap's namespace + capability isolation for syscall-level defense; capability drop (`CapEff = 0`) blocks the most dangerous syscalls (ptrace, raw sockets, etc.) but is broader than necessary and offers less defense-in-depth than a real BPF-based seccomp filter.
+
+**Why deferred:** Implementing a proper seccomp filter requires either a libseccomp Python binding (`pyseccomp` or `seccomp-bpf`) or hand-rolling the BPF bytecode via `libc.prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, ...)`. Either path is significant work (~200-400 LOC, careful syscall allowlist tuning, per-Python-version compatibility testing). The Phase 3b sandbox already has structurally-correct multi-layer defense (17 properties locked by regression tests in `tests/test_adaptive_sandbox_linux_isolation.py`); seccomp is hardening, not gap closure.
+
+**Trigger:** Any of:
+- Before screw-agents reaches a deployment scale where a single sandbox compromise has high blast radius (e.g., shared CI runners, multi-tenant SaaS deployment)
+- A real-world adversarial-script audit demands BPF-level syscall denylist
+- Phase 3c is opened explicitly for sandbox hardening sweep
+- A CVE in bwrap or the Linux user-ns implementation forces re-evaluation
+
+**Suggested approach:**
+1. Add `pyseccomp` to `pyproject.toml` (or `python-libseccomp` depending on what's maintained).
+2. Build the syscall allowlist by running the existing isolation tests under `strace -ff` and recording every syscall the legitimate adaptive-script workflow needs (Python startup, stdlib imports, file reads, write to /findings, exit). Cross-reference with `tree-sitter`'s syscalls if scripts use it.
+3. Apply the filter via `prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &filter)` in `_preexec()`, AFTER `prctl(PR_SET_NO_NEW_PRIVS, 1, ...)` (required for non-root seccomp).
+4. Add explicit regression tests: `test_seccomp_blocks_unallowed_syscall` (e.g., script attempting `process_vm_readv` should fail with EPERM regardless of capabilities).
+5. Document the allowlist in `linux.py` as the source of truth for "what the sandboxed Python actually needs at the kernel boundary".
+
+**Estimated scope:** 250-400 LOC + 5-10 regression tests + dependency add. Medium PR.
+
+### T8-Sec2 — preexec_fn thread-safety swap
+**Source:** Phase 3b PR #4 Task 8 quality reviews (commits `7d07dc2`, `be9ccfc`), 2026-04-18
+**File:** `src/screw_agents/adaptive/sandbox/linux.py` `_preexec()`
+**Priority:** Low (currently single-threaded; conditional)
+
+**Why deferred:** Python's `subprocess` `preexec_fn` runs in the FORKED child between `fork()` and `exec()`. If the parent process has multiple threads concurrently allocating memory, the fork can deadlock on the GIL or on `malloc`'s internal locks (POSIX-fork-after-thread anti-pattern). screw-agents is currently single-threaded — the orchestrator runs one sandbox at a time per request — so the deadlock risk is zero today. Becomes relevant if the executor is ever parallelized (Task 11 + future) or the MCP server moves to a multi-process / multi-threaded model (Phase 7 — see existing T6-M1, T6-M4, T9-I1 entries for related concurrency risks).
+
+**Trigger:** Any of:
+- Task 11's executor introduces threading (e.g., parallel script execution for batch scans)
+- Phase 7 multi-process MCP server is implemented
+- A `RuntimeWarning: preexec_fn not safe in multithreaded application` appears in logs
+
+**Suggested approach:** Replace the `preexec_fn=_preexec` keyword with a fork-safe alternative. Two options:
+1. **Python 3.11+ `process_group=0` API** — sets the process group atomically without preexec_fn; more limited (doesn't directly support setrlimit, but combined with `prctl` set up post-fork via setrlimit AFTER exec is workable). Cleanest for Python 3.11+ projects.
+2. **`prlimit` shell wrapper** — invoke `prlimit --cpu=N --as=M --nproc=K --nofile=L --fsize=F bwrap ...` instead of bwrap directly. Trades a fork+exec for a small wrapper. Works on all Python versions.
+
+Either path requires re-validating all 17 isolation properties (the rlimit values must still apply to the script process, not just to the wrapper).
+
+**Estimated scope:** 50-100 LOC + re-validation of isolation tests. Small-to-medium PR.
+
+---
+
 ## Phase 4+ (autoresearch / scale)
 
 ### T-FULL-P1 — Paginate `assemble_full_scan` + apply lazy-fetch + agent-relevance filter
