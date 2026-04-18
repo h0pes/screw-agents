@@ -71,7 +71,7 @@ def test_public_api_matches_expected_exactly():
     # its own test file), update this whitelist in the same commit. Without
     # this, the test passes by luck of alphabetic test-file ordering and fails
     # when run in a different order — fragile contract for a security boundary.
-    allowed_extras = {"ast_walker", "dataflow", "findings", "lint", "project", "sandbox"}
+    allowed_extras = {"ast_walker", "dataflow", "executor", "findings", "lint", "project", "sandbox"}
     assert public_names - allowed_extras == EXPECTED_PUBLIC_API, (
         f"Public API drift: {public_names - EXPECTED_PUBLIC_API} added, "
         f"{EXPECTED_PUBLIC_API - public_names} removed"
