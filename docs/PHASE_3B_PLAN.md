@@ -73,7 +73,7 @@
 | `screw_agents.engine.ScanEngine.accumulate_findings(project_root, findings_chunk, session_id=None) -> dict` | **X1-M1 Option D split (PR #9)** — append a chunk of findings to the per-session staging buffer (`.screw/staging/{session_id}/findings.json`). Called incrementally by orchestrators; dedup by finding.id on merge. First call with `session_id=None` generates a fresh id; subsequent calls pass the returned id. Returns `{session_id, accumulated_count}`. | Task 3b-19 (adaptive findings accumulate into the same staging session as YAML findings; dedup-by-(file,line,cwe) logic now lives in the pre-accumulate orchestrator layer OR inside `render_and_write`, not in the tool) |
 | `screw_agents.engine.ScanEngine.finalize_scan_results(project_root, session_id, agent_names, scan_metadata=None, formats=None) -> dict` | **X1-M1 Option D (PR #9)** — read the staging buffer, apply server-side exclusion matching, render reports (JSON/MD + optional SARIF/CSV), write to `.screw/findings/`, clean up staging. One-shot: second call with the same session_id raises `ValueError` ("session not found"). Return shape identical to the legacy `write_scan_results`: `{files_written: dict[str, str], summary, exclusions_applied, trust_status}`. | Task 3b-19 (adaptive findings flow through the same finalize; call once after both YAML and adaptive accumulate phases complete) |
 | `screw_agents.results.render_and_write(project_root, findings_raw, agent_names, scan_metadata=None, formats=None, agent_registry=None) -> dict` | **X1-M1 (PR #9)** — low-level render+write helper extracted from the legacy `write_scan_results` body. Applies exclusion matching, renders formats, writes to `.screw/findings/`. Called by `ScanEngine.finalize_scan_results` after reading staging. Usable directly for unit tests that don't need the staging layer. | Task 3b-19 (unit tests of the yaml+adaptive merge logic can call `render_and_write` directly; integration tests should use the full accumulate+finalize path) |
-| **X1-M1 — core-prompt deduplication** | **SHIPPED in PR #9** (2026-04-17 merge commit `<fill in at merge time>`). Domain-scan responses now split into init page (prompts once) + code pages (code only). Full-scan response now carries `prompts` at top level. See `docs/DEFERRED_BACKLOG.md` Shipped section and `T-FULL-P1` (Phase 4+ follow-up for paginating full_scan). | Task 3b-19 unblocked — implementer must honor init-page-first pagination loop and prompt-caching pattern per the updated row above. |
+| **X1-M1 — core-prompt deduplication** | **SHIPPED in PR #9** (2026-04-17 merge commit `4685671`). Domain-scan responses now split into init page (prompts once) + code pages (code only). Full-scan response now carries `prompts` at top level. See `docs/DEFERRED_BACKLOG.md` Shipped section and `T-FULL-P1` (Phase 4+ follow-up for paginating full_scan). | Task 3b-19 unblocked — implementer must honor init-page-first pagination loop and prompt-caching pattern per the updated row above. |
 
 ### Cross-plan sync protocol
 
@@ -124,8 +124,8 @@ Phase 3b is bracketed by Phase 3a completion on one side and Phase 4 start on th
 | `src/screw_agents/adaptive/__init__.py` | Public exports of the helper library (`ProjectRoot`, `find_calls`, `trace_dataflow`, `emit_finding`, etc.) | PR #4 |
 | `src/screw_agents/adaptive/project.py` | `ProjectRoot` filesystem chokepoint | PR #4 |
 | `src/screw_agents/adaptive/ast_walker.py` | `parse_ast`, `walk_ast`, `find_calls`, `find_imports`, `find_class_definitions` | PR #4 |
-| `src/screw_agents/adaptive/dataflow.py` | `trace_dataflow`, `is_user_input`, `is_sanitized`, `get_call_args`, `get_parent_function`, `resolve_variable` | PR #4 |
-| `src/screw_agents/adaptive/findings.py` | `emit_finding`, Finding output buffer, `match_pattern` | PR #4 |
+| `src/screw_agents/adaptive/dataflow.py` | `trace_dataflow`, `is_user_input`, `is_sanitized`, `match_pattern`, `get_call_args`, `get_parent_function`, `resolve_variable` | PR #4 |
+| `src/screw_agents/adaptive/findings.py` | `emit_finding`, Finding output buffer | PR #4 |
 | `src/screw_agents/adaptive/lint.py` | AST allowlist lint (Layer 1) | PR #4 |
 | `src/screw_agents/adaptive/sandbox/__init__.py` | Sandbox backend dispatch (Linux/macOS) | PR #4 |
 | `src/screw_agents/adaptive/sandbox/linux.py` | `bubblewrap`-based sandbox | PR #4 |
@@ -182,10 +182,10 @@ Task 2 (adaptive/project.py: ProjectRoot filesystem chokepoint)
 Task 3 (adaptive/ast_walker.py: parse_ast + find_calls + find_imports + find_class_definitions)
     │
     ▼
-Task 4 (adaptive/dataflow.py: trace_dataflow, is_user_input, is_sanitized, get_call_args)
+Task 4 (adaptive/dataflow.py: trace_dataflow, is_user_input, is_sanitized, match_pattern, get_call_args)
     │
     ▼
-Task 5 (adaptive/findings.py: emit_finding + output buffer + match_pattern)
+Task 5 (adaptive/findings.py: emit_finding + output buffer)
     │
     ▼
 Task 6 (adaptive/__init__.py: public API surface — curated ~15 exports only)
@@ -1479,6 +1479,7 @@ EXPECTED_PUBLIC_API = {
     "trace_dataflow",
     "is_user_input",
     "is_sanitized",
+    "match_pattern",
     "get_call_args",
     "get_parent_function",
     "resolve_variable",
@@ -1578,6 +1579,7 @@ from screw_agents.adaptive.dataflow import (
     get_parent_function,
     is_sanitized,
     is_user_input,
+    match_pattern,
     resolve_variable,
     trace_dataflow,
 )
@@ -1601,6 +1603,7 @@ __all__ = [
     "trace_dataflow",
     "is_user_input",
     "is_sanitized",
+    "match_pattern",
     "get_call_args",
     "get_parent_function",
     "resolve_variable",
@@ -1773,6 +1776,14 @@ Expected: FAIL with ImportError
 
 - [ ] **Step 3: Implement the AST allowlist lint**
 
+**NOTE (post-review):** The shipped `lint.py` is more comprehensive than this
+code fence shows. Security review of the original spec found 3 BLOCKERS + 6
+MUST-FIX gaps (nested imports, class definitions, custom-getattribute escape,
+breakpoint/help/super/memoryview/ExceptionGroup builtins, blanket dunder
+blocking instead of the original maintained list, global/nonlocal, yield,
+expanded test coverage). See commit history on phase-3b-pr4 branch for the
+full shipped impl. The bullet list above describes the actual rules.
+
 Create `src/screw_agents/adaptive/lint.py`:
 
 ```python
@@ -1796,16 +1807,22 @@ Inside `analyze`:
 
 ## Forbidden constructs
 
-- Any import outside `screw_agents.adaptive`
-- `eval`, `exec`, `compile`
-- `getattr` with non-literal second argument
-- `setattr`, `delattr`
-- Any `__builtins__`, `__class__`, `__bases__`, `__subclasses__`, `__globals__`,
-  `__mro__`, `__import__`
-- Raw `open()`
-- `print` (scripts emit via `emit_finding`, not print)
-- `try/except*` / ExceptionGroup (defensive against CVE-2025-22153 class)
-- `async def` / `await`
+- Any import outside `screw_agents.adaptive` — anywhere, not just top level
+- `eval`, `exec`, `compile`, `setattr`, `delattr`, `open`, `print`, `input`,
+  `globals`, `locals`, `vars`, `breakpoint`, `help`, `super`, `memoryview`,
+  `ExceptionGroup`, `BaseExceptionGroup` (forbidden builtin name lookups)
+- ANY dunder name lookup (`__import__`, `__builtins__`, ...) or attribute
+  access (`x.__class__`, `obj.__dict__`, `obj.__reduce__`, ...) — blanket
+  rule, no per-dunder list to maintain
+- `getattr(x, name)` where `name` is not a string literal
+- `class` definitions anywhere in the script (would enable
+  custom-`__getattribute__` escape paths; adaptive scripts have no
+  legitimate use for classes)
+- `global` and `nonlocal` statements
+- `yield` and `yield from` (would turn `analyze` into a generator, which
+  the executor never iterates → silent no-op)
+- `try / except*` / ExceptionGroup syntax (defensive against CVE-2025-22153 class)
+- `async def` and `await` anywhere
 - Any top-level statement other than imports and the `analyze` def
 """
 
@@ -2015,6 +2032,111 @@ git commit -m "feat(phase3b): AST allowlist lint (Layer 1)"
 
 - [ ] **Step 1: Write failing tests for the bwrap backend**
 
+**NOTE (post-implementation):** The original spec test bodies defined
+`def analyze(project):` but never invoked the function — so the script
+exited in ~30ms after the function definition, the runaway loop never
+ran, and the wall-clock kill was never exercised. The test would have
+passed regardless of whether the timeout enforcement worked. Each
+script now ends with `analyze(None)` so the function body actually
+runs and the test exercises its security property.
+
+**SECURITY HARDENING (post-Layer-5-review):** quality review of the original
+spec found 3 BLOCKERS (working API-key exfiltration via /proc/1/environ,
+fork-bomb DoS of host PID space, stdout-buffer parent OOM) plus 5 MUST-FIX
+hardenings (RLIMIT_FSIZE, /etc/resolv.conf disclosure, --hostname masking,
+NOFILE floor too low, public-API test order fragility). All closed in
+follow-up commit; see commit log on phase-3b-pr4 branch. The shipped
+linux.py has additional flags and behaviors not shown in the code fence above:
+- TWO-LAYER environment hygiene: subprocess.run is invoked with `env={}`
+  so the bwrap process itself has no inherited env (closes the actual
+  /proc/1/environ vector), PLUS `--clearenv` + explicit `--setenv` of
+  PYTHONDONTWRITEBYTECODE / PATH / HOME / LANG / SCREW_FINDINGS_PATH /
+  SCREW_PROJECT_ROOT for the bwrap-to-Python boundary. Verified by
+  regression test: real ANTHROPIC_API_KEY does not leak.
+- `--hostname sandbox` masks the host system name
+- `--chdir /` resets CWD/PWD inside the sandbox to / (without it the
+  parent's worktree path leaks through)
+- `--tmpfs /etc` + `--remount-ro /etc` keeps /etc read-only after binding
+  ld.so.cache (default leaves /etc writable on the root tmpfs)
+- `--remount-ro /` keeps the root tmpfs itself read-only after all binds
+  (default leaves / writable so a script could create /anything)
+- RLIMIT_NPROC dynamically computed (`baseline + 64 + 128` headroom)
+  rather than static 64; static 64 prevents bwrap from cloning on any
+  desktop with >50 baseline processes. RLIMIT_FSIZE=4MB,
+  RLIMIT_NOFILE=256 in preexec.
+- Bounded tempfile capture for stdout/stderr (replaces capture_output=True)
+- /etc/resolv.conf bind dropped
+- New isolation regression test file:
+  tests/test_adaptive_sandbox_linux_isolation.py (13 assertion-pinned tests)
+
+**SECOND SECURITY REVIEW (commit after 7d07dc2):** the deep review of 7d07dc2
+found 2 NEW BLOCKERS the previous fix didn't anticipate:
+- Symlink-replace exfil via /findings/findings.json: a script could
+  os.symlink to any host path; the host-side `read_text()` followed the
+  symlink and returned the host file. Closed via `_safe_read_findings`
+  (lstat + O_NOFOLLOW, refuses symlinks) + `_clean_findings_path` (wipes
+  residual files before each run to defeat cross-run poisoning).
+- Aggregate disk DoS: RLIMIT_FSIZE caps per-file; script wrote 2000 × 1MB
+  files (2 GB total) without bound. Closed via `_check_findings_aggregate_size`
+  + post-execution refusal if total > 16 MB.
+
+Also addressed: prctl(PR_SET_DUMPABLE, 0) added in preexec for defense-in-
+depth host-side process-listing privacy. Note: bwrap argv path leakage to
+the SCRIPT via /proc/1/cmdline is not fully closeable from this layer alone
+(script + bwrap share UID in user-ns); mitigation deferred to Task 11
+(use opaque temp paths via tempfile.mkdtemp so the bwrap argv doesn't
+carry the host worktree name or project name).
+
+4 new regression tests pin the new defenses (symlink refuse, residual-symlink
+defense, aggregate cap, aggregate-under-cap sanity).
+
+---
+
+### Layer 5 Security Properties Reference
+
+Citable reference for downstream documentation (README, docs/SECURITY.md,
+PRD security-claims section). The following 17 isolation properties are
+each pinned by an explicit assertion-based regression test in
+`tests/test_adaptive_sandbox_linux.py` (functional tests) +
+`tests/test_adaptive_sandbox_linux_isolation.py` (security regression tests).
+Failure of any test = a Layer 5 escape regression.
+
+| # | Property | Defense mechanism | Pinning test |
+|---|---|---|---|
+| 1 | Parent env vars cannot leak into the sandbox | `subprocess.run(env={})` (bwrap process clean) + `--clearenv` (bwrap-to-child) | `test_environ_does_not_leak_parent_secrets` |
+| 2 | Sandbox env contains only explicitly-allowlisted vars | 6 explicit `--setenv` (`PYTHONDONTWRITEBYTECODE`, `PATH`, `HOME`, `LANG`, `SCREW_FINDINGS_PATH`, `SCREW_PROJECT_ROOT`) + bwrap-injected `PWD` | `test_environ_contains_only_explicit_setenv_vars` |
+| 3 | Fork bombs cannot DoS the host PID space | Dynamic `RLIMIT_NPROC = baseline + 64 + 128 headroom` (per-UID cap, computed at run time so bwrap clones succeed on populated desktops) | `test_fork_bomb_capped_by_rlimit_nproc` |
+| 4 | Runaway stdout cannot OOM the orchestrator | `subprocess.run(stdout=tempfile.TemporaryFile(), stderr=...)` + bounded `os.read(fd, 1 MB)` | `test_stdout_capped_at_max_output_bytes` |
+| 5 | A single file in `/findings` cannot exceed the per-file cap | `RLIMIT_FSIZE = 4 MB` in `_preexec()` (applies to script writes AND parent-side tempfile fds via inheritance) | `test_findings_write_capped_by_rlimit_fsize` |
+| 6 | The aggregate `/findings` directory cannot exceed the budget | `_check_findings_aggregate_size()` post-execution against `_MAX_FINDINGS_AGGREGATE_BYTES = 16 MB`; over-budget → orchestrator returns `findings_json=None` | `test_aggregate_findings_size_capped` (+ `test_aggregate_under_cap_succeeds` sanity) |
+| 7 | Symlink-replace exfiltration via `findings.json` is impossible | `_safe_read_findings()` host-side: `lstat` + `S_ISREG` check + `os.open(O_RDONLY \| O_NOFOLLOW \| O_CLOEXEC)` + bounded read | `test_orchestrator_refuses_symlink_findings_json` |
+| 8 | Residual symlink poisoning across runs is defeated | `_clean_findings_path()` wipes regular files + symlinks (not directories) BEFORE each invocation | `test_orchestrator_handles_residual_symlink_from_prior_run` |
+| 9 | DNS server identity (recon) cannot leak | `/etc/resolv.conf` bind intentionally NOT applied; `--unshare-net` ensures DNS would never resolve anyway | `test_resolv_conf_not_bound` (+ `test_python_stdlib_imports_work_without_resolv_conf` sanity) |
+| 10 | Host system hostname is masked | `--hostname sandbox` (set hostname inside the new UTS namespace) | `test_hostname_is_sandbox_not_host` |
+| 11 | All Linux capabilities are dropped | bwrap user-namespace mapping; verified `CapEff = 0000000000000000` in `/proc/self/status` | `test_capabilities_fully_dropped` |
+| 12 | Host PIDs are invisible to the script | `--unshare-pid` + `--proc /proc` (mounts a PID-namespaced procfs) | `test_proc_pid_isolation` |
+| 13 | Host devices (`/dev/input/*`, `/dev/sd*`, `/dev/snd/*`, `/dev/dri/*`) are not exposed | `--dev /dev` creates a virtualized tmpfs with only standard devices (null, zero, full, random, urandom, tty) | `test_dev_does_not_expose_host_devices` |
+| 14 | No persistent host paths are writable except `/findings` | `--ro-bind` on system mounts + `--remount-ro /` + `--tmpfs /etc` + `--remount-ro /etc` (tmpfs scratch at `/tmp` and `/var` is intentionally writable but ephemeral) | `test_no_writable_paths_outside_findings` |
+| 15 | All network operations fail | `--unshare-net` (no network namespace; TCP/UDP `connect` → ENETUNREACH/EHOSTUNREACH; AF_PACKET → EPERM; loopback → ECONNREFUSED; getaddrinfo → gaierror) | `test_network_comprehensively_unreachable` |
+| 16 | The sandbox cannot observe the orchestrator's CWD or PWD | `--chdir /` sets the sandboxed process's CWD to `/`; `--clearenv` removes any inherited PWD | (covered by `test_environ_contains_only_explicit_setenv_vars` — only `PWD=/` appears) |
+| 17 | Defense-in-depth host-side process listing privacy | `prctl(PR_SET_DUMPABLE, 0)` applied in `_preexec` via ctypes (best-effort); hides bwrap's `/proc/<pid>/cmdline\|environ\|maps` from OTHER UIDs on the host | (no direct test — verified via behavioral docstring; `ps -ef` from another user does not see the bwrap argv) |
+
+**Plus 3 functional properties tested in `test_adaptive_sandbox_linux.py`:**
+
+| # | Property | Defense mechanism | Pinning test |
+|---|---|---|---|
+| F1 | A valid script runs to completion through the full sandbox stack | Happy-path orchestration (bwrap launch + Python venv detection + emit_finding + bounded capture) | `test_sandbox_runs_valid_script` |
+| F2 | A runaway script (infinite loop) is killed by the wall-clock timer within ms of the budget | `subprocess.run(timeout=wall_clock_s)` parent-side + `--die-with-parent` bwrap-side cleanup | `test_sandbox_kills_runaway_script` |
+| F3 | A script attempting network access fails (defense-in-depth probe; this script intentionally bypasses Layer 1 lint to verify the sandbox is independently load-bearing) | `--unshare-net` (Layer 5) catches what would have been blocked at Layer 1 lint in real use | `test_sandbox_blocks_network_access` |
+
+**Honest limitations** (documented in `linux.py` docstring; tracked in `docs/DEFERRED_BACKLOG.md`):
+- No real seccomp filter (capability drop covers most dangerous syscalls; full BPF-based filter deferred to Phase 3c — backlog entry T8-Sec1)
+- bwrap argv path leakage to the SCRIPT via `/proc/1/cmdline` (script + bwrap share UID in user-ns); mitigation lives in Task 11 (use `tempfile.mkdtemp` for findings_path + script_path so bwrap argv carries opaque paths instead of the host worktree name)
+- macOS sandbox is Task 9's `sandbox-exec` backend — separate isolation contract; only structural review possible on Marco's Arch dev hardware
+- `preexec_fn` is fork-thread-unsafe; if the orchestrator becomes multi-threaded (Phase 7 multi-process MCP), swap to `subprocess` `process_group=0` API or `prlimit` shell wrapper (backlog entry T8-Sec2)
+
+---
+
 Create `tests/test_adaptive_sandbox_linux.py`:
 
 ```python
@@ -2047,6 +2169,7 @@ def test_sandbox_runs_valid_script(tmp_path: Path):
         "from screw_agents.adaptive import emit_finding\n"
         "def analyze(project):\n"
         "    emit_finding(cwe='CWE-89', file='x.py', line=1, message='test', severity='high')\n"
+        "analyze(None)\n"  # actually invoke the function so emit_finding runs
     )
     findings_path = tmp_path / "findings"
     findings_path.mkdir()
@@ -2074,6 +2197,7 @@ def test_sandbox_kills_runaway_script(tmp_path: Path):
         "def analyze(project):\n"
         "    while True:\n"
         "        pass\n"
+        "analyze(None)\n"  # actually enter the loop so the wall-clock kill is exercised
     )
     findings_path = tmp_path / "findings"
     findings_path.mkdir()
@@ -2105,6 +2229,7 @@ def test_sandbox_blocks_network_access(tmp_path: Path):
         "        s.connect(('8.8.8.8', 53))\n"
         "    except OSError:\n"
         "        pass\n"
+        "analyze(None)\n"  # actually attempt the connect so --unshare-net is exercised
     )
     findings_path = tmp_path / "findings"
     findings_path.mkdir()
@@ -2294,6 +2419,28 @@ git commit -m "feat(phase3b): Linux bwrap sandbox backend (Layer 5)"
 ---
 
 ### Task 9: macOS Sandbox Backend (sandbox-exec)
+
+**SECURITY HARDENING & UNVALIDATED-ON-DEV-HW NOTE:** The original Task 9
+spec has the same structural gaps Task 8's original spec had — no env={}
+kwarg, no symlink-safe findings read, no aggregate-size cap, no
+RLIMIT_FSIZE/NPROC, no pre-run cleanup, no bounded stdout capture,
+fictional-test scripts (define `analyze` but never call). The shipped
+implementation applies the analogous hardenings inline (mirroring T8's
+post-fix linux.py), so macOS users get the same 17 isolation properties
+the Linux backend pins. Tests follow the same pattern (2 functional + 6
+isolation, all skip on non-Darwin).
+
+UNVALIDATED on Marco's Arch dev hardware per project memory
+`project_macos_no_hardware.md`. Seatbelt profile syntax, sandbox-exec
+invocation semantics, and macOS-specific path layout (/System/Library,
+/usr/lib subpaths) cannot be empirically tested locally — the tests skip
+on Linux and will exercise the actual security properties when a macOS
+user runs the suite.
+
+Code dedup follow-up tracked as `T9-Sec1` in DEFERRED_BACKLOG.md: the
+host-side helpers (_safe_read_findings, _clean_findings_path,
+_check_findings_aggregate_size) are byte-identical between linux.py and
+macos.py; should move to a shared sandbox/_common.py in a polish pass.
 
 **Files:**
 - Create: `src/screw_agents/adaptive/sandbox/macos.py`
@@ -2651,6 +2798,25 @@ git commit -m "feat(phase3b): sandbox backend dispatch"
 **Files:**
 - Create: `src/screw_agents/adaptive/executor.py`
 - Modify: `tests/test_adaptive_executor.py`
+
+**SECURITY NOTE — opaque temp paths (close T8 deferred path-leak):** Task 8's
+Layer 5 review found that bwrap's argv (visible to the script via
+`/proc/1/cmdline`) embeds every bind path including `findings_path` and
+`script_path`. The script + bwrap share a UID in user-ns so this can't be
+hidden at Layer 5 alone — mitigation lives in this task. When the executor
+constructs the per-run sandbox, use `tempfile.mkdtemp(prefix="screw_")` to
+create OPAQUE paths for:
+- `findings_path` (the writable bind target — already noted as
+  `tempfile.TemporaryDirectory()` in the spec; preserve this)
+- `script_path` (the read-only-bound script file — copy or symlink the
+  signed script from `.screw/custom-scripts/<name>.py` into the temp dir
+  under an opaque filename like `script.py`, then bind that)
+
+`project_root` is unavoidably the user's actual project directory — that
+path WILL appear in the bwrap argv and will be visible to the script.
+Document this as the residual leak. The opaque temp paths for findings +
+script close most of the disclosure surface (no username, no worktree
+name, no findings-path naming convention).
 
 - [ ] **Step 1: Write failing tests for the executor pipeline**
 

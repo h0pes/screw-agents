@@ -710,3 +710,133 @@ def test_agent_meta_short_description_defaults_to_none():
     )
     assert meta.short_description is None
 
+
+def test_coverage_gap_model():
+    from screw_agents.models import CoverageGap
+
+    gap = CoverageGap(
+        type="context_required",
+        agent="sqli",
+        file="src/a.py",
+        line=42,
+        evidence={"pattern": "execute_raw(*)"},
+    )
+    assert gap.type == "context_required"
+    assert gap.agent == "sqli"
+
+
+def test_adaptive_script_meta_model():
+    from screw_agents.models import AdaptiveScriptMeta
+
+    meta = AdaptiveScriptMeta(
+        name="querybuilder-sqli-check",
+        created="2026-04-14T10:00:00Z",
+        created_by="marco@example.com",
+        domain="injection-input-handling",
+        description="Traces dataflow through QueryBuilder.execute_raw",
+        target_patterns=["QueryBuilder.execute_raw"],
+        sha256="abc123",
+    )
+    assert meta.validated is False
+    assert meta.findings_produced == 0
+    assert meta.false_positive_rate is None
+    assert meta.signed_by is None
+    assert meta.signature is None
+    assert meta.signature_version == 1
+
+
+def test_sandbox_result_model():
+    from screw_agents.models import SandboxResult
+
+    result = SandboxResult(
+        stdout=b"",
+        stderr=b"",
+        returncode=0,
+        wall_clock_s=1.5,
+        killed_by_timeout=False,
+        findings_json='{"findings": []}',
+    )
+    assert result.returncode == 0
+    assert result.killed_by_timeout is False
+
+
+def test_adaptive_script_result_model():
+    from screw_agents.models import AdaptiveScriptResult, Finding, SandboxResult
+
+    result = AdaptiveScriptResult(
+        script_name="qb-check",
+        findings=[],
+        sandbox_result=SandboxResult(
+            stdout=b"", stderr=b"", returncode=0, wall_clock_s=1.0,
+            killed_by_timeout=False, findings_json="[]"
+        ),
+        stale=False,
+        execution_time_ms=1000,
+    )
+    assert result.stale is False
+
+
+def test_semantic_review_report_model():
+    from screw_agents.models import SemanticReviewReport
+
+    report = SemanticReviewReport(
+        risk_score="low",
+        flagged_patterns=[],
+        unusual_imports=[],
+        control_flow_summary="deterministic",
+        estimated_runtime_ms=500,
+    )
+    assert report.risk_score == "low"
+
+
+def test_coverage_gap_rejects_invalid_type():
+    """`type` accepts only context_required/unresolved_sink."""
+    from screw_agents.models import CoverageGap
+
+    with pytest.raises(ValidationError):
+        CoverageGap(type="bogus", agent="sqli", file="a.py", line=1)
+
+
+def test_semantic_review_report_rejects_invalid_risk_score():
+    """`risk_score` accepts only low/medium/high."""
+    from screw_agents.models import SemanticReviewReport
+
+    with pytest.raises(ValidationError):
+        SemanticReviewReport(
+            risk_score="critical",
+            flagged_patterns=[],
+            unusual_imports=[],
+            control_flow_summary="x",
+            estimated_runtime_ms=0,
+        )
+
+
+def test_adaptive_script_meta_requires_required_fields():
+    """`name`, `created`, `created_by`, `domain`, `sha256` are all required."""
+    from screw_agents.models import AdaptiveScriptMeta
+
+    with pytest.raises(ValidationError):
+        AdaptiveScriptMeta(
+            created="2026-04-14T10:00:00Z",
+            created_by="m@e.com",
+            domain="d",
+            sha256="x",
+        )  # missing name
+
+
+def test_adaptive_script_meta_rejects_extra_fields():
+    """extra='forbid' guards the canonical signing payload — typo'd or
+    injected unknown fields raise rather than silently passing through.
+    """
+    from screw_agents.models import AdaptiveScriptMeta
+
+    with pytest.raises(ValidationError):
+        AdaptiveScriptMeta(
+            name="t",
+            created="2026-04-14T10:00:00Z",
+            created_by="m@e.com",
+            domain="d",
+            sha256="x",
+            unknown_field="injected",  # should be rejected
+        )
+

@@ -20,6 +20,90 @@
 - `trust/config.py` — `load_config`, `_CONFIG_STUB_TEMPLATE`
 **Note (T6-M7 subsumed here):** The line-count trajectory observation T6-M7 from the Phase 3a PR#1 punchlist points back to this same split — addressing T4-M6 will resolve T6-M7 too.
 
+### T1-M1 — `AdaptiveScriptMeta` runtime-flag fields (dual-layer defense pattern)
+**Source:** Phase 3b PR #4 Task 1 quality review, 2026-04-18
+**File:** `src/screw_agents/models.py` `AdaptiveScriptMeta`
+**Why deferred:** Task 11-14 (executor + validate-script CLI) will need per-script trust state ("trusted", "warned", "quarantined", "allowed") on `AdaptiveScriptMeta`, mirroring the `Exclusion.quarantined` + `Exclusion.trust_state` runtime fields added in Phase 3a. Adding the fields speculatively in Task 1 was rejected — the exact field name and value set should be decided by the implementer who has the executor context.
+**Trigger:** When Phase 3b Task 11 (executor pipeline) or Task 13 (validate-script CLI) needs per-script trust tracking.
+**Suggested approach:** Mirror the `Exclusion` dual-layer defense exactly — `Field(default=..., exclude=True)` at the schema level + `_RUNTIME_ONLY_FIELDS` ClassVar set + `model_dump` override to catch caller-side `include=` edge cases (see `Exclusion._RUNTIME_ONLY_FIELDS` at `src/screw_agents/models.py` line ~262 and the `model_dump` override at line ~264 for the template). Don't skip the override — Pydantic v2's `include`/`exclude` precedence can let `include` win over field-level `exclude`, so the runtime override is the load-bearing second layer.
+**Estimated scope:** ~30 LOC in models.py + 2-3 new tests. Trivial.
+
+---
+
+## Phase 3c (sandbox hardening follow-ups)
+
+### T8-Sec1 — Real seccomp filter for the Linux sandbox
+**Source:** Phase 3b PR #4 Task 8 quality reviews (commits `7d07dc2`, `be9ccfc`), 2026-04-18
+**File:** `src/screw_agents/adaptive/sandbox/linux.py`
+**Priority:** **HIGH** (security depth) — currently the sandbox relies on bwrap's namespace + capability isolation for syscall-level defense; capability drop (`CapEff = 0`) blocks the most dangerous syscalls (ptrace, raw sockets, etc.) but is broader than necessary and offers less defense-in-depth than a real BPF-based seccomp filter.
+
+**Why deferred:** Implementing a proper seccomp filter requires either a libseccomp Python binding (`pyseccomp` or `seccomp-bpf`) or hand-rolling the BPF bytecode via `libc.prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, ...)`. Either path is significant work (~200-400 LOC, careful syscall allowlist tuning, per-Python-version compatibility testing). The Phase 3b sandbox already has structurally-correct multi-layer defense (17 properties locked by regression tests in `tests/test_adaptive_sandbox_linux_isolation.py`); seccomp is hardening, not gap closure.
+
+**Trigger:** Any of:
+- Before screw-agents reaches a deployment scale where a single sandbox compromise has high blast radius (e.g., shared CI runners, multi-tenant SaaS deployment)
+- A real-world adversarial-script audit demands BPF-level syscall denylist
+- Phase 3c is opened explicitly for sandbox hardening sweep
+- A CVE in bwrap or the Linux user-ns implementation forces re-evaluation
+
+**Suggested approach:**
+1. Add `pyseccomp` to `pyproject.toml` (or `python-libseccomp` depending on what's maintained).
+2. Build the syscall allowlist by running the existing isolation tests under `strace -ff` and recording every syscall the legitimate adaptive-script workflow needs (Python startup, stdlib imports, file reads, write to /findings, exit). Cross-reference with `tree-sitter`'s syscalls if scripts use it.
+3. Apply the filter via `prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &filter)` in `_preexec()`, AFTER `prctl(PR_SET_NO_NEW_PRIVS, 1, ...)` (required for non-root seccomp).
+4. Add explicit regression tests: `test_seccomp_blocks_unallowed_syscall` (e.g., script attempting `process_vm_readv` should fail with EPERM regardless of capabilities).
+5. Document the allowlist in `linux.py` as the source of truth for "what the sandboxed Python actually needs at the kernel boundary".
+
+**Estimated scope:** 250-400 LOC + 5-10 regression tests + dependency add. Medium PR.
+
+### T8-Sec2 — preexec_fn thread-safety swap
+**Source:** Phase 3b PR #4 Task 8 quality reviews (commits `7d07dc2`, `be9ccfc`), 2026-04-18
+**File:** `src/screw_agents/adaptive/sandbox/linux.py` `_preexec()`
+**Priority:** Low (currently single-threaded; conditional)
+
+**Why deferred:** Python's `subprocess` `preexec_fn` runs in the FORKED child between `fork()` and `exec()`. If the parent process has multiple threads concurrently allocating memory, the fork can deadlock on the GIL or on `malloc`'s internal locks (POSIX-fork-after-thread anti-pattern). screw-agents is currently single-threaded — the orchestrator runs one sandbox at a time per request — so the deadlock risk is zero today. Becomes relevant if the executor is ever parallelized (Task 11 + future) or the MCP server moves to a multi-process / multi-threaded model (Phase 7 — see existing T6-M1, T6-M4, T9-I1 entries for related concurrency risks).
+
+**Trigger:** Any of:
+- Task 11's executor introduces threading (e.g., parallel script execution for batch scans)
+- Phase 7 multi-process MCP server is implemented
+- A `RuntimeWarning: preexec_fn not safe in multithreaded application` appears in logs
+
+**Suggested approach:** Replace the `preexec_fn=_preexec` keyword with a fork-safe alternative. Two options:
+1. **Python 3.11+ `process_group=0` API** — sets the process group atomically without preexec_fn; more limited (doesn't directly support setrlimit, but combined with `prctl` set up post-fork via setrlimit AFTER exec is workable). Cleanest for Python 3.11+ projects.
+2. **`prlimit` shell wrapper** — invoke `prlimit --cpu=N --as=M --nproc=K --nofile=L --fsize=F bwrap ...` instead of bwrap directly. Trades a fork+exec for a small wrapper. Works on all Python versions.
+
+Either path requires re-validating all 17 isolation properties (the rlimit values must still apply to the script process, not just to the wrapper).
+
+**Estimated scope:** 50-100 LOC + re-validation of isolation tests. Small-to-medium PR.
+
+### T9-Sec1 — Deduplicate host-side sandbox defenses into shared `_common.py`
+**Source:** Phase 3b PR #4 Task 9 implementation, 2026-04-18
+**File:** `src/screw_agents/adaptive/sandbox/_common.py` (new) + linux.py + macos.py
+**Priority:** Low (code quality, not security gap)
+
+**Why deferred:** T9's macos.py duplicates 3 host-side helpers from linux.py
+verbatim (`_safe_read_findings`, `_clean_findings_path`,
+`_check_findings_aggregate_size`) plus the related constants
+(`_MAX_FILE_SIZE_BYTES`, `_MAX_OUTPUT_BYTES`, `_MAX_FINDINGS_AGGREGATE_BYTES`,
+`_MAX_OPEN_FILES`). These are pure Python, platform-agnostic — they
+operate on the host filesystem and the orchestrator's tempfiles. Refactoring
+during T9 was rejected as out-of-scope (would have required re-validating
+T8's shipped tests). Cleaner architecture: extract into
+`sandbox/_common.py`; linux.py and macos.py import from there.
+
+**Trigger:** Polish pass before PR #5 starts, OR when a third sandbox
+backend lands (BSD jails? Windows when supported?), OR when the helpers
+need a fix that would have to be applied in two places.
+
+**Suggested approach:**
+1. Create `src/screw_agents/adaptive/sandbox/_common.py` with the 3
+   helpers + 4 constants (the platform-specific NPROC cap stays in each
+   backend).
+2. Import them in both linux.py and macos.py: `from screw_agents.adaptive.sandbox._common import _safe_read_findings, _clean_findings_path, _check_findings_aggregate_size, _MAX_FILE_SIZE_BYTES, ...`
+3. Delete the duplicated code from each backend.
+4. Re-run all sandbox tests (Linux + macOS skip on each other) to verify
+   no behavioral change.
+
+**Estimated scope:** ~80 LOC moved; net negative LOC. Trivial PR.
+
 ---
 
 ## Phase 4+ (autoresearch / scale)
@@ -131,6 +215,13 @@ At CWE-1400 expansion scale (41 agents × ~5-7k tokens prompt each + all code), 
 ---
 
 ## Project-wide (not Phase-tagged)
+
+### T3-M1 — Narrow exception handling in `adaptive/ast_walker.py` find_* helpers
+**Source:** Phase 3b PR #4 Task 3 quality review, 2026-04-18
+**File:** `src/screw_agents/adaptive/ast_walker.py` (`find_calls`, `find_imports`, `find_class_definitions`)
+**Why deferred:** Each helper wraps the per-file `project.read_file(rel_path)` call in a bare `try/except Exception: continue`. This silently swallows real failures (UnicodeDecodeError on non-UTF-8 source, OSError on filesystem races) so adaptive scripts cannot tell "no findings" from "couldn't read this file." Acceptable inside the sandbox today (no logging infrastructure in adaptive scripts yet); becomes important when (a) adaptive scripts gain a logging surface or (b) a deliberately mis-encoded source file is suspected as a scanner-evasion vector.
+**Trigger:** When adaptive scripts gain a logging hook (Phase 3b Task 11+) OR a non-UTF-8 source surfaces in benchmark fixtures OR a `SkipFile` sentinel is added.
+**Suggested fix:** Replace `except Exception` with `except (UnicodeDecodeError, OSError)` and emit a structured log/sentinel that the executor can surface. Add a test fixture with non-UTF-8 source to lock in the new behavior.
 
 ### T-ORCHESTRATOR-SCHEMA — Backfill finding-object schema in domain orchestrator subagents
 **Source:** X1-M1 PR#9 T6 quality review, 2026-04-17 (gap pre-existing, not introduced by T6)
@@ -297,13 +388,109 @@ At CWE-1400 expansion scale (41 agents × ~5-7k tokens prompt each + all code), 
 
 **Estimated scope:** ~5-10 LOC of prompt text + round-trip validation.
 
+### T11-N1 — Signature-path regression test for `execute_script`
+**Source:** Phase 3b PR #4 Task 11 quality review (commit `da24076`), 2026-04-18
+**File:** `tests/test_adaptive_executor.py`
+**Priority:** Medium (Layer 3 integration untested end-to-end)
+
+**Why deferred:** The executor's Layer 3 signature verification
+(`verify_script(source, meta, config)`) is currently covered only via the
+`skip_trust_checks=True` test gate plus `trust.py`'s existing unit-test
+suite for `verify_script` itself. There is NO end-to-end test that
+constructs a real Ed25519-signed script + metadata, runs it through
+`execute_script(skip_trust_checks=False)`, and asserts `SignatureFailure`
+on tampered signature / `AdaptiveScriptResult` on valid signature.
+Requires a signing helper that generates a test fixture (private key →
+sign script bytes → embed signature in meta YAML). Task 13 (init-trust
+CLI) will ship a reusable signing helper which makes the fixture trivial
+to write.
+
+**Trigger:** When Task 13 (init-trust CLI) lands a reusable signing helper
+OR when a regression in `trust.verify_script` integration is suspected.
+
+**Suggested approach:**
+1. Add a pytest fixture that generates an ephemeral Ed25519 keypair via
+   `cryptography.hazmat.primitives.asymmetric.ed25519.Ed25519PrivateKey.generate()`.
+2. Fixture signs a sample script + metadata (via `trust.sign_content` +
+   `trust.canonicalize_script`).
+3. Fixture seeds `.screw/config.yaml` with the corresponding public key
+   as a `script_reviewer`.
+4. Two tests: valid-signature happy path + tampered-signature `SignatureFailure`.
+
+**Estimated scope:** ~60 LOC (fixture + 2 tests). Small PR.
+
+### T11-M2 — Opt-in `require_all_target_patterns` metadata flag
+**Source:** Phase 3b PR #4 Task 11 quality review (commit `da24076`), 2026-04-18
+**File:** `src/screw_agents/adaptive/executor.py` `_is_stale` + `src/screw_agents/models.py` `AdaptiveScriptMeta`
+**Priority:** Low (current semantic is acceptable Phase 3b default)
+
+**Why deferred:** `_is_stale` currently returns False as soon as ANY
+target_pattern matches at least one call site in the project. A script
+declaring three target patterns where only one is present still runs
+against "stale context" for the other two patterns. This is the liberal
+"best-effort" default appropriate for Phase 3b's adaptive-script
+generation model. Some future adaptive scripts may want strict semantics
+("only run if ALL patterns still exist") to avoid producing irrelevant
+findings against partially-obsolete code.
+
+**Trigger:** When a real-world adaptive script produces noisy findings
+because partial target_patterns are out-of-date, OR when autoresearch
+(Phase 4) feedback flags the ANY semantic as a false-positive source.
+
+**Suggested approach:**
+1. Add `require_all_target_patterns: bool = False` to `AdaptiveScriptMeta`.
+2. Update `_is_stale`: if the flag is True, require ALL patterns present
+   (not ANY). Default False preserves current behavior.
+3. Add a test covering each of the four combinations (flag on/off × patterns
+   partial/complete).
+4. Document in the adaptive-scripts authoring guide (Task 14+).
+
+**Estimated scope:** ~20 LOC + 4 tests. Trivial.
+
+### T11-N2 — `MetadataError` exception wrapper for meta-load failures
+**Source:** Phase 3b PR #4 Task 11 quality review (commit `da24076`), 2026-04-18
+**File:** `src/screw_agents/adaptive/executor.py`
+**Priority:** Low (code polish, not functional)
+
+**Why deferred:** `execute_script` currently propagates raw `yaml.YAMLError`
+(from `yaml.safe_load(meta_path.read_text(...))`) and raw
+`pydantic.ValidationError` (from `AdaptiveScriptMeta(**raw)`) to callers.
+Both propagate cleanly but break the executor's otherwise-consistent
+exception-family design (`LintFailure` / `HashMismatch` / `SignatureFailure`
+are all executor-owned `RuntimeError` subclasses). Task 12's MCP tool
+wiring will need to catch and surface these; a unified `MetadataError`
+wrapper would give that layer a single exception-family to catch.
+
+**Trigger:** When Task 12 implements the MCP tool wiring and needs to
+surface meta-load errors cleanly to the subagent caller.
+
+**Suggested approach:**
+1. Add `MetadataError(RuntimeError)` to the executor module.
+2. Wrap the two error sources in `execute_script`:
+   ```python
+   try:
+       meta_raw = yaml.safe_load(meta_path.read_text(encoding="utf-8"))
+   except yaml.YAMLError as exc:
+       raise MetadataError(f"invalid YAML in {meta_path}: {exc}") from exc
+   try:
+       meta = AdaptiveScriptMeta(**meta_raw)
+   except ValidationError as exc:
+       raise MetadataError(f"malformed metadata in {meta_path}: {exc}") from exc
+   ```
+3. Task 12's MCP tool handler catches `MetadataError` alongside the
+   other 3 executor exception types.
+4. Add test `test_executor_wraps_meta_load_errors` that asserts
+   `MetadataError` is raised on invalid YAML and on malformed meta.
+
+**Estimated scope:** ~15 LOC + 2 tests. Trivial.
+
 ---
 
 ## Shipped
 
 ### X1-M1 — Core-prompt deduplication in `scan_domain` paginated responses
 **Source:** Phase 3a PR#3 manual round-trip test, 2026-04-17
-**Shipped in:** PR #9 (`phase-3a-prompt-dedup`), merge commit `<fill in at merge time>`
+**Shipped in:** PR #9 (`phase-3a-prompt-dedup`), merge commit `4685671`
 **Final design:** `docs/specs/2026-04-17-prompt-dedup-x1-m1-design.md` (local, not in git)
 **Plan:** `docs/PHASE_3A_X1_M1_PLAN.md`
 
@@ -318,7 +505,7 @@ At CWE-1400 expansion scale (41 agents × ~5-7k tokens prompt each + all code), 
 
 ### T-WRITE-SPLIT — Split `write_scan_results` into `accumulate_findings` + `finalize_scan_results`
 **Source:** Phase 3a X1-M1 round-trip testing (PR #9, 2026-04-17)
-**Shipped in:** PR #9 (`phase-3a-prompt-dedup`), merge commit `<fill in at merge time>`
+**Shipped in:** PR #9 (`phase-3a-prompt-dedup`), merge commit `4685671`
 **Plan:** `docs/PHASE_3A_X1_M1_PLAN.md`
 
 **Problem:** Round-trip testing after the lazy-fetch fix (T12-T16) revealed a second defect — subagents called `write_scan_results` once per agent-batch (4 times for a 4-agent injection scan). Overwrite semantics masked this as "just wasteful" (the final call had all findings), but each intermediate call triggered file rewrites + user approvals + tool-call tokens. Prompt-level "call once" discipline was not load-bearing.

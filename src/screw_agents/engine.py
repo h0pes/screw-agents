@@ -14,6 +14,9 @@ import json as _json
 from pathlib import Path
 from typing import Any
 
+import yaml
+
+from screw_agents.adaptive.executor import execute_script
 from screw_agents.aggregation import (
     aggregate_directory_suggestions,
     aggregate_fp_report,
@@ -24,6 +27,7 @@ from screw_agents.learning import load_exclusions
 from screw_agents.models import AgentDefinition, Exclusion, Finding, HeuristicEntry
 from screw_agents.registry import AgentRegistry
 from screw_agents.resolver import ResolvedCode, filter_by_relevance, resolve_target
+from screw_agents.trust import load_config, verify_script
 
 _DEFAULT_DOMAINS_DIR = Path(__file__).resolve().parent.parent.parent / "domains"
 
@@ -72,11 +76,12 @@ class ScanEngine:
         """Compute a summary of trust status for the project's .screw/ content.
 
         Returns counts of active vs quarantined entries for both exclusions and
-        scripts. Phase 3a populates exclusion counts via learning.load_exclusions
-        (which applies signature verification + legacy policy). Script counts
-        always return 0 until Phase 3b's adaptive-scripts subsystem lands — the
-        dict shape is stable so Phase 3b Task 14 can populate the script fields
-        without changing the contract.
+        scripts. Exclusion counts come from `learning.load_exclusions` (applies
+        signature verification + legacy policy). Script counts iterate
+        `.screw/custom-scripts/*.meta.yaml` and run `trust.verify_script` on
+        each; malformed metadata, a missing companion .py, or signature
+        failure counts as quarantined. Phase 3b PR#4 Task 12 wires in the
+        real script counts (previously stubbed to 0).
 
         The optional `exclusions` parameter lets callers that already have a
         loaded-and-verified list reuse it to avoid a duplicate YAML parse and
@@ -96,11 +101,124 @@ class ScanEngine:
         exclusion_quarantine_count = sum(1 for e in exclusions if e.quarantined)
         exclusion_active_count = len(exclusions) - exclusion_quarantine_count
 
+        # Phase 3b PR#4 Task 12: count adaptive scripts. Iterate
+        # .screw/custom-scripts/*.meta.yaml and run verify_script on each.
+        # Missing companion .py, malformed YAML, or signature failure →
+        # quarantined. Absent .screw/custom-scripts/ directory → zero counts
+        # (graceful). Config load failure also → zero counts (treat as "no
+        # reviewer keys configured" rather than a hard error; load_exclusions
+        # above already raises loudly on malformed config when it applies).
+        script_dir = project_root / ".screw" / "custom-scripts"
+        script_active_count = 0
+        script_quarantine_count = 0
+        if script_dir.exists():
+            try:
+                config = load_config(project_root)
+            except Exception:
+                config = None
+            if config is not None:
+                for meta_file in script_dir.glob("*.meta.yaml"):
+                    source_file = (
+                        meta_file.parent
+                        / f"{meta_file.stem.removesuffix('.meta')}.py"
+                    )
+                    if not source_file.exists():
+                        script_quarantine_count += 1
+                        continue
+                    try:
+                        meta_data = yaml.safe_load(
+                            meta_file.read_text(encoding="utf-8")
+                        )
+                        script_source = source_file.read_text(encoding="utf-8")
+                        verification = verify_script(
+                            source=script_source,
+                            meta=meta_data,
+                            config=config,
+                        )
+                        if verification.valid:
+                            script_active_count += 1
+                        else:
+                            script_quarantine_count += 1
+                    except Exception:
+                        script_quarantine_count += 1
+
         return {
             "exclusion_quarantine_count": exclusion_quarantine_count,
             "exclusion_active_count": exclusion_active_count,
-            "script_quarantine_count": 0,
-            "script_active_count": 0,
+            "script_quarantine_count": script_quarantine_count,
+            "script_active_count": script_active_count,
+        }
+
+    def execute_adaptive_script(
+        self,
+        *,
+        project_root: Path,
+        script_name: str,
+        wall_clock_s: int = 30,
+        skip_trust_checks: bool = False,
+    ) -> dict[str, Any]:
+        """Execute an adaptive script by name under the full defense pipeline.
+
+        Looks up the script at
+        ``.screw/custom-scripts/<script_name>.py`` plus its companion
+        ``<script_name>.meta.yaml`` and runs the resulting script through
+        ``adaptive.executor.execute_script`` (which applies all 7 defense
+        layers: AST lint, SHA-256 pin, Ed25519 signature, stale check,
+        sandbox launch, wall-clock kill, JSON-schema validation). Returns
+        a JSON-serializable dict suitable for marshaling over MCP.
+
+        Args:
+            project_root: Absolute path to the project root. Used both as
+                the script lookup base (``.screw/custom-scripts/``) and as
+                the sandbox's view of the target codebase.
+            script_name: Script basename WITHOUT the ``.py`` extension
+                (e.g., ``"querybuilder-sqli-check"``).
+            wall_clock_s: Parent-side sandbox kill timer. Defaults to 30s.
+            skip_trust_checks: TESTS ONLY — bypasses Layer 2 (hash pin) and
+                Layer 3 (signature). Production callers must never set True.
+
+        Returns:
+            Dict with keys: ``script_name``, ``findings`` (list of finding
+            dicts), ``stale`` (bool), ``execution_time_ms`` (int),
+            ``sandbox_result`` (dict, stdout/stderr excluded since they are
+            bytes). ``model_dump(mode="json")`` is used so nested datetimes
+            and other non-JSON-native types serialize correctly.
+
+        Raises:
+            FileNotFoundError: Script source or metadata file missing.
+            LintFailure: Layer 1 rejected the script.
+            HashMismatch: Layer 2 rejected the script.
+            SignatureFailure: Layer 3 rejected the script.
+        """
+        script_dir = project_root / ".screw" / "custom-scripts"
+        script_path = script_dir / f"{script_name}.py"
+        meta_path = script_dir / f"{script_name}.meta.yaml"
+
+        if not script_path.exists():
+            raise FileNotFoundError(
+                f"adaptive script not found: {script_path}"
+            )
+        if not meta_path.exists():
+            raise FileNotFoundError(
+                f"adaptive script metadata not found: {meta_path}"
+            )
+
+        result = execute_script(
+            script_path=script_path,
+            meta_path=meta_path,
+            project_root=project_root,
+            wall_clock_s=wall_clock_s,
+            skip_trust_checks=skip_trust_checks,
+        )
+
+        return {
+            "script_name": result.script_name,
+            "findings": [f.model_dump(mode="json") for f in result.findings],
+            "stale": result.stale,
+            "execution_time_ms": result.execution_time_ms,
+            "sandbox_result": result.sandbox_result.model_dump(
+                mode="json", exclude={"stdout", "stderr"}
+            ),
         }
 
     def aggregate_learning(
@@ -1044,6 +1162,48 @@ class ScanEngine:
                     },
                 },
                 "required": ["project_root"],
+            },
+        })
+
+        # Phase 3b PR#4 Task 12: execute_adaptive_script
+        tools.append({
+            "name": "execute_adaptive_script",
+            "description": (
+                "Execute a previously-validated adaptive analysis script "
+                "under the sandbox and return its findings. Runs the full "
+                "defense pipeline: AST lint, SHA-256 hash pin, Ed25519 "
+                "signature verification, stale-target check, sandbox launch "
+                "with wall-clock kill, and JSON-schema validation of the "
+                "emitted findings. Requires the script to be signed by a "
+                "key listed in .screw/config.yaml's script_reviewers."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "project_root": {
+                        "type": "string",
+                        "description": "Absolute path to the project root.",
+                    },
+                    "script_name": {
+                        "type": "string",
+                        "description": (
+                            "Script basename without the .py extension "
+                            "(e.g., 'querybuilder-sqli-check'). Resolved "
+                            "under .screw/custom-scripts/<name>.py + "
+                            "<name>.meta.yaml."
+                        ),
+                    },
+                    "wall_clock_s": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "default": 30,
+                        "description": (
+                            "Parent-side sandbox kill timer in seconds. "
+                            "Defaults to 30s."
+                        ),
+                    },
+                },
+                "required": ["project_root", "script_name"],
             },
         })
 

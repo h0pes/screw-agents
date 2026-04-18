@@ -418,3 +418,72 @@ class AggregateReport(BaseModel):
     pattern_confidence: list[PatternSuggestion]
     directory_suggestions: list[DirectorySuggestion]
     fp_report: FPReport
+
+
+# ---------------------------------------------------------------------------
+# Adaptive Analysis Models (Phase 3b — adaptive scripts)
+# ---------------------------------------------------------------------------
+
+
+class CoverageGap(BaseModel):
+    """A detected gap in YAML agent coverage — the signal that adaptive mode could help."""
+
+    type: Literal["context_required", "unresolved_sink"]
+    agent: str
+    file: str
+    line: int
+    evidence: dict[str, Any] = {}
+
+
+class AdaptiveScriptMeta(BaseModel):
+    """Metadata for an adaptive analysis script in .screw/custom-scripts/."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    created: str
+    created_by: str  # signer email
+    domain: str  # CWE-1400 domain (e.g., "injection-input-handling")
+    description: str = ""
+    target_patterns: list[str] = []
+    validated: bool = False
+    last_used: str | None = None
+    findings_produced: int = 0
+    false_positive_rate: float | None = None
+
+    # signing (Phase 3a compatibility)
+    sha256: str
+    signed_by: str | None = None
+    signature: str | None = None
+    signature_version: int = 1
+
+
+class SandboxResult(BaseModel):
+    """Result of launching a script inside the OS sandbox."""
+
+    stdout: bytes
+    stderr: bytes
+    returncode: int
+    wall_clock_s: float
+    killed_by_timeout: bool
+    findings_json: str | None = None  # None if the script failed before emitting
+
+
+class AdaptiveScriptResult(BaseModel):
+    """Full result of an adaptive script execution, including findings."""
+
+    script_name: str
+    findings: list["Finding"]
+    sandbox_result: SandboxResult
+    stale: bool = False
+    execution_time_ms: int
+
+
+class SemanticReviewReport(BaseModel):
+    """Output of the screw-script-reviewer subagent (Layer 0d)."""
+
+    risk_score: Literal["low", "medium", "high"]
+    flagged_patterns: list[str]
+    unusual_imports: list[str]
+    control_flow_summary: str
+    estimated_runtime_ms: int
