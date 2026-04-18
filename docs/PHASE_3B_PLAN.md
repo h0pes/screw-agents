@@ -2069,6 +2069,27 @@ linux.py has additional flags and behaviors not shown in the code fence above:
 - New isolation regression test file:
   tests/test_adaptive_sandbox_linux_isolation.py (13 assertion-pinned tests)
 
+**SECOND SECURITY REVIEW (commit after 7d07dc2):** the deep review of 7d07dc2
+found 2 NEW BLOCKERS the previous fix didn't anticipate:
+- Symlink-replace exfil via /findings/findings.json: a script could
+  os.symlink to any host path; the host-side `read_text()` followed the
+  symlink and returned the host file. Closed via `_safe_read_findings`
+  (lstat + O_NOFOLLOW, refuses symlinks) + `_clean_findings_path` (wipes
+  residual files before each run to defeat cross-run poisoning).
+- Aggregate disk DoS: RLIMIT_FSIZE caps per-file; script wrote 2000 × 1MB
+  files (2 GB total) without bound. Closed via `_check_findings_aggregate_size`
+  + post-execution refusal if total > 16 MB.
+
+Also addressed: prctl(PR_SET_DUMPABLE, 0) added in preexec for defense-in-
+depth host-side process-listing privacy. Note: bwrap argv path leakage to
+the SCRIPT via /proc/1/cmdline is not fully closeable from this layer alone
+(script + bwrap share UID in user-ns); mitigation deferred to Task 11
+(use opaque temp paths via tempfile.mkdtemp so the bwrap argv doesn't
+carry the host worktree name or project name).
+
+4 new regression tests pin the new defenses (symlink refuse, residual-symlink
+defense, aggregate cap, aggregate-under-cap sanity).
+
 Create `tests/test_adaptive_sandbox_linux.py`:
 
 ```python

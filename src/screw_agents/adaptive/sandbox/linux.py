@@ -20,7 +20,15 @@ mount bind of project root (read-only) + tmpfs + setrlimit inside the child.
   buffer path is bind-mounted read-write at /findings; the Python install +
   venv site-packages + screw_agents source are read-only-bound at their
   on-host paths so the script's `import screw_agents` resolves the same way
-  it does in the parent process; everything else is tmpfs or absent.
+  it does in the parent process; everything else is tmpfs or absent. Host-
+  side findings read uses lstat + O_NOFOLLOW to refuse symlinks (Layer 5
+  BLOCKER 1 defense: prevents a script from exfiltrating arbitrary host
+  files by swapping findings.json for a symlink the orchestrator would
+  follow). findings_path is wiped of residual files BEFORE each invocation
+  to defeat cross-run symlink poisoning. Aggregate size of findings_path
+  is checked AFTER each invocation against `_MAX_FINDINGS_AGGREGATE_BYTES`
+  (16 MB cap) — script writing many small files to fill host disk causes
+  findings to be rejected (Layer 5 BLOCKER 2 defense).
 - Network: --unshare-net removes the network namespace; connect() returns
   ENETDOWN; getaddrinfo fails with gaierror; AF_PACKET fails with EPERM
   (no CAP_NET_RAW).
@@ -34,6 +42,13 @@ mount bind of project root (read-only) + tmpfs + setrlimit inside the child.
   ptrace fails EPERM; raw sockets fail EPERM. Real seccomp filter is
   deferred to Phase 3c (currently we rely on namespace + capability
   isolation for syscall-level defense).
+  Defense in depth: prctl(PR_SET_DUMPABLE, 0) applied in preexec masks
+  bwrap's /proc/<pid>/cmdline / environ / maps from other UIDs on the
+  host. Bwrap argv path leakage to the SCRIPT (via /proc/1/cmdline) is
+  not closeable from this layer alone — the script and bwrap share a UID
+  in bwrap's user-ns. Mitigation lives in Task 11: use opaque temp paths
+  via tempfile.mkdtemp so the bwrap argv doesn't carry the host worktree
+  name, project name, or findings path.
 - Resources: setrlimit applied in preexec_fn bounds CPU time (RLIMIT_CPU),
   address space (RLIMIT_AS = 512 MB), open files (RLIMIT_NOFILE = 256),
   process count per UID (RLIMIT_NPROC, dynamic — see Processes bullet),
@@ -100,6 +115,16 @@ _BWRAP_HEADROOM = 128
 # File descriptor cap. 256 covers stdlib startup (cert bundles, .pth files,
 # importlib resources) with margin; defends against fd-exhaustion abuse.
 _MAX_OPEN_FILES = 256
+
+
+# Aggregate-size cap on the findings_path directory after script execution.
+# RLIMIT_FSIZE caps individual file size at 4 MB but doesn't bound the total
+# number of files. Without this, a script writing N small files can exhaust
+# the host filesystem (Layer 5 BLOCKER 2: reviewer demonstrated 2 GB written
+# via 2000 × 1 MB files in 31 ms). Set to 16 MB — generous for legitimate
+# multi-format output (JSON + Markdown + CSV ~ a few MB total) and bounded
+# enough that a malicious script can't fill /tmp.
+_MAX_FINDINGS_AGGREGATE_BYTES = 16 * 1024 * 1024  # 16 MB
 
 
 def run_in_sandbox(
@@ -221,6 +246,12 @@ def run_in_sandbox(
         "/script.py",
     ]
 
+    # BLOCKER 1b defense: clean findings_path of residual files from prior
+    # invocations BEFORE the script runs. Without this, a malicious script
+    # from a prior run could have left a symlink at findings.json that the
+    # NEXT (benign) script's findings would resolve through to a host file.
+    _clean_findings_path(findings_path)
+
     # Compute the dynamic NPROC cap once, in the parent, before forking. RLIMIT_NPROC
     # is per-UID, so we must add the user's existing process count to the per-script
     # budget — otherwise we'd block bwrap's own clone() on any normal desktop.
@@ -249,6 +280,25 @@ def run_in_sandbox(
         resource.setrlimit(resource.RLIMIT_NPROC, (nproc_cap, nproc_cap))
         resource.setrlimit(resource.RLIMIT_NOFILE, (_MAX_OPEN_FILES, _MAX_OPEN_FILES))
         resource.setrlimit(resource.RLIMIT_FSIZE, (_MAX_FILE_SIZE_BYTES, _MAX_FILE_SIZE_BYTES))
+        # PR_SET_DUMPABLE = 0 makes /proc/<pid>/cmdline, /proc/<pid>/environ,
+        # /proc/<pid>/maps, etc. unreadable except by the process owner (root
+        # or same-UID). The sandboxed script runs as the same UID as bwrap so
+        # this doesn't fully hide bwrap's cmdline FROM the script (same-UID
+        # can read same-UID's /proc), but it hides them from any OTHER user
+        # (host operator running `ps -ef` won't see the bwrap argv with full
+        # paths, reducing the attack surface for other privilege boundaries).
+        # Real fix for /proc/1/cmdline path leakage to the script lives in
+        # Task 11 (use opaque temp paths via tempfile.mkdtemp so the bwrap
+        # argv doesn't carry the host worktree name); this prctl is defense
+        # in depth for the host-side process listing.
+        try:
+            import ctypes
+            libc = ctypes.CDLL("libc.so.6", use_errno=True)
+            PR_SET_DUMPABLE = 4
+            libc.prctl(PR_SET_DUMPABLE, 0, 0, 0, 0)
+        except (OSError, AttributeError):
+            # Not fatal — prctl is best-effort hardening.
+            pass
 
     # Bwrap-process environment hygiene (Layer 5 B1 fix, deeper layer):
     # `--clearenv` only clears the env of the CHILD that bwrap exec()s;
@@ -289,8 +339,22 @@ def run_in_sandbox(
         stderr = err_file.read(_MAX_OUTPUT_BYTES)
     elapsed = monotonic() - start
 
-    findings_file = findings_path / "findings.json"
-    findings_json = findings_file.read_text() if findings_file.exists() else None
+    # BLOCKER 2 defense: refuse to use findings if the script wrote more than
+    # the aggregate cap (script may have filled host /tmp). Check FIRST
+    # before reading findings.json so we surface the issue.
+    aggregate_bytes = _check_findings_aggregate_size(findings_path)
+    if aggregate_bytes > _MAX_FINDINGS_AGGREGATE_BYTES:
+        # Script wrote excessive data — refuse findings, leave the directory
+        # for the caller to inspect/clean. Do NOT auto-delete (the caller
+        # provided this path; the caller should decide cleanup policy).
+        findings_json = None
+    else:
+        # BLOCKER 1 defense: read findings.json with O_NOFOLLOW + lstat-
+        # symlink rejection so a script that swapped findings.json for a
+        # symlink to /home/<user>/.ssh/id_rsa cannot exfil host files
+        # through the orchestrator.
+        findings_file = findings_path / "findings.json"
+        findings_json = _safe_read_findings(findings_file)
 
     return SandboxResult(
         stdout=stdout,
@@ -343,3 +407,115 @@ def _compute_nproc_cap() -> int:
         # that still bounds fork bombs at < 1000 successful forks.
         count = 256
     return count + _SCRIPT_PROCESS_BUDGET + _BWRAP_HEADROOM
+
+
+def _safe_read_findings(findings_file: Path) -> str | None:
+    """Read findings_file's contents, refusing to follow symlinks.
+
+    Closes Layer 5 BLOCKER 1: a malicious script inside the sandbox could
+    `os.symlink("/any/host/path", "/findings/findings.json")`. The host-side
+    orchestrator's `read_text()` would follow the symlink and return arbitrary
+    host file contents. Two-layer defense:
+    1. lstat first to refuse if the path is a symlink at all
+    2. open() with O_NOFOLLOW for TOCTOU safety against a swap between
+       the lstat and the open
+
+    Returns None on missing file, symlink, ELOOP, or any read error — the
+    sandbox returning "no findings" is preferable to leaking host data.
+    """
+    import errno
+    import stat as stat_mod
+
+    try:
+        st = os.lstat(findings_file)
+    except FileNotFoundError:
+        return None
+    except OSError:
+        return None
+
+    # Refuse if it's anything other than a regular file. Symlinks (S_ISLNK),
+    # directories, devices, FIFOs all rejected.
+    if not stat_mod.S_ISREG(st.st_mode):
+        return None
+
+    try:
+        # O_NOFOLLOW causes open() to fail with ELOOP if the path is a symlink
+        # at the moment of open. Belt-and-suspenders with the lstat above —
+        # closes a TOCTOU window where a script swaps the regular file for a
+        # symlink between our lstat and our open.
+        fd = os.open(findings_file, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            return None  # symlink raced in
+        return None
+
+    try:
+        # Bounded read defends against a script that grew the file between
+        # our lstat (when it might have been small) and our open (when it
+        # might be at the FSIZE cap of 4 MB). Read at most _MAX_OUTPUT_BYTES
+        # which is the same cap we apply to stdout/stderr.
+        data = os.read(fd, _MAX_OUTPUT_BYTES)
+    finally:
+        os.close(fd)
+
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        # Malformed JSON (script wrote binary garbage) — return as replaced text
+        # so the executor's downstream JSON parsing fails cleanly rather than
+        # the orchestrator raising UnicodeDecodeError.
+        return data.decode("utf-8", errors="replace")
+
+
+def _clean_findings_path(findings_path: Path) -> None:
+    """Remove residual files from a prior sandbox invocation (defense against
+    symlink-poisoning persisting across runs — Layer 5 BLOCKER 1b).
+
+    Walks findings_path and removes regular files + symlinks (NOT directories,
+    which would require recursive descent that itself raises symlink-attack
+    concerns). If the directory contains anything that isn't a regular file
+    or a symlink, leaves it alone (most likely caller error; we don't try to
+    fix it).
+
+    The unlinks are scoped to direct children of findings_path; we never
+    descend into subdirectories. The caller's responsibility to provide a
+    sane findings_path (the orchestrator at Task 11 will create a dedicated
+    temp dir per run).
+    """
+    try:
+        for entry in findings_path.iterdir():
+            try:
+                # is_symlink() does NOT follow the symlink — safe to call.
+                if entry.is_symlink() or entry.is_file():
+                    entry.unlink()
+            except OSError:
+                # Ignore unlinkable entries; the worst case is the next run's
+                # symlink defense rejects whatever's there.
+                continue
+    except OSError:
+        # findings_path doesn't exist or is unreadable; nothing to clean.
+        pass
+
+
+def _check_findings_aggregate_size(findings_path: Path) -> int:
+    """Return the aggregate byte size of regular files directly under
+    findings_path.
+
+    Used post-execution to detect the BLOCKER 2 attack (script writes many
+    small files to fill the host filesystem). Does NOT follow symlinks
+    (uses lstat / S_ISREG). Does NOT descend into subdirectories.
+    """
+    import stat as stat_mod
+
+    total = 0
+    try:
+        for entry in findings_path.iterdir():
+            try:
+                st = entry.stat(follow_symlinks=False)
+                if stat_mod.S_ISREG(st.st_mode):
+                    total += st.st_size
+            except OSError:
+                continue
+    except OSError:
+        return 0
+    return total

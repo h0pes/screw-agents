@@ -461,8 +461,12 @@ def test_dev_does_not_expose_host_devices(tmp_path: Path):
 
 
 def test_no_writable_paths_outside_findings(tmp_path: Path):
-    """Only /findings is writable. /usr, /tmp (tmpfs), /etc, /script.py
-    must all reject writes."""
+    """Only /findings (host-bound RW) is writable for persistence. /usr,
+    /etc, /lib, /, /script.py, /project, /proc all reject writes (read-only
+    binds or remount-ro). Note: /tmp and /var ARE writable as ephemeral
+    tmpfs (legitimate scratch space; data dies with the sandbox), so they
+    are NOT in this test's reject list — the test only verifies persistent
+    paths reject writes."""
     from screw_agents.adaptive.sandbox.linux import run_in_sandbox
 
     script_path, project_path, findings_path = _setup(
@@ -567,3 +571,169 @@ def test_network_comprehensively_unreachable(tmp_path: Path):
     assert data["tcp_loopback"] != "connected", f"TCP loopback succeeded: {data}"
     assert data["af_packet"] != "opened", f"AF_PACKET raw socket opened: {data}"
     assert data["dns"] != "resolved", f"DNS resolved: {data}"
+
+
+# -------------------------------------------------------------------------
+# BLOCKER 1 regression — symlink-replace exfil via findings.json
+# -------------------------------------------------------------------------
+
+
+def test_orchestrator_refuses_symlink_findings_json(tmp_path: Path):
+    """BLOCKER 1: a script that symlinks /findings/findings.json to an
+    arbitrary host path must NOT cause the orchestrator to read+return the
+    host file's contents. Reviewer demonstrated reading ~/.bashrc this way
+    on commit 7d07dc2 prior to this fix."""
+    from screw_agents.adaptive.sandbox.linux import run_in_sandbox
+
+    # Create a host-side sentinel file the script would TRY to exfiltrate.
+    # Outside tmp_path so it actually represents a "host" file (relative to
+    # the sandbox); but use tmp_path's parent so it's still test-cleaned-up.
+    sentinel = tmp_path.parent / "sandbox-exfil-sentinel.txt"
+    sentinel.write_text("sentinel-secret-do-not-leak-12345")
+
+    try:
+        script_path, project_path, findings_path = _setup(
+            tmp_path,
+            f"import os\n"
+            f"def analyze(project):\n"
+            f"    if os.path.exists('/findings/findings.json'):\n"
+            f"        os.unlink('/findings/findings.json')\n"
+            f"    os.symlink({str(sentinel)!r}, '/findings/findings.json')\n"
+            f"analyze(None)\n"
+        )
+        result = run_in_sandbox(
+            script_path=script_path,
+            project_root=project_path,
+            findings_path=findings_path,
+            wall_clock_s=10,
+        )
+        # Script ran (returncode 0) — but the orchestrator must not have
+        # read the host sentinel through the symlink.
+        assert result.returncode == 0, f"stderr={result.stderr!r}"
+        assert result.findings_json is None or "sentinel-secret" not in result.findings_json, (
+            f"orchestrator followed symlink and read host file! "
+            f"findings_json (first 500 chars): {result.findings_json[:500] if result.findings_json else None!r}"
+        )
+    finally:
+        try:
+            sentinel.unlink()
+        except OSError:
+            pass
+
+
+def test_orchestrator_handles_residual_symlink_from_prior_run(tmp_path: Path):
+    """BLOCKER 1b: a benign script run AFTER a malicious one must not
+    inherit the prior run's symlink poisoning. _clean_findings_path
+    must wipe residual files before each invocation."""
+    from screw_agents.adaptive.sandbox.linux import run_in_sandbox
+
+    sentinel = tmp_path.parent / "residual-exfil-sentinel.txt"
+    sentinel.write_text("residual-sentinel-do-not-leak-67890")
+
+    try:
+        # Pre-poison findings_path with a symlink (simulates prior malicious run)
+        findings_path = tmp_path / "findings"
+        findings_path.mkdir()
+        (findings_path / "findings.json").symlink_to(sentinel)
+
+        # Benign script that doesn't touch findings.json
+        script_path = tmp_path / "benign.py"
+        script_path.write_text(
+            "def analyze(project):\n"
+            "    pass\n"
+            "analyze(None)\n"
+        )
+        project_path = tmp_path / "project"
+        project_path.mkdir()
+
+        result = run_in_sandbox(
+            script_path=script_path,
+            project_root=project_path,
+            findings_path=findings_path,
+            wall_clock_s=10,
+        )
+        assert result.returncode == 0, f"stderr={result.stderr!r}"
+        # Pre-run cleanup must have removed the poisoned symlink
+        assert result.findings_json is None or "residual-sentinel" not in result.findings_json, (
+            f"orchestrator followed residual symlink from prior run! "
+            f"findings_json: {result.findings_json[:500] if result.findings_json else None!r}"
+        )
+    finally:
+        try:
+            sentinel.unlink()
+        except OSError:
+            pass
+
+
+# -------------------------------------------------------------------------
+# BLOCKER 2 regression — aggregate disk DoS via many small files
+# -------------------------------------------------------------------------
+
+
+def test_aggregate_findings_size_capped(tmp_path: Path):
+    """BLOCKER 2: RLIMIT_FSIZE=4MB caps PER FILE. A script writing many small
+    files can fill the host disk. Reviewer demonstrated 2 GB via 2000 × 1 MB
+    files. Post-execution aggregate-size check must refuse findings if the
+    cap is exceeded."""
+    from screw_agents.adaptive.sandbox.linux import run_in_sandbox
+
+    script_path, project_path, findings_path = _setup(
+        tmp_path,
+        "import os\n"
+        "def analyze(project):\n"
+        # 50 files × 1 MB = 50 MB > 16 MB aggregate cap.
+        "    for i in range(50):\n"
+        "        try:\n"
+        "            with open(f'/findings/file_{i:03d}.bin', 'wb') as f:\n"
+        "                f.write(b'X' * (1024 * 1024))\n"
+        "        except (OSError, IOError):\n"
+        "            break\n"
+        # Also write a benign findings.json so we can confirm orchestrator
+        # rejected it due to aggregate-size, not because findings.json missing.
+        "    out_path = os.environ.get('SCREW_FINDINGS_PATH')\n"
+        "    if out_path:\n"
+        "        try:\n"
+        "            with open(out_path, 'w') as f:\n"
+        "                f.write('[]')\n"
+        "        except (OSError, IOError):\n"
+        "            pass\n"
+        "analyze(None)\n"
+    )
+    result = run_in_sandbox(
+        script_path=script_path,
+        project_root=project_path,
+        findings_path=findings_path,
+        wall_clock_s=15,
+    )
+    # Script may exit 0 or non-zero (some writes will succeed) — either way,
+    # orchestrator must refuse the findings because aggregate is over cap.
+    assert result.findings_json is None, (
+        f"orchestrator returned findings despite aggregate-size violation; "
+        f"findings_json (first 500 chars): {result.findings_json[:500] if result.findings_json else None!r}"
+    )
+
+
+def test_aggregate_under_cap_succeeds(tmp_path: Path):
+    """Sanity counterpart to the cap-test: a script writing a normal-sized
+    findings.json (well under 16 MB cap) must succeed. Without this, the
+    cap test could pass for the wrong reason (orchestrator always refusing)."""
+    from screw_agents.adaptive.sandbox.linux import run_in_sandbox
+
+    script_path, project_path, findings_path = _setup(
+        tmp_path,
+        "import os\n"
+        "def analyze(project):\n"
+        "    out_path = os.environ['SCREW_FINDINGS_PATH']\n"
+        "    with open(out_path, 'w') as f:\n"
+        "        f.write('[{\"cwe\": \"CWE-89\", \"line\": 1}]')\n"
+        "analyze(None)\n"
+    )
+    result = run_in_sandbox(
+        script_path=script_path,
+        project_root=project_path,
+        findings_path=findings_path,
+        wall_clock_s=10,
+    )
+    assert result.returncode == 0
+    assert result.findings_json is not None
+    assert "CWE-89" in result.findings_json
