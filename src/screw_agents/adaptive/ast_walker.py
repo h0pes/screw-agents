@@ -154,7 +154,7 @@ def find_imports(project: ProjectRoot, module_name: str) -> Iterator[ImportNode]
                         candidates.append(child)
 
             for cand in candidates:
-                actual = source[cand.start_byte:cand.end_byte]
+                actual = source.encode("utf-8")[cand.start_byte:cand.end_byte].decode("utf-8")
                 if actual == module_name or actual.startswith(module_name + "."):
                     yield ImportNode(
                         file=rel_path,
@@ -182,7 +182,7 @@ def find_class_definitions(project: ProjectRoot, class_name: str) -> Iterator[Cl
             name_node = cls.child_by_field_name("name")
             if name_node is None:
                 continue
-            name = source[name_node.start_byte:name_node.end_byte]
+            name = source.encode("utf-8")[name_node.start_byte:name_node.end_byte].decode("utf-8")
             if name == class_name:
                 yield ClassNode(
                     file=rel_path,
@@ -197,7 +197,7 @@ def _call_callee_text(call_node: Node, source: str) -> str:
     function_node = call_node.child_by_field_name("function")
     if function_node is None:
         return ""
-    return source[function_node.start_byte:function_node.end_byte]
+    return source.encode("utf-8")[function_node.start_byte:function_node.end_byte].decode("utf-8")
 
 
 _CALL_PARENS_RE = re.compile(r"\([^()]*\)")

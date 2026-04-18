@@ -88,6 +88,15 @@ def is_user_input(node: Node, *, language: str, source: str) -> bool:
 
     The trace follows simple `name = expr` assignments. Conditional assignments,
     aliased imports, returns, and cross-function flows are NOT followed.
+
+    Chain semantics for adaptive script authors:
+    - The trace follows ONLY `name1 = name2`-style identifier bindings.
+    - Terminates at call/attribute/subscript RHSs (e.g., `x = obj.attr` ends
+      there); the terminator's text gets a single pattern check.
+    - Function parameters, loop variables, context-manager bindings, and
+      module-level assignments are not resolvable. Recommended idiom:
+      `if is_user_input(arg) and not is_sanitized(arg): emit_finding(...)`,
+      understanding both helpers can return False on chain terminators.
     """
     if language not in _USER_INPUT_SOURCES:
         return False
@@ -104,6 +113,15 @@ def is_sanitized(node: Node, *, language: str, source: str) -> bool:
     Lets adaptive scripts distinguish `db.execute(html.escape(q))` from
     `db.execute(q)` even when the call arg is an identifier whose binding is
     several lines above.
+
+    Chain semantics for adaptive script authors:
+    - The trace follows ONLY `name1 = name2`-style identifier bindings.
+    - Terminates at call/attribute/subscript RHSs (e.g., `x = obj.attr` ends
+      there); the terminator's text gets a single pattern check.
+    - Function parameters, loop variables, context-manager bindings, and
+      module-level assignments are not resolvable. Recommended idiom:
+      `if is_user_input(arg) and not is_sanitized(arg): emit_finding(...)`,
+      understanding both helpers can return False on chain terminators.
     """
     if language not in _SANITIZERS:
         return False
@@ -124,14 +142,17 @@ def get_call_args(call_site) -> list[Node]:
     # Filter out punctuation (parens, commas); keep only actual argument nodes.
     return [
         child for child in arg_list.children
-        if child.type not in ("(", ")", ",", "comma")
+        if child.type not in ("(", ")", ",")
     ]
 
 
 def get_parent_function(node: Node) -> Node | None:
     """Walk up the AST to find the enclosing function_definition node.
 
-    Returns None if the node is not inside a function (module-level code).
+    Returns None if `node` is module-level code OR inside a `lambda` (which
+    tree-sitter Python types as `lambda`, not `function_definition`). Lambda
+    bodies are syntactically restricted to a single expression in Python, so
+    intraprocedural taint analysis inside them is rarely useful.
     """
     current = node.parent
     while current is not None:
@@ -146,6 +167,13 @@ def resolve_variable(identifier_node: Node, *, scope: Node) -> Node | None:
 
     Walks the scope's body looking for assignment nodes whose LHS matches the
     identifier's text. Returns the assignment's RHS node, or None if not found.
+
+    Limitations: only direct `name = expr` assignments inside `scope.body` are
+    considered. Function parameters, `for x in ...:` loop variables, `with ... as x:`
+    context-manager bindings, augmented assignments (`x += y`), and conditional
+    branch reassignments (`if cond: x = a; else: x = b`) are NOT followed.
+    Returns the lexically last matching assignment within the body, ignoring
+    control-flow paths.
     """
     if scope is None:
         return None
@@ -181,12 +209,13 @@ def _matches_pattern_via_dataflow(
     """Check `node`'s text — and any value reached by tracing identifier
     bindings within the enclosing function — against the given pattern list.
 
-    Bounded by `_DATAFLOW_TRACE_DEPTH_LIMIT` and a per-call seen-set to prevent
-    infinite recursion on circular bindings (e.g., `a = b; b = a`). Used by
-    `is_user_input` and `is_sanitized` so adaptive scripts get a useful answer
-    when call args are identifiers whose source/sink is several lines above.
+    Bounded by `_DATAFLOW_TRACE_DEPTH_LIMIT` plus a per-call seen-set keyed on
+    (start_byte, end_byte) tuples — stable across tree-sitter Node wrapper
+    recreations — to prevent infinite recursion on circular bindings (e.g.,
+    `a = b; b = a`). Both guards are load-bearing.
     """
-    node_text = source[node.start_byte:node.end_byte]
+    source_bytes = source.encode("utf-8")
+    node_text = source_bytes[node.start_byte:node.end_byte].decode("utf-8")
     if any(p in node_text for p in patterns):
         return True
 
@@ -197,7 +226,7 @@ def _matches_pattern_via_dataflow(
     if scope is None:
         return False
 
-    seen: set[int] = set()
+    seen: set[tuple[int, int]] = set()
     current: Node | None = node
     depth = 0
     while (
@@ -205,14 +234,15 @@ def _matches_pattern_via_dataflow(
         and current.type == "identifier"
         and depth < _DATAFLOW_TRACE_DEPTH_LIMIT
     ):
-        if id(current) in seen:
+        key = (current.start_byte, current.end_byte)
+        if key in seen:
             return False
-        seen.add(id(current))
+        seen.add(key)
 
         resolved = resolve_variable(current, scope=scope)
         if resolved is None:
             return False
-        resolved_text = source[resolved.start_byte:resolved.end_byte]
+        resolved_text = source_bytes[resolved.start_byte:resolved.end_byte].decode("utf-8")
         if any(p in resolved_text for p in patterns):
             return True
         current = resolved

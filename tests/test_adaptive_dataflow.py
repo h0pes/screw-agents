@@ -125,3 +125,23 @@ def test_is_user_input_bounded_on_circular_binding(tmp_path: Path):
     args = get_call_args(call)
     # Must return False without raising (cycle is broken by the seen-set guard).
     assert is_user_input(args[0], language="python", source=source) is False
+
+
+def test_is_user_input_handles_non_ascii_source(tmp_path: Path):
+    """Regression for MF-1: byte-vs-char slicing bug. With a non-ASCII comment
+    upstream of the call, byte offsets exceed equivalent char indices; the
+    pre-fix slice silently returned wrong text and the helper degraded to
+    always-False even on the canonical injection pattern."""
+    source = (
+        "# 日本語のコメント — non-ASCII content shifts byte vs char offsets\n"
+        "def handle(request):\n"
+        "    q = request.args.get('q')\n"
+        "    db.execute(q)\n"
+    )
+    (tmp_path / "a.py").write_text(source, encoding="utf-8")
+    project = ProjectRoot(tmp_path)
+    call = next(find_calls(project, "db.execute"))
+    args = get_call_args(call)
+    # Same source string the helpers will slice into.
+    actual_source = (tmp_path / "a.py").read_text(encoding="utf-8")
+    assert is_user_input(args[0], language="python", source=actual_source) is True

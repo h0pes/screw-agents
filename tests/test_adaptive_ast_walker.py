@@ -140,3 +140,20 @@ def test_find_calls_tolerates_invalid_syntax(tmp_path: Path):
     # Tree-sitter is robust to errors and typically still produces the valid
     # call inside the well-formed `good()` function.
     assert len(calls) >= 0  # primary check: no exception; secondary: probably ==1
+
+
+def test_find_calls_handles_non_ascii_source(tmp_path: Path):
+    """Regression for the byte-vs-char slicing bug that affected
+    _call_callee_text. With a non-ASCII comment upstream, byte offsets
+    exceed equivalent char indices; the pre-fix slice returned misaligned
+    callee text and the pattern matcher silently missed the call site."""
+    (tmp_path / "a.py").write_text(
+        "# 日本語のコメント — non-ASCII shifts byte/char offsets\n"
+        "def handle(req):\n"
+        "    db.execute(req.q)\n",
+        encoding="utf-8",
+    )
+    project = ProjectRoot(tmp_path)
+    calls = list(find_calls(project, "db.execute"))
+    assert len(calls) == 1
+    assert calls[0].file == "a.py"
