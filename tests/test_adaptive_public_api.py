@@ -34,6 +34,13 @@ EXPECTED_PUBLIC_API = {
 
 
 def test_public_api_matches_expected_exactly():
+    # Force-load all submodules so dir(adaptive) is consistent regardless of
+    # which test files have run before us. Without this, the test passes only
+    # by luck of pytest's alphabetic test-file ordering — fragile contract for
+    # what's supposed to be a security-boundary pin.
+    import screw_agents.adaptive.lint  # noqa: F401
+    import screw_agents.adaptive.sandbox.linux  # noqa: F401
+
     import screw_agents.adaptive as adaptive
 
     public_names = {name for name in dir(adaptive) if not name.startswith("_")}
@@ -73,6 +80,13 @@ def test_public_api_matches_expected_exactly():
 
 def test_public_api_count_is_under_25():
     """Curated library should stay small. Over 25 is a red flag for scope creep."""
+    # Force-load all submodules so dir(adaptive) is consistent regardless of
+    # which test files have run before us. Without this, the test passes only
+    # by luck of pytest's alphabetic test-file ordering — fragile contract for
+    # what's supposed to be a security-boundary pin.
+    import screw_agents.adaptive.lint  # noqa: F401
+    import screw_agents.adaptive.sandbox.linux  # noqa: F401
+
     import screw_agents.adaptive as adaptive
 
     public_count = len([n for n in dir(adaptive) if not n.startswith("_")])
@@ -87,6 +101,13 @@ def test_all_matches_expected_exactly():
     import to __init__.py and updates EXPECTED_PUBLIC_API while forgetting
     to update __all__ would silently break `from screw_agents.adaptive import *`
     semantics for adaptive scripts. This test pins the star-import contract."""
+    # Force-load all submodules so dir(adaptive) is consistent regardless of
+    # which test files have run before us. Without this, the test passes only
+    # by luck of pytest's alphabetic test-file ordering — fragile contract for
+    # what's supposed to be a security-boundary pin.
+    import screw_agents.adaptive.lint  # noqa: F401
+    import screw_agents.adaptive.sandbox.linux  # noqa: F401
+
     import screw_agents.adaptive as adaptive
 
     assert set(adaptive.__all__) == EXPECTED_PUBLIC_API, (

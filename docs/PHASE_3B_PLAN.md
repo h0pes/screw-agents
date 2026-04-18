@@ -2040,6 +2040,35 @@ passed regardless of whether the timeout enforcement worked. Each
 script now ends with `analyze(None)` so the function body actually
 runs and the test exercises its security property.
 
+**SECURITY HARDENING (post-Layer-5-review):** quality review of the original
+spec found 3 BLOCKERS (working API-key exfiltration via /proc/1/environ,
+fork-bomb DoS of host PID space, stdout-buffer parent OOM) plus 5 MUST-FIX
+hardenings (RLIMIT_FSIZE, /etc/resolv.conf disclosure, --hostname masking,
+NOFILE floor too low, public-API test order fragility). All closed in
+follow-up commit; see commit log on phase-3b-pr4 branch. The shipped
+linux.py has additional flags and behaviors not shown in the code fence above:
+- TWO-LAYER environment hygiene: subprocess.run is invoked with `env={}`
+  so the bwrap process itself has no inherited env (closes the actual
+  /proc/1/environ vector), PLUS `--clearenv` + explicit `--setenv` of
+  PYTHONDONTWRITEBYTECODE / PATH / HOME / LANG / SCREW_FINDINGS_PATH /
+  SCREW_PROJECT_ROOT for the bwrap-to-Python boundary. Verified by
+  regression test: real ANTHROPIC_API_KEY does not leak.
+- `--hostname sandbox` masks the host system name
+- `--chdir /` resets CWD/PWD inside the sandbox to / (without it the
+  parent's worktree path leaks through)
+- `--tmpfs /etc` + `--remount-ro /etc` keeps /etc read-only after binding
+  ld.so.cache (default leaves /etc writable on the root tmpfs)
+- `--remount-ro /` keeps the root tmpfs itself read-only after all binds
+  (default leaves / writable so a script could create /anything)
+- RLIMIT_NPROC dynamically computed (`baseline + 64 + 128` headroom)
+  rather than static 64; static 64 prevents bwrap from cloning on any
+  desktop with >50 baseline processes. RLIMIT_FSIZE=4MB,
+  RLIMIT_NOFILE=256 in preexec.
+- Bounded tempfile capture for stdout/stderr (replaces capture_output=True)
+- /etc/resolv.conf bind dropped
+- New isolation regression test file:
+  tests/test_adaptive_sandbox_linux_isolation.py (13 assertion-pinned tests)
+
 Create `tests/test_adaptive_sandbox_linux.py`:
 
 ```python
