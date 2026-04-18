@@ -39,15 +39,26 @@ def test_public_api_matches_expected_exactly():
     public_names = {name for name in dir(adaptive) if not name.startswith("_")}
     # Allow a small set of standard exports (Python magic, re-exports from deps).
     # Python attaches submodules as attributes on the parent package whenever
-    # `from package.submodule import ...` runs (PEP 328 + the import system's
-    # parent-binding rule). The 4 entries here mirror the `from screw_agents.
-    # adaptive.{name} import ...` lines in __init__.py and grow only when a new
-    # submodule import lands. Layer 0b enforcement against direct submodule
-    # access lives in the AST allowlist lint (Task 7), not here.
-    # MAINTENANCE RULE: this set must equal exactly the submodule names appearing
-    # in `from screw_agents.adaptive.X import ...` lines of __init__.py. When you
-    # add or remove such an import, update this whitelist in the same commit.
-    allowed_extras = {"ast_walker", "dataflow", "findings", "project"}
+    # ANY code runs `from screw_agents.adaptive.X import ...` (PEP 328 + the
+    # import system's parent-binding rule) — including test files, not just
+    # __init__.py. The whitelist here covers (a) submodules imported by
+    # __init__.py for the public re-export surface and (b) submodules imported
+    # only by test files (e.g., `lint` is imported by tests/test_adaptive_lint.py
+    # but is intentionally NOT re-exported through __init__.py — adaptive
+    # scripts cannot do `from screw_agents.adaptive import lint` because `lint`
+    # is not in __init__.py's namespace).
+    #
+    # Layer 0b enforcement against direct submodule access from adaptive scripts
+    # lives in the AST allowlist lint (Task 7), not here. The other contract
+    # test in this file (test_all_matches_expected_exactly) verifies that
+    # __all__ does NOT include any of these submodule names, so star-imports
+    # remain curated.
+    #
+    # MAINTENANCE RULE: this set must equal exactly the direct submodules of
+    # screw_agents.adaptive that get loaded into sys.modules during the test
+    # session. When a new submodule lands (whether imported by __init__.py or
+    # only by its own test file), update this whitelist in the same commit.
+    allowed_extras = {"ast_walker", "dataflow", "findings", "lint", "project"}
     assert public_names - allowed_extras == EXPECTED_PUBLIC_API, (
         f"Public API drift: {public_names - EXPECTED_PUBLIC_API} added, "
         f"{EXPECTED_PUBLIC_API - public_names} removed"
