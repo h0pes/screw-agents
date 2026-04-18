@@ -124,8 +124,8 @@ Phase 3b is bracketed by Phase 3a completion on one side and Phase 4 start on th
 | `src/screw_agents/adaptive/__init__.py` | Public exports of the helper library (`ProjectRoot`, `find_calls`, `trace_dataflow`, `emit_finding`, etc.) | PR #4 |
 | `src/screw_agents/adaptive/project.py` | `ProjectRoot` filesystem chokepoint | PR #4 |
 | `src/screw_agents/adaptive/ast_walker.py` | `parse_ast`, `walk_ast`, `find_calls`, `find_imports`, `find_class_definitions` | PR #4 |
-| `src/screw_agents/adaptive/dataflow.py` | `trace_dataflow`, `is_user_input`, `is_sanitized`, `get_call_args`, `get_parent_function`, `resolve_variable` | PR #4 |
-| `src/screw_agents/adaptive/findings.py` | `emit_finding`, Finding output buffer, `match_pattern` | PR #4 |
+| `src/screw_agents/adaptive/dataflow.py` | `trace_dataflow`, `is_user_input`, `is_sanitized`, `match_pattern`, `get_call_args`, `get_parent_function`, `resolve_variable` | PR #4 |
+| `src/screw_agents/adaptive/findings.py` | `emit_finding`, Finding output buffer | PR #4 |
 | `src/screw_agents/adaptive/lint.py` | AST allowlist lint (Layer 1) | PR #4 |
 | `src/screw_agents/adaptive/sandbox/__init__.py` | Sandbox backend dispatch (Linux/macOS) | PR #4 |
 | `src/screw_agents/adaptive/sandbox/linux.py` | `bubblewrap`-based sandbox | PR #4 |
@@ -182,10 +182,10 @@ Task 2 (adaptive/project.py: ProjectRoot filesystem chokepoint)
 Task 3 (adaptive/ast_walker.py: parse_ast + find_calls + find_imports + find_class_definitions)
     │
     ▼
-Task 4 (adaptive/dataflow.py: trace_dataflow, is_user_input, is_sanitized, get_call_args)
+Task 4 (adaptive/dataflow.py: trace_dataflow, is_user_input, is_sanitized, match_pattern, get_call_args)
     │
     ▼
-Task 5 (adaptive/findings.py: emit_finding + output buffer + match_pattern)
+Task 5 (adaptive/findings.py: emit_finding + output buffer)
     │
     ▼
 Task 6 (adaptive/__init__.py: public API surface — curated ~15 exports only)
@@ -1479,6 +1479,7 @@ EXPECTED_PUBLIC_API = {
     "trace_dataflow",
     "is_user_input",
     "is_sanitized",
+    "match_pattern",
     "get_call_args",
     "get_parent_function",
     "resolve_variable",
@@ -1578,6 +1579,7 @@ from screw_agents.adaptive.dataflow import (
     get_parent_function,
     is_sanitized,
     is_user_input,
+    match_pattern,
     resolve_variable,
     trace_dataflow,
 )
@@ -1601,6 +1603,7 @@ __all__ = [
     "trace_dataflow",
     "is_user_input",
     "is_sanitized",
+    "match_pattern",
     "get_call_args",
     "get_parent_function",
     "resolve_variable",

@@ -12,6 +12,7 @@ from screw_agents.adaptive.dataflow import (
     get_parent_function,
     is_sanitized,
     is_user_input,
+    match_pattern,
     resolve_variable,
     trace_dataflow,
 )
@@ -125,6 +126,27 @@ def test_is_user_input_bounded_on_circular_binding(tmp_path: Path):
     args = get_call_args(call)
     # Must return False without raising (cycle is broken by the seen-set guard).
     assert is_user_input(args[0], language="python", source=source) is False
+
+
+def test_match_pattern_custom_orm_sink(tmp_path: Path):
+    """match_pattern lets adaptive scripts detect project-specific sinks
+    using their own pattern lists, beyond the hardcoded source/sanitizer
+    lists used by is_user_input/is_sanitized. Verifies the bounded
+    dataflow trace works through the public entry point."""
+    source = (
+        "def handle(request):\n"
+        "    raw_sql = request.args.get('q')\n"
+        "    MyORM.run_unsafe(raw_sql)\n"
+    )
+    (tmp_path / "a.py").write_text(source)
+    project = ProjectRoot(tmp_path)
+    call = next(find_calls(project, "MyORM.run_unsafe"))
+    args = get_call_args(call)
+    # `raw_sql` resolves to `request.args.get('q')` via dataflow trace —
+    # caller-supplied pattern hits in the resolved RHS text.
+    assert match_pattern(args[0], source=source, patterns=["request.args"]) is True
+    # Caller-supplied pattern not in chain — returns False.
+    assert match_pattern(args[0], source=source, patterns=["nothing.matches"]) is False
 
 
 def test_is_user_input_handles_non_ascii_source(tmp_path: Path):

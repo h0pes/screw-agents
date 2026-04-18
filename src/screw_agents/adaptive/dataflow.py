@@ -130,6 +130,35 @@ def is_sanitized(node: Node, *, language: str, source: str) -> bool:
     )
 
 
+def match_pattern(node: Node, *, source: str, patterns: list[str]) -> bool:
+    """Public entry point to the bounded dataflow-traced pattern matcher.
+
+    Use when you need to check a node against project-specific patterns
+    beyond the hardcoded `_USER_INPUT_SOURCES` / `_SANITIZERS` lists used
+    by `is_user_input` / `is_sanitized`. Same semantics: direct text check
+    first, then bounded identifier-binding trace within the enclosing
+    function (depth-limited, cycle-detected).
+
+    Adaptive scripts use this to detect project-specific abstractions —
+    custom ORMs, in-house templating engines, proprietary frameworks —
+    that the YAML-encoded pattern lists cannot anticipate. Without it,
+    adaptive scripts would either re-implement the trace algorithm or
+    fall back to text-only checks that lose dataflow precision.
+
+    Example: detecting a project-specific ORM sink:
+        if match_pattern(arg, source=src, patterns=["MyORM.run_unsafe"]):
+            emit_finding(cwe="CWE-89", ...)
+
+    Chain semantics for adaptive script authors:
+    - The trace follows ONLY `name1 = name2`-style identifier bindings.
+    - Terminates at call/attribute/subscript RHSs (e.g., `x = obj.attr` ends
+      there); the terminator's text gets a single pattern check.
+    - Function parameters, loop variables, context-manager bindings, and
+      module-level assignments are not resolvable.
+    """
+    return _matches_pattern_via_dataflow(node, source=source, patterns=patterns)
+
+
 def get_call_args(call_site) -> list[Node]:
     """Extract the argument nodes from a CallSite (or raw tree-sitter call node).
 
