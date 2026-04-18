@@ -42,11 +42,14 @@ def test_public_api_matches_expected_exactly():
     # ANY code runs `from screw_agents.adaptive.X import ...` (PEP 328 + the
     # import system's parent-binding rule) — including test files, not just
     # __init__.py. The whitelist here covers (a) submodules imported by
-    # __init__.py for the public re-export surface and (b) submodules imported
+    # __init__.py for the public re-export surface, (b) submodules imported
     # only by test files (e.g., `lint` is imported by tests/test_adaptive_lint.py
     # but is intentionally NOT re-exported through __init__.py — adaptive
     # scripts cannot do `from screw_agents.adaptive import lint` because `lint`
-    # is not in __init__.py's namespace).
+    # is not in __init__.py's namespace), and (c) submodule PACKAGES with
+    # nested submodules (e.g., `sandbox` is a package containing linux.py and
+    # later macos.py; importing sandbox.linux attaches `sandbox` to the parent
+    # package and then `linux` to `sandbox`).
     #
     # Layer 0b enforcement against direct submodule access from adaptive scripts
     # lives in the AST allowlist lint (Task 7), not here. The other contract
@@ -54,11 +57,14 @@ def test_public_api_matches_expected_exactly():
     # __all__ does NOT include any of these submodule names, so star-imports
     # remain curated.
     #
-    # MAINTENANCE RULE: this set must equal exactly the direct submodules of
-    # screw_agents.adaptive that get loaded into sys.modules during the test
-    # session. When a new submodule lands (whether imported by __init__.py or
-    # only by its own test file), update this whitelist in the same commit.
-    allowed_extras = {"ast_walker", "dataflow", "findings", "lint", "project"}
+    # MAINTENANCE RULE: this set must equal exactly the direct submodules
+    # (modules + packages) of screw_agents.adaptive that get loaded into
+    # sys.modules during ANY pytest session, regardless of test ordering.
+    # When a new submodule lands (whether imported by __init__.py or only by
+    # its own test file), update this whitelist in the same commit. Without
+    # this, the test passes by luck of alphabetic test-file ordering and fails
+    # when run in a different order — fragile contract for a security boundary.
+    allowed_extras = {"ast_walker", "dataflow", "findings", "lint", "project", "sandbox"}
     assert public_names - allowed_extras == EXPECTED_PUBLIC_API, (
         f"Public API drift: {public_names - EXPECTED_PUBLIC_API} added, "
         f"{EXPECTED_PUBLIC_API - public_names} removed"
