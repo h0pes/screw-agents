@@ -388,6 +388,102 @@ At CWE-1400 expansion scale (41 agents × ~5-7k tokens prompt each + all code), 
 
 **Estimated scope:** ~5-10 LOC of prompt text + round-trip validation.
 
+### T11-N1 — Signature-path regression test for `execute_script`
+**Source:** Phase 3b PR #4 Task 11 quality review (commit `da24076`), 2026-04-18
+**File:** `tests/test_adaptive_executor.py`
+**Priority:** Medium (Layer 3 integration untested end-to-end)
+
+**Why deferred:** The executor's Layer 3 signature verification
+(`verify_script(source, meta, config)`) is currently covered only via the
+`skip_trust_checks=True` test gate plus `trust.py`'s existing unit-test
+suite for `verify_script` itself. There is NO end-to-end test that
+constructs a real Ed25519-signed script + metadata, runs it through
+`execute_script(skip_trust_checks=False)`, and asserts `SignatureFailure`
+on tampered signature / `AdaptiveScriptResult` on valid signature.
+Requires a signing helper that generates a test fixture (private key →
+sign script bytes → embed signature in meta YAML). Task 13 (init-trust
+CLI) will ship a reusable signing helper which makes the fixture trivial
+to write.
+
+**Trigger:** When Task 13 (init-trust CLI) lands a reusable signing helper
+OR when a regression in `trust.verify_script` integration is suspected.
+
+**Suggested approach:**
+1. Add a pytest fixture that generates an ephemeral Ed25519 keypair via
+   `cryptography.hazmat.primitives.asymmetric.ed25519.Ed25519PrivateKey.generate()`.
+2. Fixture signs a sample script + metadata (via `trust.sign_content` +
+   `trust.canonicalize_script`).
+3. Fixture seeds `.screw/config.yaml` with the corresponding public key
+   as a `script_reviewer`.
+4. Two tests: valid-signature happy path + tampered-signature `SignatureFailure`.
+
+**Estimated scope:** ~60 LOC (fixture + 2 tests). Small PR.
+
+### T11-M2 — Opt-in `require_all_target_patterns` metadata flag
+**Source:** Phase 3b PR #4 Task 11 quality review (commit `da24076`), 2026-04-18
+**File:** `src/screw_agents/adaptive/executor.py` `_is_stale` + `src/screw_agents/models.py` `AdaptiveScriptMeta`
+**Priority:** Low (current semantic is acceptable Phase 3b default)
+
+**Why deferred:** `_is_stale` currently returns False as soon as ANY
+target_pattern matches at least one call site in the project. A script
+declaring three target patterns where only one is present still runs
+against "stale context" for the other two patterns. This is the liberal
+"best-effort" default appropriate for Phase 3b's adaptive-script
+generation model. Some future adaptive scripts may want strict semantics
+("only run if ALL patterns still exist") to avoid producing irrelevant
+findings against partially-obsolete code.
+
+**Trigger:** When a real-world adaptive script produces noisy findings
+because partial target_patterns are out-of-date, OR when autoresearch
+(Phase 4) feedback flags the ANY semantic as a false-positive source.
+
+**Suggested approach:**
+1. Add `require_all_target_patterns: bool = False` to `AdaptiveScriptMeta`.
+2. Update `_is_stale`: if the flag is True, require ALL patterns present
+   (not ANY). Default False preserves current behavior.
+3. Add a test covering each of the four combinations (flag on/off × patterns
+   partial/complete).
+4. Document in the adaptive-scripts authoring guide (Task 14+).
+
+**Estimated scope:** ~20 LOC + 4 tests. Trivial.
+
+### T11-N2 — `MetadataError` exception wrapper for meta-load failures
+**Source:** Phase 3b PR #4 Task 11 quality review (commit `da24076`), 2026-04-18
+**File:** `src/screw_agents/adaptive/executor.py`
+**Priority:** Low (code polish, not functional)
+
+**Why deferred:** `execute_script` currently propagates raw `yaml.YAMLError`
+(from `yaml.safe_load(meta_path.read_text(...))`) and raw
+`pydantic.ValidationError` (from `AdaptiveScriptMeta(**raw)`) to callers.
+Both propagate cleanly but break the executor's otherwise-consistent
+exception-family design (`LintFailure` / `HashMismatch` / `SignatureFailure`
+are all executor-owned `RuntimeError` subclasses). Task 12's MCP tool
+wiring will need to catch and surface these; a unified `MetadataError`
+wrapper would give that layer a single exception-family to catch.
+
+**Trigger:** When Task 12 implements the MCP tool wiring and needs to
+surface meta-load errors cleanly to the subagent caller.
+
+**Suggested approach:**
+1. Add `MetadataError(RuntimeError)` to the executor module.
+2. Wrap the two error sources in `execute_script`:
+   ```python
+   try:
+       meta_raw = yaml.safe_load(meta_path.read_text(encoding="utf-8"))
+   except yaml.YAMLError as exc:
+       raise MetadataError(f"invalid YAML in {meta_path}: {exc}") from exc
+   try:
+       meta = AdaptiveScriptMeta(**meta_raw)
+   except ValidationError as exc:
+       raise MetadataError(f"malformed metadata in {meta_path}: {exc}") from exc
+   ```
+3. Task 12's MCP tool handler catches `MetadataError` alongside the
+   other 3 executor exception types.
+4. Add test `test_executor_wraps_meta_load_errors` that asserts
+   `MetadataError` is raised on invalid YAML and on malformed meta.
+
+**Estimated scope:** ~15 LOC + 2 tests. Trivial.
+
 ---
 
 ## Shipped
