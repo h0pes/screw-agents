@@ -126,3 +126,180 @@ def test_lint_rejects_try_except_star():
     assert report.passed is False
     assert any("except*" in v.message or "exception group" in v.message.lower()
                for v in report.violations)
+
+
+def test_lint_rejects_nested_import():
+    """Nested `import subprocess` inside analyze must be rejected — was the
+    most damaging Layer 1 escape per security review (PR #4 exit criteria
+    require socket/subprocess attempts to fail at lint OR sandbox)."""
+    script = (
+        "from screw_agents.adaptive import ProjectRoot\n"
+        "def analyze(project):\n"
+        "    import subprocess\n"
+        "    subprocess.run(['echo', 'pwned'])\n"
+    )
+    report = lint_script(script)
+    assert report.passed is False
+    assert any("subprocess" in v.message and v.rule == "disallowed_import"
+               for v in report.violations)
+
+
+def test_lint_rejects_nested_importfrom():
+    """`from os import system` inside analyze must be rejected (same gap as
+    above, ImportFrom variant)."""
+    script = (
+        "from screw_agents.adaptive import ProjectRoot\n"
+        "def analyze(project):\n"
+        "    from os import system\n"
+        "    system('id')\n"
+    )
+    report = lint_script(script)
+    assert report.passed is False
+    assert any(v.rule == "disallowed_import" and "os" in v.message
+               for v in report.violations)
+
+
+def test_lint_rejects_nested_import_in_branch():
+    """Nested import inside conditional branches still rejected."""
+    script = (
+        "from screw_agents.adaptive import ProjectRoot\n"
+        "def analyze(project):\n"
+        "    if True:\n"
+        "        import socket\n"
+    )
+    report = lint_script(script)
+    assert report.passed is False
+    assert any(v.rule == "disallowed_import" for v in report.violations)
+
+
+def test_lint_rejects_class_definition():
+    """`class C: ...` anywhere is forbidden — class bodies enable the
+    custom-__getattribute__ escape that bypasses dunder checks on the AST."""
+    script = (
+        "from screw_agents.adaptive import ProjectRoot\n"
+        "def analyze(project):\n"
+        "    class Sneaky:\n"
+        "        def __getattribute__(self, name):\n"
+        "            return type.__call__\n"
+    )
+    report = lint_script(script)
+    assert report.passed is False
+    assert any(v.rule == "forbidden_classdef" for v in report.violations)
+
+
+def test_lint_rejects_breakpoint():
+    """breakpoint() launches pdb (or PYTHONBREAKPOINT-configured callable) — escape vector."""
+    script = (
+        "from screw_agents.adaptive import ProjectRoot\n"
+        "def analyze(project):\n"
+        "    breakpoint()\n"
+    )
+    report = lint_script(script)
+    assert report.passed is False
+    assert any("breakpoint" in v.message for v in report.violations)
+
+
+def test_lint_rejects_help():
+    """help() opens a pager which under some configurations forks less/more."""
+    script = (
+        "from screw_agents.adaptive import ProjectRoot\n"
+        "def analyze(project):\n"
+        "    help('os.system')\n"
+    )
+    report = lint_script(script)
+    assert report.passed is False
+    assert any("help" in v.message for v in report.violations)
+
+
+def test_lint_rejects_super():
+    """super() reaches object dunders if a class slips through — defense in depth."""
+    script = (
+        "from screw_agents.adaptive import ProjectRoot\n"
+        "def analyze(project):\n"
+        "    super().__init__()\n"
+    )
+    report = lint_script(script)
+    assert report.passed is False
+    assert any("super" in v.message for v in report.violations)
+
+
+def test_lint_rejects_dunder_name_lookup():
+    """`__builtins__` (Name lookup, not Attribute access) must be flagged
+    via the blanket dunder-name rule. Same for __import__, etc."""
+    script = (
+        "from screw_agents.adaptive import ProjectRoot\n"
+        "def analyze(project):\n"
+        "    x = __builtins__\n"
+    )
+    report = lint_script(script)
+    assert report.passed is False
+    assert any(v.rule == "forbidden_dunder_name" and "__builtins__" in v.message
+               for v in report.violations)
+
+
+def test_lint_rejects_arbitrary_dunder_attribute():
+    """Blanket dunder-attribute rule catches ANY __x__ access, not just the
+    handful that were on the previous _FORBIDDEN_DUNDERS list. e.g. obj.__dict__."""
+    script = (
+        "from screw_agents.adaptive import ProjectRoot\n"
+        "def analyze(project):\n"
+        "    x = project.__dict__\n"
+    )
+    report = lint_script(script)
+    assert report.passed is False
+    assert any(v.rule == "forbidden_dunder_attr" and "__dict__" in v.message
+               for v in report.violations)
+
+
+def test_lint_rejects_getattribute_method_call():
+    """obj.__getattribute__('x') is a dunder attribute access — caught
+    by blanket rule even though it's a 'method' not a typical dunder."""
+    script = (
+        "from screw_agents.adaptive import ProjectRoot\n"
+        "def analyze(project):\n"
+        "    x = project.__getattribute__('something')\n"
+    )
+    report = lint_script(script)
+    assert report.passed is False
+    assert any(v.rule == "forbidden_dunder_attr" and "__getattribute__" in v.message
+               for v in report.violations)
+
+
+def test_lint_rejects_global_statement():
+    """`global x` reaches module-level namespace; combined with nested imports
+    enables more flexible escape patterns."""
+    script = (
+        "from screw_agents.adaptive import ProjectRoot\n"
+        "def analyze(project):\n"
+        "    global x\n"
+        "    x = 1\n"
+    )
+    report = lint_script(script)
+    assert report.passed is False
+    assert any(v.rule == "forbidden_global" for v in report.violations)
+
+
+def test_lint_rejects_yield_in_analyze():
+    """yield turns analyze into a generator → executor never iterates → silent
+    no-op (no findings emitted). Behavioral footgun caught at lint time."""
+    script = (
+        "from screw_agents.adaptive import ProjectRoot\n"
+        "def analyze(project):\n"
+        "    yield 1\n"
+    )
+    report = lint_script(script)
+    assert report.passed is False
+    assert any(v.rule == "forbidden_yield" for v in report.violations)
+
+
+def test_lint_rejects_exception_group_construction():
+    """try/except* is blocked, but `raise ExceptionGroup(...)` constructs
+    the same class directly — close the loop."""
+    script = (
+        "from screw_agents.adaptive import ProjectRoot\n"
+        "def analyze(project):\n"
+        "    raise ExceptionGroup('x', [Exception()])\n"
+    )
+    report = lint_script(script)
+    assert report.passed is False
+    assert any("ExceptionGroup" in v.message for v in report.violations)

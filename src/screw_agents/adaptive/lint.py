@@ -18,16 +18,22 @@ Inside `analyze`:
 
 ## Forbidden constructs
 
-- Any import outside `screw_agents.adaptive`
-- `eval`, `exec`, `compile`
-- `getattr` with non-literal second argument
-- `setattr`, `delattr`
-- Any `__builtins__`, `__class__`, `__bases__`, `__subclasses__`, `__globals__`,
-  `__mro__`, `__import__`
-- Raw `open()`
-- `print` (scripts emit via `emit_finding`, not print)
-- `try/except*` / ExceptionGroup (defensive against CVE-2025-22153 class)
-- `async def` / `await`
+- Any import outside `screw_agents.adaptive` — anywhere, not just top level
+- `eval`, `exec`, `compile`, `setattr`, `delattr`, `open`, `print`, `input`,
+  `globals`, `locals`, `vars`, `breakpoint`, `help`, `super`, `memoryview`,
+  `ExceptionGroup`, `BaseExceptionGroup` (forbidden builtin name lookups)
+- ANY dunder name lookup (`__import__`, `__builtins__`, ...) or attribute
+  access (`x.__class__`, `obj.__dict__`, `obj.__reduce__`, ...) — blanket
+  rule, no per-dunder list to maintain
+- `getattr(x, name)` where `name` is not a string literal
+- `class` definitions anywhere in the script (would enable
+  custom-`__getattribute__` escape paths; adaptive scripts have no
+  legitimate use for classes)
+- `global` and `nonlocal` statements
+- `yield` and `yield from` (would turn `analyze` into a generator, which
+  the executor never iterates → silent no-op)
+- `try / except*` / ExceptionGroup syntax (defensive against CVE-2025-22153 class)
+- `async def` and `await` anywhere
 - Any top-level statement other than imports and the `analyze` def
 """
 
@@ -60,18 +66,28 @@ class LintReport:
 
 _ALLOWED_IMPORT_MODULES = {"screw_agents.adaptive"}
 _FORBIDDEN_NAMES = {
+    # Code execution
     "eval", "exec", "compile",
-    "__import__", "__builtins__",
+    # Mutation
     "setattr", "delattr",
-    "open",
-    "print",  # scripts use emit_finding, not print
-    "input",
+    # I/O
+    "open", "print", "input",
+    # Namespace introspection
     "globals", "locals", "vars",
+    # Debugger / pager (could fork or block on stdin)
+    "breakpoint", "help",
+    # Inheritance escape (could reach object dunders if a class slips through)
+    "super",
+    # Buffer protocol (memory views can enable shared-memory tricks)
+    "memoryview",
+    # Direct construction of exception groups (CVE-2025-22153 class)
+    "ExceptionGroup", "BaseExceptionGroup",
 }
-_FORBIDDEN_DUNDERS = {
-    "__class__", "__bases__", "__subclasses__", "__globals__",
-    "__mro__", "__init_subclass__", "__builtins__",
-}
+
+
+def _is_dunder(name: str) -> bool:
+    """Return True if `name` is a dunder (`__x__` pattern, length >= 5)."""
+    return len(name) >= 5 and name.startswith("__") and name.endswith("__")
 
 
 def lint_script(source: str) -> LintReport:
@@ -105,38 +121,24 @@ def lint_script(source: str) -> LintReport:
 
 
 def _check_top_level_structure(tree: ast.Module, violations: list[LintViolation]) -> None:
-    """Enforce: only imports from adaptive package + exactly one `analyze` function at module level."""
-    analyze_found = False
+    """Enforce: only imports + exactly one `def analyze` are allowed at module level.
 
+    Import-module allowlisting and async/forbidden-construct checks happen in the
+    per-node walk (_check_node), so they apply to nested constructs too.
+    """
+    analyze_found = False
     for node in tree.body:
-        if isinstance(node, ast.ImportFrom):
-            if node.module not in _ALLOWED_IMPORT_MODULES:
-                violations.append(LintViolation(
-                    rule="disallowed_import",
-                    message=f"top-level import from {node.module!r} not allowed; only {_ALLOWED_IMPORT_MODULES}",
-                    line=node.lineno,
-                ))
-        elif isinstance(node, ast.Import):
-            violations.append(LintViolation(
-                rule="disallowed_import",
-                message=f"`import {node.names[0].name}` not allowed; use `from screw_agents.adaptive import ...`",
-                line=node.lineno,
-            ))
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            pass  # Import-allowability handled by walk
         elif isinstance(node, ast.FunctionDef) and node.name == "analyze":
             analyze_found = True
-        elif isinstance(node, ast.AsyncFunctionDef):
-            violations.append(LintViolation(
-                rule="async_def",
-                message="async def not allowed; use synchronous def analyze()",
-                line=node.lineno,
-            ))
         else:
+            # Anything else at top level: rejected
             violations.append(LintViolation(
                 rule="top_level_code",
                 message=f"top-level {type(node).__name__} not allowed; only imports and `def analyze`",
                 line=node.lineno,
             ))
-
     if not analyze_found:
         violations.append(LintViolation(
             rule="missing_analyze",
@@ -154,7 +156,7 @@ def _walk_and_check(tree: ast.Module, violations: list[LintViolation]) -> None:
 def _check_node(node: ast.AST, violations: list[LintViolation]) -> None:
     line = getattr(node, "lineno", 0)
 
-    # Forbidden name lookups (eval, exec, compile, open, etc.)
+    # Forbidden builtin name lookups (eval, exec, open, breakpoint, etc.)
     if isinstance(node, ast.Name) and node.id in _FORBIDDEN_NAMES:
         violations.append(LintViolation(
             rule="forbidden_name",
@@ -162,11 +164,39 @@ def _check_node(node: ast.AST, violations: list[LintViolation]) -> None:
             line=line,
         ))
 
-    # Forbidden attribute access (dunders)
-    if isinstance(node, ast.Attribute) and node.attr in _FORBIDDEN_DUNDERS:
+    # Blanket dunder check on Name lookups (catches __import__, __builtins__,
+    # __class__, etc. without maintaining a per-name list)
+    if isinstance(node, ast.Name) and _is_dunder(node.id):
         violations.append(LintViolation(
-            rule="forbidden_dunder",
-            message=f"forbidden attribute access: {node.attr}",
+            rule="forbidden_dunder_name",
+            message=f"forbidden dunder name: {node.id}",
+            line=line,
+        ))
+
+    # Blanket dunder check on Attribute access (catches __class__, __dict__,
+    # __getattribute__, __reduce__, every metaclass/protocol attr)
+    if isinstance(node, ast.Attribute) and _is_dunder(node.attr):
+        violations.append(LintViolation(
+            rule="forbidden_dunder_attr",
+            message=f"forbidden dunder attribute access: {node.attr}",
+            line=line,
+        ))
+
+    # Imports: only `from screw_agents.adaptive import ...` is allowed,
+    # ANYWHERE in the script (not just top level — nested imports were the
+    # most damaging Layer 1 escape per security review)
+    if isinstance(node, ast.ImportFrom):
+        if node.module not in _ALLOWED_IMPORT_MODULES:
+            module_repr = repr(node.module) if node.module is not None else "<relative>"
+            violations.append(LintViolation(
+                rule="disallowed_import",
+                message=f"import from {module_repr} not allowed; only {_ALLOWED_IMPORT_MODULES}",
+                line=line,
+            ))
+    if isinstance(node, ast.Import):
+        violations.append(LintViolation(
+            rule="disallowed_import",
+            message=f"`import {node.names[0].name}` not allowed; use `from screw_agents.adaptive import ...`",
             line=line,
         ))
 
@@ -179,7 +209,41 @@ def _check_node(node: ast.AST, violations: list[LintViolation]) -> None:
                 line=line,
             ))
 
-    # try/except* (exception groups — CVE-2025-22153 defense)
+    # Class definitions are forbidden ANYWHERE — adaptive scripts have no
+    # legitimate use for class definitions, and class bodies enable the
+    # custom-__getattribute__ / metaclass escape paths that bypass the
+    # dunder check on the AST surface.
+    if isinstance(node, ast.ClassDef):
+        violations.append(LintViolation(
+            rule="forbidden_classdef",
+            message=f"class definition not allowed: {node.name}",
+            line=line,
+        ))
+
+    # global / nonlocal — reach module-level / enclosing-scope namespace
+    if isinstance(node, ast.Global):
+        violations.append(LintViolation(
+            rule="forbidden_global",
+            message=f"global statement not allowed (names: {', '.join(node.names)})",
+            line=line,
+        ))
+    if isinstance(node, ast.Nonlocal):
+        violations.append(LintViolation(
+            rule="forbidden_nonlocal",
+            message=f"nonlocal statement not allowed (names: {', '.join(node.names)})",
+            line=line,
+        ))
+
+    # yield / yield from — turn `analyze` into a generator, which the
+    # executor never iterates → silent no-op (no findings emitted)
+    if isinstance(node, (ast.Yield, ast.YieldFrom)):
+        violations.append(LintViolation(
+            rule="forbidden_yield",
+            message="yield/yield-from in analyze turns it into a generator (silent no-op); not allowed",
+            line=line,
+        ))
+
+    # try/except* — exception groups (CVE-2025-22153 defense)
     if isinstance(node, ast.Try):
         for handler in node.handlers:
             if getattr(handler, "is_star", False):
@@ -188,7 +252,6 @@ def _check_node(node: ast.AST, violations: list[LintViolation]) -> None:
                     message="try/except* (ExceptionGroup) is forbidden",
                     line=line,
                 ))
-    # In newer Python, ast.TryStar is a separate node type
     if type(node).__name__ == "TryStar":
         violations.append(LintViolation(
             rule="exception_group",
@@ -196,7 +259,7 @@ def _check_node(node: ast.AST, violations: list[LintViolation]) -> None:
             line=line,
         ))
 
-    # async def inside a function (we already catch at top level, but nested counts too)
+    # async def — anywhere
     if isinstance(node, ast.AsyncFunctionDef):
         violations.append(LintViolation(
             rule="async_def",
@@ -204,7 +267,7 @@ def _check_node(node: ast.AST, violations: list[LintViolation]) -> None:
             line=line,
         ))
 
-    # await (same reason)
+    # await
     if isinstance(node, ast.Await):
         violations.append(LintViolation(
             rule="await",

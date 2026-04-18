@@ -1776,6 +1776,14 @@ Expected: FAIL with ImportError
 
 - [ ] **Step 3: Implement the AST allowlist lint**
 
+**NOTE (post-review):** The shipped `lint.py` is more comprehensive than this
+code fence shows. Security review of the original spec found 3 BLOCKERS + 6
+MUST-FIX gaps (nested imports, class definitions, custom-getattribute escape,
+breakpoint/help/super/memoryview/ExceptionGroup builtins, blanket dunder
+blocking instead of the original maintained list, global/nonlocal, yield,
+expanded test coverage). See commit history on phase-3b-pr4 branch for the
+full shipped impl. The bullet list above describes the actual rules.
+
 Create `src/screw_agents/adaptive/lint.py`:
 
 ```python
@@ -1799,16 +1807,22 @@ Inside `analyze`:
 
 ## Forbidden constructs
 
-- Any import outside `screw_agents.adaptive`
-- `eval`, `exec`, `compile`
-- `getattr` with non-literal second argument
-- `setattr`, `delattr`
-- Any `__builtins__`, `__class__`, `__bases__`, `__subclasses__`, `__globals__`,
-  `__mro__`, `__import__`
-- Raw `open()`
-- `print` (scripts emit via `emit_finding`, not print)
-- `try/except*` / ExceptionGroup (defensive against CVE-2025-22153 class)
-- `async def` / `await`
+- Any import outside `screw_agents.adaptive` — anywhere, not just top level
+- `eval`, `exec`, `compile`, `setattr`, `delattr`, `open`, `print`, `input`,
+  `globals`, `locals`, `vars`, `breakpoint`, `help`, `super`, `memoryview`,
+  `ExceptionGroup`, `BaseExceptionGroup` (forbidden builtin name lookups)
+- ANY dunder name lookup (`__import__`, `__builtins__`, ...) or attribute
+  access (`x.__class__`, `obj.__dict__`, `obj.__reduce__`, ...) — blanket
+  rule, no per-dunder list to maintain
+- `getattr(x, name)` where `name` is not a string literal
+- `class` definitions anywhere in the script (would enable
+  custom-`__getattribute__` escape paths; adaptive scripts have no
+  legitimate use for classes)
+- `global` and `nonlocal` statements
+- `yield` and `yield from` (would turn `analyze` into a generator, which
+  the executor never iterates → silent no-op)
+- `try / except*` / ExceptionGroup syntax (defensive against CVE-2025-22153 class)
+- `async def` and `await` anywhere
 - Any top-level statement other than imports and the `analyze` def
 """
 
