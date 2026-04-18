@@ -74,6 +74,36 @@ Either path requires re-validating all 17 isolation properties (the rlimit value
 
 **Estimated scope:** 50-100 LOC + re-validation of isolation tests. Small-to-medium PR.
 
+### T9-Sec1 — Deduplicate host-side sandbox defenses into shared `_common.py`
+**Source:** Phase 3b PR #4 Task 9 implementation, 2026-04-18
+**File:** `src/screw_agents/adaptive/sandbox/_common.py` (new) + linux.py + macos.py
+**Priority:** Low (code quality, not security gap)
+
+**Why deferred:** T9's macos.py duplicates 3 host-side helpers from linux.py
+verbatim (`_safe_read_findings`, `_clean_findings_path`,
+`_check_findings_aggregate_size`) plus the related constants
+(`_MAX_FILE_SIZE_BYTES`, `_MAX_OUTPUT_BYTES`, `_MAX_FINDINGS_AGGREGATE_BYTES`,
+`_MAX_OPEN_FILES`). These are pure Python, platform-agnostic — they
+operate on the host filesystem and the orchestrator's tempfiles. Refactoring
+during T9 was rejected as out-of-scope (would have required re-validating
+T8's shipped tests). Cleaner architecture: extract into
+`sandbox/_common.py`; linux.py and macos.py import from there.
+
+**Trigger:** Polish pass before PR #5 starts, OR when a third sandbox
+backend lands (BSD jails? Windows when supported?), OR when the helpers
+need a fix that would have to be applied in two places.
+
+**Suggested approach:**
+1. Create `src/screw_agents/adaptive/sandbox/_common.py` with the 3
+   helpers + 4 constants (the platform-specific NPROC cap stays in each
+   backend).
+2. Import them in both linux.py and macos.py: `from screw_agents.adaptive.sandbox._common import _safe_read_findings, _clean_findings_path, _check_findings_aggregate_size, _MAX_FILE_SIZE_BYTES, ...`
+3. Delete the duplicated code from each backend.
+4. Re-run all sandbox tests (Linux + macOS skip on each other) to verify
+   no behavioral change.
+
+**Estimated scope:** ~80 LOC moved; net negative LOC. Trivial PR.
+
 ---
 
 ## Phase 4+ (autoresearch / scale)

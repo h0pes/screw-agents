@@ -2420,6 +2420,28 @@ git commit -m "feat(phase3b): Linux bwrap sandbox backend (Layer 5)"
 
 ### Task 9: macOS Sandbox Backend (sandbox-exec)
 
+**SECURITY HARDENING & UNVALIDATED-ON-DEV-HW NOTE:** The original Task 9
+spec has the same structural gaps Task 8's original spec had — no env={}
+kwarg, no symlink-safe findings read, no aggregate-size cap, no
+RLIMIT_FSIZE/NPROC, no pre-run cleanup, no bounded stdout capture,
+fictional-test scripts (define `analyze` but never call). The shipped
+implementation applies the analogous hardenings inline (mirroring T8's
+post-fix linux.py), so macOS users get the same 17 isolation properties
+the Linux backend pins. Tests follow the same pattern (2 functional + 6
+isolation, all skip on non-Darwin).
+
+UNVALIDATED on Marco's Arch dev hardware per project memory
+`project_macos_no_hardware.md`. Seatbelt profile syntax, sandbox-exec
+invocation semantics, and macOS-specific path layout (/System/Library,
+/usr/lib subpaths) cannot be empirically tested locally — the tests skip
+on Linux and will exercise the actual security properties when a macOS
+user runs the suite.
+
+Code dedup follow-up tracked as `T9-Sec1` in DEFERRED_BACKLOG.md: the
+host-side helpers (_safe_read_findings, _clean_findings_path,
+_check_findings_aggregate_size) are byte-identical between linux.py and
+macos.py; should move to a shared sandbox/_common.py in a polish pass.
+
 **Files:**
 - Create: `src/screw_agents/adaptive/sandbox/macos.py`
 - Create: `tests/test_adaptive_sandbox_macos.py`
