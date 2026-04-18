@@ -2032,6 +2032,14 @@ git commit -m "feat(phase3b): AST allowlist lint (Layer 1)"
 
 - [ ] **Step 1: Write failing tests for the bwrap backend**
 
+**NOTE (post-implementation):** The original spec test bodies defined
+`def analyze(project):` but never invoked the function — so the script
+exited in ~30ms after the function definition, the runaway loop never
+ran, and the wall-clock kill was never exercised. The test would have
+passed regardless of whether the timeout enforcement worked. Each
+script now ends with `analyze(None)` so the function body actually
+runs and the test exercises its security property.
+
 Create `tests/test_adaptive_sandbox_linux.py`:
 
 ```python
@@ -2064,6 +2072,7 @@ def test_sandbox_runs_valid_script(tmp_path: Path):
         "from screw_agents.adaptive import emit_finding\n"
         "def analyze(project):\n"
         "    emit_finding(cwe='CWE-89', file='x.py', line=1, message='test', severity='high')\n"
+        "analyze(None)\n"  # actually invoke the function so emit_finding runs
     )
     findings_path = tmp_path / "findings"
     findings_path.mkdir()
@@ -2091,6 +2100,7 @@ def test_sandbox_kills_runaway_script(tmp_path: Path):
         "def analyze(project):\n"
         "    while True:\n"
         "        pass\n"
+        "analyze(None)\n"  # actually enter the loop so the wall-clock kill is exercised
     )
     findings_path = tmp_path / "findings"
     findings_path.mkdir()
@@ -2122,6 +2132,7 @@ def test_sandbox_blocks_network_access(tmp_path: Path):
         "        s.connect(('8.8.8.8', 53))\n"
         "    except OSError:\n"
         "        pass\n"
+        "analyze(None)\n"  # actually attempt the connect so --unshare-net is exercised
     )
     findings_path = tmp_path / "findings"
     findings_path.mkdir()
