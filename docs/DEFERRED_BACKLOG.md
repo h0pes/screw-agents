@@ -20,6 +20,14 @@
 - `trust/config.py` — `load_config`, `_CONFIG_STUB_TEMPLATE`
 **Note (T6-M7 subsumed here):** The line-count trajectory observation T6-M7 from the Phase 3a PR#1 punchlist points back to this same split — addressing T4-M6 will resolve T6-M7 too.
 
+### T1-M1 — `AdaptiveScriptMeta` runtime-flag fields (dual-layer defense pattern)
+**Source:** Phase 3b PR #4 Task 1 quality review, 2026-04-18
+**File:** `src/screw_agents/models.py` `AdaptiveScriptMeta`
+**Why deferred:** Task 11-14 (executor + validate-script CLI) will need per-script trust state ("trusted", "warned", "quarantined", "allowed") on `AdaptiveScriptMeta`, mirroring the `Exclusion.quarantined` + `Exclusion.trust_state` runtime fields added in Phase 3a. Adding the fields speculatively in Task 1 was rejected — the exact field name and value set should be decided by the implementer who has the executor context.
+**Trigger:** When Phase 3b Task 11 (executor pipeline) or Task 13 (validate-script CLI) needs per-script trust tracking.
+**Suggested approach:** Mirror the `Exclusion` dual-layer defense exactly — `Field(default=..., exclude=True)` at the schema level + `_RUNTIME_ONLY_FIELDS` ClassVar set + `model_dump` override to catch caller-side `include=` edge cases (see `Exclusion._RUNTIME_ONLY_FIELDS` at `src/screw_agents/models.py` line ~262 and the `model_dump` override at line ~264 for the template). Don't skip the override — Pydantic v2's `include`/`exclude` precedence can let `include` win over field-level `exclude`, so the runtime override is the load-bearing second layer.
+**Estimated scope:** ~30 LOC in models.py + 2-3 new tests. Trivial.
+
 ---
 
 ## Phase 4+ (autoresearch / scale)

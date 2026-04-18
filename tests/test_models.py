@@ -788,3 +788,55 @@ def test_semantic_review_report_model():
     )
     assert report.risk_score == "low"
 
+
+def test_coverage_gap_rejects_invalid_type():
+    """`type` accepts only context_required/unresolved_sink."""
+    from screw_agents.models import CoverageGap
+
+    with pytest.raises(ValidationError):
+        CoverageGap(type="bogus", agent="sqli", file="a.py", line=1)
+
+
+def test_semantic_review_report_rejects_invalid_risk_score():
+    """`risk_score` accepts only low/medium/high."""
+    from screw_agents.models import SemanticReviewReport
+
+    with pytest.raises(ValidationError):
+        SemanticReviewReport(
+            risk_score="critical",
+            flagged_patterns=[],
+            unusual_imports=[],
+            control_flow_summary="x",
+            estimated_runtime_ms=0,
+        )
+
+
+def test_adaptive_script_meta_requires_required_fields():
+    """`name`, `created`, `created_by`, `domain`, `sha256` are all required."""
+    from screw_agents.models import AdaptiveScriptMeta
+
+    with pytest.raises(ValidationError):
+        AdaptiveScriptMeta(
+            created="2026-04-14T10:00:00Z",
+            created_by="m@e.com",
+            domain="d",
+            sha256="x",
+        )  # missing name
+
+
+def test_adaptive_script_meta_rejects_extra_fields():
+    """extra='forbid' guards the canonical signing payload — typo'd or
+    injected unknown fields raise rather than silently passing through.
+    """
+    from screw_agents.models import AdaptiveScriptMeta
+
+    with pytest.raises(ValidationError):
+        AdaptiveScriptMeta(
+            name="t",
+            created="2026-04-14T10:00:00Z",
+            created_by="m@e.com",
+            domain="d",
+            sha256="x",
+            unknown_field="injected",  # should be rejected
+        )
+

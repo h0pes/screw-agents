@@ -438,6 +438,8 @@ class CoverageGap(BaseModel):
 class AdaptiveScriptMeta(BaseModel):
     """Metadata for an adaptive analysis script in .screw/custom-scripts/."""
 
+    model_config = ConfigDict(extra="forbid")
+
     name: str
     created: str
     created_by: str  # signer email
