@@ -9,10 +9,10 @@ scripts that import anything outside this package.
 ```python
 from screw_agents.adaptive import (
     ProjectRoot,
-    find_calls,
-    trace_dataflow,
-    is_user_input,
     emit_finding,
+    find_calls,
+    get_call_args,
+    is_user_input,
 )
 
 def analyze(project: ProjectRoot) -> None:
@@ -33,7 +33,8 @@ def analyze(project: ProjectRoot) -> None:
 This module's public API is stable across Phase 3b. Changes require:
 1. Updating this docstring
 2. Updating the test in tests/test_adaptive_public_api.py
-3. Migrating all existing adaptive scripts in the test corpus
+3. Migrating all existing adaptive scripts in the test corpus (once
+   Task 22 seeds the first end-to-end fixtures)
 
 Adding a new helper requires a design discussion — the curated surface is
 deliberately small (under 25 exports) to keep the attack surface audited.

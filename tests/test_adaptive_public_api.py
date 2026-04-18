@@ -44,6 +44,9 @@ def test_public_api_matches_expected_exactly():
     # adaptive.{name} import ...` lines in __init__.py and grow only when a new
     # submodule import lands. Layer 0b enforcement against direct submodule
     # access lives in the AST allowlist lint (Task 7), not here.
+    # MAINTENANCE RULE: this set must equal exactly the submodule names appearing
+    # in `from screw_agents.adaptive.X import ...` lines of __init__.py. When you
+    # add or remove such an import, update this whitelist in the same commit.
     allowed_extras = {"ast_walker", "dataflow", "findings", "project"}
     assert public_names - allowed_extras == EXPECTED_PUBLIC_API, (
         f"Public API drift: {public_names - EXPECTED_PUBLIC_API} added, "
@@ -58,4 +61,18 @@ def test_public_api_count_is_under_25():
     public_count = len([n for n in dir(adaptive) if not n.startswith("_")])
     assert public_count <= 25, (
         f"adaptive public API has {public_count} entries; review for scope creep"
+    )
+
+
+def test_all_matches_expected_exactly():
+    """`__all__` must equal EXPECTED_PUBLIC_API. The dir-based test catches
+    new attributes appearing on the package, but a contributor who adds an
+    import to __init__.py and updates EXPECTED_PUBLIC_API while forgetting
+    to update __all__ would silently break `from screw_agents.adaptive import *`
+    semantics for adaptive scripts. This test pins the star-import contract."""
+    import screw_agents.adaptive as adaptive
+
+    assert set(adaptive.__all__) == EXPECTED_PUBLIC_API, (
+        f"__all__ drift: {set(adaptive.__all__) - EXPECTED_PUBLIC_API} added, "
+        f"{EXPECTED_PUBLIC_API - set(adaptive.__all__)} removed"
     )
