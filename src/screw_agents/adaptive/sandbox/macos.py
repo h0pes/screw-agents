@@ -16,6 +16,12 @@ This backend mirrors the Linux backend's defense-in-depth posture (see
   (deny default; explicit allow for stdlib + venv + project + findings).
   Not Linux user-namespaces / bwrap; semantically similar but
   enforced by the kernel's Sandbox.kext.
+- Parent-death cleanup: sandbox-exec has no `--die-with-parent` flag
+  analog; if the orchestrator is SIGKILL'd, sandbox-exec is the direct
+  parent of the Python child and will reap it via normal POSIX
+  parent-death signals. Not identical to bwrap's kernel-level
+  `PR_SET_PDEATHSIG` guarantee; if a macOS user observes orphaned
+  processes, add an explicit `os.setpgid` + parent-watch helper.
 - No /proc — process listing privacy is enforced by Sandbox.kext (no
   prctl analog). The deny-default profile blocks the equivalent of
   /proc/<pid>/environ reads (mach `task_for_pid` denied).
@@ -150,7 +156,7 @@ def run_in_sandbox(
         "-p", profile,
         str(venv_python_unresolved),  # unresolved so Python finds pyvenv.cfg
         "-u", "-B", "-I",
-        "/script.py" if False else str(script_path),  # macOS doesn't bind-remap; absolute host path
+        str(script_path),  # macOS doesn't bind-remap; use absolute host path
     ]
 
     # Explicit complete env replacement — mirrors Linux's env={} + --setenv
@@ -271,6 +277,16 @@ def _build_seatbelt_profile(
 
 ; System info reads — deny by default; specific allows only as needed
 (deny system-info)
+
+; Signal: block the script from signalling other processes (analog of
+; Linux's --unshare-pid isolation; deny-default already covers this,
+; but explicit deny survives any future allow-rule mistakes).
+(deny signal)
+
+; Filesystem control + privilege escalation: belt-and-suspenders against
+; the deny-default. Explicit denies for known-sensitive system surfaces.
+(deny system-fsctl)
+(deny system-privilege)
 """.strip()
 
 
