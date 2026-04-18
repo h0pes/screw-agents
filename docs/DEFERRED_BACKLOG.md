@@ -140,6 +140,13 @@ At CWE-1400 expansion scale (41 agents × ~5-7k tokens prompt each + all code), 
 
 ## Project-wide (not Phase-tagged)
 
+### T3-M1 — Narrow exception handling in `adaptive/ast_walker.py` find_* helpers
+**Source:** Phase 3b PR #4 Task 3 quality review, 2026-04-18
+**File:** `src/screw_agents/adaptive/ast_walker.py` (`find_calls`, `find_imports`, `find_class_definitions`)
+**Why deferred:** Each helper wraps the per-file `project.read_file(rel_path)` call in a bare `try/except Exception: continue`. This silently swallows real failures (UnicodeDecodeError on non-UTF-8 source, OSError on filesystem races) so adaptive scripts cannot tell "no findings" from "couldn't read this file." Acceptable inside the sandbox today (no logging infrastructure in adaptive scripts yet); becomes important when (a) adaptive scripts gain a logging surface or (b) a deliberately mis-encoded source file is suspected as a scanner-evasion vector.
+**Trigger:** When adaptive scripts gain a logging hook (Phase 3b Task 11+) OR a non-UTF-8 source surfaces in benchmark fixtures OR a `SkipFile` sentinel is added.
+**Suggested fix:** Replace `except Exception` with `except (UnicodeDecodeError, OSError)` and emit a structured log/sentinel that the executor can surface. Add a test fixture with non-UTF-8 source to lock in the new behavior.
+
 ### T-ORCHESTRATOR-SCHEMA — Backfill finding-object schema in domain orchestrator subagents
 **Source:** X1-M1 PR#9 T6 quality review, 2026-04-17 (gap pre-existing, not introduced by T6)
 **File:** `plugins/screw/agents/screw-injection.md` (and any future domain orchestrators)
