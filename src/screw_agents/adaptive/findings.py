@@ -8,12 +8,20 @@ sandbox after the script terminates.
 `emit_finding` does schema validation at call time — malformed arguments raise
 ValueError immediately so bugs in generated scripts surface as runtime errors
 with clear messages, not as malformed JSON blobs for the executor to puzzle over.
+
+The executor (Task 11/12) lifts emitted flat dicts into project Finding
+objects (see models.py). The executor adds: id (content-hash-based),
+agent (script name), domain (script's CWE-1400 domain), timestamp,
+default triage state, and default analysis/remediation fields the script
+doesn't supply. Adaptive scripts deliberately don't have access to
+remediation guidance, exploitability assessment, or false-positive
+reasoning — those are knowledge-base concerns owned by the YAML agents
+and the executor.
 """
 
 from __future__ import annotations
 
 import json
-import os
 import re
 from dataclasses import dataclass, field
 from typing import Literal
@@ -21,6 +29,14 @@ from typing import Literal
 
 _CWE_PATTERN = re.compile(r"^CWE-\d+$")
 _VALID_SEVERITIES = {"high", "medium", "low", "info"}
+# Severity vocabulary intentionally narrower than the project's `Finding`
+# model (`models.py` Finding.classification.severity), which uses
+# {critical, high, medium, low}. Adaptive emits {high, medium, low, info}
+# instead — adaptive scripts cannot self-promote findings to critical
+# (that's a triage decision), and `info` covers low-stakes observations
+# that don't warrant a project-wide severity entry. The executor (Task
+# 11/12) maps `info` to `low` when lifting emitted dicts into Finding
+# objects.
 
 
 @dataclass
@@ -59,8 +75,11 @@ def emit_finding(
 ) -> None:
     """Record a finding produced by an adaptive script.
 
-    Validates every argument at emit time — a malformed call raises ValueError
-    immediately, so bugs in generated scripts surface with clear error messages.
+    Validates `cwe`, `severity`, and `line` at emit time — malformed values raise
+    ValueError immediately so bugs in generated scripts surface with clear error
+    messages. The `file`, `message`, `code_snippet`, and `column` arguments are
+    passed through unchecked; the executor (Task 11/12) applies project-level
+    length/policy limits when lifting these into Finding objects.
 
     Args:
         cwe: CWE identifier in the form "CWE-N".
@@ -75,7 +94,7 @@ def emit_finding(
         raise ValueError(f"invalid CWE identifier (must match 'CWE-\\d+'): {cwe!r}")
     if severity not in _VALID_SEVERITIES:
         raise ValueError(f"invalid severity (must be one of {_VALID_SEVERITIES}): {severity!r}")
-    if not isinstance(line, int) or line < 1:
+    if not isinstance(line, int) or isinstance(line, bool) or line < 1:
         raise ValueError(f"line must be a positive integer: {line!r}")
 
     _buffer.findings.append({
