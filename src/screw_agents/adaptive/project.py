@@ -65,12 +65,16 @@ class ProjectRoot:
         Returns:
             Sorted list of relative paths (forward slashes).
         """
+        if Path(pattern).is_absolute():
+            raise ProjectPathError(
+                f"absolute glob patterns not allowed: {pattern}"
+            )
         matches: list[str] = []
         for path in self._root.glob(pattern):
             try:
                 resolved = self._resolve_and_check(str(path.relative_to(self._root)))
                 if resolved.is_file():
-                    matches.append(str(path.relative_to(self._root)).replace("\\", "/"))
+                    matches.append(str(resolved.relative_to(self._root)).replace("\\", "/"))
             except (ProjectPathError, ValueError):
                 continue
         return sorted(matches)
