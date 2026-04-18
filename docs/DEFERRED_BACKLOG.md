@@ -303,7 +303,7 @@ At CWE-1400 expansion scale (41 agents × ~5-7k tokens prompt each + all code), 
 
 ### X1-M1 — Core-prompt deduplication in `scan_domain` paginated responses
 **Source:** Phase 3a PR#3 manual round-trip test, 2026-04-17
-**Shipped in:** PR #9 (`phase-3a-prompt-dedup`), merge commit `<fill in at merge time>`
+**Shipped in:** PR #9 (`phase-3a-prompt-dedup`), merge commit `4685671`
 **Final design:** `docs/specs/2026-04-17-prompt-dedup-x1-m1-design.md` (local, not in git)
 **Plan:** `docs/PHASE_3A_X1_M1_PLAN.md`
 
@@ -318,7 +318,7 @@ At CWE-1400 expansion scale (41 agents × ~5-7k tokens prompt each + all code), 
 
 ### T-WRITE-SPLIT — Split `write_scan_results` into `accumulate_findings` + `finalize_scan_results`
 **Source:** Phase 3a X1-M1 round-trip testing (PR #9, 2026-04-17)
-**Shipped in:** PR #9 (`phase-3a-prompt-dedup`), merge commit `<fill in at merge time>`
+**Shipped in:** PR #9 (`phase-3a-prompt-dedup`), merge commit `4685671`
 **Plan:** `docs/PHASE_3A_X1_M1_PLAN.md`
 
 **Problem:** Round-trip testing after the lazy-fetch fix (T12-T16) revealed a second defect — subagents called `write_scan_results` once per agent-batch (4 times for a 4-agent injection scan). Overwrite semantics masked this as "just wasteful" (the final call had all findings), but each intermediate call triggered file rewrites + user approvals + tool-call tokens. Prompt-level "call once" discipline was not load-bearing.
