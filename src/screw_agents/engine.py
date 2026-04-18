@@ -14,6 +14,8 @@ import json as _json
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from screw_agents.adaptive.executor import execute_script
 from screw_agents.aggregation import (
     aggregate_directory_suggestions,
@@ -115,8 +117,6 @@ class ScanEngine:
             except Exception:
                 config = None
             if config is not None:
-                import yaml
-
                 for meta_file in script_dir.glob("*.meta.yaml"):
                     source_file = (
                         meta_file.parent
