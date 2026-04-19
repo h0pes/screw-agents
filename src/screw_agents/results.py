@@ -26,7 +26,9 @@ if TYPE_CHECKING:
 # Phase 3b T19: severity rank for primary-finding selection within a merge
 # bucket. Lower rank = higher priority. Anything not in the map (unknown or
 # missing severity) ranks last via the dict.get default of 5 — this prevents
-# an ill-formed severity from promoting to primary by accident.
+# an ill-formed severity from promoting to primary by accident. Lookup is
+# case-normalized (``severity.lower()``) at the call site so a YAML agent
+# emitting ``"High"`` (capitalized prose drift) still ranks as ``"high"``.
 _SEVERITY_RANK: dict[str, int] = {
     "critical": 0,
     "high": 1,
@@ -84,7 +86,7 @@ def _merge_findings_augmentatively(findings: list[Finding]) -> list[Finding]:
         # original list order resolves final ties).
         def _sort_key(f: Finding) -> tuple[int, str]:
             return (
-                _SEVERITY_RANK.get(f.classification.severity, 5),
+                _SEVERITY_RANK.get(f.classification.severity.lower(), 5),
                 f.agent,
             )
 

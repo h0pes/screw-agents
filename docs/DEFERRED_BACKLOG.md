@@ -136,6 +136,115 @@ need a fix that would have to be applied in two places.
 
 **Estimated scope:** ~30 LOC + 2 tests (one SARIF assertion, one CSV assertion). Trivial.
 
+### T19-M2 — Per-source exclusion matching for merged findings
+
+**Source:** Phase 3b T19 quality review, 2026-04-19
+**File:** `src/screw_agents/results.py` (exclusion-match call site around line 200)
++ `src/screw_agents/learning.py::match_exclusions`
+**Priority:** Medium (pre-existing exclusion-model limitation, newly addressable post-T19)
+
+**What's shipped (T19):** Augmentative merge by `(file, line_start, cwe)`.
+Merged primary's `agent` field is the severity-winning source; other
+sources listed in `merged_from_sources: list[str]`. `match_exclusions` at
+`learning.py:363` still keys strict-equal on `agent`.
+
+**What is NOT shipped:** when a merged finding's primary agent differs
+from the exclusion's agent (e.g., user excluded `agent=sqli` but the
+merge's primary is now `agent=adaptive_script:qb-check` because adaptive
+outranked sqli on severity), the exclusion silently fails to match.
+This is a PRE-EXISTING limitation (before T19, the same adaptive finding
+would also not have matched the sqli exclusion because they were SEPARATE
+findings with different agent labels), but T19 makes it newly ADDRESSABLE
+because the structured `merged_from_sources` carries the information
+needed to do per-source matching.
+
+**Why deferred from T19:** T19 was scoped as "augmentative merge", not
+"exclusion-semantics rework". Per-source exclusion matching is a change
+in the exclusion-matching contract, not the merge contract, and deserves
+its own review cycle with exclusion-model implications (e.g., what happens
+when DIFFERENT sources have DIFFERENT matching exclusions? Does one
+override the other? How does `exclusions_applied` in the render result
+represent per-source suppression?).
+
+**Trigger:** Any of:
+- User reports "I excluded this SQLi finding and it came back" after
+  enabling adaptive mode
+- Phase 4 autoresearch needs to correlate exclusions with merged findings
+- The exclusion-model audit that goes with Phase 4's FP learning loop
+
+**Suggested fix:**
+1. In `render_and_write`, when matching a Finding with non-None
+   `merged_from_sources`, iterate ALL source agents (parsed from the
+   list) and call `match_exclusions` for each. Suppress the finding if
+   ANY source matches an exclusion.
+2. Dependency on T19-M3: if `merged_from_sources` migrates from
+   `list[str]` ("agent (severity)") to `list[dict]` ({"agent": ...,
+   "severity": ...}), the per-source iteration becomes cleaner — no
+   string parsing.
+3. Add regression test: merged finding with agent=A primary,
+   merged_from_sources includes agent=B. Exclusion keyed on agent=B
+   must suppress the merged finding. Exclusion keyed on agent=A must
+   also suppress it.
+4. Update `exclusions_applied` in render result to carry the
+   matched-source-agent (so downstream consumers understand why the
+   merged finding was suppressed).
+
+**Estimated scope:** ~40 LOC in `render_and_write` + per-source
+iteration helper + 3 regression tests. Medium complexity due to the
+exclusions_applied schema extension.
+
+### T19-M3 — Structured `merged_from_sources` format (list[str] → list[dict])
+
+**Source:** Phase 3b T19 quality review, 2026-04-19
+**File:** `src/screw_agents/models.py::Finding.merged_from_sources` +
+`src/screw_agents/results.py::_merge_findings_augmentatively` +
+`src/screw_agents/formatter.py` (Markdown renderer) + tests
+
+**Priority:** Low (current format works for display + known consumers)
+
+**What's shipped (T19):** `merged_from_sources: list[str] | None` where
+each string is formatted as `"<agent> (<severity>)"`. Works for Markdown
+display and for JSON consumers who just read the list. Downstream SARIF
+emission (T19-M1 deferral) and potential regex-parsing consumers would
+find the string format fragile — nested parens in agent names would
+break `rsplit(" (", 1)` parsing.
+
+**Why deferred:** Migrating now is strictly an ergonomic improvement
+with no current failing consumer. JSON-side structure is stable; the
+LIST wrapper is the schema contract, element shape is the
+evolvability concern.
+
+**Trigger:** Any of:
+- Phase 4 autoresearch consumes `merged_from_sources` and needs
+  per-source severity programmatically
+- SARIF emission (T19-M1) goes structured via the properties bag
+- A consumer reports the format can't roundtrip an edge-case agent name
+
+**Suggested fix:**
+1. Change schema to `merged_from_sources: list[MergedSource] | None`
+   where:
+   ```python
+   class MergedSource(BaseModel):
+       agent: str
+       severity: str
+   ```
+2. Update merge function to emit `MergedSource(agent=f.agent,
+   severity=f.classification.severity)` instead of formatted strings.
+3. Update Markdown renderer to format on the fly:
+   `", ".join(f"{s.agent} ({s.severity})" for s in f.merged_from_sources)`.
+4. Update all 9 T19 tests to expect structured objects (or use helper
+   to convert for display assertion).
+5. Update T19-M2 (per-source exclusion matching) to iterate structured
+   sources rather than parse strings.
+6. Backward-compat consideration: existing JSON output consumers who
+   parse `list[str]` will break. Because `merged_from_sources` is
+   Phase-3b-new, there are no shipped external consumers yet —
+   migration has zero user impact right now. Later migration would
+   be more expensive.
+
+**Estimated scope:** ~100 LOC across 4 files + 9 test updates +
+1 new model. Small PR.
+
 ### T-FULL-P1 — Paginate `assemble_full_scan` + apply lazy-fetch + agent-relevance filter
 **Source:** X1-M1 (PR #9, 2026-04-17) — incremental dedup landed; full architectural fix deferred.
 **File:** `src/screw_agents/engine.py` `assemble_full_scan`, `plugins/screw/agents/screw-full-review.md`

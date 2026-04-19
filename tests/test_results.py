@@ -767,6 +767,66 @@ class TestMergeFindingsAugmentatively:
         assert result[0].id == "b1"
         assert result[1].id == "a1"
 
+    def test_merge_severity_case_mismatch_normalizes_to_lower(self) -> None:
+        """I2 regression: severity field is case-normalized before rank lookup.
+
+        A Finding with severity='High' (capitalized) must rank as 'high' (rank 1),
+        not as unknown (rank 5). Otherwise a misformed YAML finding would silently
+        lose tiebreaker selection to properly-lowercased findings even when its
+        true severity is higher.
+
+        Locks the `.lower()` normalization so future refactors can't silently
+        revert to the case-sensitive lookup.
+        """
+        from screw_agents.results import _merge_findings_augmentatively
+
+        # Two findings at same (file, line_start, cwe) — one with "High"
+        # (capitalized), one with "low" (proper). Capitalized-high SHOULD win
+        # the tiebreaker.
+        f_high_cap = Finding(
+            **_make_finding_dict(
+                finding_id="sqli-1",
+                agent="sqli",
+                file="src/a.py",
+                line_start=10,
+                cwe="CWE-89",
+                severity="High",  # capitalized — would rank as unknown without .lower()
+                description="SQL injection (capitalized severity)",
+            )
+        )
+        f_low = Finding(
+            **_make_finding_dict(
+                finding_id="adaptive-1",
+                agent="adaptive_script:qb",
+                file="src/a.py",
+                line_start=10,
+                cwe="CWE-89",
+                severity="low",
+                description="Adaptive script - low severity",
+            )
+        )
+
+        merged = _merge_findings_augmentatively([f_high_cap, f_low])
+
+        assert len(merged) == 1
+        primary = merged[0]
+        # sqli (High→high rank 1) must win over adaptive_script:qb (low rank 3)
+        assert primary.agent == "sqli", (
+            f"Expected sqli to win tiebreaker (severity 'High' normalized to "
+            f"'high'), got {primary.agent}"
+        )
+        # Source list preserves input order and ORIGINAL severity strings
+        # (not the normalized lowercase): normalization happens ONLY in the
+        # sort_key function; it does not alter Finding fields or source-list
+        # content.
+        assert primary.merged_from_sources == [
+            "sqli (High)",
+            "adaptive_script:qb (low)",
+        ], (
+            f"Source list should preserve original severity strings (not "
+            f"normalized), got {primary.merged_from_sources}"
+        )
+
     def test_merge_severity_rank_unknown_severity_ranks_last(self):
         """Unknown severity (not in rank map) loses to any known severity.
 
