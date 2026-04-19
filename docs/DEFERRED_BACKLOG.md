@@ -74,6 +74,18 @@ Either path requires re-validating all 17 isolation properties (the rlimit value
 
 **Estimated scope:** 50-100 LOC + re-validation of isolation tests. Small-to-medium PR.
 
+### T8-Sec3 — Rename `_SCRIPT_PROCESS_BUDGET` / `_BWRAP_HEADROOM` to reflect thread-counting semantics
+
+**Source:** T8 latent-bug fix (commit `7cff916`, 2026-04-19)
+**File:** `src/screw_agents/adaptive/sandbox/linux.py`
+**Priority:** Low (naming consistency, not correctness)
+
+**Why deferred:** Following the thread-counting bug fix (RLIMIT_NPROC accounts per-UID threads, not processes; `_compute_nproc_cap` was previously counting processes), the constants `_SCRIPT_PROCESS_BUDGET` and `_BWRAP_HEADROOM` semantically quantify thread-budget, not process-budget. Renaming is a cosmetic improvement with zero behavioral impact. Deferred because it's a symbol rename on module-private constants — trivial to do but noisy churn that doesn't carry its own commit weight.
+
+**Trigger:** Any dedicated sandbox-cleanup polish commit, or alongside T8-Sec1 / T8-Sec2 (the other Phase 3c sandbox-hardening deferrals).
+
+**Suggested fix:** Rename to `_SCRIPT_THREAD_BUDGET` and `_BWRAP_THREAD_HEADROOM`. Update docstrings + the inline comment block at lines 90-113 of `linux.py` + the in-function NOTE at the bottom of `_compute_nproc_cap`'s docstring. ~15 LOC diff.
+
 ### T9-Sec1 — Deduplicate host-side sandbox defenses into shared `_common.py`
 **Source:** Phase 3b PR #4 Task 9 implementation, 2026-04-18
 **File:** `src/screw_agents/adaptive/sandbox/_common.py` (new) + linux.py + macos.py
