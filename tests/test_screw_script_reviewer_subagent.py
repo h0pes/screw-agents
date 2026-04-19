@@ -76,11 +76,19 @@ def test_screw_script_reviewer_body_has_advisory_framing() -> None:
     )
 
 
-def test_screw_script_reviewer_body_references_7_layer_stack() -> None:
-    """The shipped Phase 3b defense stack is 7 layers, not 15."""
+def test_screw_script_reviewer_body_references_15_layer_stack() -> None:
+    """The canonical Phase 3 defense stack is 15 layers (generation 7 +
+    content-trust 1 + execution 7). See docs/specs/2026-04-13-phase-3-
+    adaptive-analysis-learning-design.md §5. An earlier revision of this
+    subagent mis-stated '7-layer' — this test locks the correct count so
+    the error can't regress."""
     _, body = _parse_subagent_file(_SUBAGENT_PATH)
-    # The subagent is Layer 0d. Body should mention Layer 0d AND 7-layer.
     body_lower = body.lower()
     assert "layer 0d" in body_lower
-    # Must NOT falsely reference 15-layer
-    assert "15-layer" not in body_lower and "15 layer" not in body_lower
+    assert "15-layer" in body_lower or "15 layer" in body_lower, (
+        "body must reference the canonical 15-layer defense stack"
+    )
+    # Must NOT falsely reference 7-layer (regression guard)
+    assert "7-layer" not in body_lower and "7 layer" not in body_lower, (
+        "body must not reference the wrong '7-layer' count"
+    )

@@ -4299,9 +4299,17 @@ git commit -m "feat(phase3b): detect_coverage_gaps method on ScanEngine"
 > 5. **When-uncertain-escalate rule.** Explicit conservative default:
 >    unclear classification defaults to MEDIUM; over-flagging is
 >    acceptable; under-flagging is not.
-> 6. **7-layer (not 15-layer) defense stack.** Per PR #4 shipped
->    reality — the plan's `description` and body rule #1 referenced a
->    stale 15-layer number.
+> 6. **Layer numbering kept at the canonical 15-layer count.** Per the
+>    Phase 3 design spec §5 (`docs/specs/2026-04-13-phase-3-adaptive-
+>    analysis-learning-design.md:130`): "The fifteen layers span
+>    generation (7), content-trust (1), and execution (7) phases." The
+>    plan's T17 section used the correct "15-layer" wording; a prior
+>    iteration of this SHIPPED NOTE mis-stated "7-layer (PR #4 shipped
+>    reality)" — that was wrong. PR #4 shipped the EXECUTION-phase
+>    subset (layers 1-7); the generation-phase layers (0a-0g) and
+>    content-trust layer (0h) are shipped earlier (0h in Phase 3a trust
+>    infrastructure) or later in Phase 3b PR #5 (0a-0g via subagent
+>    prompts and T17). Layer 0d is THIS subagent.
 > 7. **Exact output format.** Explicit prohibition of markdown fences
 >    and prose wrapping around the JSON with wrong/right examples.
 >    Aligns the subagent with the caller's `model_validate_json`
@@ -4313,10 +4321,11 @@ git commit -m "feat(phase3b): detect_coverage_gaps method on ScanEngine"
 > **Format-smoke tests:** `tests/test_screw_script_reviewer_subagent.py`
 > ships 6 format tests (frontmatter validity, empty tools list
 > preservation, Pydantic model reference, allowed-imports language,
-> advisory framing, 7-layer/not-15-layer phrasing). Claude Code
-> subagents are not unit-tested for SEMANTIC behavior in this repo;
-> that is covered by T22's E2E integration test which exercises the
-> full generation pipeline.
+> advisory framing, 15-layer stack phrasing with a regression guard
+> against the wrong "7-layer" count). Claude Code subagents are not
+> unit-tested for SEMANTIC behavior in this repo; that is covered by
+> T22's E2E integration test which exercises the full generation
+> pipeline.
 >
 > **`tools: []` is load-bearing.** The empty tools list is a Layer 0d
 > isolation property, not an oversight — it prevents the reviewer-LLM
