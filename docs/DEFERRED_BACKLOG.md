@@ -4,13 +4,13 @@
 
 ---
 
-## Phase 3b Task 13 (init-trust extends trust.py)
+## Trust-layer polish (was "Phase 3b Task 13", re-scoped 2026-04-19)
 
 ### T4-M6 — Split `src/screw_agents/trust.py` into a package
 **Source:** Phase 3a PR#1 punchlist (commit `27d147d`)
 **File:** `src/screw_agents/trust.py` (~552 lines after Task 7.1)
-**Why deferred:** Phase 3b Task 13 (init-trust CLI) will naturally extend trust.py with key-generation utilities. Splitting now would mean churning the file twice.
-**Trigger:** When Phase 3b Task 13's implementation lands.
+**Why deferred:** ~~Phase 3b Task 13 (init-trust CLI) will naturally extend trust.py with key-generation utilities. Splitting now would mean churning the file twice.~~ REVISED 2026-04-19: Phase 3b T13 validate-script CLI was reviewed and found to only IMPORT existing trust.py functions, not extend them. The original split-avoidance rationale no longer applies; trigger revised accordingly.
+**Trigger:** When trust.py gains new exported functions (e.g., Phase 3b T17 screw-script-reviewer or T18 subagent-prompt integration may need new helpers) OR during a dedicated polish commit. Phase 3b T13 validate-script CLI does NOT extend trust.py — it only imports `canonicalize_script`, `load_config`, `sign_content`, and the internal helpers — so T13 is no longer a valid trigger.
 **Suggested split:**
 - `trust/__init__.py` — re-exports
 - `trust/canonical.py` — `canonicalize_exclusion`, `canonicalize_script`, `_canonical_json_bytes`, exclude sets
@@ -23,8 +23,8 @@
 ### T1-M1 — `AdaptiveScriptMeta` runtime-flag fields (dual-layer defense pattern)
 **Source:** Phase 3b PR #4 Task 1 quality review, 2026-04-18
 **File:** `src/screw_agents/models.py` `AdaptiveScriptMeta`
-**Why deferred:** Task 11-14 (executor + validate-script CLI) will need per-script trust state ("trusted", "warned", "quarantined", "allowed") on `AdaptiveScriptMeta`, mirroring the `Exclusion.quarantined` + `Exclusion.trust_state` runtime fields added in Phase 3a. Adding the fields speculatively in Task 1 was rejected — the exact field name and value set should be decided by the implementer who has the executor context.
-**Trigger:** When Phase 3b Task 11 (executor pipeline) or Task 13 (validate-script CLI) needs per-script trust tracking.
+**Why deferred:** ~~Task 11-14 (executor + validate-script CLI) will need per-script trust state ("trusted", "warned", "quarantined", "allowed") on `AdaptiveScriptMeta`, mirroring the `Exclusion.quarantined` + `Exclusion.trust_state` runtime fields added in Phase 3a. Adding the fields speculatively in Task 1 was rejected — the exact field name and value set should be decided by the implementer who has the executor context.~~ REVISED 2026-04-19: T11 (shipped in PR #4) and T13 (bundled in PR #5) were both reviewed and found to NOT need runtime-flag fields. T11's executor returns `AdaptiveScriptResult.stale` as a top-level runtime flag and does not annotate the meta model itself; T13's validate-script writes only persisted fields (`signed_by`, `signature`, `validated`, `sha256`). First likely trigger is T20 stale-script detection (runtime `stale` annotation) or T21 adaptive-cleanup (user-visible trust state).
+**Trigger:** When the executor OR a CLI command needs to annotate `AdaptiveScriptMeta` at runtime (e.g., Phase 3b T20 stale-script detection may attach a `stale: True` runtime flag, or T21 adaptive-cleanup may want `quarantined`/`trust_state` annotations). Phase 3b T11 executor shipped without needing runtime state; T13 validate-script writes only persisted fields (`signed_by`, `signature`, `validated`, `sha256`). Neither is a trigger.
 **Suggested approach:** Mirror the `Exclusion` dual-layer defense exactly — `Field(default=..., exclude=True)` at the schema level + `_RUNTIME_ONLY_FIELDS` ClassVar set + `model_dump` override to catch caller-side `include=` edge cases (see `Exclusion._RUNTIME_ONLY_FIELDS` at `src/screw_agents/models.py` line ~262 and the `model_dump` override at line ~264 for the template). Don't skip the override — Pydantic v2's `include`/`exclude` precedence can let `include` win over field-level `exclude`, so the runtime override is the load-bearing second layer.
 **Estimated scope:** ~30 LOC in models.py + 2-3 new tests. Trivial.
 
