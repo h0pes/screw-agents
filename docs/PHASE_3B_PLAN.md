@@ -3952,8 +3952,104 @@ git commit -m "feat(phase3b): D2 coverage gap signal (unresolved sink)"
 
 ### Task 16: `detect_coverage_gaps` Method on ScanEngine
 
+> **SHIPPED NOTE (T16, commits `18c8ea5`→`5318925`→`099429f`, 2026-04-19,
+> DESIGN SUPERSEDED + SCOPE EXPANDED):** The plan below ships T16 as a
+> thin wrapper: a method taking `context_required_matches` and
+> `emitted_findings_by_match` as PARAMETERS, with per-agent D2 inputs
+> (`sink_regexes_by_agent`, `known_receivers_by_agent`,
+> `known_sources_by_agent`) HARDCODED inside engine.py. The user (Marco,
+> appsec engineer) rejected both choices:
+>
+> 1. **"Not end-to-end" rejection of the thin wrapper.** A method that
+>    demands upstream callers thread context-required matches through
+>    the scan flow does nothing until the scan flow is wired separately.
+>    The plan's design leaves a pile of disconnected infrastructure.
+> 2. **Hardcoded per-agent dicts violate CLAUDE.md's YAML-first principle.**
+>    Per `docs/AGENT_CATALOG.md`, 37 more agents are planned beyond the 4
+>    existing ones. Hardcoding pays a forward-compat tax 37 times.
+>
+> **Shipped design (end-to-end, YAML-driven):**
+>
+> **Commit 1 (`18c8ea5`) — AdaptiveInputs schema + 4 YAMLs populated:**
+> - New `AdaptiveInputs` Pydantic submodel in `models.py` (extra='forbid',
+>   `sink_regex` required, `known_receivers: set[str] = set()`,
+>   `known_sources: list[str] = []`).
+> - New optional `adaptive_inputs: AdaptiveInputs | None = None` on
+>   `AgentDefinition`. Agents that opt out of D2 omit the block.
+> - Populated `adaptive_inputs` blocks on sqli / cmdi / ssti / xss with
+>   values grounded in each agent's OWN heuristics, relevance_signals,
+>   and core_prompt "Sink Identification" sections — NOT copied from the
+>   plan's hardcoded subset. Each `known_receivers` set uses BARE
+>   trailing tokens per T15 contract (dotted entries silently fail to
+>   suppress).
+> - 7 schema tests, including every-agent-sink-regex-compiles lock.
+>
+> **Commit 2 (`5318925`) — context_required match tracking:**
+> - New `ScanEngine.record_context_required_match(project_root, match,
+>   session_id?) -> {session_id, matches_recorded}` method.
+> - Storage at `.screw/staging/{session_id}/context_required_matches.json`.
+> - Mirrors X1-M1 `accumulate_findings` pattern exactly: atomic
+>   tmp+os.replace writes, session carryforward, finalization lock
+>   (ValueError when recording into an already-finalized session), dedup
+>   by `(agent, file, line, pattern)` 4-tuple matching D1's key semantics
+>   in `gap_signal.py`.
+> - New MCP tool `record_context_required_match` with a typed inner
+>   `match` schema for parameter-level validation at tool-call time.
+> - `save_finalize_result` extended to also clean up
+>   `context_required_matches.json` after gap detection consumes it.
+> - 9 tracking tests covering atomicity, dedup, carryforward, validation,
+>   finalization lock, and cleanup.
+>
+> **Commit 3 (`099429f`) — detect_coverage_gaps + finalize response:**
+> - New `ScanEngine.detect_coverage_gaps(agent_name, project_root,
+>   session_id) -> list[CoverageGap]` method. Reads staging for D1, reads
+>   `agent.adaptive_inputs` for D2, combines both.
+> - Unknown `agent_name` raises `KeyError` (distinct from `ValueError`
+>   for malformed staging) so callers can tell "caller bug" from "data
+>   bug".
+> - D1 correlation: subagents only record DROPPED matches in the current
+>   producer contract, so `emitted_findings_by_match={}` is passed to D1.
+>   T14's API still accepts the mapping for future producer that tracks
+>   both sides.
+> - `finalize_scan_results` runs `detect_coverage_gaps` for each
+>   adaptive-capable agent when the scan has adaptive signal (either
+>   staged context-required matches OR at least one agent declared
+>   `adaptive_inputs`) and attaches `coverage_gaps: list[dict]` to the
+>   response. Detection runs BEFORE staging cleanup so D1 sees the
+>   recorded matches.
+> - **Backward-compat response shape:** `coverage_gaps` is OMITTED
+>   entirely (not empty list, absent) when the scan has no adaptive
+>   signal. Non-adaptive scans see no schema change. Orchestrators
+>   truthy-check for the key's presence.
+> - New MCP tool `detect_coverage_gaps` for direct invocation outside
+>   the finalize flow (dry-run preview).
+> - 9 gap-detection tests: D2-only, combined D1+D2, graceful D2-skip,
+>   KeyError on unknown agent, MCP dispatch happy + error paths,
+>   finalize inclusion, finalize omission (backward compat), cached-
+>   result idempotency.
+>
+> **E2E loop closed at Commit 3:** scan records matches via
+> `record_context_required_match` → finalize runs `detect_coverage_gaps`
+> → response carries `coverage_gaps` → orchestrator reads the field to
+> decide whether to generate an adaptive script.
+>
+> **Out of scope (deferred to T18):** subagent prompt updates for
+> `--adaptive`. T16 ships the infrastructure; T18 wires it into actual
+> subagent behavior (telling the LLMs to call
+> `record_context_required_match` when they drop a context-required
+> match). Bound keeps T16 reviewable at 3 feature commits.
+>
+> **Test count:** 610 baseline → 635 passed (+25 tests: 7 schema + 9
+> tracking + 9 gap detection). No regressions.
+
 **Files:**
 - Modify: `src/screw_agents/engine.py`
+- Modify: `src/screw_agents/models.py` (NEW — shipped design adds AdaptiveInputs)
+- Modify: `src/screw_agents/staging.py` (NEW — shipped design adds match tracking)
+- Modify: `src/screw_agents/server.py` (NEW — shipped design registers 2 MCP tools)
+- Modify: `domains/injection-input-handling/{sqli,cmdi,ssti,xss}.yaml` (NEW — adaptive_inputs block)
+- Create: `tests/test_adaptive_inputs.py` (NEW — schema contract tests)
+- Create: `tests/test_record_context_required_match.py` (NEW — tracking protocol tests)
 - Create: `tests/test_detect_coverage_gaps.py`
 
 - [ ] **Step 1: Write failing test**

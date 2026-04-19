@@ -484,6 +484,36 @@ surface meta-load errors cleanly to the subagent caller.
 
 **Estimated scope:** ~15 LOC + 2 tests. Trivial.
 
+### T16-M1 — Server-side context-required match detection (vs LLM-reported)
+**Source:** Phase 3b PR #5 Task 16 implementation, 2026-04-19
+**File:** `src/screw_agents/gap_signal.py`, `src/screw_agents/engine.py`
+**Priority:** Medium (Phase 4 refinement)
+
+**What's shipped now:** Subagent LLMs call `record_context_required_match` when they investigate a `severity: context-required` pattern and decide not to emit a finding. The scan engine has no independent way to detect context-required matches; it trusts the LLM's self-report. This closes the adaptive E2E loop but puts the onus on the subagent prompt (T18) to be disciplined.
+
+**Why defer to Phase 4:** Server-side detection of context-required pattern matches would require parsing each agent's `detection_heuristics.context_required` patterns, compiling them against scanned source, and recording every match programmatically — independent of LLM reasoning. That's a lot of heuristic-compilation infrastructure (regex vs tree-sitter pattern matching, per-language behavior, false-positive filtering) and belongs with Phase 4's autoresearch scaffolding that already needs pattern-match telemetry.
+
+**Trigger:** When Phase 4 autoresearch scaffolding lands OR when subagent-prompt discipline for `record_context_required_match` proves unreliable in production (measured via the matches-per-scan metric not moving when scans clearly encounter context_required patterns).
+
+**Suggested approach:** Extend `gap_signal.py` with a `compile_heuristic_patterns(agent: AgentDefinition) -> list[CompiledHeuristic]` helper, add `scan_for_context_required_matches(project_root, agent) -> list[ContextRequiredMatch]` that runs at scan time, call alongside the LLM-driven path, and merge into staging with the existing 4-tuple dedup.
+
+**Estimated scope:** ~150-250 LOC + 6-10 tests. Medium. Depends on Phase 4 heuristic-compilation framework.
+
+### T16-M2 — Multi-session context-required match correlation
+**Source:** Phase 3b PR #5 Task 16 implementation, 2026-04-19
+**File:** `src/screw_agents/staging.py`
+**Priority:** Low (deferred unless cross-session analytics prove useful)
+
+**What's shipped now:** `context_required_matches.json` is strictly per-session. Each scan's matches are consumed at finalize and deleted. There's no cross-session retention or correlation.
+
+**Why defer:** Cross-session correlation (e.g., "this file has had a context-required match on line 42 across 3 scans — promote to persistent watchlist") is an analytics layer, not a coverage-gap-signal layer. Likely belongs alongside `learning/exclusions.yaml` as a second learning artifact once the autoresearch loop (Phase 4) is live. Premature work without clear Phase 4 semantics.
+
+**Trigger:** When autoresearch (Phase 4) needs historical context-required match telemetry as a signal input, OR when a user asks for a "chronic gap" report similar to `aggregate_learning`'s FP report.
+
+**Suggested approach:** New `.screw/learning/context_required_history.yaml` written at finalize (mirroring the `exclusions.yaml` stable-artifact pattern), one `ScanEngine.aggregate_context_required_patterns` method for chronic-gap reporting, never auto-deleted.
+
+**Estimated scope:** ~100 LOC + 5 tests. Small. Can be implemented independently of autoresearch when/if the use case materializes.
+
 ---
 
 ## Shipped
