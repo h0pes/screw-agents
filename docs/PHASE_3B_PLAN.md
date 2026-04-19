@@ -5055,6 +5055,42 @@ git commit -m "feat(phase3b): subagent prompts support --adaptive flag and gener
 > tests for `render_and_write` merge end-to-end + no-merge no-Sources
 > case). 739 → 748 passed, 8 skipped, zero regressions.
 >
+> **Post-review hardening** (commit `987e76d`, 2026-04-19):
+> Quality review of the shipped T19 surfaced 1 Important + 2 tracked
+> deferrals. Fixes:
+>
+> - **I2 (Important) — severity case-normalization in `_sort_key`.**
+>   `_merge_findings_augmentatively._sort_key` now calls
+>   `f.classification.severity.lower()` before `_SEVERITY_RANK.get(...)`.
+>   A YAML agent emitting `severity="High"` (capitalized prose drift)
+>   previously ranked 5 (unknown → below `"low"` at rank 3) and lost
+>   tiebreaker selection it should have won. The normalization happens
+>   ONLY in the sort_key — Finding fields and `merged_from_sources`
+>   source strings preserve the ORIGINAL severity value. One-character
+>   defensive change. Regression test
+>   `test_merge_severity_case_mismatch_normalizes_to_lower` added to
+>   `TestMergeFindingsAugmentatively`; verified to fail against pre-fix
+>   code before landing (temporarily reverted the `.lower()` call and
+>   confirmed `primary.agent == "adaptive_script:qb"` instead of the
+>   expected `"sqli"`). Test count: 748 → 749 passed (+1), 8 skipped,
+>   zero regressions.
+> - **I1 (exclusion-interaction) — deferred as T19-M2** in
+>   `docs/DEFERRED_BACKLOG.md`. When a merged finding's primary agent
+>   differs from an exclusion's agent (because another source outranked
+>   it on severity), the exclusion silently fails to match. Pre-existing
+>   limitation of the exclusion model, newly addressable post-T19 via
+>   structured `merged_from_sources`. Deferred because it's an
+>   exclusion-matching-contract change that deserves its own review
+>   cycle with schema implications for `exclusions_applied`.
+> - **I3 (structured source-list) — deferred as T19-M3** in
+>   `docs/DEFERRED_BACKLOG.md`. Current `list[str]` format
+>   ("<agent> (<severity>)") works for Markdown display and JSON
+>   consumers but is fragile for regex-parsing consumers (nested
+>   parens in agent names break `rsplit`). Deferring migration to
+>   `list[MergedSource]` until a failing consumer surfaces — the LIST
+>   wrapper is the schema contract; element shape is the evolvability
+>   concern.
+>
 > The original Step 1/Step 2/Step 3 content below is preserved for
 > historical context but is **SUPERSEDED** by the shipped implementation.
 
