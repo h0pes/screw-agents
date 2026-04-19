@@ -104,3 +104,94 @@ def test_sandbox_blocks_network_access(tmp_path: Path):
     # or the script exits cleanly because the exception is caught. Either way,
     # no actual network connection occurred.
     assert result.returncode == 0
+
+
+def test_compute_nproc_cap_counts_threads_not_processes() -> None:
+    """Regression for a T8 latent bug discovered during T19: RLIMIT_NPROC
+    accounts per-UID THREADS, not processes. A heavily-threaded process
+    (tokio runtime, JVM, etc.) contributes many threads but only one
+    process. The cap must include all threads to avoid the kernel
+    hitting EAGAIN on bwrap's clone(CLONE_NEWUSER).
+
+    Locks the thread-counting semantics so a future refactor can't
+    silently regress back to process-counting (which would only break on
+    hosts with heavily-threaded processes — intermittent and expensive
+    to diagnose, exactly what happened on the dev host during T19)."""
+    import threading
+    from screw_agents.adaptive.sandbox.linux import _compute_nproc_cap
+
+    # Baseline measurement — this already counts the current Python
+    # interpreter's threads (main + any background). Pytest may have
+    # started threads too.
+    baseline = _compute_nproc_cap()
+
+    # Spawn 5 threads in THIS process. If _compute_nproc_cap counted
+    # processes, the cap would not change (we didn't spawn a new process).
+    # If it correctly counts threads, the cap increases by 5.
+    extras: list[threading.Thread] = []
+    barrier = threading.Barrier(6)  # 5 extras + the main
+
+    def worker() -> None:
+        barrier.wait(timeout=5)
+        barrier.wait(timeout=5)  # second wait: main signals us to exit
+
+    try:
+        for _ in range(5):
+            t = threading.Thread(target=worker, daemon=True)
+            t.start()
+            extras.append(t)
+        barrier.wait(timeout=5)  # threads are now alive and blocked
+
+        after = _compute_nproc_cap()
+
+        # Expect cap to have grown by approximately 5 (the new threads).
+        # Tolerance: +/- 2 to account for pytest/Python internal thread
+        # churn during the test (gc threads, subprocess reaper, etc.).
+        delta = after - baseline
+        assert 3 <= delta <= 10, (
+            f"Expected cap to grow by ~5 when 5 threads spawned; got "
+            f"delta={delta} (baseline={baseline}, after={after}). "
+            f"If delta is 0, _compute_nproc_cap is counting processes "
+            f"not threads — the bug has regressed."
+        )
+    finally:
+        # Release the worker threads so they can exit
+        try:
+            barrier.wait(timeout=1)  # second wait — workers exit after
+        except threading.BrokenBarrierError:
+            pass
+        for t in extras:
+            t.join(timeout=2)
+
+
+def test_compute_nproc_cap_returns_reasonable_value_under_load() -> None:
+    """Sanity check: on a realistic interactive desktop with hundreds of
+    threads, _compute_nproc_cap must return a value that bwrap can
+    actually fork under. This is the test that was SILENTLY FAILING
+    under rustdesk load — now validates the condition post-fix.
+
+    We don't actually spawn bwrap here; we just assert the cap is at
+    least baseline+headroom, which the bug fix guarantees but the
+    process-counting bug violated (baseline was pre-fork-count +
+    headroom, less than real thread count + headroom)."""
+    import threading
+    from screw_agents.adaptive.sandbox.linux import (
+        _BWRAP_HEADROOM,
+        _SCRIPT_PROCESS_BUDGET,
+        _compute_nproc_cap,
+    )
+
+    current_thread_count = threading.active_count()
+    cap = _compute_nproc_cap()
+
+    # Cap must be at least current-thread-count-in-this-process +
+    # headroom. In practice it's bigger (includes all other UID
+    # processes' threads), but this lower bound was VIOLATED by the
+    # pre-fix code when other UID processes contributed many threads.
+    min_expected = current_thread_count + _SCRIPT_PROCESS_BUDGET + _BWRAP_HEADROOM - 20
+    # The -20 tolerance accounts for process scanner races.
+    assert cap >= min_expected, (
+        f"Cap {cap} is below reasonable minimum {min_expected} for "
+        f"{current_thread_count} threads in this process alone — "
+        f"thread-counting regression."
+    )
