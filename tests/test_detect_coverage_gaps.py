@@ -296,6 +296,107 @@ def test_finalize_scan_results_omits_coverage_gaps_when_non_adaptive(
             agent.adaptive_inputs = original
 
 
+def test_finalize_scan_results_does_not_duplicate_d1_gaps_across_agents(
+    tmp_path: Path,
+) -> None:
+    """C1 regression: one recorded match + multi-agent finalize must NOT
+    produce duplicate D1 gaps. D1 runs once globally (matches already
+    carry their own `agent` attribution); D2 runs per-agent.
+
+    Reproduces the pre-fix bug where looping `detect_coverage_gaps` per
+    agent in ``agent_names`` would re-emit every recorded match once per
+    loop iteration — a realistic multi-agent run
+    (``agent_names=["sqli","cmdi","ssti","xss"]``) would 4x the D1 counts
+    downstream in T17/T18 consumers.
+    """
+    engine = ScanEngine.from_defaults()
+
+    # Record a SINGLE context-required match for sqli.
+    rec = engine.record_context_required_match(
+        project_root=tmp_path,
+        match={
+            "agent": "sqli",
+            "file": "handler.py",
+            "line": 42,
+            "pattern": "raw-sql-single-match",
+        },
+        session_id=None,
+    )
+    sid = rec["session_id"]
+
+    # Stage a finding so finalize proceeds past `read_for_finalize`.
+    engine.accumulate_findings(
+        project_root=tmp_path,
+        findings_chunk=[_make_finding("sqli-001")],
+        session_id=sid,
+    )
+
+    # Finalize across MULTIPLE agents — the realistic injection-input-
+    # handling adaptive path.
+    result = engine.finalize_scan_results(
+        project_root=tmp_path,
+        session_id=sid,
+        agent_names=["sqli", "cmdi", "ssti", "xss"],
+    )
+
+    assert "coverage_gaps" in result
+    d1_gaps = [g for g in result["coverage_gaps"] if g["type"] == "context_required"]
+    assert len(d1_gaps) == 1, (
+        f"C1 regression — one recorded match must yield exactly ONE D1 gap "
+        f"regardless of agent_names cardinality; got {len(d1_gaps)} gaps: "
+        f"{d1_gaps!r}"
+    )
+    # The lone D1 gap is attributed to the recording agent, not any other
+    # agent in agent_names.
+    assert d1_gaps[0]["agent"] == "sqli"
+
+
+def test_detect_coverage_gaps_filters_matches_by_agent_name(
+    tmp_path: Path,
+) -> None:
+    """Per-agent contract: `detect_coverage_gaps(agent_name=X)` must return
+    ONLY D1 gaps whose recorded agent is X. A match recorded for sqli
+    must not surface in a cmdi query — even though both share staging.
+    """
+    engine = ScanEngine.from_defaults()
+
+    rec = engine.record_context_required_match(
+        project_root=tmp_path,
+        match={
+            "agent": "sqli",
+            "file": "handler.py",
+            "line": 7,
+            "pattern": "sqli-only-pattern",
+        },
+        session_id=None,
+    )
+    sid = rec["session_id"]
+
+    # Query with agent_name="cmdi" — no cmdi matches recorded, so D1
+    # must yield zero entries. (D2 for cmdi may still fire if the tmp
+    # dir had sink-shaped calls — we didn't write any here, so it won't.)
+    cmdi_gaps = engine.detect_coverage_gaps(
+        agent_name="cmdi",
+        project_root=tmp_path,
+        session_id=sid,
+    )
+    cmdi_d1 = [g for g in cmdi_gaps if g.type == "context_required"]
+    assert cmdi_d1 == [], (
+        "per-agent detect_coverage_gaps must filter D1 matches by agent_name; "
+        f"cmdi query returned {len(cmdi_d1)} D1 gaps from sqli's match"
+    )
+
+    # Query with agent_name="sqli" — still sees the recorded sqli match.
+    sqli_gaps = engine.detect_coverage_gaps(
+        agent_name="sqli",
+        project_root=tmp_path,
+        session_id=sid,
+    )
+    sqli_d1 = [g for g in sqli_gaps if g.type == "context_required"]
+    assert len(sqli_d1) == 1
+    assert sqli_d1[0].agent == "sqli"
+
+
 def test_finalize_includes_coverage_gaps_cached_on_second_call(
     tmp_path: Path,
 ) -> None:

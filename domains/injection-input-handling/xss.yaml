@@ -1102,16 +1102,38 @@ few_shot_examples:
 adaptive_inputs:
   # Phase 3b T16 — per-agent inputs for the D2 taint-verified unresolved-sink
   # gap signal. Method regex covers HTML-output sinks from heuristics:
-  # DOM writers (innerHTML/outerHTML assignment trees render as calls when
-  # wrapped, document.write/writeln/insertAdjacentHTML), server response
-  # writers (res.send/write, response.write, getWriter().write/print,
-  # Fprintf to ResponseWriter), explicit unescape helpers
-  # (mark_safe/SafeString/Markup/html_safe/raw/bypassSecurityTrustHtml),
-  # @Html.Raw and HtmlString (.NET), template.HTML cast (Go),
-  # set_inner_html and from_html_unchecked (Yew), register_escape_fn
-  # (Handlebars-rust). `new` catches `new HtmlString(...)` and
-  # `new Function(...)` (eval-like sink).
-  sink_regex: "innerHTML|outerHTML|write|writeln|insertAdjacentHTML|send|print|Fprintf|WriteString|mark_safe|SafeString|Markup|html_safe|bypassSecurityTrust|Raw|RawHtml|HtmlString|render_template_string|set_inner_html|from_html_unchecked|register_escape_fn|eval|new"
+  # DOM writers (innerHTML/outerHTML as calls when wrapped,
+  # document.writeln/insertAdjacentHTML), server response writers
+  # (res.send, Fprintf to ResponseWriter, WriteString), explicit unescape
+  # helpers (mark_safe/SafeString/Markup/html_safe/bypassSecurityTrust*),
+  # @Html.Raw and HtmlString (.NET), set_inner_html and
+  # from_html_unchecked (Yew), register_escape_fn (Handlebars-rust).
+  # Anchored `^(...)$` post-I1 hardening plus per-token surgery:
+  #
+  # Dropped (unfixable overmatch even anchored):
+  #   - `write` — `^write$` still hits every file/CSV/stream writer's
+  #     `.write(...)` method. FP rate is prohibitive on real codebases;
+  #     the DOM sink is covered via `document` receiver (receiver is in
+  #     known_receivers, so D2 doesn't fire — but that's the goal: no
+  #     unknown-receiver D2 on `write`).
+  #   - `print` — `^print$` still hits every debug/log `.print(...)`.
+  #     Go template `.print` is niche; coverage loss acceptable.
+  #   - `new` — too broad; constructor convention across most OO code.
+  #     `new HtmlString(...)` has `HtmlString` in `known_receivers`-
+  #     adjacent flow via the HtmlString method anyway; `new Function`
+  #     is vanishingly rare.
+  #
+  # Retained as exact matches (anchored):
+  #   - `send` — `^send$` still matches generic message-bus `.send(...)`,
+  #     but the Express `res.send(...)` pattern is load-bearing for XSS
+  #     and `res`/`response` are in known_receivers. On unknown
+  #     receivers, this is a legitimate signal (taint path still required).
+  #   - `eval` — `^eval$` excludes `evaluate` (ssti's domain).
+  #   - `Raw` — `^Raw$` excludes `RawBytes`, `RawHtml` (which is listed
+  #     separately).
+  # bypassSecurityTrust expands to the actual Angular methods:
+  # bypassSecurityTrustHtml / Url / Script / Style / ResourceUrl.
+  sink_regex: "^(innerHTML|outerHTML|writeln|insertAdjacentHTML|send|Fprintf|WriteString|mark_safe|SafeString|Markup|html_safe|bypassSecurityTrustHtml|bypassSecurityTrustUrl|bypassSecurityTrustScript|bypassSecurityTrustStyle|bypassSecurityTrustResourceUrl|Raw|RawHtml|HtmlString|render_template_string|set_inner_html|from_html_unchecked|register_escape_fn|eval)$"
   # BARE trailing-token receivers. `document.write(...)` → `document`;
   # `window.eval(...)` → `window`; `res.send(...)` → `res`; `el.innerHTML = ...`
   # rendered as call syntax (rare in Python treesitter) → `el`.

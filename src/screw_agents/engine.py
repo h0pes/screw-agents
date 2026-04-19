@@ -759,7 +759,7 @@ class ScanEngine:
         project_root: Path,
         session_id: str,
     ) -> list["CoverageGap"]:
-        """Compute D1 + D2 coverage gaps for a completed scan session.
+        """Compute D1 + D2 coverage gaps for a single agent within a scan session.
 
         Phase 3b T16 (part 3): closes the adaptive end-to-end loop. Reads
         context-required matches from
@@ -767,6 +767,14 @@ class ScanEngine:
         (populated by ``record_context_required_match`` during the scan)
         and combines with D2 output from AST analysis using the agent's
         ``adaptive_inputs`` YAML declaration.
+
+        Per-agent contract: returns ONLY the gaps attributable to
+        ``agent_name``. D1 matches whose recorded ``agent`` field is some
+        OTHER agent are filtered out — the recorded match carries its own
+        attribution, and per-agent callers (MCP tool, T17/T18) must not
+        see another agent's gaps. C1 post-review hardening (see
+        gap-integration block in ``finalize_scan_results`` for the
+        multi-agent-session integration that runs D1 once globally).
 
         D1 correlation note: with the current producer contract, subagents
         only call ``record_context_required_match`` for DROPPED matches
@@ -781,10 +789,11 @@ class ScanEngine:
                 ``accumulate_findings`` or ``record_context_required_match``.
 
         Returns:
-            Combined list of CoverageGap. Empty list when the staging
-            file is missing (scan never recorded a match), the agent has
-            no ``adaptive_inputs`` (opted out of D2), and no matches were
-            recorded.
+            Combined list of CoverageGap attributable to ``agent_name``.
+            Empty list when the staging file is missing (scan never
+            recorded a match for this agent), the agent has no
+            ``adaptive_inputs`` (opted out of D2), and no matches were
+            recorded for this agent.
 
         Raises:
             KeyError: Unknown ``agent_name`` (not in the registry). Raised
@@ -806,9 +815,11 @@ class ScanEngine:
                 f"{sorted(self._registry.agents.keys())}"
             )
 
-        # D1 from staging. Missing staging file is valid (scan never
+        # D1 from staging, FILTERED by agent_name so this method returns a
+        # clean per-agent view. Missing staging file is valid (scan never
         # recorded a context-required match).
-        matches = load_context_required_matches(project_root, session_id)
+        all_matches = load_context_required_matches(project_root, session_id)
+        matches = [m for m in all_matches if m.get("agent") == agent_name]
         gaps: list[CoverageGap] = list(
             detect_d1_context_required_gaps(
                 context_required_matches=matches,  # type: ignore[arg-type]
@@ -909,10 +920,16 @@ class ScanEngine:
                 session (neither a staged findings.json nor a cached
                 result.json exists).
         """
+        from screw_agents.gap_signal import (
+            detect_d1_context_required_gaps,
+            detect_d2_unresolved_sink_gaps,
+        )
+        from screw_agents.models import CoverageGap
         from screw_agents.results import render_and_write
         from screw_agents.staging import (
-            _staging_context_required_path,
             finalize_result_cached,
+            has_context_required_staging,
+            load_context_required_matches,
             read_for_finalize,
             save_finalize_result,
         )
@@ -935,52 +952,76 @@ class ScanEngine:
             agent_registry=self._registry,
         )
 
-        # Phase 3b T16: run coverage-gap detection for adaptive-capable
-        # agents and attach to the response. MUST happen before
-        # `save_finalize_result` so the context_required_matches.json
-        # staging is still present (save_finalize_result cleans it up).
+        # Phase 3b T16: attach coverage-gap detection to the finalize
+        # response. MUST happen before `save_finalize_result` so the
+        # context_required_matches.json staging is still present (the save
+        # cleans it up).
+        #
+        # C1 post-review hardening — D1 runs ONCE globally per session,
+        # D2 runs per-agent:
+        #
+        #   * D1 matches carry their own `agent` attribution (the
+        #     subagent recorded it at investigation time). Running D1
+        #     per-agent-in-agent_names would duplicate every gap by the
+        #     loop cardinality — a single sqli match + agent_names=
+        #     ["sqli","cmdi","ssti","xss"] would yield 4 identical
+        #     entries. That's silent count inflation downstream.
+        #
+        #   * D2 inputs (sink_regex, known_receivers, known_sources)
+        #     live in each agent's adaptive_inputs YAML, so D2 is
+        #     inherently per-agent-config.
+        #
+        # The per-agent `ScanEngine.detect_coverage_gaps` method still
+        # exists (exposed as an MCP tool, used by external callers) with
+        # a clean per-agent contract — see its docstring for the filter
+        # semantics.
         #
         # Inclusion rule (backward compat): `coverage_gaps` key appears in
         # the response ONLY when the scan had adaptive signal — either at
         # least one agent has `adaptive_inputs` declared (D2-capable), or
         # the scan session recorded context-required matches (D1-capable).
         # Non-adaptive scans see no schema change.
-        has_context_required_staging = _staging_context_required_path(
-            project_root, session_id
-        ).exists()
+        has_staged_matches = has_context_required_staging(project_root, session_id)
         adaptive_agents = [
             name for name in agent_names
             if (a := self._registry.get_agent(name)) is not None
             and a.adaptive_inputs is not None
         ]
-        if adaptive_agents or has_context_required_staging:
-            # When agent_names spans multiple adaptive-capable agents, run
-            # detect_coverage_gaps for each and aggregate. Unknown agent
-            # names in agent_names are skipped silently (the renderer
-            # above already tolerates them).
-            all_gaps: list[dict[str, Any]] = []
-            # Include known agents so D2 runs; for D1-only sessions with
-            # agents that have no adaptive_inputs, also run to capture D1
-            # from the recorded matches (D2 skips gracefully).
-            target_agents = set(adaptive_agents)
-            if has_context_required_staging:
-                # D1 still wants to run on ALL recorded matches regardless
-                # of which agent declared adaptive_inputs, so any known
-                # agent in agent_names qualifies.
-                for name in agent_names:
-                    if self._registry.get_agent(name) is not None:
-                        target_agents.add(name)
-            for name in sorted(target_agents):
-                try:
-                    gaps = self.detect_coverage_gaps(
-                        agent_name=name,
-                        project_root=project_root,
-                        session_id=session_id,
+        if adaptive_agents or has_staged_matches:
+            coverage_gaps: list[CoverageGap] = []
+
+            # D1 — one pass over staging for ALL agents in this session.
+            # Each recorded match carries its own `agent` field; no
+            # filtering by agent_names (a future match recorded by an
+            # agent not currently listed in agent_names is still surfaced
+            # — its existence is the signal).
+            if has_staged_matches:
+                matches = load_context_required_matches(project_root, session_id)
+                coverage_gaps.extend(
+                    detect_d1_context_required_gaps(
+                        context_required_matches=matches,  # type: ignore[arg-type]
+                        emitted_findings_by_match={},
                     )
-                except KeyError:
+                )
+
+            # D2 — per-agent, driven by each agent's adaptive_inputs.
+            # Unknown agent names in agent_names are skipped silently
+            # (the renderer above already tolerates them).
+            for name in agent_names:
+                agent = self._registry.get_agent(name)
+                if agent is None or agent.adaptive_inputs is None:
                     continue
-                all_gaps.extend(g.model_dump() for g in gaps)
-            result["coverage_gaps"] = all_gaps
+                coverage_gaps.extend(
+                    detect_d2_unresolved_sink_gaps(
+                        project_root=project_root,
+                        agent=name,
+                        sink_regex=agent.adaptive_inputs.sink_regex,
+                        known_receivers=agent.adaptive_inputs.known_receivers,
+                        known_sources=agent.adaptive_inputs.known_sources,
+                    )
+                )
+
+            result["coverage_gaps"] = [g.model_dump() for g in coverage_gaps]
 
         save_finalize_result(project_root, session_id, result)
         return result

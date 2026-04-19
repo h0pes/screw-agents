@@ -139,3 +139,184 @@ def test_all_shipped_adaptive_sink_regexes_compile() -> None:
                 f"agent {name!r} has malformed sink_regex "
                 f"{agent.adaptive_inputs.sink_regex!r}: {exc}"
             )
+
+
+# ----------------------------------------------------------------------
+# I1 post-review: negative-match tests locking anchored sink_regex so a
+# future YAML edit that drops the `^(...)$` anchors or re-introduces an
+# ambiguous bare token (e.g., `call`, `new`, `write`) immediately fails
+# here rather than silently inflating FPs in real D2 scans.
+#
+# Each case name is an innocuous method identifier that the PRE-FIX
+# (unanchored) regex empirically matched via `re.search`. All of these
+# are taken from real Python/JS codebases, not speculation.
+# ----------------------------------------------------------------------
+
+
+def _get_sink_pattern(agent_name: str) -> re.Pattern[str]:
+    engine = ScanEngine.from_defaults()
+    agent = engine._registry.get_agent(agent_name)
+    assert agent is not None and agent.adaptive_inputs is not None
+    return re.compile(agent.adaptive_inputs.sink_regex)
+
+
+@pytest.mark.parametrize(
+    "innocuous_method",
+    [
+        "drawing",       # substring of 'raw'
+        "draw",          # substring of 'raw'
+        "inquery",       # substring of 'query'
+        "requery",       # substring of 'query'
+        "queryset",      # substring of 'query' (Django)
+        "preparation",   # substring of 'prepare'
+        "preexecute",    # substring of 'execute'
+        "executor",      # substring of 'execute'
+        "formatted_sql", # substring of 'format_sql'
+        "from_string_builder",  # substring of 'from_string'
+    ],
+)
+def test_sqli_sink_regex_does_not_overmatch(innocuous_method: str) -> None:
+    """I1 regression: sqli sink_regex must not match common innocuous
+    method names that happen to contain sink tokens as substrings.
+    """
+    pattern = _get_sink_pattern("sqli")
+    assert not pattern.search(innocuous_method), (
+        f"sqli sink_regex spuriously matches innocuous method "
+        f"{innocuous_method!r}; anchor with ^(...)$ or drop the offending token"
+    )
+
+
+@pytest.mark.parametrize(
+    "innocuous_method",
+    [
+        "callback",     # substring of 'call' — dropped entirely
+        "recall",       # substring of 'call'
+        "callable",     # substring of 'call'
+        "newCustomer",  # substring of 'new' — dropped entirely
+        "newline",      # substring of 'new'
+        "renew",        # substring of 'new'
+        "execute",      # substring of 'exec'
+        "executor",     # substring of 'exec'
+        "running",      # substring of 'run'
+        "runtime",      # substring of 'run'
+        "Startup",      # substring of 'Start'
+        "Started",      # substring of 'Start'
+        "systemd",      # substring of 'system'
+        "popened",      # substring of 'popen'
+        "spawner",      # substring of 'spawn'
+    ],
+)
+def test_cmdi_sink_regex_does_not_overmatch(innocuous_method: str) -> None:
+    """I1 regression: cmdi sink_regex must not match innocuous method
+    names via substring. Also locks the decision to DROP `call` and
+    `new` — re-introducing them would fail this test.
+    """
+    pattern = _get_sink_pattern("cmdi")
+    assert not pattern.search(innocuous_method), (
+        f"cmdi sink_regex spuriously matches innocuous method "
+        f"{innocuous_method!r}"
+    )
+
+
+@pytest.mark.parametrize(
+    "innocuous_method",
+    [
+        "parser",       # substring of 'parse'
+        "parsed",       # substring of 'parse'
+        "compiled",     # substring of 'compile'
+        "compiler",     # substring of 'compile'
+        "rendered",     # substring of 'render'
+        "renderer",     # substring of 'render'
+        "prefetch",     # substring of 'fetch'
+        "fetcher",      # substring of 'fetch'
+        "generated",    # substring of 'generate'
+        "generator",    # substring of 'generate'
+        "Executed",     # substring of 'Execute'
+        "Executes",     # substring of 'Execute'
+        "evaluated",    # substring of 'evaluate'
+    ],
+)
+def test_ssti_sink_regex_does_not_overmatch(innocuous_method: str) -> None:
+    """I1 regression: ssti sink_regex must not match innocuous method
+    names via substring.
+    """
+    pattern = _get_sink_pattern("ssti")
+    assert not pattern.search(innocuous_method), (
+        f"ssti sink_regex spuriously matches innocuous method "
+        f"{innocuous_method!r}"
+    )
+
+
+@pytest.mark.parametrize(
+    "innocuous_method",
+    [
+        "rewrite",       # substring of 'write' — `write` dropped
+        "overwrite",     # substring of 'write'
+        "write_csv",     # substring of 'write'
+        "sprint",        # substring of 'print' — `print` dropped
+        "imprint",       # substring of 'print'
+        "evaluate",      # substring of 'eval'
+        "sender",        # substring of 'send'
+        "sendgrid_send", # substring of 'send'
+        "newCustomer",   # substring of 'new' — `new` dropped
+        "renew",         # substring of 'new'
+        "newline",       # substring of 'new'
+        "innerHTMLx",    # trailing-char overmatch guard (anchor check)
+        "xinnerHTML",    # leading-char overmatch guard (anchor check)
+        "RawBytes",      # substring of 'Raw' — anchored `^Raw$` excludes
+    ],
+)
+def test_xss_sink_regex_does_not_overmatch(innocuous_method: str) -> None:
+    """I1 regression: xss sink_regex must not match innocuous method
+    names via substring. Also locks the decisions to DROP `write`,
+    `print`, `new` entirely — re-introducing them would fail this test.
+    """
+    pattern = _get_sink_pattern("xss")
+    assert not pattern.search(innocuous_method), (
+        f"xss sink_regex spuriously matches innocuous method "
+        f"{innocuous_method!r}"
+    )
+
+
+@pytest.mark.parametrize(
+    "agent_name, true_positive_methods",
+    [
+        (
+            "sqli",
+            ["execute", "executemany", "raw", "query", "queryRaw", "prepare"],
+        ),
+        (
+            "cmdi",
+            ["system", "popen", "exec", "run", "Popen", "shell_exec"],
+        ),
+        (
+            "ssti",
+            ["render_template_string", "render", "from_string", "evaluate"],
+        ),
+        (
+            "xss",
+            [
+                "innerHTML",
+                "insertAdjacentHTML",
+                "mark_safe",
+                "bypassSecurityTrustHtml",
+                "bypassSecurityTrustScript",
+                "Raw",
+                "eval",
+            ],
+        ),
+    ],
+)
+def test_sink_regex_still_matches_true_positives(
+    agent_name: str, true_positive_methods: list[str]
+) -> None:
+    """I1 companion: the anchored regex must STILL match the sink methods
+    the agent is supposed to cover. Guards against an over-eager future
+    tightening that drops a real sink.
+    """
+    pattern = _get_sink_pattern(agent_name)
+    for method in true_positive_methods:
+        assert pattern.search(method), (
+            f"{agent_name} sink_regex fails to match expected sink "
+            f"method {method!r}"
+        )

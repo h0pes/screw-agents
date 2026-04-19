@@ -758,12 +758,16 @@ adaptive_inputs:
   # entry points across the engines referenced in heuristics above:
   # Flask/Jinja2 (render_template_string, render_template, from_string),
   # Mako/Jinja2 Template(...).render, Tornado generate, FreeMarker/
-  # Velocity evaluate, Twig createTemplate, Smarty fetch, ERB.new
-  # (matched via `new`), Go template.New + Parse + Execute, Tera
-  # render_str + one_off, minijinja template_from_str + render_str,
-  # Handlebars compile + render_template, Razor RunCompile, Scriban
-  # Parse + Render.
-  sink_regex: "render_template_string|render_template|render_str|render|from_string|template_from_str|Parse|parse|evaluate|compile|createTemplate|fetch|generate|one_off|RunCompile|Execute|Render"
+  # Velocity evaluate, Twig createTemplate, Smarty fetch, Go template
+  # Parse + Execute, Tera render_str + one_off, minijinja
+  # template_from_str + render_str, Handlebars compile + render_template,
+  # Razor RunCompile, Scriban Parse + Render.
+  # Anchored `^(...)$` post-I1 hardening: `re.search` on `parse` without
+  # anchors matches `parser`, `parsed`; `compile` matches `compiled`,
+  # `compiler`; `render` matches `rendered`, `renderer`; `fetch` matches
+  # `prefetch`, `fetcher`; `generate` matches `generated`, `generator`;
+  # `Execute` matches `Executed`, `Executes`.
+  sink_regex: "^(render_template_string|render_template|render_str|render|from_string|template_from_str|Parse|parse|evaluate|compile|createTemplate|fetch|generate|one_off|RunCompile|Execute|Render)$"
   # BARE trailing-token receivers — template-engine object names from
   # heuristics. `env.render_str(...)` → `env`; `tera.render_str(...)` →
   # `tera`; `jinja2.Template(...)` → `jinja2`.

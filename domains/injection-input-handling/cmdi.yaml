@@ -740,11 +740,26 @@ adaptive_inputs:
   # gap signal. Method regex covers the full set of OS-command execution
   # entry points referenced by this agent's heuristics: POSIX shells
   # (system/popen/exec/spawn families), Node.js child_process
-  # (exec/execSync/execFile/spawn/spawnSync), subprocess (run/call/
+  # (exec/execSync/execFile/spawn/spawnSync), subprocess (run/
   # check_output/check_call/Popen), PHP command wrappers (shell_exec/
-  # passthru/proc_open/backtick), .NET Process.Start, Rust Command::new
-  # (matched via `new`).
-  sink_regex: "system|popen|spawn|spawnSync|execSync|execFile|exec|run|call|check_output|check_call|Popen|shell_exec|passthru|proc_open|backtick|Start|new"
+  # passthru/proc_open/backtick), .NET Process.Start.
+  # Anchored `^(...)$` post-I1 hardening: `re.search` on `exec` without
+  # anchors matches `execute`, `executor`, `executable`; `run` matches
+  # `running`, `runtime`; `Start` matches `Startup`, `Started`.
+  #
+  # Dropped vs the original list:
+  #   - `call` — matches `callback`, `recall`, `callable` even anchored
+  #     as `^call$` the true sink is typically `subprocess.call(...)`
+  #     which `known_receivers` already covers via the `subprocess`
+  #     receiver. The anchored `^call$` on an unknown receiver would
+  #     overmatch more than it'd catch.
+  #   - `new` — too broad even anchored. `Command::new(...)` is the
+  #     intended Rust constructor, but its receiver `Command` is already
+  #     in `known_receivers`, so D2 on `new` only fires for UNKNOWN
+  #     receivers calling `.new(...)` — which is a prolific constructor
+  #     convention (e.g., `User.new`, `Logger.new`). High FP risk for
+  #     negligible signal.
+  sink_regex: "^(system|popen|spawn|spawnSync|execSync|execFile|exec|run|check_output|check_call|Popen|shell_exec|passthru|proc_open|backtick|Start)$"
   # BARE trailing-token receivers. `subprocess.run(...)` yields receiver
   # `subprocess`; `std::process::Command::new(...)` yields `Command`;
   # `tokio::process::Command::new(...)` yields `Command` as well.

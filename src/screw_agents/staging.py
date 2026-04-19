@@ -42,6 +42,18 @@ def _staging_context_required_path(project_root: Path, session_id: str) -> Path:
     return _staging_dir(project_root, session_id) / "context_required_matches.json"
 
 
+def has_context_required_staging(project_root: Path, session_id: str) -> bool:
+    """Return True if a ``context_required_matches.json`` staging file exists
+    for the given session.
+
+    Public helper so callers outside this module don't need to reach for the
+    private ``_staging_context_required_path`` path constructor just to probe
+    existence. Introduced in Phase 3b T16 post-review hardening (I2): keeps
+    engine.py's finalize integration off the private path-construction API.
+    """
+    return _staging_context_required_path(project_root, session_id).exists()
+
+
 def generate_session_id() -> str:
     """Generate a fresh session id. Uses 16 random bytes, base64url-encoded."""
     return base64.urlsafe_b64encode(secrets.token_bytes(16)).rstrip(b"=").decode("ascii")

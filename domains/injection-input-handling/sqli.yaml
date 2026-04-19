@@ -894,8 +894,12 @@ adaptive_inputs:
   # across Django/SQLAlchemy/Prisma/etc., createQuery/createNativeQuery from
   # Hibernate, queryRawUnsafe/executeRawUnsafe from Prisma, sql_query from
   # Diesel, from_string from SeaORM, execute_unprepared from SeaORM).
-  # Anchored neither left nor right — `re.search` against the method token.
-  sink_regex: "execute|executemany|execute_raw|execute_unprepared|query|queryRaw|queryRawUnsafe|executeRawUnsafe|raw|sql_query|from_string|createQuery|createNativeQuery|prepare|format_sql"
+  # Anchored `^(...)$` post-I1 hardening: `re.search` on `query` without
+  # anchors matches `inquery`, `requery`, `queryset`; `raw` matches
+  # `drawing`, `draw`; `prepare` matches `preparation`. The anchors force
+  # an exact method-name match against the bare `tokens[-1]` token that
+  # `detect_d2_unresolved_sink_gaps` passes in (see gap_signal.py).
+  sink_regex: "^(execute|executemany|execute_raw|execute_unprepared|query|queryRaw|queryRawUnsafe|executeRawUnsafe|raw|sql_query|from_string|createQuery|createNativeQuery|prepare|format_sql)$"
   # BARE trailing-token receivers only (T15 doc — gap_signal extracts
   # tokens[-2] after parens-strip + dot-split; dotted entries never match).
   # Sources: canonical DB-driver, ORM, and framework receiver tokens that
