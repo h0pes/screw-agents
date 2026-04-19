@@ -4789,6 +4789,67 @@ For `lint_adaptive_script`:
 >
 > **Test count: 728 → 738 passed, 8 skipped. Zero regressions.**
 >
+> **Post-review hardening** (2026-04-19): Adversarial review of the
+> shipped T18b prompts surfaced 2 Critical + 6 Important findings — all
+> closed in a single prompt-hardening commit with 1 new regression test.
+> Fixes:
+>
+> - **C1 (Critical) — session_id threading drops D1 signal.** Step 3.5a
+>   (per-agent) / Step 2.5a (orchestrator) opens session S1 via
+>   `record_context_required_match(session_id=null)`, but Step 4a / 3a's
+>   `accumulate_findings` unconditionally passed `session_id: null`,
+>   opening a SECOND session S2. Then Step 3.5b / 2.5b's
+>   `detect_coverage_gaps` read from S2 which had no context_required
+>   matches — D1 signal never fires when adaptive mode is engaged.
+>   Same class as T13-C1 (silent data loss at session boundary). Fixed
+>   by making Step 4a / 3a's session_id conditional on whether Step
+>   3.5a / 2.5a executed (pass the returned id forward, else null).
+>   Also tightened Step 3.5b / 2.5b's session_id reference to cite
+>   the 3.5a / 2.5a producer directly and the forward-carry comment
+>   in Step 4a / 3a.
+> - **C2 (Critical) — Regenerate-once failure modes contradicted
+>   sub-step handling.** The summary listed 3 retry-eligible modes but
+>   Step E says lint fail is informative (no retry) and Step F says
+>   malformed reviewer JSON skips-to-next (no retry). Rewrote the
+>   policy to match actual sub-step behavior: ONLY syntax-invalid
+>   Python triggers regeneration; lint fail proceeds to human review;
+>   malformed reviewer response skips the gap.
+> - **I1 — Fence-token framing was misleading.** The "generated after
+>   the target code was written" rationale is temporally true but
+>   security-irrelevant. Replaced with the actual defense: 128+ bits
+>   of session-entropy (server-generated, opaque to target author,
+>   never written inside the target) dominates the SHA256 input.
+> - **I2 — Fence-collision pre-check.** Added defense-in-depth scan
+>   of target source for literal `<UNTRUSTED_CODE_{token}>` before
+>   insertion; 3-attempt regenerate on collision then abort gap.
+> - **I3 — Approval-phrase exact-match not enforced.** Tightened the
+>   ambiguity rule: approve/reject MUST contain THIS `{script_name}`
+>   exactly; `approve <wrong-name>` (e.g., residual from a previous
+>   gap) is treated as ambiguous and clarified; second ambiguous
+>   response biases to REJECT.
+> - **I4 — Eviction order within quota tiers.** Orchestrator's Step
+>   2.5c now specifies deterministic canonical order (D2 before D1,
+>   then agents in registration order sqli/cmdi/ssti/xss, then
+>   (file, line) ascending) so quota exhaustion is reproducible.
+>   Unprocessed tail is surfaced to the user with agent + file:line.
+> - **I5 — Pre-render size cap on script source.** Added
+>   `len(source.splitlines()) > 400` guard at Step 3.5d sub-step G
+>   start; aborts with explanatory message before Section 4 becomes
+>   the dominant view. Legitimate scripts are 50-150 lines; >400 is
+>   either LLM drift or a review-surface inflation attempt.
+> - **I6 — Regression test for execute_adaptive_script lacking
+>   session_id.** New test
+>   `test_execute_adaptive_script_invocation_omits_session_id` locks
+>   T18a's Deviation 1 (server signature accepts only
+>   project_root/script_name/wall_clock_s); prevents a future
+>   "helpful" edit from re-adding session_id to that specific call
+>   and drifting from the server signature. 10 → 11 tests in
+>   `test_adaptive_subagent_prompts.py`.
+>
+> Test count: 738 → 739 passed (+1 new test), 8 skipped, zero
+> regressions. Byte-identity across the 4 per-agent files preserved
+> (test 2 still passes).
+>
 > Remaining plan content below preserved as historical reference; it is
 > **superseded** by the actual implementation (which closes the 10 gaps
 > above rather than matching the draft block verbatim).
