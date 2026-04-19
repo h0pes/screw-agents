@@ -4041,6 +4041,71 @@ git commit -m "feat(phase3b): D2 coverage gap signal (unresolved sink)"
 >
 > **Test count:** 610 baseline → 635 passed (+25 tests: 7 schema + 9
 > tracking + 9 gap detection). No regressions.
+>
+> **Post-review hardening** (commit `e715afe`, 2026-04-19): Fixed three
+> review findings — one Critical, two Important.
+>
+> - **C1 (Critical) — D1 gap duplication across multi-agent finalize.**
+>   The finalize gap-integration block looped
+>   `detect_coverage_gaps(agent_name=X)` once per agent in `agent_names`.
+>   Because each invocation re-loaded ALL recorded context-required
+>   matches (no filter by agent_name), a SINGLE recorded sqli match +
+>   `agent_names=["sqli","cmdi","ssti","xss"]` produced 4 identical D1
+>   gaps — silent count inflation downstream in T17/T18 consumers, at
+>   the exact realistic entry point (`/screw:scan injection-input-handling
+>   --adaptive`).
+>
+>   Restructured the finalize gap-integration block:
+>   - D1 runs ONCE globally per session (each recorded match carries its
+>     own `agent` attribution, so per-agent looping is both unnecessary
+>     and incorrect).
+>   - D2 runs per-agent, driven by each agent's `adaptive_inputs` YAML.
+>   - `ScanEngine.detect_coverage_gaps(agent_name=...)` retained as the
+>     per-agent query API (MCP tool + external callers) with a cleaned
+>     contract: D1 matches are now FILTERED by `agent_name` so a per-
+>     agent query never surfaces another agent's matches. Internal
+>     finalize integration no longer routes through this method — it
+>     calls the underlying helpers directly.
+>   - Regression test `test_finalize_scan_results_does_not_duplicate_
+>     d1_gaps_across_agents` reproduces the pre-fix 4x inflation with a
+>     single match + 4-agent finalize and asserts exactly 1 D1 gap.
+>   - Companion test `test_detect_coverage_gaps_filters_matches_by_
+>     agent_name` locks the per-agent filter semantics.
+>
+> - **I1 (Important) — sink_regex substring overmatches.** Unanchored
+>   alternations like `write|innerHTML|...` matched via `re.search`,
+>   which spuriously hit innocuous methods: xss `write` matched
+>   `rewrite`, `overwrite`, `write_csv`; sqli `query` matched `inquery`,
+>   `requery`, `queryset`; cmdi `call` matched `callback`, `recall`,
+>   `callable`; `new` matched every constructor. Anchored all four
+>   shipped agents' `sink_regex` as `^(...)$` for exact method-name
+>   match against the bare `tokens[-1]` token. Per-agent surgery:
+>   - sqli — anchored, all 15 tokens retained.
+>   - cmdi — anchored, dropped `call` (FP risk even anchored;
+>     `subprocess.call` already covered via `subprocess` known_receiver)
+>     and `new` (too broad; `Command::new` covered via `Command`
+>     known_receiver).
+>   - ssti — anchored, all tokens retained.
+>   - xss — anchored, dropped `write`, `print`, `new` entirely
+>     (unfixable overmatch even anchored). Expanded
+>     `bypassSecurityTrust` prefix into the 5 explicit Angular methods
+>     (`bypassSecurityTrustHtml` / `Url` / `Script` / `Style` /
+>     `ResourceUrl`) since the anchored form requires exact names.
+>   - Negative-match tests added per agent in
+>     `tests/test_adaptive_inputs.py` with 10-15 innocuous identifiers
+>     each, derived from empirical substring overmatches. A positive-
+>     match companion locks that the anchored regex STILL matches the
+>     legitimate sink methods each agent is supposed to cover.
+>
+> - **I2 (Important) — private `_staging_context_required_path`
+>   cross-module import.** `engine.py` reached into `staging.py`'s
+>   private path constructor just to probe existence. Added public
+>   `has_context_required_staging(project_root, session_id) -> bool` in
+>   `staging.py`; `engine.py` imports the public form.
+>
+> **Test count (post-review):** 635 → 693 passed (+58 tests: 2
+> regression tests for C1 + 56 parametrized negative/positive-match
+> cases for I1). 8 skipped unchanged. Zero regressions.
 
 **Files:**
 - Modify: `src/screw_agents/engine.py`
