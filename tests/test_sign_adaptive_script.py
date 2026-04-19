@@ -404,6 +404,80 @@ class TestSignAdaptiveScript:
         assert not (script_dir / "schema-bad.py").exists()
         assert not (script_dir / "schema-bad.meta.yaml").exists()
 
+    def test_sign_source_write_failure_raises_friendly_value_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """I1 regression: non-PermissionError OSError during source-file
+        write (e.g., IsADirectoryError if a directory races into the tmp
+        path, ENOSPC on a full disk, EROFS on read-only mount) must
+        produce a friendly ValueError with rollback, not a bare
+        traceback.
+
+        Same class of gap as T13 I1 residual — narrow catch tuples miss
+        OSError siblings that aren't PermissionError subclasses. This
+        test locks the broadened ``(PermissionError, OSError)`` catch
+        so a future refactor can't silently narrow it back.
+        """
+        from screw_agents.cli.init_trust import run_init_trust
+        from screw_agents.engine import ScanEngine
+
+        run_init_trust(
+            project_root=tmp_path, name="Marco", email="marco@test"
+        )
+        engine = ScanEngine.from_defaults()
+
+        # Monkeypatch Path.write_text to raise IsADirectoryError on the
+        # source write. IsADirectoryError is an OSError subclass but
+        # NOT a PermissionError subclass — the pre-fix narrow catch
+        # would have let this propagate bare.
+        orig_write_text = Path.write_text
+        source_writes_seen: list[str] = []
+
+        def failing_write_text(self: Path, *args: Any, **kwargs: Any) -> int:
+            if str(self).endswith(".py.tmp"):
+                source_writes_seen.append(str(self))
+                raise IsADirectoryError(
+                    21, "Is a directory", str(self)
+                )
+            return orig_write_text(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "write_text", failing_write_text)
+
+        with pytest.raises(ValueError, match="script source"):
+            engine.sign_adaptive_script(
+                project_root=tmp_path,
+                script_name="smoke-i1",
+                source=(
+                    "from screw_agents.adaptive import emit_finding\n"
+                    "def analyze(project):\n"
+                    "    pass\n"
+                ),
+                meta={
+                    "name": "smoke-i1",
+                    "created": "2026-04-19T12:00:00Z",
+                    "created_by": "marco@test",
+                    "domain": "injection-input-handling",
+                    "description": "smoke test",
+                    "target_patterns": [],
+                },
+                session_id="test-session",
+            )
+
+        # Verify source .py file was NOT created on disk (rollback or
+        # never-persisted).
+        script_path = (
+            tmp_path / ".screw" / "custom-scripts" / "smoke-i1.py"
+        )
+        assert not script_path.exists(), (
+            "Failed source write must not leave the script file on disk"
+        )
+        # Sanity — verify the monkeypatch actually fired (test would
+        # false-pass if the code path didn't reach script write).
+        assert len(source_writes_seen) == 1, (
+            "Expected exactly one source-write attempt; got "
+            f"{source_writes_seen}"
+        )
+
     def test_sign_via_dispatcher_smoke(self, tmp_path: Path) -> None:
         """End-to-end: invoke through server._dispatch_tool. Proves the
         tool registration + schema wiring is intact."""

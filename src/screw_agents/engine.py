@@ -290,6 +290,17 @@ class ScanEngine:
                 - On ``signed``: also includes ``script_path``,
                   ``meta_path``, ``signed_by``, ``sha256``, ``session_id``.
 
+        Note for T18b reject-flow implementers: name collision in this
+        tool is an error (fresh-script semantics — see the
+        ``script_path.exists()`` branch). If T18b's reject flow writes
+        any file to ``.screw/custom-scripts/`` pre-approval (e.g., a
+        draft preview), it MUST ensure the name is reusable on retry —
+        either by deleting the draft file on reject OR by appending a
+        nonce suffix when the user re-requests generation for the same
+        gap. Without this discipline, a future reviewer hits the "why
+        is sign returning error when there's no visible file" surprise
+        if the draft landed outside the visible script pair.
+
         Raises:
             ValueError: On filesystem shape errors
                 (PermissionError / IsADirectoryError / NotADirectoryError
@@ -456,12 +467,27 @@ class ScanEngine:
         # Writing source first + best-effort rollback on meta failure
         # ensures either BOTH files are present and consistent, or
         # NEITHER is (modulo the best-effort rollback itself racing).
+        #
+        # Single-writer assumption: between the two `os.replace` calls
+        # below, a concurrent reader of `.screw/custom-scripts/` sees the
+        # source file without its meta (brief window). Tolerable today
+        # because approve-path is human-gated — only one reviewer typing
+        # `approve <name>` at a time. If Phase 4 autoresearch automates
+        # the approve path, revisit: consider lock-file serialization or
+        # landing both `.tmp` files before either `os.replace`.
         script_tmp = script_dir / f"{script_name}.py.tmp"
         meta_tmp = script_dir / f"{script_name}.meta.yaml.tmp"
         try:
             script_tmp.write_text(source, encoding="utf-8")
             os.replace(script_tmp, script_path)
-        except PermissionError as exc:
+        except (PermissionError, OSError) as exc:
+            # T13 I1 discipline — narrow `PermissionError` would leak
+            # bare tracebacks for `IsADirectoryError`, `NotADirectoryError`,
+            # `FileExistsError`, ENOSPC, EROFS (read-only mount), quota
+            # exceeded. All are `OSError` subclasses but NOT
+            # `PermissionError` subclasses. Catch the superset and surface
+            # the concrete type in the message so the user knows whether
+            # to chmod, free disk space, or fix a filesystem shape error.
             if script_tmp.exists():
                 try:
                     script_tmp.unlink()
@@ -469,8 +495,8 @@ class ScanEngine:
                     pass
             raise ValueError(
                 f"Cannot write script source at {script_path}: "
-                f"permission denied. Check directory permissions. "
-                f"Original error: {exc}"
+                f"{type(exc).__name__}. Check directory permissions and "
+                f"disk space. Original error: {exc}"
             ) from exc
 
         try:
@@ -1842,8 +1868,12 @@ class ScanEngine:
                         "type": "string",
                         "description": (
                             "Scan session id the script was generated for. "
-                            "Echoed in the response; not used to modify "
-                            "session staging."
+                            "Currently echoed in the response only; NOT "
+                            "persisted server-side and NOT used to modify "
+                            "session staging. A future commit may persist "
+                            "the association in `.screw/local/` for audit "
+                            "correlation — plumbing the id through now "
+                            "avoids a follow-on API change."
                         ),
                     },
                 },
