@@ -4740,6 +4740,59 @@ For `lint_adaptive_script`:
 
 #### Task 18b: Subagent Prompt Updates
 
+> **SHIPPED NOTE (2026-04-19):** T18b implemented in commit `4b65d8c` on
+> branch `phase-3b-pr5`. All 10 T18 pre-audit gaps closed. 6 files modified + 1
+> test file created:
+>
+> - `plugins/screw/agents/screw-sqli.md` — added Step 3.5 "Adaptive Mode"
+>   section between Step 3 (trust status) and Step 4 (persist results);
+>   added 5 MCP tools + Task to `tools:` frontmatter.
+> - `plugins/screw/agents/screw-cmdi.md` — same as sqli (byte-identical
+>   section modulo agent-name substitution).
+> - `plugins/screw/agents/screw-ssti.md` — same as sqli.
+> - `plugins/screw/agents/screw-xss.md` — same as sqli.
+> - `plugins/screw/agents/screw-injection.md` — added Step 2.5 "Adaptive
+>   Mode (domain-wide)" section with shared Layer 0f quota across all 4
+>   agents; references per-agent Step 3.5d for per-gap pipeline to avoid
+>   duplication.
+> - `plugins/screw/commands/scan.md` — documented `--adaptive` flag with
+>   interactive-consent caveat and example invocation.
+> - `tests/test_adaptive_subagent_prompts.py` — 10 new format-smoke tests
+>   locking: section presence, byte-identity across per-agent files,
+>   frontmatter tools, orchestrator section, scan.md flag docs, MCP tool
+>   references, prompt-injection resistance (fence + "data, not
+>   instructions"), 15-layer stack reference (regression guard vs
+>   "7-layer"), script-naming regex, and non-interactive-detection
+>   removal.
+>
+> **10 pre-audit gaps closed (verified by tests + grep):**
+>
+> 1. `record_context_required_match` wired into Step 3.5a (D1 producer)
+> 2. `detect_coverage_gaps` called as standalone MCP tool in Step 3.5b
+>    (not "inspect scan-response field")
+> 3. `sign_adaptive_script` used on approve path in Step 3.5d-H
+> 4. `lint_adaptive_script` used in pre-approval review in Step 3.5d-E
+> 5. `screw-injection.md` orchestrator updated with shared-quota Step 2.5
+> 6. `scan.md` documents `--adaptive` flag + example + consent caveat
+> 7. Script naming regex `^[a-z0-9][a-z0-9-]{2,62}$` documented in 3.5d-B
+> 8. Hand-wavy "non-interactive detection" removed; `--adaptive` flag IS
+>    consent
+> 9. Regenerate-once retry semantics documented in Step 3.5d (global
+>    across D/E/F failure modes)
+> 10. Premature `source: yaml` reference removed (T19 ships that field)
+>
+> **Post-T18a tool-signature fix:** draft plan suggested passing
+> `session_id` to `execute_adaptive_script`, but server dispatch (line 135
+> of `server.py`) only accepts `project_root` / `script_name` /
+> `wall_clock_s`. Corrected in the prompts so subagents don't construct a
+> malformed tool call.
+>
+> **Test count: 728 → 738 passed, 8 skipped. Zero regressions.**
+>
+> Remaining plan content below preserved as historical reference; it is
+> **superseded** by the actual implementation (which closes the 10 gaps
+> above rather than matching the draft block verbatim).
+
 **Files:**
 - Modify: `plugins/screw/agents/screw-sqli.md`
 - Modify: `plugins/screw/agents/screw-cmdi.md`
