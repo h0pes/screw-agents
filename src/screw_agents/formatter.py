@@ -422,6 +422,16 @@ def _append_finding_detail(lines: list[str], f: Finding) -> None:
     # Analysis
     lines.append(f"**Description:** {f.analysis.description}")
     lines.append("")
+
+    # Phase 3b T19: show augmentative-merge source list when populated.
+    # None on unmerged findings (suppress the line); list on merged findings.
+    # Format: "agent1 (severity1), agent2 (severity2), ..." — severity shown
+    # because different scanners may report different severities.
+    if f.merged_from_sources:
+        sources_str = ", ".join(f.merged_from_sources)
+        lines.append(f"**Sources:** {sources_str}")
+        lines.append("")
+
     if f.analysis.impact:
         lines.append(f"**Impact:** {f.analysis.impact}")
         lines.append("")

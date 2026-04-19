@@ -386,6 +386,17 @@ class Finding(BaseModel):
     remediation: FindingRemediation
     triage: FindingTriage = FindingTriage()
 
+    # Phase 3b T19: populated when this finding is the result of an augmentative
+    # merge across multiple scan sources (e.g., a YAML agent AND an adaptive
+    # script detected the same vulnerability). None for unmerged findings.
+    # Each entry has the form "<agent-name> (<severity>)" — severity is included
+    # because different scanners may report different severities for the same
+    # finding. Downstream consumers can iterate to surface source attribution
+    # (Markdown renderer shows a "**Sources:**" line; SARIF/JSON preserve the
+    # structured list via `model_dump()`). SARIF + CSV rendering deferred to
+    # Phase 4+ (see DEFERRED_BACKLOG.md T19-M1).
+    merged_from_sources: list[str] | None = None
+
 
 # ---------------------------------------------------------------------------
 # Aggregation Models (Phase 3a PR#2 — learning reports)

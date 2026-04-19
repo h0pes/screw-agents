@@ -14,7 +14,8 @@ import pytest
 import yaml
 from pathlib import Path
 
-from screw_agents.results import render_and_write
+from screw_agents.models import Finding
+from screw_agents.results import _merge_findings_augmentatively, render_and_write
 
 
 @pytest.fixture
@@ -522,3 +523,387 @@ class TestRenderAndWriteTrustStatus:
                 findings_raw=[finding_sqli],
                 agent_names=["sqli"],
             )
+
+
+# ---------------------------------------------------------------------------
+# Phase 3b T19 — augmentative finding merge
+# ---------------------------------------------------------------------------
+#
+# Covers the `_merge_findings_augmentatively` helper and its integration
+# with `render_and_write`. The merge collapses findings that share
+# `(location.file, location.line_start, classification.cwe)` from multiple
+# scan sources (e.g., a YAML agent AND an adaptive script) into a single
+# primary finding with a populated `merged_from_sources` list.
+
+
+def _make_finding_dict(
+    *,
+    finding_id: str,
+    agent: str,
+    file: str,
+    line_start: int,
+    cwe: str,
+    severity: str,
+    description: str,
+    line_end: int | None = None,
+    domain: str = "injection-input-handling",
+):
+    """Build a Finding-shaped dict matching the NESTED model shape.
+
+    Used by T19 tests that need to round-trip through `Finding(**dict)`
+    or hand `findings_raw` to `render_and_write`.
+    """
+    return {
+        "id": finding_id,
+        "agent": agent,
+        "domain": domain,
+        "timestamp": "2026-04-19T10:00:00Z",
+        "location": {
+            "file": file,
+            "line_start": line_start,
+            "line_end": line_end,
+        },
+        "classification": {
+            "cwe": cwe,
+            "cwe_name": "SQL Injection",
+            "severity": severity,
+            "confidence": "high",
+        },
+        "analysis": {
+            "description": description,
+        },
+        "remediation": {
+            "recommendation": "use parameterized queries",
+        },
+    }
+
+
+def _make_finding(**kwargs):
+    """Build a Finding model instance via the nested dict helper."""
+    return Finding(**_make_finding_dict(**kwargs))
+
+
+class TestMergeFindingsAugmentatively:
+    """Unit tests for `_merge_findings_augmentatively`."""
+
+    def test_merge_empty_findings_list_returns_empty(self):
+        """Belt-and-suspenders edge case: empty input returns empty list."""
+        assert _merge_findings_augmentatively([]) == []
+
+    def test_merge_single_finding_unchanged(self):
+        """Single finding passes through with `merged_from_sources = None`."""
+        f = _make_finding(
+            finding_id="f1",
+            agent="sqli",
+            file="src/a.py",
+            line_start=10,
+            cwe="CWE-89",
+            severity="high",
+            description="detected sqli",
+        )
+
+        result = _merge_findings_augmentatively([f])
+
+        assert len(result) == 1
+        assert result[0].merged_from_sources is None
+        # Verify nothing else mutated.
+        assert result[0].id == "f1"
+        assert result[0].agent == "sqli"
+        assert result[0].location.file == "src/a.py"
+        assert result[0].location.line_start == 10
+        assert result[0].classification.cwe == "CWE-89"
+
+    def test_merge_two_findings_same_key_produces_one_merged(self):
+        """Two findings at same (file, line_start, cwe) collapse to one.
+
+        Asserts:
+        - Exactly 1 finding in output.
+        - `merged_from_sources == ["agent1 (sev1)", "agent2 (sev2)"]`
+          in INPUT order (not sorted).
+        - Primary's `agent` field matches the severity-winning agent.
+        - Primary's `analysis.description` comes from the winning finding.
+        """
+        yaml_finding = _make_finding(
+            finding_id="f1",
+            agent="sqli",
+            file="src/a.py",
+            line_start=10,
+            cwe="CWE-89",
+            severity="medium",
+            description="YAML detected SQLi",
+        )
+        adaptive_finding = _make_finding(
+            finding_id="f2",
+            agent="adaptive_script:qb-check",
+            file="src/a.py",
+            line_start=10,
+            cwe="CWE-89",
+            severity="high",
+            description="Adaptive detected same SQLi",
+        )
+
+        result = _merge_findings_augmentatively([yaml_finding, adaptive_finding])
+
+        assert len(result) == 1
+        merged = result[0]
+        # Primary selected by higher severity → adaptive_script (high)
+        # beats sqli (medium).
+        assert merged.agent == "adaptive_script:qb-check"
+        assert merged.analysis.description == "Adaptive detected same SQLi"
+        # Source list preserves INPUT order (yaml first, adaptive second).
+        assert merged.merged_from_sources == [
+            "sqli (medium)",
+            "adaptive_script:qb-check (high)",
+        ]
+
+    def test_merge_different_cwe_not_merged(self):
+        """Same (file, line_start) but different CWEs → no merge."""
+        f1 = _make_finding(
+            finding_id="f1",
+            agent="sqli",
+            file="src/a.py",
+            line_start=10,
+            cwe="CWE-89",
+            severity="high",
+            description="SQLi",
+        )
+        f2 = _make_finding(
+            finding_id="f2",
+            agent="cmdi",
+            file="src/a.py",
+            line_start=10,
+            cwe="CWE-78",
+            severity="high",
+            description="CMDi",
+        )
+
+        result = _merge_findings_augmentatively([f1, f2])
+
+        assert len(result) == 2
+        for finding in result:
+            assert finding.merged_from_sources is None
+
+    def test_merge_primary_selection_by_severity_then_agent_name(self):
+        """Tiebreaker: same severity → alphabetical agent name ascending wins.
+
+        Three findings at same key: z_agent(high), a_agent(high),
+        m_agent(medium). Primary should be a_agent (alphabetical wins at
+        high-severity tie). Source list preserves INPUT order.
+        """
+        z_high = _make_finding(
+            finding_id="f1",
+            agent="z_agent",
+            file="src/a.py",
+            line_start=10,
+            cwe="CWE-89",
+            severity="high",
+            description="z says",
+        )
+        a_high = _make_finding(
+            finding_id="f2",
+            agent="a_agent",
+            file="src/a.py",
+            line_start=10,
+            cwe="CWE-89",
+            severity="high",
+            description="a says",
+        )
+        m_medium = _make_finding(
+            finding_id="f3",
+            agent="m_agent",
+            file="src/a.py",
+            line_start=10,
+            cwe="CWE-89",
+            severity="medium",
+            description="m says",
+        )
+
+        result = _merge_findings_augmentatively([z_high, a_high, m_medium])
+
+        assert len(result) == 1
+        merged = result[0]
+        # a_agent wins: same severity tier as z_agent but alphabetically earlier.
+        assert merged.agent == "a_agent"
+        assert merged.analysis.description == "a says"
+        # Source list preserves INPUT order: z first, a second, m third.
+        assert merged.merged_from_sources == [
+            "z_agent (high)",
+            "a_agent (high)",
+            "m_agent (medium)",
+        ]
+
+    def test_merge_preserves_insertion_order_across_buckets(self):
+        """Output list orders buckets by first-insertion (OrderedDict)."""
+        bucket_a = _make_finding(
+            finding_id="a1",
+            agent="sqli",
+            file="src/a.py",
+            line_start=10,
+            cwe="CWE-89",
+            severity="high",
+            description="A",
+        )
+        bucket_b = _make_finding(
+            finding_id="b1",
+            agent="cmdi",
+            file="src/b.py",
+            line_start=20,
+            cwe="CWE-78",
+            severity="high",
+            description="B",
+        )
+
+        # Input order: A before B → output order: A before B.
+        result = _merge_findings_augmentatively([bucket_a, bucket_b])
+
+        assert len(result) == 2
+        assert result[0].id == "a1"
+        assert result[1].id == "b1"
+
+        # Reverse input order: B before A → output order: B before A.
+        result = _merge_findings_augmentatively([bucket_b, bucket_a])
+
+        assert len(result) == 2
+        assert result[0].id == "b1"
+        assert result[1].id == "a1"
+
+    def test_merge_severity_rank_unknown_severity_ranks_last(self):
+        """Unknown severity (not in rank map) loses to any known severity.
+
+        Locks the `_SEVERITY_RANK.get(severity, 5)` fallback — prevents an
+        ill-formed severity from promoting to primary by accident.
+        """
+        high_finding = _make_finding(
+            finding_id="f1",
+            agent="z_agent",  # alphabetically later — severity must dominate
+            file="src/a.py",
+            line_start=10,
+            cwe="CWE-89",
+            severity="high",
+            description="high wins",
+        )
+        unknown_finding = _make_finding(
+            finding_id="f2",
+            agent="a_agent",  # alphabetically earlier — would win if tied on severity
+            file="src/a.py",
+            line_start=10,
+            cwe="CWE-89",
+            severity="unknown-custom",
+            description="unknown loses",
+        )
+
+        result = _merge_findings_augmentatively([high_finding, unknown_finding])
+
+        assert len(result) == 1
+        merged = result[0]
+        # High (rank 1) beats unknown (rank 5) despite alphabetical disadvantage.
+        assert merged.agent == "z_agent"
+        assert merged.analysis.description == "high wins"
+
+
+class TestRenderAndWriteMerge:
+    """Integration tests — `render_and_write` applies the merge end-to-end."""
+
+    def test_render_and_write_merges_yaml_and_adaptive_findings(self, tmp_path):
+        """Full integration: YAML + adaptive findings at same key merge to
+        one; unique adaptive finding preserved; markdown renders a
+        `**Sources:**` line on the merged finding only.
+        """
+        yaml_finding_dup = _make_finding_dict(
+            finding_id="f1",
+            agent="sqli",
+            file="src/a.py",
+            line_start=10,
+            cwe="CWE-89",
+            severity="high",
+            description="YAML detected SQLi",
+        )
+        adaptive_finding_dup = _make_finding_dict(
+            finding_id="f2",
+            agent="adaptive_script:qb-check",
+            file="src/a.py",
+            line_start=10,
+            cwe="CWE-89",
+            severity="high",
+            description="Adaptive detected same SQLi",
+        )
+        adaptive_finding_unique = _make_finding_dict(
+            finding_id="f3",
+            agent="adaptive_script:qb-check",
+            file="src/b.py",
+            line_start=20,
+            cwe="CWE-89",
+            severity="high",
+            description="Adaptive found extra SQLi",
+        )
+
+        result = render_and_write(
+            project_root=tmp_path,
+            findings_raw=[
+                yaml_finding_dup,
+                adaptive_finding_dup,
+                adaptive_finding_unique,
+            ],
+            agent_names=["sqli"],
+            scan_metadata={"agent": "sqli", "timestamp": "2026-04-19T10:00:00Z"},
+        )
+
+        # Exactly 2 findings after merge (1 merged + 1 unique).
+        assert result["summary"]["total"] == 2
+
+        md_content = Path(result["files_written"]["markdown"]).read_text()
+
+        # Both locations rendered.
+        assert "src/a.py" in md_content
+        assert "src/b.py" in md_content
+
+        # Merged finding has Sources line with both sources in input order.
+        # Primary selection: both findings are high severity; alphabetical
+        # tiebreaker compares agent names — "adaptive_script:qb-check" <
+        # "sqli" — so adaptive_script wins and is the primary.
+        # Source list still preserves INPUT order: sqli first, adaptive
+        # second.
+        assert (
+            "**Sources:** sqli (high), adaptive_script:qb-check (high)"
+            in md_content
+        )
+
+        # The unique finding's section must NOT contain a Sources line.
+        # Split by finding headers; locate the unique one by description.
+        sections = md_content.split("### ")
+        unique_section_candidates = [
+            s for s in sections if "Adaptive found extra SQLi" in s
+        ]
+        assert len(unique_section_candidates) == 1
+        unique_section = unique_section_candidates[0]
+        assert "**Sources:**" not in unique_section
+
+    def test_render_and_write_unmerged_finding_has_no_sources_line(self, tmp_path):
+        """Single finding (no merge) renders no `**Sources:**` line and
+        the JSON output carries `merged_from_sources: null`.
+        """
+        f = _make_finding_dict(
+            finding_id="f1",
+            agent="sqli",
+            file="src/a.py",
+            line_start=10,
+            cwe="CWE-89",
+            severity="high",
+            description="Only finding",
+        )
+
+        result = render_and_write(
+            project_root=tmp_path,
+            findings_raw=[f],
+            agent_names=["sqli"],
+            scan_metadata={"agent": "sqli", "timestamp": "2026-04-19T10:00:00Z"},
+            formats=["json", "markdown"],
+        )
+
+        md_content = Path(result["files_written"]["markdown"]).read_text()
+        assert "**Sources:**" not in md_content
+
+        # JSON is a flat array of finding dicts at top level.
+        findings_json = json.loads(Path(result["files_written"]["json"]).read_text())
+        assert len(findings_json) == 1
+        assert findings_json[0]["merged_from_sources"] is None
