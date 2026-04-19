@@ -1099,6 +1099,59 @@ few_shot_examples:
         }
       explanation: "Yew html! macro treats {} expressions as text nodes, auto-escaped. Safe. Contrast with set_inner_html() which bypasses this."
 
+adaptive_inputs:
+  # Phase 3b T16 — per-agent inputs for the D2 taint-verified unresolved-sink
+  # gap signal. Method regex covers HTML-output sinks from heuristics:
+  # DOM writers (innerHTML/outerHTML assignment trees render as calls when
+  # wrapped, document.write/writeln/insertAdjacentHTML), server response
+  # writers (res.send/write, response.write, getWriter().write/print,
+  # Fprintf to ResponseWriter), explicit unescape helpers
+  # (mark_safe/SafeString/Markup/html_safe/raw/bypassSecurityTrustHtml),
+  # @Html.Raw and HtmlString (.NET), template.HTML cast (Go),
+  # set_inner_html and from_html_unchecked (Yew), register_escape_fn
+  # (Handlebars-rust). `new` catches `new HtmlString(...)` and
+  # `new Function(...)` (eval-like sink).
+  sink_regex: "innerHTML|outerHTML|write|writeln|insertAdjacentHTML|send|print|Fprintf|WriteString|mark_safe|SafeString|Markup|html_safe|bypassSecurityTrust|Raw|RawHtml|HtmlString|render_template_string|set_inner_html|from_html_unchecked|register_escape_fn|eval|new"
+  # BARE trailing-token receivers. `document.write(...)` → `document`;
+  # `window.eval(...)` → `window`; `res.send(...)` → `res`; `el.innerHTML = ...`
+  # rendered as call syntax (rare in Python treesitter) → `el`.
+  known_receivers:
+    - document
+    - window
+    - element
+    - el
+    - node
+    - res
+    - response
+    - self
+    - this
+    - ctx
+    - context
+    - writer
+    - w
+  known_sources:
+    - "request.args"
+    - "request.form"
+    - "request.json"
+    - "request.values"
+    - "request.GET"
+    - "request.POST"
+    - "req.query"
+    - "req.body"
+    - "req.params"
+    - "params["
+    - "$_GET"
+    - "$_POST"
+    - "$_REQUEST"
+    - "document.location"
+    - "window.location"
+    - "location.hash"
+    - "location.search"
+    - "document.referrer"
+    - "window.name"
+    - "r.FormValue"
+    - "r.URL.Query"
+
 target_strategy:
   scope: "function"
   include_imports: true

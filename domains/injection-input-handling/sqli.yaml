@@ -886,6 +886,64 @@ few_shot_examples:
         );
       explanation: "FromSqlInterpolated auto-parameterizes interpolated values. Despite the $ prefix looking like raw interpolation, EF Core extracts parameters. Safe. Contrast with FromSqlRaw which does NOT auto-parameterize."
 
+adaptive_inputs:
+  # Phase 3b T16 — per-agent inputs for the D2 taint-verified unresolved-sink
+  # gap signal (`screw_agents.gap_signal.detect_d2_unresolved_sink_gaps`).
+  # Method regex derived from the sink calls declared in this agent's own
+  # heuristics above (execute/executemany from DB-API, raw/query/queryRaw
+  # across Django/SQLAlchemy/Prisma/etc., createQuery/createNativeQuery from
+  # Hibernate, queryRawUnsafe/executeRawUnsafe from Prisma, sql_query from
+  # Diesel, from_string from SeaORM, execute_unprepared from SeaORM).
+  # Anchored neither left nor right — `re.search` against the method token.
+  sink_regex: "execute|executemany|execute_raw|execute_unprepared|query|queryRaw|queryRawUnsafe|executeRawUnsafe|raw|sql_query|from_string|createQuery|createNativeQuery|prepare|format_sql"
+  # BARE trailing-token receivers only (T15 doc — gap_signal extracts
+  # tokens[-2] after parens-strip + dot-split; dotted entries never match).
+  # Sources: canonical DB-driver, ORM, and framework receiver tokens that
+  # the heuristics above already classify as safe (parameterized) when used
+  # correctly.
+  known_receivers:
+    - cursor
+    - connection
+    - conn
+    - Session
+    - session
+    - db
+    - engine
+    - client
+    - pool
+    - stmt
+    - statement
+    - ps
+    - pstmt
+    - pdo
+    - wpdb
+  # Literal source substrings reused as taint seeds for `match_pattern`.
+  # Grounded in the "Attacker-controlled" block of this agent's core_prompt
+  # and the route-handler extractors referenced by its vulnerable examples.
+  known_sources:
+    - "request.args"
+    - "request.form"
+    - "request.json"
+    - "request.values"
+    - "request.GET"
+    - "request.POST"
+    - "request.headers"
+    - "request.cookies"
+    - "request.body"
+    - "req.query"
+    - "req.body"
+    - "req.params"
+    - "sys.argv"
+    - "os.environ"
+    - "input("
+    - "params["
+    - "$_GET"
+    - "$_POST"
+    - "$_REQUEST"
+    - "$_COOKIE"
+    - "r.FormValue"
+    - "r.URL.Query"
+
 target_strategy:
   scope: "function"
   include_imports: true

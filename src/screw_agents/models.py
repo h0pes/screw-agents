@@ -84,6 +84,31 @@ class DetectionHeuristics(BaseModel):
     context_required: list[HeuristicItem] = []
 
 
+class AdaptiveInputs(BaseModel):
+    """Per-agent inputs for adaptive coverage-gap detection (Phase 3b).
+
+    Declares the data D2 (taint-verified unresolved-sink signal) needs: a
+    regex over method names, a set of receiver tokens the YAML agent
+    already handles, and a list of literal source substrings to use as
+    taint seeds. `detect_d2_unresolved_sink_gaps` in
+    `src/screw_agents/gap_signal.py` is the consumer.
+
+    All three fields are required when `adaptive_inputs` is present on an
+    agent's YAML. Agents that opt out of D2 simply omit the field — the
+    engine will skip D2 for them.
+
+    Extensibility: new signals in future phases (D3, D4...) may add
+    fields here. Existing agents need not be updated — new fields default
+    to None / empty and are skipped by signals that require them.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    sink_regex: str
+    known_receivers: set[str] = set()
+    known_sources: list[str] = []
+
+
 class BypassTechnique(BaseModel):
     """A single bypass technique. Has required name/description + flexible extras."""
 
@@ -141,6 +166,11 @@ class AgentDefinition(BaseModel):
     remediation: Remediation
     few_shot_examples: FewShotExamples = FewShotExamples()
     target_strategy: TargetStrategy = TargetStrategy()
+    # Phase 3b T16: per-agent adaptive coverage-gap inputs. Optional — agents
+    # that opt out of D2 (taint-verified unresolved-sink signal) omit this
+    # field and the engine skips D2 for them. See AdaptiveInputs for schema
+    # rationale and `detect_d2_unresolved_sink_gaps` for the consumer.
+    adaptive_inputs: AdaptiveInputs | None = None
 
 
 # ---------------------------------------------------------------------------
