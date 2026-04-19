@@ -351,3 +351,124 @@ def test_d2_does_not_fire_across_function_boundaries(tmp_path: Path) -> None:
         known_sources=["request.args"],
     ))
     assert gaps == []
+
+
+# ---------------------------------------------------------------------------
+# D2 post-review hardening (I1 + I2)
+#
+# I1 locks the bare-trailing-token semantics of `known_receivers`: dotted
+# forms like `self.db` will never match and silently cause spurious gaps.
+# I2 locks the literal-arg-node filter: string literals that textually
+# mention a source identifier must NOT fire D2, because they cannot carry
+# taint by construction.
+# ---------------------------------------------------------------------------
+
+
+def test_d2_known_receivers_uses_bare_trailing_token_not_dotted(
+    tmp_path: Path,
+) -> None:
+    """YAML agents must declare `known_receivers` as bare trailing tokens,
+    NOT dotted forms. `known_receivers={"self.db"}` does NOT match a call
+    `self.db.execute_raw(...)` because the extracted receiver is `"db"`,
+    not `"self.db"`. This test locks that semantic so a future refactor
+    that changes the extraction logic (e.g., to support dotted matching)
+    breaks the test and forces a docstring update.
+
+    Real-world impact: a YAML author writing `known_receivers: ["self.db"]`
+    would get silently mis-suppressed gaps; this test makes that behavior
+    contract-level.
+    """
+    (tmp_path / "handler.py").write_text(
+        "def handle(request):\n"
+        "    q = request.args.get('q')\n"
+        "    self.db.execute_raw(q)\n"
+    )
+
+    # Dotted receiver in known_receivers should NOT suppress — the
+    # extraction uses tokens[-2] = "db", not "self.db".
+    gaps_dotted = list(detect_d2_unresolved_sink_gaps(
+        project_root=tmp_path,
+        agent="sqli",
+        sink_regex=r"execute|execute_raw",
+        known_receivers={"self.db"},
+        known_sources=["request.args"],
+    ))
+    assert len(gaps_dotted) == 1, (
+        "Dotted receiver `self.db` does NOT match bare-extracted `db`; "
+        "D2 correctly fires. If this fails, extraction logic or suppression "
+        "semantics changed — update the docstring and this test together."
+    )
+
+    # Bare receiver DOES suppress (positive control).
+    gaps_bare = list(detect_d2_unresolved_sink_gaps(
+        project_root=tmp_path,
+        agent="sqli",
+        sink_regex=r"execute|execute_raw",
+        known_receivers={"db"},
+        known_sources=["request.args"],
+    ))
+    assert gaps_bare == [], (
+        "Bare receiver `db` correctly suppresses matching bare-extracted `db`."
+    )
+
+
+def test_d2_does_not_fire_on_string_literal_mentioning_source(
+    tmp_path: Path,
+) -> None:
+    """String literals that textually mention a known source pattern
+    (e.g., log strings, SQL comments) do NOT carry taint and must NOT
+    fire D2. Regression for the substring-in-raw-text FP class in
+    match_pattern: literal-type arg nodes are filtered before the
+    taint check.
+
+    Realistic FP scenarios this guards against:
+      - `logger.info("hydrated from request.args")`
+      - `execute("-- sourced from request.args.get('q')")`
+      - Error messages mentioning source names
+      - Docstring examples inside f-strings
+    """
+    (tmp_path / "handler.py").write_text(
+        "def handle():\n"
+        "    # Source reference in a literal — NOT tainted\n"
+        "    _hint = 'request.args is the source we used to use'\n"
+        "    self.db.execute_raw('SELECT * FROM t WHERE note = %s',"
+        " 'hydrated from request.args')\n"
+    )
+
+    gaps = list(detect_d2_unresolved_sink_gaps(
+        project_root=tmp_path,
+        agent="sqli",
+        sink_regex=r"execute|execute_raw",
+        known_receivers={"cursor"},
+        known_sources=["request.args"],
+    ))
+    assert gaps == [], (
+        "String literals mentioning a source pattern textually do NOT "
+        "carry taint. D2 must filter literal-type arg nodes before the "
+        "taint check."
+    )
+
+
+def test_d2_still_fires_on_call_arg_even_when_string_literals_present(
+    tmp_path: Path,
+) -> None:
+    """Positive control for I2: if a call passes BOTH a literal string
+    mentioning a source AND a real tainted identifier, D2 must still fire
+    based on the real taint. Asserts the literal-node filter doesn't
+    accidentally suppress legitimate mixed-arg taint.
+    """
+    (tmp_path / "handler.py").write_text(
+        "def handle(request):\n"
+        "    q = request.args.get('q')\n"
+        "    self.db.execute_raw('hydrated from request.args', q)\n"
+    )
+
+    gaps = list(detect_d2_unresolved_sink_gaps(
+        project_root=tmp_path,
+        agent="sqli",
+        sink_regex=r"execute|execute_raw",
+        known_receivers={"cursor"},
+        known_sources=["request.args"],
+    ))
+    assert len(gaps) == 1
+    assert gaps[0].evidence["method"] == "execute_raw"

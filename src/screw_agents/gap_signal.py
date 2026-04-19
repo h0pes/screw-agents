@@ -67,6 +67,27 @@ __all__ = [
 ]
 
 
+# tree-sitter Python node types that cannot carry taint by construction:
+# they are literal constants whose byte range contains only source text that
+# is itself data, never an identifier referring to a tainted value. Filtering
+# these out before `match_pattern` avoids a predictable class of false
+# positives where a string literal textually mentions a source identifier by
+# name (e.g., `logger.info("hydrated from request.args")`, SQL comments like
+# `"-- sourced from request.args"`, error strings, docstring examples inside
+# f-strings). `match_pattern` does a direct substring check on the node's
+# raw decoded text before the identifier-chain walk, so without this filter
+# any literal containing a source name would spuriously satisfy condition 3.
+_NON_TAINT_ARG_NODE_TYPES: frozenset[str] = frozenset({
+    "string",
+    "integer",
+    "float",
+    "true",
+    "false",
+    "none",
+    "ellipsis",
+})
+
+
 class ContextRequiredMatch(TypedDict):
     """Shape of a single context-required pattern match recorded by the YAML
     scan engine. T16 (ScanEngine.detect_coverage_gaps) produces these at scan
@@ -155,15 +176,37 @@ def detect_d2_unresolved_sink_gaps(
     (skip parsing files with zero source references) and does NOT itself
     signal a gap — every fired gap has a verified per-call taint path.
 
+    Literal constant arg nodes (`string`, `integer`, `float`, `true`,
+    `false`, `none`, `ellipsis` — see `_NON_TAINT_ARG_NODE_TYPES`) are
+    filtered out before the taint check because they cannot carry taint by
+    construction. This avoids a predictable class of false positives where a
+    log string or SQL comment happens to mention a source identifier by
+    name (e.g., `execute("-- hydrated from request.args")`). The filter is
+    safe: any identifier or call argument that COULD transmit taint retains
+    a non-literal node type and is still passed to `match_pattern`.
+
     Args:
         project_root: Absolute path to the project root. All files scanned
             via `ProjectRoot`, which enforces no-escape semantics.
         agent: YAML agent identifier (e.g., "sqli") attached to every gap.
-        sink_regex: Python regex matched against the callee method name (the
-            trailing dotted token). `re.search` semantics — anchor explicitly
-            if you need an exact match.
-        known_receivers: Set of receiver identifiers the YAML agent already
-            handles. Calls on these receivers are NOT gaps — they're coverage.
+        sink_regex: Python regex matched against the callee method name via
+            `re.search` (anchor explicitly if you need an exact match).
+            Examples:
+                `r"execute|execute_raw|query"` — any call to these methods.
+                `r"^execute$"` — only `execute`, not `execute_raw` or
+                `pre_execute` (both of which `re.search` would match
+                without the anchors).
+        known_receivers: Set of BARE receiver identifiers (trailing token
+            only) that the YAML agent already handles. Example:
+            `{"db", "cursor"}`, NOT `{"self.db", "my_obj.cursor"}`. The
+            receiver extraction takes only `tokens[-2]` after parens-strip
+            + dot-split, so dotted entries in this set will never match and
+            would cause spurious D2 gaps (e.g., declaring `{"self.db"}`
+            does NOT suppress `self.db.execute_raw(...)` — the extracted
+            receiver is `"db"`, and `"db" not in {"self.db"}`). If a YAML
+            agent needs dotted-receiver matching (e.g., only `self.db` but
+            NOT other `.db` objects), use a more constrained `sink_regex`
+            or drive the distinction from `known_sources` instead.
         known_sources: List of source substring patterns (e.g.,
             `["request.args", "request.form"]`). Passed to `match_pattern` as
             the pattern list; semantics match the adaptive dataflow helpers.
@@ -235,10 +278,19 @@ def detect_d2_unresolved_sink_gaps(
             # Condition 3: at least one argument taints back to a known source
             # via bounded intraprocedural dataflow. THIS is the real SAST
             # signal — the file-level prefilter above was just a perf guard.
+            #
+            # Literal-constant arg node types (see _NON_TAINT_ARG_NODE_TYPES)
+            # are filtered here: `match_pattern` starts with a direct
+            # substring check on the node's raw decoded text, so a string
+            # literal whose CONTENTS mention a source identifier (e.g., a
+            # log message or SQL comment) would spuriously satisfy condition
+            # 3 without this filter. Literal nodes cannot carry taint by
+            # construction, so skipping them is sound.
             args = get_call_args(call)
             tainted = any(
                 match_pattern(arg, source=source, patterns=known_sources)
                 for arg in args
+                if arg.type not in _NON_TAINT_ARG_NODE_TYPES
             )
             if not tainted:
                 continue
