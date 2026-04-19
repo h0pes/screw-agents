@@ -3331,6 +3331,57 @@ git commit -m "feat(phase3b): execute_adaptive_script MCP tool"
 
 ### Task 13: `screw-agents validate-script` CLI Subcommand
 
+> **SHIPPED NOTE (T13, commits `28afc91`→`341ac62`, 2026-04-19):** The plan
+> code block below has three load-bearing defects the shipped implementation
+> corrected:
+> 1. **Signer selection** — `signer_email = config.script_reviewers[0].email`
+>    is wrong on any multi-reviewer project. Replaced with Model A
+>    fingerprint-based matching (`_load_public_keys_with_reviewers` +
+>    `_fingerprint_public_key` + `_find_matching_reviewer`), mirroring
+>    `cli/validate_exclusion.py`.
+> 2. **Sign/verify canonical-bytes asymmetry (Critical bug — feature was
+>    shipping broken):** the plan signs `meta_raw` directly while the
+>    executor at `adaptive/executor.py:134` parses via
+>    `AdaptiveScriptMeta(**meta_raw)` which injects default fields
+>    (`last_used`, `findings_produced`, `false_positive_rate`) before
+>    calling `verify_script(meta=meta.model_dump(), ...)`. Sign-side and
+>    verify-side would therefore canonicalize different byte strings.
+>    Shipped version routes `meta_raw` through
+>    `AdaptiveScriptMeta(**prepared).model_dump()` BEFORE
+>    `canonicalize_script` via a dedicated `_build_signed_meta` helper
+>    (also shared with `tests/test_adaptive_executor.py`'s T11-N1 fixture).
+> 3. **Non-atomic write** — replaced `meta_path.write_text(...)` with
+>    tmp+`os.replace` pattern (T9-I2 parity). Compound `.meta.yaml` suffix
+>    required manual tmp-path construction (`meta_path.parent / f"{meta_path.name}.tmp"`)
+>    because `Path.with_suffix` replaces only the last suffix.
+>
+> **Additional shipped scope** beyond the plan's code block:
+> - **Shared dispatcher helper:** `_run_trust_command` replaces
+>   `_run_init_trust_command`; applied uniformly to init-trust /
+>   migrate-exclusions / validate-exclusion / validate-script arms with
+>   `(ValueError, RuntimeError)` catching + friendly stderr labeling +
+>   exit-code from `failure_statuses` tuple.
+> - **Error-wrapping broadened to `OSError`** in all 4 trust-path CLI
+>   modules (`init_trust.py`, `migrate_exclusions.py`,
+>   `validate_exclusion.py`, `validate_script.py`) so
+>   `IsADirectoryError` and other filesystem-shape errors surface as
+>   friendly one-liners (e.g., "filesystem shape error (IsADirectoryError)")
+>   rather than raw tracebacks.
+> - **Idempotency** — `run_validate_script` returns `already_validated`
+>   when the persisted `signature` is present AND stored `sha256` matches
+>   the current source hash; re-signs automatically when `sha256` diverges
+>   (user edited script after signing).
+> - **7-commit sequence** (not single commit): `28afc91` feat + `51bb124`
+>   T11-N1 regression test + `02c05dc` DEFERRED_BACKLOG trigger
+>   re-calibration (T4-M6, T1-M1) + `0468b91` C1 fix + `bab5290`
+>   refactor for shared helpers + `9d95efe` error-branch tests +
+>   `341ac62` OSError broadening.
+>
+> See PR #5 on GitHub for the full review-loop narrative (spec review,
+> quality review, 2 rounds of fix-up). The plan code block below is
+> preserved for historical context but is SUPERSEDED by the shipped
+> implementation.
+
 **Files:**
 - Create: `src/screw_agents/cli/validate_script.py`
 - Modify: `src/screw_agents/cli/__init__.py`
@@ -3493,6 +3544,33 @@ git commit -m "feat(phase3b): screw-agents validate-script CLI subcommand"
 
 ### Task 14: Coverage Gap Signal D1 (Context-Required Sink Dropped)
 
+> **SHIPPED NOTE (T14, commits `ad64823`→`f805979`, 2026-04-19):** The
+> shipped implementation tightens the plan's contract so T16 (the
+> downstream engine producer) has a machine-checked target shape:
+> 1. **Parameter types** — the plan's `list[dict]` and `dict`
+>    (untyped) are replaced with
+>    `list[ContextRequiredMatch]` (a `TypedDict` defined in the same
+>    module, declaring `agent: str / file: str / line: int / pattern: str`)
+>    and `Mapping[tuple[str, str, int, str], object]` (the function only
+>    checks `in`, so `Mapping` accepts any mapping type and `object`
+>    preserves downstream type-checking).
+> 2. **Import source** — `from collections.abc import Iterator` (not
+>    the plan's deprecated `from typing import Iterator`).
+> 3. **Test coverage** — 7 tests (not the plan's 3). Added:
+>    `test_d1_same_location_different_pattern_yields_two_gaps` (locks the
+>    tuple-key including `pattern` — refactor safety),
+>    `test_d1_duplicate_match_entries_yield_duplicate_gaps` (documents
+>    dedup as caller's responsibility — important for T16 to know),
+>    `test_d1_evidence_locks_pattern_key` (independent evidence-shape
+>    assertion alongside test #1 for regression safety), plus an explicit
+>    `evidence == {"pattern": "ambiguous(*)"}` assertion added to the
+>    plan's test #1.
+> 4. **`__all__`** exports both `ContextRequiredMatch` and
+>    `detect_d1_context_required_gaps`.
+>
+> No functional behavior differs from the plan; this is pure contract
+> tightening driven by the reviewer loop.
+
 **Files:**
 - Create: `src/screw_agents/gap_signal.py`
 - Create: `tests/test_gap_signal.py`
@@ -3640,6 +3718,69 @@ git commit -m "feat(phase3b): D1 coverage gap signal (context-required dropped)"
 ---
 
 ### Task 15: Coverage Gap Signal D2 (Sink-Shaped Call with Unresolved Receiver)
+
+> **SHIPPED NOTE (T15, commit `1b4663a`, 2026-04-19, DESIGN SUPERSEDED):**
+> The plan's D2 below uses file-level substring co-occurrence as condition
+> 3 — "fires if the file also contains any known-source reference
+> anywhere". That is grep-with-extra-steps, not SAST. User (appsec
+> engineer) rejected this design explicitly during T15 pre-audit: "That
+> is fundamental SAST. The very basic."
+>
+> **Shipped design uses REAL intraprocedural taint analysis** via
+> `screw_agents.adaptive.dataflow.match_pattern(arg, source=src, patterns=known_sources)`
+> as condition 3. `match_pattern` walks `name = expr` assignment chains
+> upward from each call-argument node within the enclosing
+> `function_definition` scope, depth-limited to 8
+> (`_DATAFLOW_TRACE_DEPTH_LIMIT`), cycle-detected via
+> `(start_byte, end_byte)` tuple keys.
+>
+> **Three conjoint conditions per call (all three required to fire D2):**
+> 1. Method name matches `sink_regex` (unchanged from plan)
+> 2. Receiver NOT in `known_receivers` (unchanged from plan)
+> 3. **At least one argument taints back to a known source via
+>    `match_pattern`** (REPLACES the plan's file-level prefilter as a
+>    signal condition)
+>
+> The file-level substring prefilter is **kept as pure perf optimization
+> only** — files with zero source references are skipped before AST
+> parsing to avoid wasted work. It is NOT a signal condition; every fired
+> gap has a verified per-call taint path via `match_pattern`.
+>
+> **Callee extraction** uses `_call_callee_text` + `_CALL_PARENS_RE`
+> imported from `adaptive/ast_walker.py`:
+> - **UTF-8 byte-safe:** `_call_callee_text` does
+>   `source.encode("utf-8")[start:end].decode("utf-8")` correctly for
+>   non-ASCII source. The plan's `source[func_node.start_byte:func_node.end_byte]`
+>   is wrong on non-ASCII because `start_byte`/`end_byte` are byte
+>   offsets, not character offsets.
+> - **Parens-strip for chained calls:** `_CALL_PARENS_RE` iteratively
+>   strips `(...)` so `get_db().execute` yields tokens `["get_db",
+>   "execute"]` rather than the plan's `["get_db()", "execute"]` (which
+>   would treat `"get_db()"` as a receiver name that never matches
+>   `known_receivers`).
+>
+> **Exception handling** narrowed to `(UnicodeDecodeError, OSError)` per
+> DEFERRED_BACKLOG T3-M1 discipline (not the plan's `except Exception`).
+>
+> **Test coverage** is 6 (not the plan's 2):
+> 1. Direct taint chain (assignment binding) → fires
+> 2. No taint (literal arg, source elsewhere in file) → does NOT fire
+>    (proves condition 3 is independent of prefilter)
+> 3. Known receiver (`cursor`) → does NOT fire
+> 4. Direct source in call arg (no binding chain) → fires
+> 5. Cross-file isolation (source in file A, sink in file B) → does NOT
+>    fire
+> 6. Cross-function in same file (source in function A, sink in function
+>    B) → does NOT fire (locks the intraprocedural-only design)
+>
+> Each test uses precise assertions (`== 1` / `== []`, exact `.line`,
+> exact `.evidence` shape), not the plan's `>= 1`.
+>
+> **Known design limitation** (documented in module docstring): D2 is
+> intraprocedural-only. Cross-function taint is out of scope for Phase
+> 3b; may be addressed in Phase 4 autoresearch refinement. T17
+> (screw-script-reviewer, Layer 0d) is the semantic gate that validates
+> or rejects D2's surfaced gaps before an adaptive script is generated.
 
 **Files:**
 - Modify: `src/screw_agents/gap_signal.py`
