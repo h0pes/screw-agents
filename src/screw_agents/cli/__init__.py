@@ -6,11 +6,14 @@ Unified dispatcher for user-facing CLI commands. Subcommands:
 - ``screw-agents init-trust`` — register the local SSH key as a trusted reviewer
 - ``screw-agents migrate-exclusions`` — bulk-sign legacy unsigned exclusions
 - ``screw-agents validate-exclusion <id>`` — sign a single quarantined exclusion
+- ``screw-agents validate-script <name>`` — re-sign a quarantined adaptive
+  script after manual review (Phase 3b Task 13)
 
-All four subcommands are implemented and tested as of Phase 3a PR#1
-(Tasks 12-14). Each subcommand module is imported on-demand inside
-``main()`` to avoid import-time side effects and keep the CLI startup
-lightweight.
+The four trust-plane subcommands (init-trust, migrate-exclusions,
+validate-exclusion, validate-script) share the same Ed25519 signing
+plumbing via ``screw_agents.trust``. Each subcommand module is imported
+on-demand inside ``main()`` to avoid import-time side effects and keep the
+CLI startup lightweight.
 """
 
 from __future__ import annotations
@@ -110,6 +113,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="Project root directory (default: current working directory)",
     )
 
+    # --- validate-script (Phase 3b Task 13) ---
+    validate_script_p = subparsers.add_parser(
+        "validate-script",
+        help="Re-sign a quarantined adaptive script after manual review",
+    )
+    validate_script_p.add_argument(
+        "script_name",
+        help="The adaptive script name without .py suffix (e.g. 'sqli_a')",
+    )
+    validate_script_p.add_argument(
+        "--project-root",
+        type=Path,
+        default=Path("."),
+        help="Project root directory (default: current working directory)",
+    )
+
     return parser
 
 
@@ -157,6 +176,20 @@ def main(argv: list[str] | None = None) -> int:
         # not_found/error. validated and already_validated are successful
         # outcomes. not_found is a user input error (wrong ID) that
         # scriptable CI should detect via exit 1.
+        return 1 if result["status"] in ("error", "not_found") else 0
+
+    if args.command == "validate-script":
+        from screw_agents.cli.validate_script import run_validate_script
+
+        project_root = args.project_root.resolve()
+        result = run_validate_script(
+            project_root=project_root, script_name=args.script_name
+        )
+        print(result["message"])
+        # Status space parallels validate-exclusion: validated and
+        # already_validated are successful outcomes; not_found (missing
+        # script or meta) and error (misconfiguration) are failures for
+        # scriptable CI.
         return 1 if result["status"] in ("error", "not_found") else 0
 
     return 0  # unreachable — argparse enforces required=True
