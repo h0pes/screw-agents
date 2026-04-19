@@ -598,3 +598,169 @@ class TestValidateScriptErrorBranches:
         assert "disk space" in msg or "filesystem" in msg, (
             "error should hint at disk/filesystem remediation; got: " + msg
         )
+
+    def test_validate_script_config_yaml_is_directory_returns_friendly_error(
+        self, tmp_path: Path
+    ) -> None:
+        """Regression for I1 residual: if .screw/config.yaml exists as a
+        directory (not a file), the user must see a friendly ValueError
+        with actionable content, not a raw IsADirectoryError traceback.
+
+        IsADirectoryError is a sibling of NotADirectoryError (NOT a
+        subclass), so the previous narrow tuple
+        `(FileExistsError, NotADirectoryError)` failed to catch it. The
+        fix broadens to OSError as the catch-all parent.
+        """
+        from screw_agents.cli.validate_script import run_validate_script
+
+        # Create the malformed state: config.yaml as a directory.
+        config_dir = tmp_path / ".screw" / "config.yaml"
+        config_dir.mkdir(parents=True)
+
+        # Also seed a script + meta so we pass the early file-existence
+        # checks and reach load_config().
+        script_dir = tmp_path / ".screw" / "custom-scripts"
+        script_dir.mkdir(parents=True)
+        (script_dir / "smoke.py").write_text(
+            "def analyze(p): pass\n", encoding="utf-8"
+        )
+        (script_dir / "smoke.meta.yaml").write_text(
+            "name: smoke\n", encoding="utf-8"
+        )
+
+        with pytest.raises(ValueError, match="filesystem shape error") as excinfo:
+            run_validate_script(project_root=tmp_path, script_name="smoke")
+
+        msg = str(excinfo.value)
+        assert "IsADirectoryError" in msg
+        assert "config.yaml" in msg
+
+    def test_validate_script_dispatcher_wraps_isadirectoryerror_friendly(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Verify the dispatcher wraps IsADirectoryError at the CLI
+        boundary into a friendly one-line error on stderr with exit
+        code 1 — no raw traceback leaked."""
+        from screw_agents.cli import main
+
+        config_dir = tmp_path / ".screw" / "config.yaml"
+        config_dir.mkdir(parents=True)
+        script_dir = tmp_path / ".screw" / "custom-scripts"
+        script_dir.mkdir(parents=True)
+        (script_dir / "smoke.py").write_text(
+            "def analyze(p): pass\n", encoding="utf-8"
+        )
+        (script_dir / "smoke.meta.yaml").write_text(
+            "name: smoke\n", encoding="utf-8"
+        )
+
+        exit_code = main(
+            [
+                "validate-script",
+                "smoke",
+                "--project-root",
+                str(tmp_path),
+            ]
+        )
+
+        captured = capsys.readouterr()
+        assert exit_code == 1
+        assert "screw-agents validate-script:" in captured.err
+        # Must NOT leak a raw traceback.
+        assert "Traceback" not in captured.err
+
+    def test_validate_script_meta_fails_schema_raises(
+        self, tmp_path: Path
+    ) -> None:
+        """Covers _build_signed_meta's AdaptiveScriptMeta ValidationError
+        wrap. The meta YAML parses but the dict fails the schema (missing
+        required `name` field). Error must mention the schema."""
+        from screw_agents.cli.init_trust import run_init_trust
+        from screw_agents.cli.validate_script import run_validate_script
+
+        run_init_trust(
+            project_root=tmp_path, name="Marco", email="marco@example.com"
+        )
+        script_dir = tmp_path / ".screw" / "custom-scripts"
+        script_dir.mkdir(parents=True, exist_ok=True)
+        (script_dir / "schema_bad.py").write_text(
+            "def analyze(project): pass\n", encoding="utf-8"
+        )
+        # Valid YAML mapping but missing the required `name` field.
+        # AdaptiveScriptMeta will reject it on construction.
+        (script_dir / "schema_bad.meta.yaml").write_text(
+            "created: '2026-04-19T10:00:00Z'\n"
+            "created_by: marco@example.com\n"
+            "domain: injection-input-handling\n"
+            "description: missing name field\n"
+            "target_patterns: []\n"
+            "sha256: placeholder\n",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ValueError) as excinfo:
+            run_validate_script(
+                project_root=tmp_path, script_name="schema_bad"
+            )
+
+        msg = str(excinfo.value)
+        assert "fails AdaptiveScriptMeta schema" in msg
+        assert "Fix the YAML manually" in msg
+
+    def test_validate_script_screw_path_is_regular_file_returns_friendly_error(
+        self, tmp_path: Path
+    ) -> None:
+        """Covers the FileExistsError / NotADirectoryError branch via
+        OSError catch-all: `.screw` exists as a regular file. The
+        custom-scripts path probe (`script_path.exists()`) returns False
+        without raising on Linux because Path.exists() handles
+        NotADirectoryError gracefully — so the script-not-found branch
+        fires first. Verify the user sees a not_found, NOT a traceback.
+        """
+        from screw_agents.cli.validate_script import run_validate_script
+
+        # `.screw` is a regular file blocking the directory.
+        screw_file = tmp_path / ".screw"
+        screw_file.write_text("blocking file\n", encoding="utf-8")
+
+        result = run_validate_script(
+            project_root=tmp_path, script_name="anything"
+        )
+        # The probe `script_path.exists()` returns False (not raises) when
+        # an ancestor is a file; not_found is the user-friendly outcome.
+        assert result["status"] == "not_found"
+
+    def test_validate_script_key_gen_permission_error_is_wrapped(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Covers the PermissionError wrap around
+        `_get_or_create_local_private_key`. Must surface as RuntimeError
+        with the local-keys path and a permissions remediation hint."""
+        from screw_agents.cli import validate_script as validate_script_module
+        from screw_agents.cli.init_trust import run_init_trust
+        from screw_agents.cli.validate_script import run_validate_script
+
+        run_init_trust(
+            project_root=tmp_path, name="Marco", email="marco@example.com"
+        )
+        script_dir = tmp_path / ".screw" / "custom-scripts"
+        _write_script_and_meta(script_dir)
+
+        def boom_keygen(_project_root):
+            raise PermissionError("simulated EACCES on .screw/local/keys")
+
+        monkeypatch.setattr(
+            validate_script_module,
+            "_get_or_create_local_private_key",
+            boom_keygen,
+        )
+
+        with pytest.raises(RuntimeError) as excinfo:
+            run_validate_script(project_root=tmp_path, script_name="test")
+
+        msg = str(excinfo.value)
+        assert "permission denied" in msg
+        assert ".screw" in msg and "keys" in msg
+        assert "Check directory permissions" in msg

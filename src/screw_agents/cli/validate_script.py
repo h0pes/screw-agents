@@ -151,9 +151,10 @@ def run_validate_script(
         - ``message``: human-readable summary for CLI output.
 
     Raises:
-        ValueError: If ``.screw`` exists as a file (not directory); if
-            ``.screw/config.yaml`` has invalid schema; if the meta YAML is
-            malformed, is not a mapping, or fails the
+        ValueError: If ``.screw/config.yaml`` has a filesystem-shape error
+            (e.g., the path exists as a directory when a file is expected,
+            or vice versa); if ``.screw/config.yaml`` has invalid schema;
+            if the meta YAML is malformed, is not a mapping, or fails the
             ``AdaptiveScriptMeta`` schema; or if a permission error blocks
             reading/writing config/script/meta files.
         RuntimeError: If the local key generation fails with an OS error.
@@ -216,20 +217,32 @@ def run_validate_script(
         }
 
     # Wrap load_config for T6-I1/I2 friendly errors at the CLI boundary
-    # (mirrors validate_exclusion.py).
+    # (mirrors validate_exclusion.py). T13 re-review I1 residual: the
+    # previous tuple `(FileExistsError, NotADirectoryError)` did NOT cover
+    # `IsADirectoryError` (a sibling of NotADirectoryError, NOT a subclass),
+    # so a config.yaml that exists as a DIRECTORY leaked a raw traceback.
+    # `OSError` is the common parent of FileExistsError / NotADirectoryError
+    # / IsADirectoryError / PermissionError and other filesystem edge
+    # cases. Keep PermissionError FIRST so its specific message wins over
+    # the generic OSError catch-all.
     try:
         config = load_config(project_root)
-    except (FileExistsError, NotADirectoryError) as exc:
-        raise ValueError(
-            f"A `.screw` path exists at {project_root / '.screw'} but is not "
-            f"a directory. Remove or rename it before running "
-            f"`screw-agents validate-script`. Original error: {exc}"
-        ) from exc
     except PermissionError as exc:
         raise ValueError(
             f"Cannot access `.screw/config.yaml` at "
             f"{project_root / '.screw' / 'config.yaml'}: permission denied. "
             f"Check directory permissions or run with appropriate user. "
+            f"Original error: {exc}"
+        ) from exc
+    except OSError as exc:
+        # FileExistsError / NotADirectoryError / IsADirectoryError — the
+        # `.screw` path or config.yaml exists but is not the expected
+        # file/directory shape. Distinct message helps the user diagnose.
+        raise ValueError(
+            f"Cannot access `.screw/config.yaml` at "
+            f"{project_root / '.screw' / 'config.yaml'}: filesystem shape "
+            f"error ({type(exc).__name__}). The `.screw` path or "
+            f"config.yaml may be the wrong type (file vs. directory). "
             f"Original error: {exc}"
         ) from exc
 
@@ -244,7 +257,11 @@ def run_validate_script(
         }
 
     # T9-I3 — friendly error wrapping for _get_or_create_local_private_key
-    # (mirrors validate_exclusion.py).
+    # (mirrors validate_exclusion.py). `mkdir(parents=True, exist_ok=True)`
+    # inside that helper can raise FileExistsError / NotADirectoryError /
+    # IsADirectoryError when a regular file blocks a parent path; all three
+    # are OSError subclasses. PermissionError (also OSError) is kept FIRST
+    # so its specific message wins.
     try:
         priv, _pub_line = _get_or_create_local_private_key(project_root)
     except PermissionError as exc:
@@ -298,10 +315,12 @@ def run_validate_script(
         private_key=priv,
     )
 
-    # T9-I2 — atomic write via tmp file + os.replace. Manual tmp construction
-    # avoids surprising behavior if the meta filename pattern ever changes
-    # (Path.with_suffix only replaces the final suffix, so it would
-    # interact surprisingly with a compound `.meta.yaml` convention).
+    # T9-I2 — atomic write via tmp file + os.replace.
+    # Manual tmp-path construction instead of `meta_path.with_suffix(".tmp")`
+    # because `with_suffix` only replaces the LAST suffix:
+    #     Path("test.meta.yaml").with_suffix(".tmp") -> Path("test.meta.tmp")
+    # which would drop the `.yaml` marker. Manual construction preserves the
+    # full filename and appends `.tmp` atomically.
     tmp_path = meta_path.parent / f"{meta_path.name}.tmp"
     try:
         tmp_path.write_text(

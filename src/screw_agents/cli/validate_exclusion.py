@@ -60,9 +60,11 @@ def run_validate_exclusion(
         - ``message``: human-readable summary for CLI output
 
     Raises:
-        ValueError: If ``.screw`` exists as a file (not directory), or if
-            ``.screw/config.yaml`` has invalid schema, or if a permission
-            error blocks reading/writing the config or exclusions file.
+        ValueError: If ``.screw/config.yaml`` has a filesystem-shape error
+            (e.g., the path exists as a directory when a file is expected,
+            or vice versa), or if ``.screw/config.yaml`` has invalid
+            schema, or if a permission error blocks reading/writing the
+            config or exclusions file.
         RuntimeError: If the local key generation fails with an OS error.
     """
     path = project_root / _EXCLUSIONS_PATH
@@ -118,19 +120,27 @@ def run_validate_exclusion(
         }
 
     # Wrap load_config for T6-I1/I2 friendly errors at the CLI boundary.
+    # T13 re-review I1 residual: `IsADirectoryError` is a sibling (not a
+    # subclass) of `NotADirectoryError`, so the previous narrow tuple
+    # leaked a traceback when config.yaml existed as a directory. `OSError`
+    # is the common parent of FileExistsError / NotADirectoryError /
+    # IsADirectoryError / PermissionError. PermissionError kept FIRST so
+    # its specific message wins over the generic OSError catch-all.
     try:
         config = load_config(project_root)
-    except (FileExistsError, NotADirectoryError) as exc:
-        raise ValueError(
-            f"A `.screw` path exists at {project_root / '.screw'} but is not "
-            f"a directory. Remove or rename it before running "
-            f"`screw-agents validate-exclusion`. Original error: {exc}"
-        ) from exc
     except PermissionError as exc:
         raise ValueError(
             f"Cannot access `.screw/config.yaml` at "
             f"{project_root / '.screw' / 'config.yaml'}: permission denied. "
             f"Check directory permissions or run with appropriate user. "
+            f"Original error: {exc}"
+        ) from exc
+    except OSError as exc:
+        raise ValueError(
+            f"Cannot access `.screw/config.yaml` at "
+            f"{project_root / '.screw' / 'config.yaml'}: filesystem shape "
+            f"error ({type(exc).__name__}). The `.screw` path or "
+            f"config.yaml may be the wrong type (file vs. directory). "
             f"Original error: {exc}"
         ) from exc
 

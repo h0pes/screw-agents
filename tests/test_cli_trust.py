@@ -107,10 +107,12 @@ class TestInitTrust:
 
     def test_friendly_error_when_dot_screw_is_file(self, tmp_path: Path):
         """When .screw exists as a file (not directory), init-trust raises
-        ValueError with an actionable message. T6-I1 friendly error wrapping."""
+        ValueError with an actionable message. T6-I1 friendly error
+        wrapping; T13 re-review I1 residual broadens the catch to OSError
+        so the new message uses 'filesystem shape error'."""
         (tmp_path / ".screw").write_text("i am not a directory")
 
-        with pytest.raises(ValueError, match="not a directory"):
+        with pytest.raises(ValueError, match="filesystem shape error"):
             run_init_trust(
                 project_root=tmp_path, name="Marco", email="marco@example.com"
             )
@@ -225,7 +227,7 @@ class TestCLIDispatcher:
         assert exit_code == 1
         captured = capsys.readouterr()
         assert "screw-agents init-trust:" in captured.err
-        assert "not a directory" in captured.err
+        assert "filesystem shape error" in captured.err
 
 
 class TestMigrateExclusions:
