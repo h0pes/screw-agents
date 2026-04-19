@@ -40,6 +40,7 @@ def test_public_api_matches_expected_exactly():
     # what's supposed to be a security-boundary pin.
     import screw_agents.adaptive.lint  # noqa: F401
     import screw_agents.adaptive.sandbox.linux  # noqa: F401
+    import screw_agents.adaptive.signing  # noqa: F401
 
     import screw_agents.adaptive as adaptive
 
@@ -71,26 +72,35 @@ def test_public_api_matches_expected_exactly():
     # its own test file), update this whitelist in the same commit. Without
     # this, the test passes by luck of alphabetic test-file ordering and fails
     # when run in a different order — fragile contract for a security boundary.
-    allowed_extras = {"ast_walker", "dataflow", "executor", "findings", "lint", "project", "sandbox"}
+    allowed_extras = {"ast_walker", "dataflow", "executor", "findings", "lint", "project", "sandbox", "signing"}
     assert public_names - allowed_extras == EXPECTED_PUBLIC_API, (
         f"Public API drift: {public_names - EXPECTED_PUBLIC_API} added, "
         f"{EXPECTED_PUBLIC_API - public_names} removed"
     )
 
 
-def test_public_api_count_is_under_25():
-    """Curated library should stay small. Over 25 is a red flag for scope creep."""
+def test_public_api_count_is_under_26():
+    """Curated library should stay small. Over 26 is a red flag for scope creep.
+
+    Ceiling was 25 before Phase 3b T18a added the internal `signing`
+    submodule (a sign-side canonicalization helper shared between the
+    CLI validate-script path and the sign_adaptive_script MCP tool —
+    NOT part of the adaptive-script-author public surface). The
+    EXPECTED_PUBLIC_API set is unchanged at 18 entries; the bump is
+    purely submodule-attribute accounting.
+    """
     # Force-load all submodules so dir(adaptive) is consistent regardless of
     # which test files have run before us. Without this, the test passes only
     # by luck of pytest's alphabetic test-file ordering — fragile contract for
     # what's supposed to be a security-boundary pin.
     import screw_agents.adaptive.lint  # noqa: F401
     import screw_agents.adaptive.sandbox.linux  # noqa: F401
+    import screw_agents.adaptive.signing  # noqa: F401
 
     import screw_agents.adaptive as adaptive
 
     public_count = len([n for n in dir(adaptive) if not n.startswith("_")])
-    assert public_count <= 25, (
+    assert public_count <= 26, (
         f"adaptive public API has {public_count} entries; review for scope creep"
     )
 
@@ -107,6 +117,7 @@ def test_all_matches_expected_exactly():
     # what's supposed to be a security-boundary pin.
     import screw_agents.adaptive.lint  # noqa: F401
     import screw_agents.adaptive.sandbox.linux  # noqa: F401
+    import screw_agents.adaptive.signing  # noqa: F401
 
     import screw_agents.adaptive as adaptive
 

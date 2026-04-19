@@ -39,100 +39,23 @@ exactly the case this command exists to fix.
 
 from __future__ import annotations
 
-import hashlib
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import yaml
-from pydantic import ValidationError
 
+from screw_agents.adaptive.signing import (
+    build_signed_script_meta,
+    compute_script_sha256,
+)
 from screw_agents.learning import _get_or_create_local_private_key
-from screw_agents.models import AdaptiveScriptMeta
 from screw_agents.trust import (
     _find_matching_reviewer,
     _fingerprint_public_key,
     _load_public_keys_with_reviewers,
-    canonicalize_script,
     load_config,
-    sign_content,
 )
-
-if TYPE_CHECKING:
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import (
-        Ed25519PrivateKey,
-    )
-
-
-def _build_signed_meta(
-    *,
-    meta_raw: dict[str, Any],
-    source: str,
-    current_sha256: str,
-    signer_email: str,
-    private_key: "Ed25519PrivateKey",
-) -> dict[str, Any]:
-    """Return a fully populated meta dict ready to persist.
-
-    Binds ``sha256``, ``validated=True``, ``signed_by``, ``signature``, and
-    ``signature_version`` to the source. The returned dict is the single
-    source of truth for what ``validate-script`` persists and what the
-    executor's Layer 3 verification will canonicalize on read.
-
-    Routing ``meta_raw`` through ``AdaptiveScriptMeta`` BEFORE canonicalization
-    is load-bearing: the executor parses persisted YAML via
-    ``AdaptiveScriptMeta(**meta_raw)`` which INJECTS defaults for omitted
-    fields (``last_used=None``, ``findings_produced=0``,
-    ``false_positive_rate=None``). If sign-side canonicalized the raw user
-    dict and verify-side canonicalized the model-dumped dict, the two byte
-    strings would differ and every signed script would fail Layer 3 — the
-    classic "silent failure at the trust boundary" bug.
-
-    Args:
-        meta_raw: Mutable dict parsed from the user's meta YAML.
-        source: Current script source (already used to compute
-            ``current_sha256``).
-        current_sha256: ``hashlib.sha256(source.encode("utf-8")).hexdigest()``.
-        signer_email: The reviewer email matched to the local signing key.
-        private_key: The loaded Ed25519 private key.
-
-    Returns:
-        A new dict with all persistence fields populated. Safe to
-        ``yaml.dump`` and write.
-
-    Raises:
-        ValueError: If ``meta_raw`` fails the ``AdaptiveScriptMeta`` schema.
-    """
-    # Pre-populate fields that must be bound to the signature BEFORE the
-    # model normalizes defaults. `validated=True` is semantically part of the
-    # signed state — a script that's been validated cannot be silently
-    # downgraded to `validated=False` without invalidating the signature.
-    prepared = dict(meta_raw)
-    prepared["sha256"] = current_sha256
-    prepared["validated"] = True
-
-    try:
-        meta_model = AdaptiveScriptMeta(**prepared)
-    except ValidationError as exc:
-        raise ValueError(
-            f"Script metadata fails AdaptiveScriptMeta schema: {exc}. "
-            f"Fix the YAML manually before running validate-script."
-        ) from exc
-
-    # model_dump() emits ALL fields including the defaults the executor will
-    # re-inject on read. The canonical bytes sign-side and verify-side
-    # compute from this dict are byte-for-byte identical.
-    meta_for_persist = meta_model.model_dump()
-
-    canonical = canonicalize_script(
-        source=source, meta=meta_for_persist
-    )
-    signature = sign_content(canonical, private_key=private_key)
-
-    meta_for_persist["signed_by"] = signer_email
-    meta_for_persist["signature"] = signature
-    meta_for_persist["signature_version"] = 1
-    return meta_for_persist
 
 
 def run_validate_script(
@@ -197,7 +120,7 @@ def run_validate_script(
 
     # Recompute sha256 from the CURRENT source so an edit-after-signing
     # correctly re-signs with the edited content.
-    current_sha256 = hashlib.sha256(source.encode("utf-8")).hexdigest()
+    current_sha256 = compute_script_sha256(source)
 
     # Idempotency: if already signed AND sha256 matches current source,
     # no work is needed. If sha256 differs, the source was edited after
@@ -306,8 +229,11 @@ def run_validate_script(
     # All persisted-but-not-signing-metadata fields (sha256, validated, plus
     # any model defaults like last_used/findings_produced/false_positive_rate)
     # must be set before canonical JSON is computed. The returned dict is
-    # what gets canonicalized AND what gets written to disk.
-    meta_for_persist = _build_signed_meta(
+    # what gets canonicalized AND what gets written to disk. Delegates to the
+    # shared helper in `adaptive/signing.py` so this CLI path, the MCP
+    # `sign_adaptive_script` tool, and the test_adaptive_executor fixture
+    # can never drift.
+    meta_for_persist = build_signed_script_meta(
         meta_raw=meta_raw,
         source=source,
         current_sha256=current_sha256,

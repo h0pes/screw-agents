@@ -674,9 +674,10 @@ class TestValidateScriptErrorBranches:
     def test_validate_script_meta_fails_schema_raises(
         self, tmp_path: Path
     ) -> None:
-        """Covers _build_signed_meta's AdaptiveScriptMeta ValidationError
-        wrap. The meta YAML parses but the dict fails the schema (missing
-        required `name` field). Error must mention the schema."""
+        """Covers build_signed_script_meta's AdaptiveScriptMeta
+        ValidationError wrap. The meta YAML parses but the dict fails the
+        schema (missing required `name` field). Error must mention the
+        schema."""
         from screw_agents.cli.init_trust import run_init_trust
         from screw_agents.cli.validate_script import run_validate_script
 

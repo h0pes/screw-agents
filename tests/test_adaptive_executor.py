@@ -484,8 +484,8 @@ def test_executor_returns_empty_findings_on_sandbox_timeout(tmp_path: Path, monk
 # Layer 3 (Ed25519 signature verification) is currently tested only via
 # `skip_trust_checks=True` bypass. These tests exercise the REAL signed
 # path end-to-end: generate an ephemeral Ed25519 key, sign a script via
-# the same `_build_signed_meta` helper validate-script uses (so sign-side
-# and verify-side never drift), register the public key in
+# the shared `build_signed_script_meta` helper (so sign-side and
+# verify-side never drift), register the public key in
 # `.screw/config.yaml`'s `script_reviewers`, then run `execute_script`
 # with `skip_trust_checks=False`. Closes the end-to-end gap.
 # -------------------------------------------------------------------------
@@ -502,15 +502,15 @@ def _build_signed_script_fixture(
 
     Generates an ephemeral Ed25519 keypair, writes the public key into
     `.screw/config.yaml`'s `script_reviewers`, and signs the meta via the
-    same `_build_signed_meta` helper `validate-script` uses — guaranteeing
-    the fixture and the CLI can never drift. Returns
-    ``(script_path, meta_path, project_root)``.
+    shared `build_signed_script_meta` helper — guaranteeing the fixture,
+    the `validate-script` CLI, and the `sign_adaptive_script` MCP tool
+    can never drift. Returns ``(script_path, meta_path, project_root)``.
     """
     from cryptography.hazmat.primitives.asymmetric.ed25519 import (
         Ed25519PrivateKey,
     )
 
-    from screw_agents.cli.validate_script import _build_signed_meta
+    from screw_agents.adaptive.signing import build_signed_script_meta
     from screw_agents.trust import _public_key_to_openssh_line
 
     project_root = tmp_path / "project"
@@ -566,7 +566,7 @@ def _build_signed_script_fixture(
         "description": "T11-N1 signed-path regression fixture",
         "target_patterns": [],
     }
-    meta_dict = _build_signed_meta(
+    meta_dict = build_signed_script_meta(
         meta_raw=meta_raw,
         source=source,
         current_sha256=sha256,
