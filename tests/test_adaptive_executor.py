@@ -6,7 +6,9 @@ extend it with executor pipeline tests.
 
 from __future__ import annotations
 
+import hashlib
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -72,9 +74,6 @@ def test_get_backend_raises_on_unsupported_platform(monkeypatch):
 # -------------------------------------------------------------------------
 # Task 11 — executor pipeline tests
 # -------------------------------------------------------------------------
-
-
-from pathlib import Path
 
 
 def test_executor_runs_valid_script_end_to_end(tmp_path: Path):
@@ -485,13 +484,11 @@ def test_executor_returns_empty_findings_on_sandbox_timeout(tmp_path: Path, monk
 # Layer 3 (Ed25519 signature verification) is currently tested only via
 # `skip_trust_checks=True` bypass. These tests exercise the REAL signed
 # path end-to-end: generate an ephemeral Ed25519 key, sign a script via
-# `trust.canonicalize_script` + `trust.sign_content`, register the public
-# key in `.screw/config.yaml`'s `script_reviewers`, then run `execute_script`
+# the same `_build_signed_meta` helper validate-script uses (so sign-side
+# and verify-side never drift), register the public key in
+# `.screw/config.yaml`'s `script_reviewers`, then run `execute_script`
 # with `skip_trust_checks=False`. Closes the end-to-end gap.
 # -------------------------------------------------------------------------
-
-
-import hashlib
 
 
 def _build_signed_script_fixture(
@@ -504,20 +501,17 @@ def _build_signed_script_fixture(
     """Construct a signed script + meta + project_root fixture.
 
     Generates an ephemeral Ed25519 keypair, writes the public key into
-    `.screw/config.yaml`'s `script_reviewers`, computes the meta shape
-    the executor expects (sha256 of source), canonicalizes (source, meta-
-    minus-signing-fields), signs, and writes the meta with the full
-    signing payload. Returns (script_path, meta_path, project_root).
+    `.screw/config.yaml`'s `script_reviewers`, and signs the meta via the
+    same `_build_signed_meta` helper `validate-script` uses — guaranteeing
+    the fixture and the CLI can never drift. Returns
+    ``(script_path, meta_path, project_root)``.
     """
     from cryptography.hazmat.primitives.asymmetric.ed25519 import (
         Ed25519PrivateKey,
     )
 
-    from screw_agents.trust import (
-        _public_key_to_openssh_line,
-        canonicalize_script,
-        sign_content,
-    )
+    from screw_agents.cli.validate_script import _build_signed_meta
+    from screw_agents.trust import _public_key_to_openssh_line
 
     project_root = tmp_path / "project"
     project_root.mkdir()
@@ -559,27 +553,26 @@ def _build_signed_script_fixture(
 
     sha256 = hashlib.sha256(source.encode("utf-8")).hexdigest()
 
-    # Mirror validate_script.run_validate_script: set sha256 BEFORE
-    # canonicalization. Signing fields are excluded by _SCRIPT_META_CANONICAL_EXCLUDE.
-    meta_dict = {
+    # Route through the shared CLI helper so sign-side canonicalization in
+    # this fixture matches byte-for-byte what `validate-script` produces,
+    # which in turn matches what the executor canonicalizes on verify. Any
+    # future refactor of the signing canonicalization only needs to update
+    # one place.
+    meta_raw = {
         "name": script_name,
         "created": "2026-04-19T10:00:00Z",
         "created_by": signer_email,
         "domain": "injection-input-handling",
         "description": "T11-N1 signed-path regression fixture",
         "target_patterns": [],
-        "validated": True,
-        "last_used": None,
-        "findings_produced": 0,
-        "false_positive_rate": None,
-        "sha256": sha256,
     }
-    canonical = canonicalize_script(source=source, meta=meta_dict)
-    signature = sign_content(canonical, private_key=priv)
-
-    meta_dict["signed_by"] = signer_email
-    meta_dict["signature"] = signature
-    meta_dict["signature_version"] = 1
+    meta_dict = _build_signed_meta(
+        meta_raw=meta_raw,
+        source=source,
+        current_sha256=sha256,
+        signer_email=signer_email,
+        private_key=priv,
+    )
 
     meta_path = script_dir / f"{script_name}.meta.yaml"
     meta_path.write_text(
@@ -666,7 +659,12 @@ def test_execute_script_tampered_signature_raises_signature_failure(
     meta["signature"] = new_first + sig[1:]
     meta_path.write_text(_yaml.dump(meta, sort_keys=False), encoding="utf-8")
 
-    with pytest.raises(SignatureFailure, match="signature verification failed"):
+    # Match the specific Layer 3 failure reason (content/signature mismatch),
+    # NOT the generic "signature verification failed" wrapper — tightens the
+    # test to verify we hit the right failure branch.
+    with pytest.raises(
+        SignatureFailure, match="signature invalid or content mismatch"
+    ):
         execute_script(
             script_path=script_path,
             meta_path=meta_path,
