@@ -350,3 +350,101 @@ class TestValidateScriptDispatcher:
             ]
         )
         assert exit_code == 1
+
+
+class TestValidateScriptEndToEnd:
+    """End-to-end signature round-trip tests.
+
+    Locks in the invariant that a script signed by ``validate-script``
+    verifies under the executor's Layer 3 without ``skip_trust_checks=True``.
+    """
+
+    def test_validate_script_output_passes_executor_signature_verification(
+        self, tmp_path: Path
+    ) -> None:
+        """Regression for C1: a script signed by validate-script MUST verify
+        under ``execute_script(skip_trust_checks=False)``.
+
+        Guards against sign-side vs verify-side canonicalization drift. The
+        executor parses persisted YAML via ``AdaptiveScriptMeta(**meta_raw)``
+        which injects defaults (``last_used=None``, ``findings_produced=0``,
+        ``false_positive_rate=None``) for omitted fields. If validate-script
+        canonicalized the raw user dict (missing those fields), the verify-
+        side canonical bytes would differ and every signed script would fail
+        Layer 3 — a silent failure at the trust boundary.
+
+        This test MUST NOT use ``skip_trust_checks=True``.
+        """
+        import shutil
+
+        if (
+            shutil.which("bwrap") is None
+            and shutil.which("sandbox-exec") is None
+        ):
+            pytest.skip("no sandbox backend available")
+
+        from screw_agents.adaptive.executor import execute_script
+        from screw_agents.cli.init_trust import run_init_trust
+        from screw_agents.cli.validate_script import run_validate_script
+        from screw_agents.models import Finding
+
+        # Seed the project: init-trust, then a minimal unsigned script+meta
+        # containing ONLY the required schema fields (no last_used /
+        # findings_produced / false_positive_rate) — this is the exact shape
+        # a human would hand-write, and the shape the C1 bug fails on.
+        run_init_trust(
+            project_root=tmp_path, name="Marco", email="marco@example.com"
+        )
+        script_dir = tmp_path / ".screw" / "custom-scripts"
+        script_dir.mkdir(parents=True, exist_ok=True)
+
+        source = (
+            "from screw_agents.adaptive import emit_finding\n"
+            "def analyze(project):\n"
+            "    emit_finding(cwe='CWE-89', file='x.py', line=1,"
+            " message='round-trip ok', severity='high')\n"
+        )
+        script_path = script_dir / "roundtrip.py"
+        script_path.write_text(source, encoding="utf-8")
+
+        meta_path = script_dir / "roundtrip.meta.yaml"
+        meta_path.write_text(
+            yaml.dump(
+                {
+                    "name": "roundtrip",
+                    "created": "2026-04-19T10:00:00Z",
+                    "created_by": "marco@example.com",
+                    "domain": "injection-input-handling",
+                    "description": "C1 regression",
+                    "target_patterns": [],
+                    "sha256": "placeholder-will-be-recomputed",
+                },
+                sort_keys=False,
+            ),
+            encoding="utf-8",
+        )
+
+        # Sign the script via the CLI command under test.
+        validate_result = run_validate_script(
+            project_root=tmp_path, script_name="roundtrip"
+        )
+        assert validate_result["status"] == "validated", (
+            f"validate-script must succeed; got {validate_result!r}"
+        )
+
+        # Now the executor must accept the signed script end-to-end.
+        # If C1 is not fixed, SignatureFailure is raised here.
+        result = execute_script(
+            script_path=script_path,
+            meta_path=meta_path,
+            project_root=tmp_path,
+            skip_trust_checks=False,  # engage Layer 2 + Layer 3
+            wall_clock_s=30,
+        )
+
+        assert result.stale is False
+        assert len(result.findings) == 1
+        finding = result.findings[0]
+        assert isinstance(finding, Finding)
+        assert finding.classification.cwe == "CWE-89"
+        assert finding.analysis.description == "round-trip ok"
