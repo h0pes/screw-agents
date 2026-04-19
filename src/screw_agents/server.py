@@ -150,6 +150,11 @@ def _dispatch_tool(
             session_id=args["session_id"],
         )
 
+    # --- Phase 3b T18a: lint_adaptive_script (pre-approval review) ---
+
+    if name == "lint_adaptive_script":
+        return engine.lint_adaptive_script(source=args["source"])
+
     # --- Phase 3a X1-M1 (T18): accumulate + finalize (replaces write_scan_results) ---
 
     if name == "accumulate_findings":

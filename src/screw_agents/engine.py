@@ -518,6 +518,66 @@ class ScanEngine:
             "session_id": session_id,
         }
 
+    def lint_adaptive_script(self, *, source: str) -> dict[str, Any]:
+        """Run Layer 1 AST allowlist lint on a script source WITHOUT executing it.
+
+        Called from the pre-approval path of the adaptive review flow: the
+        subagent just generated a script and wants to show the human
+        reviewer the lint result in the 5-section review BEFORE approval.
+        Distinct from the lint that runs inside ``execute_script`` (which
+        happens AFTER human approval and would surface failures too late
+        for the reviewer to decline).
+
+        The underlying ``screw_agents.adaptive.lint.lint_script`` already
+        catches ``SyntaxError`` internally and returns a ``LintReport``
+        with a single ``rule="syntax"`` violation. This wrapper promotes
+        that single-violation case to a dedicated ``status="syntax_error"``
+        response so reviewers can distinguish "this isn't valid Python
+        yet" from "this Python is valid but violates the allowlist".
+
+        Args:
+            source: Python source code to lint. Not modified.
+
+        Returns:
+            Dict with:
+                - ``status``: ``"pass"`` | ``"fail"`` | ``"syntax_error"``
+                - ``violations`` (when status="fail"): list of dicts with
+                  ``rule``, ``message``, ``line`` keys.
+                - ``details`` (when status="syntax_error"): str describing
+                  the parse error (``"<msg> at line <N>"``).
+
+        No side effects. Pure function. Safe to call any number of times.
+        """
+        from screw_agents.adaptive.lint import lint_script
+
+        report = lint_script(source)
+
+        if report.passed:
+            return {"status": "pass", "violations": []}
+
+        # Promote the single-violation syntax case to status="syntax_error".
+        # lint_script returns exactly one violation with rule="syntax" when
+        # the source doesn't parse — any other violations are allowlist
+        # fails, and parseable-but-disallowed scripts produce at least the
+        # structural violations and never a `syntax` rule.
+        if (
+            len(report.violations) == 1
+            and report.violations[0].rule == "syntax"
+        ):
+            v = report.violations[0]
+            return {
+                "status": "syntax_error",
+                "details": f"{v.message} at line {v.line}",
+            }
+
+        return {
+            "status": "fail",
+            "violations": [
+                {"rule": v.rule, "message": v.message, "line": v.line}
+                for v in report.violations
+            ],
+        }
+
     def aggregate_learning(
         self,
         *,
@@ -1794,6 +1854,35 @@ class ScanEngine:
                     "meta",
                     "session_id",
                 ],
+            },
+        })
+
+        # Phase 3b T18a: lint_adaptive_script — pre-approval Layer 1 AST
+        # lint (pure function). Distinct from the lint inside
+        # execute_script which runs AFTER approval; this tool surfaces
+        # lint results in the 5-section review BEFORE the reviewer decides.
+        tools.append({
+            "name": "lint_adaptive_script",
+            "description": (
+                "Run the Layer 1 AST allowlist lint on adaptive-script "
+                "source WITHOUT executing it. Used during the pre-approval "
+                "review path so the human reviewer sees lint results "
+                "BEFORE approval (execute_script also runs lint, but only "
+                "after human approval — too late to decline). Returns "
+                "status='pass' | 'fail' | 'syntax_error'. Pure function: "
+                "no side effects, safe to call repeatedly."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "source": {
+                        "type": "string",
+                        "description": (
+                            "Python source code to lint. Not modified."
+                        ),
+                    },
+                },
+                "required": ["source"],
             },
         })
 
