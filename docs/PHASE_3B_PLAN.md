@@ -4268,6 +4268,67 @@ git commit -m "feat(phase3b): detect_coverage_gaps method on ScanEngine"
 
 ### Task 17: `screw-script-reviewer` Subagent (Layer 0d)
 
+> **SHIPPED NOTE (T17, commit `880c383`, 2026-04-19):** The plan's prompt
+> below was rejected as underspecified for a security-adjacent Layer 0d
+> subagent on an appsec project. Eight corrections applied on ship:
+>
+> 1. **`SemanticReviewReport` schema reference added.** The prompt now
+>    enumerates each of the 5 required fields (`risk_score`,
+>    `flagged_patterns`, `unusual_imports`, `control_flow_summary`,
+>    `estimated_runtime_ms`) with exact type constraints and notes that
+>    the caller validates via
+>    `SemanticReviewReport.model_validate_json(...)` — field drift
+>    causes ValidationError at parse time. The shipped model lives at
+>    `src/screw_agents/models.py:482-490` and is the output contract.
+> 2. **Allowed-imports surface made explicit.** The 18 curated exports
+>    from `screw_agents.adaptive` (see
+>    `src/screw_agents/adaptive/__init__.py` `__all__`) and the
+>    stdlib-only rule are listed, with common red-flag third-party
+>    imports (requests, subprocess, socket, boto3, etc.) and stdlib
+>    modules that warrant MEDIUM flagging despite being technically
+>    allowed.
+> 3. **Specific anti-patterns replaced vague "prompt injection."**
+>    Eight concrete semantic-mismatch patterns: rationale↔script
+>    mismatch, breadth-when-targeted, dynamic path construction,
+>    CWE/rationale mismatch, control-flow complexity, emit_finding
+>    data leak, hardcoded paths outside project, implicit/deferred
+>    execution.
+> 4. **Concrete `estimated_runtime_ms` guidance.** Per-operation cost
+>    hints so the reviewer-LLM produces calibrated numbers rather than
+>    guesses.
+> 5. **When-uncertain-escalate rule.** Explicit conservative default:
+>    unclear classification defaults to MEDIUM; over-flagging is
+>    acceptable; under-flagging is not.
+> 6. **7-layer (not 15-layer) defense stack.** Per PR #4 shipped
+>    reality — the plan's `description` and body rule #1 referenced a
+>    stale 15-layer number.
+> 7. **Exact output format.** Explicit prohibition of markdown fences
+>    and prose wrapping around the JSON with wrong/right examples.
+>    Aligns the subagent with the caller's `model_validate_json`
+>    parsing contract.
+> 8. **Advisory-only framing promoted to opening principle.** "Not a
+>    gate, not a security boundary" is now prominent rather than buried
+>    in rule #4.
+>
+> **Format-smoke tests:** `tests/test_screw_script_reviewer_subagent.py`
+> ships 6 format tests (frontmatter validity, empty tools list
+> preservation, Pydantic model reference, allowed-imports language,
+> advisory framing, 7-layer/not-15-layer phrasing). Claude Code
+> subagents are not unit-tested for SEMANTIC behavior in this repo;
+> that is covered by T22's E2E integration test which exercises the
+> full generation pipeline.
+>
+> **`tools: []` is load-bearing.** The empty tools list is a Layer 0d
+> isolation property, not an oversight — it prevents the reviewer-LLM
+> from being a second place where prompt injection could manifest.
+> The format-smoke test locks this explicitly.
+>
+> **Test count:** 693 baseline → 699 passed (+6 format tests). No
+> regressions. Subagent markdown is 273 lines — slightly over the
+> plan's 150-250 target but justified by the expanded security-
+> critical content (8 corrections, allowed-imports list, 8 anti-
+> patterns, concrete runtime estimation).
+
 **Files:**
 - Create: `plugins/screw/agents/screw-script-reviewer.md`
 
