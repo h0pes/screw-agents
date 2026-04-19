@@ -166,6 +166,14 @@ def _dispatch_tool(
             session_id=args.get("session_id"),
         )
 
+    if name == "detect_coverage_gaps":
+        gaps = engine.detect_coverage_gaps(
+            agent_name=args["agent_name"],
+            project_root=Path(args["project_root"]),
+            session_id=args["session_id"],
+        )
+        return {"coverage_gaps": [g.model_dump() for g in gaps]}
+
     # --- Scan tools (Phase 1 + Phase 2 project_root) ---
 
     project_root = Path(args["project_root"]) if args.get("project_root") else None
