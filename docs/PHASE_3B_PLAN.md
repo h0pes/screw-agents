@@ -4612,6 +4612,47 @@ git commit -m "feat(phase3b): screw-script-reviewer subagent (Layer 0d)"
 > **T18b now unblocked** — subagent prompts can consume
 > `sign_adaptive_script` for approve-path persistence and
 > `lint_adaptive_script` for pre-approval review rendering.
+>
+> **Post-review hardening** (commit `d0501db`, 2026-04-19): Fixed four
+> code-review findings — one Important, three Minor.
+>
+> - **I1 (Important) — narrow `PermissionError` catch on source-write.**
+>   The source-file write block (`engine.py:464-474` pre-fix) caught
+>   only `PermissionError` while the sibling meta-write block caught
+>   `(PermissionError, OSError)`. `IsADirectoryError`,
+>   `NotADirectoryError`, `FileExistsError`, ENOSPC, EROFS (read-only
+>   remount), and quota-exceeded are all `OSError` subclasses but NOT
+>   `PermissionError` subclasses — they leaked bare tracebacks through
+>   the narrow catch, contradicting the docstring's promise of
+>   `ValueError` wrapping. Same class of gap closed by commit `341ac62`
+>   for the validate-script CLI trust path. Broadened the catch tuple
+>   and added `{type(exc).__name__}` to the error message mirroring the
+>   meta-write style. Locked with one regression test
+>   (`test_sign_source_write_failure_raises_friendly_value_error`) that
+>   injects `IsADirectoryError` via monkeypatched `Path.write_text`;
+>   verified to fail pre-fix and pass post-fix.
+> - **M1 — `session_id` plumbing documentation.** Python docstring
+>   documented session_id as echoed-only with future-persistence
+>   rationale, but the MCP tool-definition `input_schema` description
+>   didn't — remote callers reading only the MCP surface wouldn't know.
+>   Extended the parameter description to state echoed-only status
+>   explicitly.
+> - **M2 — single-writer assumption on atomic-write race.** Between
+>   the two `os.replace` calls, a concurrent reader sees the source
+>   file without its meta. Tolerable today because approve-path is
+>   human-gated, but not self-evident. Added a comment at the
+>   atomic-write section documenting the invariant and flagging
+>   revisit if Phase 4 autoresearch automates approve (consider
+>   lock-file serialization or landing both `.tmp` files before either
+>   `os.replace`).
+> - **M3 — T18b reject-flow contract note.** The reject flow must
+>   ensure rejected script names are reusable (pre-delete any partial
+>   state OR regenerate name with a nonce suffix). Added a note to the
+>   `sign_adaptive_script` docstring so a future T18b implementer
+>   doesn't hit the "why is sign returning error when there's no
+>   visible file" surprise.
+>
+> **Test count: 727 → 728 passed, 8 skipped. Zero regressions.**
 
 **Files:**
 - Modify: `src/screw_agents/engine.py` — add `sign_adaptive_script` and `lint_adaptive_script` methods
