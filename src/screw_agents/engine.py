@@ -703,6 +703,55 @@ class ScanEngine:
             "meta": self._agent_meta_summary(agent),
         }
 
+    def record_context_required_match(
+        self,
+        project_root: Path,
+        match: dict[str, Any],
+        session_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Append a dropped context-required pattern match to staging.
+
+        Phase 3b T16 (part 2): called by orchestrator subagents during an
+        --adaptive scan each time they investigate a
+        `severity: context-required` pattern match and decide NOT to emit
+        a finding. The match is recorded under
+        ``.screw/staging/{session_id}/context_required_matches.json`` with
+        the same atomic-write + session-carryforward + finalization-lock
+        semantics as ``accumulate_findings``. Dedup is by the 4-tuple
+        ``(agent, file, line, pattern)`` so idempotent re-reports do not
+        inflate the count.
+
+        `detect_coverage_gaps` (T16 part 3) reads this file back at
+        finalize time and feeds it to D1
+        (``detect_d1_context_required_gaps``) to emit the gap.
+
+        Args:
+            project_root: Absolute path to the project root.
+            match: Dict with required keys ``agent: str``, ``file: str``,
+                ``line: int``, ``pattern: str``. Structural match matches
+                ``ContextRequiredMatch`` TypedDict in
+                ``screw_agents.gap_signal``.
+            session_id: Opaque session token. Pass None on the first call
+                — server generates a fresh id and returns it. Pass the
+                returned id on subsequent calls to append to the same
+                session. Idempotent with respect to the 4-tuple key.
+
+        Returns:
+            Dict with keys:
+                session_id: str -- echoed or newly generated
+                matches_recorded: int -- total matches in staging after
+                    merge (not just this call)
+
+        Raises:
+            ValueError: On malformed ``match`` (missing required key,
+                wrong type) or when the session was already finalized.
+        """
+        from screw_agents.staging import accumulate_context_required_match
+        new_session_id, count = accumulate_context_required_match(
+            project_root, match, session_id
+        )
+        return {"session_id": new_session_id, "matches_recorded": count}
+
     def accumulate_findings(
         self,
         project_root: Path,
@@ -1204,6 +1253,60 @@ class ScanEngine:
                     },
                 },
                 "required": ["project_root", "script_name"],
+            },
+        })
+
+        # Phase 3b T16: record_context_required_match + detect_coverage_gaps
+        # (closes the adaptive E2E loop: scan records dropped
+        # context-required matches → finalize runs gap detection → orchestrator
+        # reads gaps to decide whether to generate an adaptive script).
+        tools.append({
+            "name": "record_context_required_match",
+            "description": (
+                "Record a context-required pattern match that the subagent "
+                "investigated but decided NOT to emit as a finding. During an "
+                "--adaptive scan, call this once per dropped match so the D1 "
+                "coverage-gap signal can fire at finalize time. Dedup is by "
+                "(agent, file, line, pattern); idempotent re-recording is a "
+                "no-op. Pair with `detect_coverage_gaps` (called implicitly by "
+                "`finalize_scan_results` for adaptive-capable agents)."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "project_root": {
+                        "type": "string",
+                        "description": "Absolute path to the project root.",
+                    },
+                    "match": {
+                        "type": "object",
+                        "description": (
+                            "Context-required match with keys agent, file, "
+                            "line, pattern. Shape matches the "
+                            "ContextRequiredMatch TypedDict in gap_signal.py."
+                        ),
+                        "properties": {
+                            "agent": {"type": "string"},
+                            "file": {"type": "string"},
+                            "line": {"type": "integer"},
+                            "pattern": {"type": "string"},
+                        },
+                        "required": ["agent", "file", "line", "pattern"],
+                    },
+                    "session_id": {
+                        "type": ["string", "null"],
+                        "description": (
+                            "Pass null (or omit) on the FIRST call — server "
+                            "generates a fresh id and returns it. Pass the "
+                            "returned id on subsequent calls to append to the "
+                            "same session. For a scan that also uses "
+                            "accumulate_findings, pass that tool's returned "
+                            "session_id here so both staging files share the "
+                            "same session directory."
+                        ),
+                    },
+                },
+                "required": ["project_root", "match"],
             },
         })
 

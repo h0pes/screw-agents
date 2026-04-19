@@ -30,6 +30,18 @@ def _staging_findings_path(project_root: Path, session_id: str) -> Path:
     return _staging_dir(project_root, session_id) / "findings.json"
 
 
+def _staging_context_required_path(project_root: Path, session_id: str) -> Path:
+    """Return the staging path for context-required pattern matches.
+
+    Phase 3b T16: orchestrator subagents call `record_context_required_match`
+    during an --adaptive scan each time they investigate a
+    `severity: context-required` pattern match but decide not to emit a
+    finding. `detect_coverage_gaps` reads this file back at finalize time
+    and feeds it to D1 (`detect_d1_context_required_gaps`).
+    """
+    return _staging_dir(project_root, session_id) / "context_required_matches.json"
+
+
 def generate_session_id() -> str:
     """Generate a fresh session id. Uses 16 random bytes, base64url-encoded."""
     return base64.urlsafe_b64encode(secrets.token_bytes(16)).rstrip(b"=").decode("ascii")
@@ -121,6 +133,108 @@ def accumulate(
     return session_id, len(merged)
 
 
+def load_context_required_matches(
+    project_root: Path, session_id: str
+) -> list[dict[str, Any]]:
+    """Load the current context-required matches staging buffer for a session.
+
+    Phase 3b T16: mirrors `load_staging` shape and failure modes for the
+    new `context_required_matches.json` sidecar. Returns an empty list if
+    the file doesn't exist — valid state for sessions where the subagent
+    never recorded a dropped match. Raises ValueError on malformed JSON.
+    """
+    path = _staging_context_required_path(project_root, session_id)
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text())
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"Context-required staging file {path} is not valid JSON: {exc}"
+        ) from exc
+    if not isinstance(data, list):
+        raise ValueError(
+            f"Context-required staging file {path} must contain a JSON array, "
+            f"got {type(data).__name__}"
+        )
+    return data
+
+
+def accumulate_context_required_match(
+    project_root: Path,
+    match: dict[str, Any],
+    session_id: str | None = None,
+) -> tuple[str, int]:
+    """Append a single context-required pattern match to the staging buffer.
+
+    Phase 3b T16: mirrors `accumulate`'s atomic-write + session-carryforward
+    pattern but with single-match semantics (subagents call this once per
+    dropped match as they encounter it). Dedup is by the 4-tuple
+    `(agent, file, line, pattern)` — re-recording the same match is a
+    no-op, mirroring D1's key semantics in gap_signal.py.
+
+    Refuses to accumulate into a finalized session (result.json sidecar
+    present), matching `accumulate`'s guard — a finalized session must
+    open a fresh session_id for a new scan.
+
+    Raises:
+        ValueError: On malformed `match` (missing required key or wrong
+            type) or when the session was already finalized.
+    """
+    # Validate match shape up-front so a partial write never occurs.
+    required_keys = ("agent", "file", "line", "pattern")
+    for key in required_keys:
+        if key not in match:
+            raise ValueError(
+                f"Context-required match is missing required key {key!r}: {match}"
+            )
+    if not isinstance(match["line"], int):
+        raise ValueError(
+            f"Context-required match 'line' must be int, got "
+            f"{type(match['line']).__name__}: {match}"
+        )
+
+    # Guard: finalized session is locked.
+    if session_id is not None:
+        result_path = _staging_dir(project_root, session_id) / "result.json"
+        if result_path.exists():
+            raise ValueError(
+                f"Session {session_id!r} has already been finalized. "
+                f"Recording more context-required matches into a finalized "
+                f"session would be silently dropped. Use a fresh session_id "
+                f"(pass None) for a new scan."
+            )
+
+    if session_id is None:
+        session_id = generate_session_id()
+    existing = load_context_required_matches(project_root, session_id)
+
+    # Dedup by 4-tuple key. Iteration preserves insertion order so the
+    # resulting file reflects observation order.
+    seen: set[tuple[str, str, int, str]] = {
+        (m["agent"], m["file"], m["line"], m["pattern"])
+        for m in existing
+        if all(k in m for k in required_keys)
+    }
+    new_key = (match["agent"], match["file"], match["line"], match["pattern"])
+
+    if new_key in seen:
+        # No-op: the match was already recorded.
+        merged = existing
+    else:
+        merged = [*existing, {k: match[k] for k in required_keys}]
+
+    # Atomic write via tmp + os.replace. Mirrors `accumulate`.
+    dir_path = _staging_dir(project_root, session_id)
+    dir_path.mkdir(parents=True, exist_ok=True)
+    path = _staging_context_required_path(project_root, session_id)
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(merged, indent=2))
+    tmp.replace(path)  # atomic on POSIX
+
+    return session_id, len(merged)
+
+
 def finalize_result_cached(
     project_root: Path, session_id: str
 ) -> dict[str, Any] | None:
@@ -179,10 +293,17 @@ def save_finalize_result(
     The staging directory itself + result.json sidecar persist so that
     subsequent finalize calls with the same session_id return the cached
     result via finalize_result_cached (idempotent protocol).
+
+    Phase 3b T16: also cleans up `context_required_matches.json` if present.
+    The callsite in `finalize_scan_results` runs gap detection BEFORE this
+    save, so the matches file has already been consumed by
+    `detect_coverage_gaps` by the time we remove it — the cleanup here
+    mirrors the findings.json pattern (delete after consume).
     """
     staging_dir = _staging_dir(project_root, session_id)
     result_path = staging_dir / "result.json"
     findings_path = _staging_findings_path(project_root, session_id)
+    context_required_path = _staging_context_required_path(project_root, session_id)
 
     tmp = result_path.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(result, indent=2))
@@ -190,3 +311,5 @@ def save_finalize_result(
 
     if findings_path.exists():
         findings_path.unlink()
+    if context_required_path.exists():
+        context_required_path.unlink()

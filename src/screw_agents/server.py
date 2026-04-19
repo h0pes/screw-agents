@@ -157,6 +157,15 @@ def _dispatch_tool(
             formats=args.get("formats"),
         )
 
+    # --- Phase 3b T16: adaptive coverage-gap E2E ---
+
+    if name == "record_context_required_match":
+        return engine.record_context_required_match(
+            project_root=Path(args["project_root"]),
+            match=args["match"],
+            session_id=args.get("session_id"),
+        )
+
     # --- Scan tools (Phase 1 + Phase 2 project_root) ---
 
     project_root = Path(args["project_root"]) if args.get("project_root") else None
