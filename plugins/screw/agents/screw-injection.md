@@ -7,6 +7,12 @@ tools:
   - mcp__screw-agents__accumulate_findings
   - mcp__screw-agents__finalize_scan_results
   - mcp__screw-agents__record_exclusion
+  - mcp__screw-agents__record_context_required_match
+  - mcp__screw-agents__detect_coverage_gaps
+  - mcp__screw-agents__lint_adaptive_script
+  - mcp__screw-agents__sign_adaptive_script
+  - mcp__screw-agents__execute_adaptive_script
+  - Task
   - Read
   - Glob
   - Grep
@@ -106,6 +112,48 @@ The `trust_status` dict cached from Step 1's init-page response has four keys: `
 - If both counts are zero: omit the trust section entirely. Silence is the correct UX.
 
 The `finalize_scan_results` Markdown report (Step 3) will also render a "## Trust verification" section automatically from the same data.
+
+### Step 2.5: Adaptive Mode (`--adaptive` flag, domain-wide)
+
+**Applies ONLY if the user passed `--adaptive` on the command line.** Same interactive-consent + `.screw/config.yaml adaptive: true` rules as per-agent subagents (see `plugins/screw/agents/screw-sqli.md` Step 3.5 preamble for the full rule set — it is identical here).
+
+For the domain orchestrator, the key difference is Layer 0f quota management: a SINGLE quota of 3 scripts applies across ALL 4 agents (sqli, cmdi, ssti, xss). If sqli generates 2 scripts and cmdi wants a 3rd, cmdi gets one; if sqli already used all 3, the other agents get zero. This keeps the domain-scan cost bounded regardless of how many agents find gaps.
+
+The full flow spans Layers 0a–g + 1–7 of the 15-layer defense stack (see `docs/specs/2026-04-13-phase-3-adaptive-analysis-learning-design.md` §5). Layer 0e (injection blocklist), Layer 0f (per-session quota), Layer 0d (semantic review), Layer 1 (AST allowlist lint), and Layer 5 (sandbox execution) are the layers directly called out in this step.
+
+**Interactive consent:** the `--adaptive` flag IS user consent. CI pipelines, piped-stdin contexts, and other non-interactive invocations MUST NOT pass `--adaptive`. If you are somehow invoked with `--adaptive` but cannot receive user input, refuse with: "Adaptive mode requires interactive approval — cannot proceed."
+
+Verify `.screw/config.yaml` has `adaptive: true` at the project root (use the `Read` tool). If the config says `adaptive: false` but the user passed `--adaptive`, honor the command-line flag. If neither is set, skip adaptive mode with: "Adaptive mode not enabled for this project. Run `screw-agents init-trust` then set `adaptive: true` in `.screw/config.yaml` to enable."
+
+#### Step 2.5a: Record dropped context_required matches (D1 producer wiring, per-agent)
+
+For each of the 4 agents, during Step 2's analysis of that agent's findings, call `record_context_required_match` for any context_required heuristic match investigated but dropped. Same mechanism as per-agent subagents (see `screw-sqli.md` Step 3.5a) — but you're calling it for all 4 agents inline in your single orchestrator session. Use the SAME `session_id` returned from the first call for all subsequent calls AND for `accumulate_findings` AND for `detect_coverage_gaps`. The `match.agent` field is the relevant agent name (`"sqli"`, `"cmdi"`, `"ssti"`, or `"xss"`) for that heuristic.
+
+#### Step 2.5b: Detect gaps per-agent
+
+After Step 3a (accumulate YAML findings across all agents) — BEFORE Step 3b (finalize) — for each `agent_name` in `["sqli", "cmdi", "ssti", "xss"]`, call:
+
+```
+mcp__screw-agents__detect_coverage_gaps({
+  "agent_name": agent_name,
+  "project_root": "<same project root>",
+  "session_id": "<session_id>"
+})
+```
+
+Aggregate results into `all_gaps: list[{agent_name, gap}]` preserving the source agent for each gap. If ALL lists are empty across all 4 agents, adaptive mode has no work — skip to Step 3b (finalize).
+
+#### Step 2.5c: Process gaps with shared quota (Layer 0f, domain-wide)
+
+Process `all_gaps` in order: D2 `unresolved_sink` gaps first across all agents (more actionable), then D1 `context_required` across all agents. Maintain ONE counter `scripts_generated_this_session = 0` initialized to 0 at the start of Step 2.5c. Before processing each gap, check: if `scripts_generated_this_session >= 3`, stop processing further gaps and fall through to Step 3b with: "Adaptive domain quota exhausted (3/3). {N} gap(s) across {M} agent(s) not addressed. Re-run with a more targeted scope to focus on specific gaps."
+
+For each gap that passes the quota gate: apply the per-gap pipeline documented in `screw-<gap.agent_name>.md` Step 3.5d (sub-steps A through I), substituting `{AGENT}` with the gap's `agent_name` (so Layer 0e blocklist, Layer 0a fence, Layer 0b/0c prompt invariants, Layer 1 lint, Layer 0d semantic review, human 5-section review, and approve/reject handling all proceed exactly as in the per-agent subagent). The `domain` field in `sign_adaptive_script.meta` is `"injection-input-handling"` regardless of the gap's agent.
+
+**Script naming:** use the per-agent convention — `<gap.agent_name>-<file_slug>-<line>-<hash6>` matching regex `^[a-z0-9][a-z0-9-]{2,62}$`. Computed AFTER generation; see `screw-sqli.md` Step 3.5d-B and Step 3.5d-D for the full algorithm (file_slug sanitization, 20-char truncation, consecutive-dash collapse, and post-generation `hash6` appendix).
+
+**Session ID reuse:** pass the SAME `session_id` (from Step 3a's `accumulate_findings`) to every Step 2.5 MCP tool call (`record_context_required_match`, `detect_coverage_gaps`, `sign_adaptive_script`, and the final `accumulate_findings` for adaptive findings). This ties all adaptive artifacts to the same staging directory.
+
+After all gaps are processed (or quota hit), fall through to Step 3 (Persist Results).
 
 ### Step 3: Persist Results — MANDATORY
 
