@@ -291,13 +291,24 @@ class TestValidateScript:
         # tmp file exists on disk at the moment we raise — giving us
         # something to assert gets cleaned up. Simulate the filesystem
         # rejecting the final rename.
-        def boom(_src: str, _dst: str) -> None:
+        replace_calls: list[tuple[str, str]] = []
+
+        def boom(src: str, dst: str) -> None:
+            replace_calls.append((str(src), str(dst)))
             raise PermissionError("simulated EACCES during rename")
 
         monkeypatch.setattr(validate_script_module.os, "replace", boom)
 
         with pytest.raises(ValueError, match="permission denied"):
             run_validate_script(project_root=tmp_path, script_name="test")
+
+        # The atomic write path MUST have gone through os.replace — guards
+        # against a future switch to pathlib.Path.replace silently
+        # weakening the test (we'd still clean up the tmp file but never
+        # exercise the rename failure branch).
+        assert len(replace_calls) == 1, (
+            f"expected exactly one os.replace call; got {replace_calls}"
+        )
 
         # The original meta file must be untouched.
         assert meta_path.read_bytes() == original_bytes
@@ -448,3 +459,142 @@ class TestValidateScriptEndToEnd:
         assert isinstance(finding, Finding)
         assert finding.classification.cwe == "CWE-89"
         assert finding.analysis.description == "round-trip ok"
+
+
+class TestValidateScriptErrorBranches:
+    """Coverage for the six error-wrap sites in run_validate_script.
+
+    Each raise site must (a) raise the documented ValueError/RuntimeError
+    with an actionable message, and (b) include the offending path + a
+    remediation hint. These branches were previously untested.
+    """
+
+    def test_validate_script_malformed_meta_yaml_raises(
+        self, tmp_path: Path
+    ) -> None:
+        """Covers validate_script.py's yaml.YAMLError wrap — the meta file
+        contains invalid YAML syntax. The error must name the meta path and
+        hint at manual fix."""
+        from screw_agents.cli.init_trust import run_init_trust
+        from screw_agents.cli.validate_script import run_validate_script
+
+        run_init_trust(
+            project_root=tmp_path, name="Marco", email="marco@example.com"
+        )
+        script_dir = tmp_path / ".screw" / "custom-scripts"
+        script_dir.mkdir(parents=True, exist_ok=True)
+        script_path = script_dir / "broken.py"
+        script_path.write_text("def analyze(project): pass\n", encoding="utf-8")
+        meta_path = script_dir / "broken.meta.yaml"
+        # Unclosed bracket → yaml.YAMLError on parse.
+        meta_path.write_text(
+            "name: broken\ntarget_patterns: [oops\n", encoding="utf-8"
+        )
+
+        with pytest.raises(ValueError) as excinfo:
+            run_validate_script(project_root=tmp_path, script_name="broken")
+
+        msg = str(excinfo.value)
+        assert "Malformed script metadata YAML" in msg
+        assert str(meta_path) in msg
+        assert "manually" in msg, (
+            "error should hint at manual YAML fix; got: " + msg
+        )
+
+    def test_validate_script_meta_not_a_mapping_raises(
+        self, tmp_path: Path
+    ) -> None:
+        """Covers the `meta_raw` is not a mapping branch — a valid YAML
+        top-level list or scalar. Error must name the actual type."""
+        from screw_agents.cli.init_trust import run_init_trust
+        from screw_agents.cli.validate_script import run_validate_script
+
+        run_init_trust(
+            project_root=tmp_path, name="Marco", email="marco@example.com"
+        )
+        script_dir = tmp_path / ".screw" / "custom-scripts"
+        script_dir.mkdir(parents=True, exist_ok=True)
+        (script_dir / "listy.py").write_text(
+            "def analyze(project): pass\n", encoding="utf-8"
+        )
+        # A YAML list is valid YAML but not a mapping.
+        (script_dir / "listy.meta.yaml").write_text(
+            "- name: listy\n- created: '2026-04-19T10:00:00Z'\n",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ValueError) as excinfo:
+            run_validate_script(project_root=tmp_path, script_name="listy")
+
+        msg = str(excinfo.value)
+        assert "must be a YAML mapping" in msg
+        assert "list" in msg, (
+            "error should name the offending type; got: " + msg
+        )
+
+    def test_validate_script_load_config_permission_error_is_wrapped(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Covers the PermissionError wrap around `load_config`. The raw
+        OSError must be re-raised as ValueError with an actionable message."""
+        from screw_agents.cli import validate_script as validate_script_module
+        from screw_agents.cli.init_trust import run_init_trust
+        from screw_agents.cli.validate_script import run_validate_script
+
+        run_init_trust(
+            project_root=tmp_path, name="Marco", email="marco@example.com"
+        )
+        script_dir = tmp_path / ".screw" / "custom-scripts"
+        _write_script_and_meta(script_dir)
+
+        def boom_load_config(_project_root):
+            raise PermissionError("simulated EACCES on .screw/config.yaml")
+
+        monkeypatch.setattr(
+            validate_script_module, "load_config", boom_load_config
+        )
+
+        with pytest.raises(ValueError) as excinfo:
+            run_validate_script(project_root=tmp_path, script_name="test")
+
+        msg = str(excinfo.value)
+        assert "permission denied" in msg
+        assert "config.yaml" in msg
+        assert "Check directory permissions" in msg, (
+            "error should give a remediation hint; got: " + msg
+        )
+
+    def test_validate_script_key_gen_os_error_is_wrapped(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Covers the OSError wrap around `_get_or_create_local_private_key`.
+        Simulate disk-full / filesystem failure; must surface as RuntimeError
+        with the project `.screw/local/keys` path + disk/filesystem hint."""
+        from screw_agents.cli import validate_script as validate_script_module
+        from screw_agents.cli.init_trust import run_init_trust
+        from screw_agents.cli.validate_script import run_validate_script
+
+        run_init_trust(
+            project_root=tmp_path, name="Marco", email="marco@example.com"
+        )
+        script_dir = tmp_path / ".screw" / "custom-scripts"
+        _write_script_and_meta(script_dir)
+
+        def boom_keygen(_project_root):
+            raise OSError("simulated ENOSPC: no space left on device")
+
+        monkeypatch.setattr(
+            validate_script_module,
+            "_get_or_create_local_private_key",
+            boom_keygen,
+        )
+
+        with pytest.raises(RuntimeError) as excinfo:
+            run_validate_script(project_root=tmp_path, script_name="test")
+
+        msg = str(excinfo.value)
+        assert "Failed to create local signing key" in msg
+        assert ".screw" in msg and "keys" in msg
+        assert "disk space" in msg or "filesystem" in msg, (
+            "error should hint at disk/filesystem remediation; got: " + msg
+        )

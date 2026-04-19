@@ -300,8 +300,8 @@ def run_validate_script(
 
     # T9-I2 — atomic write via tmp file + os.replace. Manual tmp construction
     # avoids surprising behavior if the meta filename pattern ever changes
-    # (Path.with_suffix only replaces the final `.yaml` suffix, so it would
-    # silently reuse the directory's existing compound-suffix conventions).
+    # (Path.with_suffix only replaces the final suffix, so it would
+    # interact surprisingly with a compound `.meta.yaml` convention).
     tmp_path = meta_path.parent / f"{meta_path.name}.tmp"
     try:
         tmp_path.write_text(
