@@ -303,3 +303,39 @@ def test_adaptive_section_removes_noninteractive_detection() -> None:
             f"`--adaptive` as the user consent (no runtime non-interactivity "
             f"probe)"
         )
+
+
+# ---- Test 11: execute_adaptive_script invocation omits session_id ----------
+
+
+def test_execute_adaptive_script_invocation_omits_session_id() -> None:
+    """T18a Deviation 1 regression guard: the server.py signature for
+    execute_adaptive_script accepts only project_root, script_name,
+    and wall_clock_s (not session_id). A future "helpful" edit that
+    re-adds session_id to the subagent's sample invocation would
+    drift from the server signature and fail at runtime. This test
+    locks the correct call shape across all 4 per-agent subagents."""
+    for agent, path in _PER_AGENT_FILES.items():
+        _, body = _parse_subagent_file(path)
+        # Find the execute_adaptive_script sample invocation.
+        # Look for the opening `execute_adaptive_script({` and capture
+        # through the closing `})`.
+        import re
+        match = re.search(
+            r"execute_adaptive_script\s*\(\s*\{.*?\}\s*\)",
+            body,
+            re.DOTALL,
+        )
+        assert match is not None, (
+            f"{agent}: could not find execute_adaptive_script invocation "
+            f"in adaptive section"
+        )
+        invocation = match.group(0)
+        # session_id must NOT appear as a key in this invocation
+        assert '"session_id"' not in invocation, (
+            f"{agent}: execute_adaptive_script invocation includes "
+            f"session_id — server.py signature only accepts "
+            f"project_root/script_name/wall_clock_s. Remove session_id "
+            f"from this specific call (other MCP tool calls still pass "
+            f"session_id, but not this one)."
+        )

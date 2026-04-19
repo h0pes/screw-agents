@@ -137,7 +137,7 @@ After Step 3a (accumulate YAML findings across all agents) — BEFORE Step 3b (f
 mcp__screw-agents__detect_coverage_gaps({
   "agent_name": agent_name,
   "project_root": "<same project root>",
-  "session_id": "<session_id>"
+  "session_id": "<session_id from Step 2.5a's first record_context_required_match response (this is the same session_id carried forward to Step 3a's accumulate_findings per the Step 3a code block comments)>"
 })
 ```
 
@@ -147,11 +147,26 @@ Aggregate results into `all_gaps: list[{agent_name, gap}]` preserving the source
 
 Process `all_gaps` in order: D2 `unresolved_sink` gaps first across all agents (more actionable), then D1 `context_required` across all agents. Maintain ONE counter `scripts_generated_this_session = 0` initialized to 0 at the start of Step 2.5c. Before processing each gap, check: if `scripts_generated_this_session >= 3`, stop processing further gaps and fall through to Step 3b with: "Adaptive domain quota exhausted (3/3). {N} gap(s) across {M} agent(s) not addressed. Re-run with a more targeted scope to focus on specific gaps."
 
+**Ordering within each tier (deterministic):** Process gaps in canonical
+order so quota exhaustion produces reproducible results and is not
+dependent on dict iteration order. The canonical order is:
+
+1. Tier order: D2 (`unresolved_sink`) before D1 (`context_required`) —
+   D2 findings are more actionable, and Layer 0f quota should prefer them.
+2. Within a tier: iterate agents in the domain's registration order
+   (`sqli`, `cmdi`, `ssti`, `xss` for `injection-input-handling`).
+3. Within one agent's tier list: sort by `(gap.file, gap.line)` ascending.
+
+If Layer 0f quota (≤3 scripts per domain scan) exhausts mid-list, the
+unprocessed tail is reported to the user as: "Adaptive quota exhausted
+({processed}/3 scripts generated). {tail_count} gap(s) not addressed,
+ordered: [list of skipped gaps with agent + file:line]."
+
 For each gap that passes the quota gate: apply the per-gap pipeline documented in `screw-<gap.agent_name>.md` Step 3.5d (sub-steps A through I), substituting `{AGENT}` with the gap's `agent_name` (so Layer 0e blocklist, Layer 0a fence, Layer 0b/0c prompt invariants, Layer 1 lint, Layer 0d semantic review, human 5-section review, and approve/reject handling all proceed exactly as in the per-agent subagent). The `domain` field in `sign_adaptive_script.meta` is `"injection-input-handling"` regardless of the gap's agent.
 
 **Script naming:** use the per-agent convention — `<gap.agent_name>-<file_slug>-<line>-<hash6>` matching regex `^[a-z0-9][a-z0-9-]{2,62}$`. Computed AFTER generation; see `screw-sqli.md` Step 3.5d-B and Step 3.5d-D for the full algorithm (file_slug sanitization, 20-char truncation, consecutive-dash collapse, and post-generation `hash6` appendix).
 
-**Session ID reuse:** pass the SAME `session_id` (from Step 3a's `accumulate_findings`) to every Step 2.5 MCP tool call (`record_context_required_match`, `detect_coverage_gaps`, `sign_adaptive_script`, and the final `accumulate_findings` for adaptive findings). This ties all adaptive artifacts to the same staging directory.
+**Session ID reuse:** pass the SAME `session_id` (originated by Step 2.5a's FIRST `record_context_required_match` call, then carried forward to Step 3a's `accumulate_findings` per that code block's comments) to every Step 2.5 MCP tool call (`record_context_required_match`, `detect_coverage_gaps`, `sign_adaptive_script`, and the final `accumulate_findings` for adaptive findings). This ties all adaptive artifacts to the same staging directory.
 
 After all gaps are processed (or quota hit), fall through to Step 3 (Persist Results).
 
@@ -167,7 +182,15 @@ Call `accumulate_findings` with your accumulated findings list. If this is your 
 mcp__screw-agents__accumulate_findings({
   "project_root": "<same project root>",
   "findings_chunk": [<all accumulated findings from all pages and all 4 agents>],
-  "session_id": null  // first call; subsequent calls pass the returned id
+  // If Step 2.5a was executed (adaptive mode engaged AND any context_required
+  // heuristic was recorded for any of the 4 agents), pass the session_id
+  // returned by 2.5a's FIRST record_context_required_match call. This keeps
+  // D1 recordings and accumulated findings in the SAME session so
+  // detect_coverage_gaps (Step 2.5b) can see both. If Step 2.5a was not
+  // executed (adaptive off, or no dropped context_required matches to
+  // record), pass null on the first call and the server opens a fresh
+  // session; subsequent calls pass the returned id to append.
+  "session_id": <session_id from Step 2.5a's first record_context_required_match response, OR null if Step 2.5a was not executed (first call; subsequent calls pass the returned id)>
 })
 ```
 
