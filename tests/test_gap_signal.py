@@ -1,16 +1,27 @@
 """Unit tests for src/screw_agents/gap_signal.py — adaptive coverage-gap detection.
 
 T14 covers the D1 signal (context-required pattern matched but no finding emitted).
-D2 tests live in this same file after T15 lands.
+T15 covers the D2 signal (taint-verified unresolved sink) via real intraprocedural
+dataflow through `adaptive.dataflow.match_pattern`, NOT file-level substring
+co-occurrence.
 
-Security property under test: D1 has zero false positives by construction. The
-YAML agent itself declared the gap by tagging a pattern as `severity:
-context-required` and choosing not to emit a finding. No LLM reasoning involved.
+Security properties under test:
+- D1: zero false positives by construction. The YAML agent itself declared the
+  gap by tagging a pattern as `severity: context-required` and choosing not to
+  emit a finding. No LLM reasoning involved.
+- D2: real taint path required — sink-shape match + unknown receiver alone are
+  NOT sufficient. The argument must trace back to a known source via bounded
+  intraprocedural dataflow. Cross-file and cross-function cases must not fire.
 """
 
 from __future__ import annotations
 
-from screw_agents.gap_signal import detect_d1_context_required_gaps
+from pathlib import Path
+
+from screw_agents.gap_signal import (
+    detect_d1_context_required_gaps,
+    detect_d2_unresolved_sink_gaps,
+)
 from screw_agents.models import CoverageGap
 
 
@@ -186,3 +197,157 @@ def test_d1_duplicate_match_entries_yield_duplicate_gaps() -> None:
         emitted_findings_by_match={},
     ))
     assert len(gaps) == 2
+
+
+# ---------------------------------------------------------------------------
+# D2 — taint-verified unresolved sink
+#
+# All six tests below exercise the three conjoint conditions (sink regex match,
+# receiver not in known_receivers, argument taints back to a known source via
+# bounded intraprocedural dataflow) plus the two design-choice limits
+# (cross-file isolation, cross-function isolation).
+# ---------------------------------------------------------------------------
+
+
+def test_d2_fires_on_unresolved_sink_with_tainted_arg(tmp_path: Path) -> None:
+    """Source -> identifier binding -> sink call: should fire D2."""
+    (tmp_path / "handler.py").write_text(
+        "def handle(request):\n"
+        "    q = request.args.get('q')\n"
+        "    self.db.execute_raw(q)\n"
+    )
+
+    gaps = list(detect_d2_unresolved_sink_gaps(
+        project_root=tmp_path,
+        agent="sqli",
+        sink_regex=r"execute|execute_raw|query",
+        known_receivers={"cursor", "connection", "Session"},
+        known_sources=["request.args"],
+    ))
+    assert len(gaps) == 1
+    assert isinstance(gaps[0], CoverageGap)
+    assert gaps[0].type == "unresolved_sink"
+    assert gaps[0].agent == "sqli"
+    assert gaps[0].file == "handler.py"
+    assert gaps[0].line == 3
+    assert gaps[0].evidence["receiver"] == "db"
+    assert gaps[0].evidence["method"] == "execute_raw"
+
+
+def test_d2_does_not_fire_without_tainted_arg(tmp_path: Path) -> None:
+    """Unresolved receiver + sink method name, but all args are literals
+    with no source taint: should NOT fire (real taint required, not just
+    sink-shape match).
+
+    The `_hint` binding exists so the file-level prefilter passes — this test
+    specifically locks condition-3 (taint trace), not the prefilter.
+    """
+    (tmp_path / "handler.py").write_text(
+        "def handle(request):\n"
+        "    # File contains source pattern so prefilter passes\n"
+        "    _hint = request.args.get('unused')\n"
+        "    self.db.execute_raw('SELECT 1')\n"
+    )
+
+    gaps = list(detect_d2_unresolved_sink_gaps(
+        project_root=tmp_path,
+        agent="sqli",
+        sink_regex=r"execute|execute_raw",
+        known_receivers={"cursor"},
+        known_sources=["request.args"],
+    ))
+    assert gaps == []
+
+
+def test_d2_does_not_fire_for_known_receiver(tmp_path: Path) -> None:
+    """Receiver IS in known_receivers: YAML agent already handles this,
+    not a coverage gap."""
+    (tmp_path / "handler.py").write_text(
+        "def handle(request):\n"
+        "    q = request.args.get('q')\n"
+        "    cursor.execute_raw(q)\n"
+    )
+
+    gaps = list(detect_d2_unresolved_sink_gaps(
+        project_root=tmp_path,
+        agent="sqli",
+        sink_regex=r"execute|execute_raw",
+        known_receivers={"cursor"},
+        known_sources=["request.args"],
+    ))
+    assert gaps == []
+
+
+def test_d2_fires_on_direct_source_in_arg(tmp_path: Path) -> None:
+    """Argument is a direct source expression, no intermediate variable:
+    match_pattern should still detect the source pattern in the arg's text."""
+    (tmp_path / "handler.py").write_text(
+        "def handle(request):\n"
+        "    self.db.execute_raw(request.args.get('q'))\n"
+    )
+
+    gaps = list(detect_d2_unresolved_sink_gaps(
+        project_root=tmp_path,
+        agent="sqli",
+        sink_regex=r"execute|execute_raw",
+        known_receivers={"cursor"},
+        known_sources=["request.args"],
+    ))
+    assert len(gaps) == 1
+    assert gaps[0].line == 2
+    assert gaps[0].evidence["receiver"] == "db"
+    assert gaps[0].evidence["method"] == "execute_raw"
+
+
+def test_d2_does_not_fire_when_source_in_different_file(tmp_path: Path) -> None:
+    """Source appears in file A, sink in file B: should NOT fire. Verifies
+    the file-level prefilter correctly scopes taint-tracking per file.
+
+    This locks cross-file isolation: even though both files exist in the
+    same project, the taint trace is per-file and the prefilter short-
+    circuits the sink file (which has no source reference) before AST parse.
+    """
+    (tmp_path / "a_source.py").write_text(
+        "def load(request):\n"
+        "    return request.args.get('q')\n"
+    )
+    (tmp_path / "b_sink.py").write_text(
+        "def save(q):\n"
+        "    self.db.execute_raw(q)\n"
+    )
+
+    gaps = list(detect_d2_unresolved_sink_gaps(
+        project_root=tmp_path,
+        agent="sqli",
+        sink_regex=r"execute|execute_raw",
+        known_receivers={"cursor"},
+        known_sources=["request.args"],
+    ))
+    assert gaps == []
+
+
+def test_d2_does_not_fire_across_function_boundaries(tmp_path: Path) -> None:
+    """Source binding in function A, sink in function B, same file: should
+    NOT fire. The dataflow trace is intraprocedural (scope-bounded to
+    enclosing function_definition); this test locks that design choice.
+
+    Interprocedural analysis is explicitly out of scope for the signal —
+    it belongs downstream in the adaptive script the signal triggers.
+    """
+    (tmp_path / "split.py").write_text(
+        "def load(request):\n"
+        "    q = request.args.get('q')\n"
+        "    return q\n"
+        "\n"
+        "def save(q):\n"
+        "    self.db.execute_raw(q)\n"
+    )
+
+    gaps = list(detect_d2_unresolved_sink_gaps(
+        project_root=tmp_path,
+        agent="sqli",
+        sink_regex=r"execute|execute_raw",
+        known_receivers={"cursor"},
+        known_sources=["request.args"],
+    ))
+    assert gaps == []

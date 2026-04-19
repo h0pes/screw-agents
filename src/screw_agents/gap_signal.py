@@ -5,7 +5,7 @@ vulnerability *might* be present but could not (or did not) emit a finding on
 its own. Adaptive analysis scripts target these gaps; the signal is what tells
 the orchestrator "here is where additional analysis would help."
 
-Two signals are planned:
+Two signals ship here:
 
 D1 — "context-required dropped"
     A pattern declared in a YAML agent with `severity: context-required` matched
@@ -17,14 +17,26 @@ D1 — "context-required dropped"
     LLM reasoning enters the decision. Producers emit one match record per
     occurrence using the `ContextRequiredMatch` TypedDict declared below.
 
-D2 — "unresolved sink reachability"
-    A known dangerous sink was reached via dataflow whose source could not be
-    classified by the engine (e.g., interprocedural call boundary, dynamic
-    dispatch, missing type information). The engine had partial evidence of a
-    flow but could not complete the trust analysis.
+D2 — "taint-verified unresolved sink"
+    A sink-shaped call (method name matching `sink_regex`) is invoked on a
+    receiver that is NOT in the YAML agent's `known_receivers` set, AND at
+    least one argument taints back to a known source via bounded
+    intraprocedural dataflow trace. The taint check uses
+    `screw_agents.adaptive.dataflow.match_pattern` — the same depth-bounded,
+    scope-bounded, cycle-detected identifier-binding trace used by the
+    adaptive scripts themselves. This is real SAST taint propagation, NOT
+    file-level substring co-occurrence.
 
-NOTE: T14 ships D1 only. D2 lands in T15 as `detect_d2_unresolved_sink_gaps`,
-which will be added to `__all__` at that time.
+    Design choice — intraprocedural only: the taint trace is scope-bounded to
+    the enclosing `function_definition` and does NOT follow returns, globals,
+    module-level bindings, or cross-function flows. A source assigned in
+    function A and consumed in function B of the same file will NOT fire D2.
+    This is intentional: interprocedural analysis lives downstream in the
+    adaptive script the signal triggers, not in the signal itself.
+
+    A pure-performance file-level prefilter skips files with zero source
+    references at all so we don't parse them. The prefilter is NOT a signal
+    condition — every fired gap has a verified per-call taint path.
 
 Both detectors are pure functions over data the scan engine has already
 collected. They yield `CoverageGap` records lazily so the caller can stream
@@ -33,16 +45,26 @@ results into a generator pipeline without materializing a list.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator, Mapping
+from pathlib import Path
 from typing import TypedDict
 
+from screw_agents.adaptive.ast_walker import (
+    _CALL_PARENS_RE,
+    _call_callee_text,
+    parse_ast,
+    walk_ast,
+)
+from screw_agents.adaptive.dataflow import get_call_args, match_pattern
+from screw_agents.adaptive.project import ProjectRoot
 from screw_agents.models import CoverageGap
 
 __all__ = [
     "ContextRequiredMatch",
     "detect_d1_context_required_gaps",
+    "detect_d2_unresolved_sink_gaps",
 ]
-# T15: append "detect_d2_unresolved_sink_gaps" to __all__.
 
 
 class ContextRequiredMatch(TypedDict):
@@ -108,3 +130,128 @@ def detect_d1_context_required_gaps(
             line=match["line"],
             evidence={"pattern": match["pattern"]},
         )
+
+
+def detect_d2_unresolved_sink_gaps(
+    *,
+    project_root: Path,
+    agent: str,
+    sink_regex: str,
+    known_receivers: set[str],
+    known_sources: list[str],
+) -> Iterator[CoverageGap]:
+    """D2: Yield a CoverageGap for every sink-shaped call where:
+      1. Method name matches `sink_regex`
+      2. Receiver is NOT in `known_receivers`
+      3. At least one argument taints back to a known source via bounded
+         intraprocedural dataflow (NOT file-level substring co-occurrence).
+
+    Uses `screw_agents.adaptive.dataflow.match_pattern` for condition 3 —
+    real SAST taint propagation with depth-bounded, scope-bounded, cycle-
+    detected trace. Intraprocedural only: cross-function flows, returns,
+    globals, and module-level bindings are NOT followed.
+
+    The file-level substring presence check is a pure performance prefilter
+    (skip parsing files with zero source references) and does NOT itself
+    signal a gap — every fired gap has a verified per-call taint path.
+
+    Args:
+        project_root: Absolute path to the project root. All files scanned
+            via `ProjectRoot`, which enforces no-escape semantics.
+        agent: YAML agent identifier (e.g., "sqli") attached to every gap.
+        sink_regex: Python regex matched against the callee method name (the
+            trailing dotted token). `re.search` semantics — anchor explicitly
+            if you need an exact match.
+        known_receivers: Set of receiver identifiers the YAML agent already
+            handles. Calls on these receivers are NOT gaps — they're coverage.
+        known_sources: List of source substring patterns (e.g.,
+            `["request.args", "request.form"]`). Passed to `match_pattern` as
+            the pattern list; semantics match the adaptive dataflow helpers.
+
+    Yields:
+        `CoverageGap(type="unresolved_sink", agent=..., file=..., line=...,
+        evidence={"sink_regex": ..., "receiver": ..., "method": ...,
+        "callee_text": ...})` for every call where all three conditions hold.
+
+    Security:
+        Not zero-FP by construction (unlike D1). The signal is "there is a
+        taint path to a sink-shaped call on an unknown receiver" — the
+        downstream adaptive script is what classifies true/false positive.
+        Intraprocedural-only is a deliberate precision choice: cross-function
+        analysis belongs in the adaptive script triggered by the gap, not in
+        the gap signal itself.
+    """
+    project = ProjectRoot(project_root)
+    pattern = re.compile(sink_regex)
+
+    for rel_path in project.list_files("**/*.py"):
+        try:
+            source = project.read_file(rel_path)
+        except (UnicodeDecodeError, OSError):
+            # Narrow exception per DEFERRED_BACKLOG T3-M1 discipline. Non-UTF-8
+            # or unreadable files are silently skipped; real bugs (e.g.,
+            # programmer errors in ProjectRoot) still propagate.
+            continue
+
+        # Pure perf prefilter: skip files with zero source references at all.
+        # This does NOT itself signal a gap — each call still has to produce
+        # a verified per-call taint path for D2 to fire.
+        if not any(src in source for src in known_sources):
+            continue
+
+        tree = parse_ast(source, language="python")
+        for call in walk_ast(tree, node_types=["call"]):
+            callee_text = _call_callee_text(call, source)
+            if not callee_text:
+                continue
+
+            # Strip parenthesized subexpressions iteratively so chained calls
+            # like `get_db().execute` yield tokens `["get_db", "execute"]`
+            # rather than `["get_db()", "execute"]`. Reuses ast_walker's
+            # regex to match how find_calls already handles chains.
+            cleaned = callee_text
+            while True:
+                new_cleaned = _CALL_PARENS_RE.sub("", cleaned)
+                if new_cleaned == cleaned:
+                    break
+                cleaned = new_cleaned
+            tokens = [t for t in cleaned.split(".") if t]
+            if len(tokens) < 2:
+                # Bare calls (e.g., `execute(q)`) have no receiver we can
+                # classify as known/unknown; skip.
+                continue
+
+            method = tokens[-1]
+            receiver = tokens[-2]
+
+            # Condition 1: method regex match
+            if not pattern.search(method):
+                continue
+
+            # Condition 2: receiver NOT in known set
+            if receiver in known_receivers:
+                continue
+
+            # Condition 3: at least one argument taints back to a known source
+            # via bounded intraprocedural dataflow. THIS is the real SAST
+            # signal — the file-level prefilter above was just a perf guard.
+            args = get_call_args(call)
+            tainted = any(
+                match_pattern(arg, source=source, patterns=known_sources)
+                for arg in args
+            )
+            if not tainted:
+                continue
+
+            yield CoverageGap(
+                type="unresolved_sink",
+                agent=agent,
+                file=rel_path,
+                line=call.start_point[0] + 1,
+                evidence={
+                    "sink_regex": sink_regex,
+                    "receiver": receiver,
+                    "method": method,
+                    "callee_text": callee_text,
+                },
+            )
