@@ -108,6 +108,34 @@ need a fix that would have to be applied in two places.
 
 ## Phase 4+ (autoresearch / scale)
 
+### T19-M1 — Surface `merged_from_sources` in SARIF and CSV output
+**Source:** Phase 3b T19 (commit `bff35b5`, 2026-04-19)
+**File:** `src/screw_agents/formatter.py` `_format_sarif` + `format_csv`
+**Priority:** Low — Markdown + JSON are the primary structured paths and both surface the field.
+
+**What's shipped:** Phase 3b T19 adds `merged_from_sources: list[str] | None` to `Finding`. When a finding is the result of an augmentative merge (multiple scan sources detected the same `(file, line_start, cwe)`), the list carries `"<agent> (<severity>)"` entries in input order. Markdown renders a `**Sources:**` line after Description; JSON carries the field via `model_dump()` automatically.
+
+**What is NOT shipped:** SARIF and CSV formatters do not render the field.
+- **SARIF** has no natural top-level slot for multi-source attribution. The current SARIF `result` object surfaces a single `tool.driver.rules[]` entry per finding; multi-source would need to go into the `properties` bag (SARIF 2.1 schema allows arbitrary property extensions) or a synthetic `relatedLocations` block.
+- **CSV** iterates a fixed column list. Adding a new column would break backward compat for positional parsers (spreadsheet imports, legacy tooling) that expect the current header row.
+
+**Why deferred:** Markdown + JSON cover the primary structured-consumer path:
+- Human reviewers read Markdown.
+- Phase 4 autoresearch consumes JSON.
+- Future SARIF consumers (GitHub Code Scanning, SonarQube) can fall back to the primary's `agent` field; multi-source attribution is useful but not correctness-critical.
+- CSV consumers have stable columns today; breaking them for a secondary format is the wrong trade.
+
+**Trigger:** Any of:
+- Phase 4 autoresearch uses SARIF output in volume and needs source attribution for ranking/filtering
+- A CSV consumer complains about losing source attribution when findings are merged
+- Phase 4+ reporting uplift touches both formatters anyway
+
+**Suggested fix:**
+1. **SARIF** — embed `merged_from_sources` in the finding's `properties` bag under key `merged_from_sources`. Consumers who understand the bag surface it; others see the primary's `agent` field. This is the SARIF-idiomatic path for tool-specific extensions.
+2. **CSV** — append an optional `merged_sources` column AT THE END of the existing column list (appending preserves backward compat for positional parsers that read by index up to the old column count). Empty string for unmerged findings; `"; "`-joined list for merged findings (same separator as other CSV-list fields, comma would collide with CSV delimiter).
+
+**Estimated scope:** ~30 LOC + 2 tests (one SARIF assertion, one CSV assertion). Trivial.
+
 ### T-FULL-P1 — Paginate `assemble_full_scan` + apply lazy-fetch + agent-relevance filter
 **Source:** X1-M1 (PR #9, 2026-04-17) — incremental dedup landed; full architectural fix deferred.
 **File:** `src/screw_agents/engine.py` `assemble_full_scan`, `plugins/screw/agents/screw-full-review.md`

@@ -4991,8 +4991,77 @@ git commit -m "feat(phase3b): subagent prompts support --adaptive flag and gener
 
 ### Task 19: Augmentative Finding Merge in `results.py`
 
+> **SHIPPED NOTE (T19, commit `bff35b5`, 2026-04-19):** The plan below
+> has load-bearing drift against the shipped Finding model — the plan's
+> test fixture and dedup helper both use a FLAT shape
+> (`Finding(file=..., line=..., cwe=..., severity=..., message=...)`)
+> that does NOT match the shipped model. The shipped `Finding` at
+> `src/screw_agents/models.py:376+` is NESTED:
+> `Finding.location.file / .line_start / .line_end`,
+> `Finding.classification.cwe / .severity / .confidence`,
+> `Finding.analysis.description / .impact / .exploitability`,
+> plus `remediation` and `triage` nested blocks. Instantiating with
+> flat kwargs raises `ValidationError` at parse time.
+>
+> **Shipped corrections vs plan:**
+>
+> 1. **Model shape — flat → nested.** The implementation uses
+>    `f.location.file`, `f.location.line_start`, `f.classification.cwe`,
+>    and `f.classification.severity` everywhere. Tests use a
+>    `_make_finding_dict` helper that builds the proper nested shape.
+> 2. **Dedup key — kept as `(file, line_start, cwe)`.** `line_end` is
+>    deliberately NOT part of the key — adding it reduces merge rate
+>    because different scanners (YAML agent vs adaptive script) compute
+>    different line ranges for the same underlying issue. Excluding
+>    `line_end` preserves the augmentative-merge intent.
+> 3. **New structured field `merged_from_sources: list[str] | None`**
+>    on the `Finding` model. This is a schema extension carrying source
+>    attribution as a list of `"<agent> (<severity>)"` strings
+>    (severity included because different scanners may report different
+>    severities for the same finding). `None` on unmerged findings,
+>    populated list on merged findings. The plan's approach of
+>    mutating the primary's `message` field was rejected — structured
+>    consumers (SARIF, autoresearch, future tooling) benefit from a
+>    dedicated field, and the primary's own semantic content should
+>    remain untouched.
+> 4. **Primary-selection tiebreaker hardened.** Plan only specified
+>    severity. Shipped: severity rank (critical=0, high=1, medium=2,
+>    low=3, info=4, other/unknown=5) → alphabetical agent name ascending
+>    → first-in-input (Python stable sort). Unknown severities fall back
+>    to rank 5 so an ill-formed severity cannot promote to primary by
+>    accident.
+> 5. **Source-list order preserves INPUT order**, not sort order, so
+>    downstream consumers see natural insertion ordering.
+> 6. **Merge runs BEFORE exclusion matching** in `render_and_write`.
+>    The primary's `agent` field is the severity/alphabetical winner,
+>    and an exclusion matching the primary's (file, line, agent) still
+>    suppresses correctly. Comment in `results.py` calls out this
+>    ordering as load-bearing.
+> 7. **Markdown renderer** shows a `**Sources:** <list>` line after
+>    Description when `merged_from_sources` is populated. Suppressed
+>    entirely on unmerged findings.
+> 8. **JSON output** naturally carries the field via `model_dump()` —
+>    no explicit code in the JSON formatter.
+> 9. **SARIF + CSV output** — deferred to Phase 4+ (see
+>    `docs/DEFERRED_BACKLOG.md` T19-M1). SARIF has no natural slot for
+>    multi-source attribution; CSV would break column-compatibility
+>    for existing consumers. Markdown + JSON are the primary structured
+>    paths and both surface the field.
+>
+> **Tests shipped:** 9 total in `tests/test_results.py` (7 unit tests
+> for `_merge_findings_augmentatively` covering empty input,
+> single-pass-through, two-finding merge, different-CWE-no-merge,
+> tiebreaker, insertion-order, unknown-severity fallback; 2 integration
+> tests for `render_and_write` merge end-to-end + no-merge no-Sources
+> case). 739 → 748 passed, 8 skipped, zero regressions.
+>
+> The original Step 1/Step 2/Step 3 content below is preserved for
+> historical context but is **SUPERSEDED** by the shipped implementation.
+
 **Files:**
 - Modify: `src/screw_agents/results.py`
+- Modify: `src/screw_agents/models.py` (NEW — shipped adds `merged_from_sources` to Finding)
+- Modify: `src/screw_agents/formatter.py` (NEW — shipped adds `**Sources:**` line)
 - Modify: `tests/test_results.py`
 
 - [ ] **Step 1: Write failing test**
