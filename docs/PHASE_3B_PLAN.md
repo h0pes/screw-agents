@@ -4545,6 +4545,74 @@ git commit -m "feat(phase3b): screw-script-reviewer subagent (Layer 0d)"
 
 #### Task 18a: MCP Tool Infrastructure (sign_adaptive_script + lint_adaptive_script)
 
+> **SHIPPED NOTE (T18a, commits `ab42ca0`→`39242ad`→`4ad1248`, 2026-04-19):**
+> Four commits landed as planned, with one plan-vs-reality correction:
+>
+> 1. **Commit 1 (`ab42ca0`) — helper extraction to `adaptive/signing.py`.**
+>    The plan described this as part of Commit 2 ("T13's C1 fix routed
+>    through `AdaptiveScriptMeta.model_dump()` BEFORE canonicalization").
+>    Pre-audit identified drift risk: the canonicalization helper was
+>    about to gain a THIRD consumer (CLI + MCP tool + test fixture), so
+>    extracted `build_signed_script_meta` and `compute_script_sha256` to
+>    a new shared `src/screw_agents/adaptive/signing.py` as a separate
+>    refactor-only commit. Zero behavioral change; callers updated:
+>    `cli/validate_script.py`, `tests/test_adaptive_executor.py` T11-N1
+>    fixture. Docstring in `adaptive/signing.py` captures the load-
+>    bearing routing rationale. The trust.py split
+>    (`DEFERRED_BACKLOG.md` T4-M6) remains deferred — adaptive-specific
+>    signing helpers have a cleaner architectural home here than in the
+>    lower-level trust module.
+> 2. **Commit 2 (`39242ad`) — `sign_adaptive_script` MCP tool.** Engine
+>    method + server dispatch arm + tool definition. Implements fresh-
+>    script semantics (`.py` OR `.meta.yaml` collision → error, not
+>    idempotent re-sign — that's `validate-script`'s job). Name regex
+>    `^[a-z0-9][a-z0-9-]{2,62}$` validated at entry before any
+>    filesystem touch. Model A fingerprint-based signer matching via
+>    `_fingerprint_public_key` + `_find_matching_reviewer`. T13 I1
+>    discipline: `(PermissionError, OSError)` wrap around `load_config`
+>    and `_get_or_create_local_private_key`. Atomic write ORDER-
+>    SENSITIVE: source first (tmp + `os.replace`), meta second; on meta
+>    failure, best-effort unlink the just-written `.py` so the
+>    filesystem is not left in the partial-state that Layer 2 hash pin
+>    would fail on. Canonicalization delegated to the shared helper
+>    from Commit 1. 17 tests in `tests/test_sign_adaptive_script.py`
+>    (exceeds the plan's 10-test minimum due to 7 parametrized invalid-
+>    name cases), including the mandatory C1 regression that verifies
+>    signed output via `execute_script(skip_trust_checks=False)` end-
+>    to-end.
+> 3. **Commit 3 (`4ad1248`) — `lint_adaptive_script` MCP tool.** Thin
+>    wrapper over `screw_agents.adaptive.lint.lint_script`. Pure
+>    function, no side effects. Returns 3 status values:
+>    `"pass"` / `"fail"` / `"syntax_error"`. The `"syntax_error"`
+>    promotion is plan-vs-reality: the underlying `lint_script` already
+>    catches `SyntaxError` internally and returns a single
+>    `rule="syntax"` violation in its `LintReport`; the MCP-tool
+>    wrapper promotes that single-violation case to a dedicated
+>    `"syntax_error"` status so reviewers can distinguish "not valid
+>    Python yet" from "valid Python but violates the allowlist"
+>    (different fix paths). 5 tests in
+>    `tests/test_lint_adaptive_script.py`.
+> 4. **Commit 4 — this plan sync (no behavioral change).**
+>
+> **Test count: 702 (baseline) → 705 (+3 signing smoke) → 722 (+17
+> sign) → 727 (+5 lint). Zero regressions.**
+>
+> **Files shipped:**
+> - Created: `src/screw_agents/adaptive/signing.py`,
+>   `tests/test_adaptive_signing.py`,
+>   `tests/test_sign_adaptive_script.py`,
+>   `tests/test_lint_adaptive_script.py`.
+> - Modified: `src/screw_agents/engine.py`,
+>   `src/screw_agents/server.py`, `src/screw_agents/cli/validate_script.py`,
+>   `tests/test_adaptive_executor.py`, `tests/test_cli_validate_script.py`,
+>   `tests/test_adaptive_public_api.py` (submodule whitelist + 25→26
+>   count ceiling for the new `signing` attribute; author-facing 18-
+>   entry API set unchanged).
+>
+> **T18b now unblocked** — subagent prompts can consume
+> `sign_adaptive_script` for approve-path persistence and
+> `lint_adaptive_script` for pre-approval review rendering.
+
 **Files:**
 - Modify: `src/screw_agents/engine.py` — add `sign_adaptive_script` and `lint_adaptive_script` methods
 - Modify: `src/screw_agents/server.py` — register both MCP tools
