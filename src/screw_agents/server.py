@@ -139,6 +139,17 @@ def _dispatch_tool(
             wall_clock_s=args.get("wall_clock_s", 30),
         )
 
+    # --- Phase 3b T18a: sign_adaptive_script (approve-path) ---
+
+    if name == "sign_adaptive_script":
+        return engine.sign_adaptive_script(
+            project_root=Path(args["project_root"]),
+            script_name=args["script_name"],
+            source=args["source"],
+            meta=args["meta"],
+            session_id=args["session_id"],
+        )
+
     # --- Phase 3a X1-M1 (T18): accumulate + finalize (replaces write_scan_results) ---
 
     if name == "accumulate_findings":

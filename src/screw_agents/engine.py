@@ -11,23 +11,44 @@ from __future__ import annotations
 import base64
 import hashlib
 import json as _json
+import os
+import re
 from pathlib import Path
 from typing import Any
 
 import yaml
 
 from screw_agents.adaptive.executor import execute_script
+from screw_agents.adaptive.signing import (
+    build_signed_script_meta,
+    compute_script_sha256,
+)
 from screw_agents.aggregation import (
     aggregate_directory_suggestions,
     aggregate_fp_report,
     aggregate_pattern_confidence,
 )
 from screw_agents.formatter import format_findings
-from screw_agents.learning import load_exclusions
+from screw_agents.learning import (
+    _get_or_create_local_private_key,
+    load_exclusions,
+)
 from screw_agents.models import AgentDefinition, Exclusion, Finding, HeuristicEntry
 from screw_agents.registry import AgentRegistry
 from screw_agents.resolver import ResolvedCode, filter_by_relevance, resolve_target
-from screw_agents.trust import load_config, verify_script
+from screw_agents.trust import (
+    _find_matching_reviewer,
+    _fingerprint_public_key,
+    _load_public_keys_with_reviewers,
+    load_config,
+    verify_script,
+)
+
+# Filesystem-safe script name regex: lowercase alphanum + dash, 3-63 chars,
+# must start with alphanumeric. Mirrors the safety envelope used elsewhere
+# in adaptive scripts — conservative to avoid path traversal / shell
+# metacharacters / Windows reserved names when these land on disk.
+_SCRIPT_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{2,62}$")
 
 _DEFAULT_DOMAINS_DIR = Path(__file__).resolve().parent.parent.parent / "domains"
 
@@ -219,6 +240,282 @@ class ScanEngine:
             "sandbox_result": result.sandbox_result.model_dump(
                 mode="json", exclude={"stdout", "stderr"}
             ),
+        }
+
+    def sign_adaptive_script(
+        self,
+        *,
+        project_root: Path,
+        script_name: str,
+        source: str,
+        meta: dict[str, Any],
+        session_id: str,
+    ) -> dict[str, Any]:
+        """Sign a freshly-generated adaptive script and write to disk.
+
+        Called from the approve-path of the adaptive review flow (Phase 3b
+        T18a/T18b): the subagent generated a script, the user typed
+        ``approve <name>``, and this tool does the atomic persist + sign.
+        Fresh-script-only — a name collision is an error, NOT an idempotent
+        re-sign. Use ``cli.validate_script.run_validate_script`` for the
+        re-sign path on an existing quarantined script.
+
+        Args:
+            project_root: Project root with ``.screw/`` directory.
+            script_name: Filesystem-safe name
+                (regex ``^[a-z0-9][a-z0-9-]{2,62}$``); produces
+                ``<name>.py`` + ``<name>.meta.yaml`` in
+                ``.screw/custom-scripts/``.
+            source: Python source code. Not validated to be syntactically
+                valid Python or lint-clean — caller (subagent) is
+                responsible for invoking ``lint_adaptive_script`` before
+                approval; this tool assumes human review already passed.
+            meta: Partial meta dict conforming to AdaptiveScriptMeta minus
+                signing fields. Must include ``name``, ``created``,
+                ``created_by``, ``domain``; may include ``description``,
+                ``target_patterns``. Tool computes ``sha256``, sets
+                ``validated=True``, signs, and writes.
+            session_id: Scan session the script was generated for. Echoed
+                in the response for orchestrator correlation; NOT written
+                to disk and NOT used to modify session staging. A future
+                commit may persist the association in ``.screw/local/`` —
+                plumbing the id through now avoids a follow-on API change.
+
+        Returns:
+            Dict with keys:
+                - ``status``: ``"signed"`` on success, ``"error"`` on
+                  recoverable failure (name collision, missing reviewers,
+                  local key not in reviewers, meta schema failure).
+                - ``message``: human-readable summary.
+                - On ``signed``: also includes ``script_path``,
+                  ``meta_path``, ``signed_by``, ``sha256``, ``session_id``.
+
+        Raises:
+            ValueError: On filesystem shape errors
+                (PermissionError / IsADirectoryError / NotADirectoryError
+                while accessing ``.screw/config.yaml`` or writing script
+                files), wrapped via the shared T13 I1 discipline.
+            RuntimeError: On local key generation failure (permission /
+                OS error under ``.screw/local/keys/``).
+
+        Atomic-write contract: both ``.py`` and ``.meta.yaml`` are written
+        via tmp file + ``os.replace`` swap. ORDER matters — the source
+        file is written FIRST, then the meta. If the meta write fails
+        after the source landed, the source file is best-effort unlinked
+        to avoid the "script exists but meta missing" partial state that
+        Layer 3 verification would fail on the next executor call. The
+        reverse failure mode (source write fails) leaves no partial
+        state because the tmp file is deleted before any commit.
+        """
+        # Name validation — reject anything that could turn into path
+        # traversal, shell metacharacters, or Windows reserved names
+        # when these land on disk.
+        if not _SCRIPT_NAME_RE.match(script_name):
+            return {
+                "status": "error",
+                "message": (
+                    f"Invalid script name {script_name!r}. Must match "
+                    f"regex {_SCRIPT_NAME_RE.pattern!r} "
+                    f"(lowercase alphanumeric + dashes, 3-63 chars, "
+                    f"starts with alphanumeric)."
+                ),
+            }
+
+        script_dir = project_root / ".screw" / "custom-scripts"
+        script_path = script_dir / f"{script_name}.py"
+        meta_path = script_dir / f"{script_name}.meta.yaml"
+
+        # Fresh-script semantics: if EITHER file already exists, refuse.
+        # Idempotent re-sign is the validate-script CLI's job, not this
+        # tool's — bailing cleanly prevents the subagent accidentally
+        # overwriting a user's hand-edited custom script.
+        if script_path.exists() or meta_path.exists():
+            return {
+                "status": "error",
+                "message": (
+                    f"Script {script_name} already exists at "
+                    f"{script_path} or {meta_path}. Refusing to overwrite; "
+                    f"use `screw-agents validate-script {script_name}` to "
+                    f"re-sign an existing script."
+                ),
+            }
+
+        # Ensure the target directory exists — a fresh project may not
+        # have .screw/custom-scripts/ yet.
+        try:
+            script_dir.mkdir(parents=True, exist_ok=True)
+        except PermissionError as exc:
+            raise ValueError(
+                f"Cannot create adaptive script directory at {script_dir}: "
+                f"permission denied. Original error: {exc}"
+            ) from exc
+        except OSError as exc:
+            raise ValueError(
+                f"Cannot create adaptive script directory at {script_dir}: "
+                f"filesystem shape error ({type(exc).__name__}). "
+                f"Original error: {exc}"
+            ) from exc
+
+        # T13 I1 discipline — friendly error wrapping around load_config.
+        # Mirrors validate_script.py:229-247.
+        try:
+            config = load_config(project_root)
+        except PermissionError as exc:
+            raise ValueError(
+                f"Cannot access `.screw/config.yaml` at "
+                f"{project_root / '.screw' / 'config.yaml'}: "
+                f"permission denied. Check directory permissions or run "
+                f"with appropriate user. Original error: {exc}"
+            ) from exc
+        except OSError as exc:
+            raise ValueError(
+                f"Cannot access `.screw/config.yaml` at "
+                f"{project_root / '.screw' / 'config.yaml'}: filesystem "
+                f"shape error ({type(exc).__name__}). The `.screw` path "
+                f"or config.yaml may be the wrong type (file vs. "
+                f"directory). Original error: {exc}"
+            ) from exc
+
+        if not config.script_reviewers:
+            return {
+                "status": "error",
+                "message": (
+                    "No script_reviewers configured in .screw/config.yaml. "
+                    "Run `screw-agents init-trust --name <name> "
+                    "--email <email>` first to register your local "
+                    "signing key."
+                ),
+            }
+
+        # T13 I1 discipline — friendly error wrapping around
+        # _get_or_create_local_private_key.
+        try:
+            priv, _pub_line = _get_or_create_local_private_key(project_root)
+        except PermissionError as exc:
+            raise RuntimeError(
+                f"Cannot create local signing key at "
+                f"{project_root / '.screw' / 'local' / 'keys'}: permission "
+                f"denied. Check directory permissions. Original: {exc}"
+            ) from exc
+        except OSError as exc:
+            raise RuntimeError(
+                f"Failed to create local signing key at "
+                f"{project_root / '.screw' / 'local' / 'keys'}: {exc}. "
+                f"Check disk space and filesystem state."
+            ) from exc
+
+        # Model A fingerprint-based signer identity selection.
+        # Matching against config.script_reviewers[0].email is WRONG on
+        # multi-reviewer projects (the local key may not be [0]).
+        keys_with_reviewers, _dropped = _load_public_keys_with_reviewers(
+            config.script_reviewers
+        )
+        local_fingerprint = _fingerprint_public_key(priv.public_key())
+        matching_reviewer = _find_matching_reviewer(
+            local_fingerprint, keys_with_reviewers
+        )
+
+        if matching_reviewer is None:
+            return {
+                "status": "error",
+                "message": (
+                    "Local signing key does not match any registered "
+                    "reviewer in script_reviewers. Run "
+                    "`screw-agents init-trust` to register this machine's "
+                    "key before signing scripts."
+                ),
+            }
+
+        signer_email = matching_reviewer.email
+        current_sha256 = compute_script_sha256(source)
+
+        # Delegate canonicalization + signing to the shared helper so the
+        # approve-path and the validate-script CLI produce byte-identical
+        # canonical input to the executor's Layer 3 verification.
+        try:
+            meta_for_persist = build_signed_script_meta(
+                meta_raw=meta,
+                source=source,
+                current_sha256=current_sha256,
+                signer_email=signer_email,
+                private_key=priv,
+            )
+        except ValueError as exc:
+            return {
+                "status": "error",
+                "message": (
+                    f"Meta dict failed AdaptiveScriptMeta schema: {exc}"
+                ),
+            }
+
+        # Atomic write, ORDER-SENSITIVE: source file first, then meta.
+        # Rationale: if the meta landed first but source failed, the
+        # executor's Layer 2 hash pin would never be checked (no source
+        # file to hash). If the source lands but meta fails, Layer 2
+        # would fail on next executor run — same partial-state bug class.
+        # Writing source first + best-effort rollback on meta failure
+        # ensures either BOTH files are present and consistent, or
+        # NEITHER is (modulo the best-effort rollback itself racing).
+        script_tmp = script_dir / f"{script_name}.py.tmp"
+        meta_tmp = script_dir / f"{script_name}.meta.yaml.tmp"
+        try:
+            script_tmp.write_text(source, encoding="utf-8")
+            os.replace(script_tmp, script_path)
+        except PermissionError as exc:
+            if script_tmp.exists():
+                try:
+                    script_tmp.unlink()
+                except OSError:
+                    pass
+            raise ValueError(
+                f"Cannot write script source at {script_path}: "
+                f"permission denied. Check directory permissions. "
+                f"Original error: {exc}"
+            ) from exc
+
+        try:
+            meta_tmp.write_text(
+                yaml.dump(
+                    meta_for_persist,
+                    default_flow_style=False,
+                    sort_keys=False,
+                ),
+                encoding="utf-8",
+            )
+            os.replace(meta_tmp, meta_path)
+        except (PermissionError, OSError) as exc:
+            # Best-effort rollback: we succeeded writing the script but
+            # failed on the meta. Leaving the orphaned .py creates a
+            # partial-state bug (Layer 2 would fail on next executor
+            # call). Unlink the orphan; if the unlink itself fails,
+            # swallow — the user will see both the script and our
+            # error message and can clean up manually.
+            if meta_tmp.exists():
+                try:
+                    meta_tmp.unlink()
+                except OSError:
+                    pass
+            try:
+                script_path.unlink()
+            except OSError:
+                pass
+            raise ValueError(
+                f"Cannot write script metadata at {meta_path}: "
+                f"{type(exc).__name__}. Script file at {script_path} was "
+                f"rolled back best-effort. Original error: {exc}"
+            ) from exc
+
+        return {
+            "status": "signed",
+            "message": (
+                f"Signed adaptive script {script_name} with {signer_email} "
+                f"(sha256={current_sha256[:12]}...)."
+            ),
+            "script_path": str(script_path),
+            "meta_path": str(meta_path),
+            "signed_by": signer_email,
+            "sha256": current_sha256,
+            "session_id": session_id,
         }
 
     def aggregate_learning(
@@ -1422,6 +1719,81 @@ class ScanEngine:
                     },
                 },
                 "required": ["project_root", "script_name"],
+            },
+        })
+
+        # Phase 3b T18a: sign_adaptive_script — approve-path MCP tool for
+        # the adaptive review flow. Subagent generated a fresh script, user
+        # approved, this tool writes + signs + stages. Distinct from the
+        # `validate-script` CLI (which re-signs existing scripts); this
+        # tool is fresh-only and returns status="error" on name collision.
+        tools.append({
+            "name": "sign_adaptive_script",
+            "description": (
+                "Sign a freshly-generated adaptive analysis script and "
+                "write it to .screw/custom-scripts/. Called from the "
+                "approve-path of the adaptive review flow (after human "
+                "review + `approve <name>`). Atomic write: both .py and "
+                ".meta.yaml land via os.replace; rollback on meta "
+                "failure keeps the filesystem in a consistent state. "
+                "Requires the local machine's signing key to match a "
+                "registered reviewer in .screw/config.yaml's "
+                "script_reviewers (Model A fingerprint matching). "
+                "Fresh-script only — name collisions return "
+                "status=\"error\"; use `validate-script` CLI to re-sign "
+                "an existing script."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "project_root": {
+                        "type": "string",
+                        "description": "Absolute path to the project root.",
+                    },
+                    "script_name": {
+                        "type": "string",
+                        "description": (
+                            "Filesystem-safe name (regex "
+                            "`^[a-z0-9][a-z0-9-]{2,62}$`). Produces "
+                            "<name>.py + <name>.meta.yaml in "
+                            ".screw/custom-scripts/."
+                        ),
+                    },
+                    "source": {
+                        "type": "string",
+                        "description": (
+                            "Python source code for the adaptive script. "
+                            "Caller is responsible for validating with "
+                            "`lint_adaptive_script` before approval."
+                        ),
+                    },
+                    "meta": {
+                        "type": "object",
+                        "description": (
+                            "Partial meta dict conforming to "
+                            "AdaptiveScriptMeta minus signing fields. "
+                            "Must include name, created, created_by, "
+                            "domain; may include description, "
+                            "target_patterns. Tool computes sha256, sets "
+                            "validated=True, signs, and writes."
+                        ),
+                    },
+                    "session_id": {
+                        "type": "string",
+                        "description": (
+                            "Scan session id the script was generated for. "
+                            "Echoed in the response; not used to modify "
+                            "session staging."
+                        ),
+                    },
+                },
+                "required": [
+                    "project_root",
+                    "script_name",
+                    "source",
+                    "meta",
+                    "session_id",
+                ],
             },
         })
 
