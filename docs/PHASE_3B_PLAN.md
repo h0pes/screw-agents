@@ -4498,11 +4498,162 @@ git commit -m "feat(phase3b): screw-script-reviewer subagent (Layer 0d)"
 
 ### Task 18: Subagent Prompt Updates for `--adaptive` Flag and Generation Pipeline
 
+> **SPLIT NOTE (T18 → T18a + T18b, 2026-04-19):** During T18 pre-audit,
+> 6 architectural gaps and 4 UX/correctness gaps surfaced that make the
+> plan's single-task scope non-functional end-to-end. Specifically:
+>
+> 1. Plan misses `record_context_required_match` calls entirely — D1 signal
+>    would never fire in production without subagent instrumentation.
+> 2. Plan says "inspect `coverage_gaps` field in the scan response" but
+>    T16 attaches `coverage_gaps` to the `finalize_scan_results` response,
+>    not the scan response. Subagent needs to call the standalone
+>    `detect_coverage_gaps` MCP tool BEFORE finalize.
+> 3. **Missing MCP tool: `sign_adaptive_script`.** Approve path needs a
+>    tool that writes a fresh script + meta to `.screw/custom-scripts/`
+>    AND signs via the user's local Ed25519 key. T13's `validate-script`
+>    CLI handles re-signing existing scripts, not fresh generations. No
+>    MCP tool currently wraps this flow.
+> 4. **Missing MCP tool: `lint_adaptive_script`.** The 5-section human
+>    review flow needs the Layer 1 AST lint result BEFORE approval. PR #4
+>    T11 runs lint inside `execute_script` (layer 1 checked at execution).
+>    Subagents need standalone lint access for pre-approval review.
+> 5. Plan's Files list omits `plugins/screw/agents/screw-injection.md`
+>    (domain orchestrator) and `plugins/screw/commands/scan.md` even
+>    though the File Map listed both.
+> 6. Plan premature-references `source: yaml` finding field which ships
+>    in T19, not T18.
+>
+> **Split decision:** T18 split into T18a (MCP tool infrastructure —
+> Python + tests) and T18b (subagent prompt updates consuming T18a's
+> tools — markdown + command docs). Each ships as its own review cycle:
+>
+> - **T18a** — Python: `sign_adaptive_script` and `lint_adaptive_script`
+>   MCP tools + engine methods + server dispatch + tests. Also unblocks
+>   T22's E2E integration test.
+> - **T18b** — Prompts: update 4 per-agent subagents + injection
+>   orchestrator + `scan.md` command doc to use T18a's tools.
+>
+> Rationale: splitting avoids mixing Python-review and prompt-review
+> in the same commit, each scoped to ~3 commits instead of one massive
+> ~5-commit task. T18a lands first; T18b depends on T18a's MCP tools.
+>
+> The original Step 1 / Step 2 content below is preserved as reference
+> for T18b's prompt structure but is **superseded** by T18b's actual
+> implementation which closes the 6 architectural gaps listed above.
+
+---
+
+#### Task 18a: MCP Tool Infrastructure (sign_adaptive_script + lint_adaptive_script)
+
+**Files:**
+- Modify: `src/screw_agents/engine.py` — add `sign_adaptive_script` and `lint_adaptive_script` methods
+- Modify: `src/screw_agents/server.py` — register both MCP tools
+- Create: `tests/test_sign_adaptive_script.py`
+- Create: `tests/test_lint_adaptive_script.py`
+
+**`sign_adaptive_script(project_root, script_name, source, meta, session_id) -> dict`**
+
+MCP tool for the approve-path of the adaptive review flow. Called by the
+per-agent subagent after the human types `approve <script-name>`. Writes
+the script + metadata to `.screw/custom-scripts/` and signs via the
+user's local Ed25519 key.
+
+Input shape:
+- `project_root: str` (absolute path)
+- `script_name: str` (e.g., `sqli-src-db-42-a1b2c3`)
+- `source: str` (Python source code, must be valid Python)
+- `meta: dict` — conforming to `AdaptiveScriptMeta` minus signing fields
+  (caller provides `name`, `created`, `created_by`, `domain`,
+  `description`, `target_patterns`; tool computes `sha256`, applies
+  `validated: True`, routes through `AdaptiveScriptMeta.model_dump()`
+  per T13's C1 fix, signs, writes atomically)
+- `session_id: str` — the scan session (to correlate staged findings)
+
+Behavior:
+1. Validate `script_name` matches `^[a-z0-9][a-z0-9-]{2,62}$` (filesystem-safe,
+   length-bounded).
+2. Verify `.screw/custom-scripts/{script_name}.py` does not already exist
+   (fresh-script semantics; re-signing is `validate-script` CLI's job).
+3. Apply T13's C1 fix: route `meta_raw` through `AdaptiveScriptMeta(**prepared)`
+   then `model_dump()` BEFORE `canonicalize_script` so sign-side and
+   verify-side canonicalize identical bytes.
+4. Model A fingerprint-based signer selection (mirrors `validate_script.py`).
+5. Atomic write pattern: `tmp.write_text` + `os.replace` for both `.py`
+   and `.meta.yaml`. Cleanup on `PermissionError`.
+6. Friendly error wrapping for `(PermissionError, OSError)` per the broad
+   CLI pattern shipped in T13.
+
+Returns:
+- `{"status": "signed", "script_path": "...", "meta_path": "...", "signed_by": "..."}` on success
+- `{"status": "error", "message": "..."}` on recoverable failures (no reviewers, name collision, validation failure)
+- `ValueError` / `RuntimeError` on permission/filesystem errors (friendly-wrapped)
+
+**`lint_adaptive_script(source) -> dict`**
+
+MCP tool that runs Layer 1 AST allowlist lint on a script source string
+WITHOUT executing it. Returns a structured pass/fail report the calling
+subagent can show in the 5-section human review.
+
+Input shape:
+- `source: str` (Python source code)
+
+Behavior:
+1. Parse via `ast.parse(source)` — catch `SyntaxError` → `{"status": "syntax_error", "details": str(exc)}`.
+2. Run `screw_agents.adaptive.lint.lint_script(source)` (the PR #4 T7 module).
+3. Return `{"status": "pass"}` or `{"status": "fail", "violations": [{"line": N, "rule": "...", "message": "..."}]}`.
+
+No side effects. Pure function. No file I/O.
+
+**Testing (minimum 10 tests):**
+
+For `sign_adaptive_script`:
+- happy path (valid script + meta → signed + atomic write + returns paths)
+- name-collision error
+- invalid-name error (regex fails)
+- malformed source (not valid Python) — up to caller to validate; this tool shouldn't enforce
+- no `script_reviewers` configured → error
+- local key doesn't match any script_reviewer → error (Model A)
+- C1 regression: signed output verifies via `execute_script(skip_trust_checks=False)`
+- atomic-write failure via monkeypatched `os.replace`
+
+For `lint_adaptive_script`:
+- syntax error → `status=syntax_error`
+- lint pass → `status=pass`
+- lint fail → `status=fail` with violations enumerated
+- disallowed import → violations list contains the specific rule
+
+**Commits (3):**
+1. `feat(phase3b): sign_adaptive_script MCP tool (T18a part 1)`
+2. `feat(phase3b): lint_adaptive_script MCP tool (T18a part 2)`
+3. `sync(phase3b): plan note for T18a shipped state`
+
+---
+
+#### Task 18b: Subagent Prompt Updates
+
 **Files:**
 - Modify: `plugins/screw/agents/screw-sqli.md`
 - Modify: `plugins/screw/agents/screw-cmdi.md`
 - Modify: `plugins/screw/agents/screw-ssti.md`
 - Modify: `plugins/screw/agents/screw-xss.md`
+
+**T18b scope additions beyond plan (close the pre-audit gaps):**
+- Add `plugins/screw/agents/screw-injection.md` (domain orchestrator forwarding `--adaptive`)
+- Add `plugins/screw/commands/scan.md` (document `--adaptive` flag)
+- Instruct subagents to call `record_context_required_match` when investigating
+  context_required heuristics but dropping them (D1 producer wiring)
+- Instruct subagents to call `detect_coverage_gaps` MCP tool BEFORE finalize
+  (not "inspect response field" — the tool is standalone)
+- Instruct subagents to use T18a's `sign_adaptive_script` MCP tool on approve
+- Instruct subagents to use T18a's `lint_adaptive_script` MCP tool for the
+  pre-approval 5-section review
+- Remove premature `source: yaml` reference (T19 ships that field)
+- Define script naming: `<agent>-<sanitized-file>-<line>-<hash6>.py`
+- Remove the hand-wavy "non-interactive environment detection" — `--adaptive`
+  flag IS the user consent
+
+Original plan step below is preserved as reference; T18b's actual output must
+close the gaps listed above.
 
 - [ ] **Step 1: Add the adaptive workflow section to each subagent**
 
