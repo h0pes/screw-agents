@@ -1,7 +1,7 @@
 """Unit tests for src/screw_agents/gap_signal.py — adaptive coverage-gap detection.
 
 T14 covers the D1 signal (context-required pattern matched but no finding emitted).
-T15 will add D2 (unresolved sink reachability) tests in this same file.
+D2 tests live in this same file after T15 lands.
 
 Security property under test: D1 has zero false positives by construction. The
 YAML agent itself declared the gap by tagging a pattern as `severity:
@@ -45,7 +45,13 @@ def test_d1_fires_on_dropped_context_required_match() -> None:
 
 
 def test_d1_does_not_fire_when_finding_was_emitted() -> None:
-    """A context-required match that produced a finding must NOT yield a gap."""
+    """A context-required match that produced a finding must NOT yield a gap.
+
+    Asserts the dual side of the zero-FP-by-construction property: if the YAML
+    agent DID emit a finding, no gap is reported. Combined with
+    `test_d1_fires_on_dropped_context_required_match`, these two tests pin the
+    iff condition that D1's security claim rests on.
+    """
     matches = [
         {
             "agent": "xss",
@@ -83,24 +89,24 @@ def test_d1_partial_emission_yields_only_dropped() -> None:
             "agent": "sqli",
             "file": "a.py",
             "line": 1,
-            "pattern": "p1",
+            "pattern": "$X.execute($Y)",
         },
         {
-            "agent": "sqli",
+            "agent": "cmdi",
             "file": "b.py",
             "line": 2,
-            "pattern": "p2",
+            "pattern": "subprocess.run(...)",
         },
         {
             "agent": "ssti",
             "file": "c.py",
             "line": 3,
-            "pattern": "p3",
+            "pattern": "render_template_string(...)",
         },
     ]
     emitted: dict[tuple[str, str, int, str], object] = {
-        ("sqli", "a.py", 1, "p1"): "fid-1",
-        ("ssti", "c.py", 3, "p3"): "fid-3",
+        ("sqli", "a.py", 1, "$X.execute($Y)"): "fid-1",
+        ("ssti", "c.py", 3, "render_template_string(...)"): "fid-3",
     }
 
     gaps = list(detect_d1_context_required_gaps(
@@ -109,10 +115,10 @@ def test_d1_partial_emission_yields_only_dropped() -> None:
     ))
 
     assert len(gaps) == 1
-    assert gaps[0].agent == "sqli"
+    assert gaps[0].agent == "cmdi"
     assert gaps[0].file == "b.py"
     assert gaps[0].line == 2
-    assert gaps[0].evidence == {"pattern": "p2"}
+    assert gaps[0].evidence == {"pattern": "subprocess.run(...)"}
 
 
 def test_d1_evidence_locks_pattern_key() -> None:
@@ -139,3 +145,44 @@ def test_d1_evidence_locks_pattern_key() -> None:
 
     assert len(gaps) == 1
     assert gaps[0].evidence == {"pattern": "subprocess.run(shell=True)"}
+
+
+def test_d1_same_location_different_pattern_yields_two_gaps() -> None:
+    """Two context-required patterns matching the same line are two distinct
+    gaps. The tuple-key includes `pattern` by design — a future refactor that
+    keys only by (agent, file, line) would silently lose findings.
+
+    Real-world case: `eval(eval(x))` can match an eval-based pattern twice on
+    the same line (outer and inner call). Both are legitimate gaps.
+    """
+    matches = [
+        {"agent": "sqli", "file": "src/app.py", "line": 42, "pattern": "eval_outer"},
+        {"agent": "sqli", "file": "src/app.py", "line": 42, "pattern": "eval_inner"},
+    ]
+    gaps = list(detect_d1_context_required_gaps(
+        context_required_matches=matches,
+        emitted_findings_by_match={},
+    ))
+    assert len(gaps) == 2
+    patterns = {g.evidence["pattern"] for g in gaps}
+    assert patterns == {"eval_outer", "eval_inner"}
+
+
+def test_d1_duplicate_match_entries_yield_duplicate_gaps() -> None:
+    """Duplicate match events in the input produce duplicate gap events in
+    the output. Deduplication, if desired, is the caller's responsibility —
+    gap_signal does not assume its caller has already deduped.
+
+    Locks the contract so a future "optimization" that adds internal dedup
+    doesn't silently change semantics for a caller that depends on one
+    gap-event per match-event.
+    """
+    matches = [
+        {"agent": "sqli", "file": "src/app.py", "line": 42, "pattern": "ambiguous(*)"},
+        {"agent": "sqli", "file": "src/app.py", "line": 42, "pattern": "ambiguous(*)"},
+    ]
+    gaps = list(detect_d1_context_required_gaps(
+        context_required_matches=matches,
+        emitted_findings_by_match={},
+    ))
+    assert len(gaps) == 2

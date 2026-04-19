@@ -14,7 +14,8 @@ D1 — "context-required dropped"
     the pattern is suspicious but cannot be classified by static rules alone.
     A dropped match is therefore a self-declared gap: zero false positives by
     construction, because the YAML agent literally tagged the gap itself. No
-    LLM reasoning enters the decision.
+    LLM reasoning enters the decision. Producers emit one match record per
+    occurrence using the `ContextRequiredMatch` TypedDict declared below.
 
 D2 — "unresolved sink reachability"
     A known dangerous sink was reached via dataflow whose source could not be
@@ -32,18 +33,38 @@ results into a generator pipeline without materializing a list.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
-from typing import Any
+from collections.abc import Iterator, Mapping
+from typing import TypedDict
 
 from screw_agents.models import CoverageGap
 
-__all__ = ["detect_d1_context_required_gaps"]
+__all__ = [
+    "ContextRequiredMatch",
+    "detect_d1_context_required_gaps",
+]
+# T15: append "detect_d2_unresolved_sink_gaps" to __all__.
+
+
+class ContextRequiredMatch(TypedDict):
+    """Shape of a single context-required pattern match recorded by the YAML
+    scan engine. T16 (ScanEngine.detect_coverage_gaps) produces these at scan
+    time; gap_signal.py consumes them here.
+
+    All four fields are required and structural. Producers MUST emit all four
+    keys with the declared types; a malformed dict is a producer bug, not a
+    condition this module handles.
+    """
+
+    agent: str
+    file: str
+    line: int
+    pattern: str
 
 
 def detect_d1_context_required_gaps(
     *,
-    context_required_matches: list[dict[str, Any]],
-    emitted_findings_by_match: dict[tuple[str, str, int, str], Any],
+    context_required_matches: list[ContextRequiredMatch],
+    emitted_findings_by_match: Mapping[tuple[str, str, int, str], object],
 ) -> Iterator[CoverageGap]:
     """D1: yield a CoverageGap for every context-required pattern match that
     did not produce a finding.
@@ -55,14 +76,17 @@ def detect_d1_context_required_gaps(
     `emitted_findings_by_match` is, by the YAML author's own declaration, a
     coverage gap that adaptive analysis could fill.
 
+    Deduplication is the caller's responsibility. Duplicate match entries in
+    `context_required_matches` yield duplicate `CoverageGap` events — gap_signal
+    preserves the 1:1 match-event to gap-event correspondence.
+
     Args:
         context_required_matches: Records of every context-required pattern
-            match seen during the scan. Each dict has keys `agent` (str),
-            `file` (str), `line` (int), `pattern` (str).
-        emitted_findings_by_match: Mapping from match key
+            match seen during the scan. See `ContextRequiredMatch` for shape.
+        emitted_findings_by_match: Membership-only mapping from match key
             `(agent, file, line, pattern)` to caller-defined value (typically
             a finding id). Presence of the key means a finding was emitted;
-            absence means the match was dropped.
+            absence means the match was dropped. The value is never read.
 
     Yields:
         `CoverageGap(type="context_required", agent=..., file=..., line=...,
