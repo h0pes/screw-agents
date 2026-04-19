@@ -3781,6 +3781,22 @@ git commit -m "feat(phase3b): D1 coverage gap signal (context-required dropped)"
 > 3b; may be addressed in Phase 4 autoresearch refinement. T17
 > (screw-script-reviewer, Layer 0d) is the semantic gate that validates
 > or rejects D2's surfaced gaps before an adaptive script is generated.
+>
+> **Post-review hardening** (commit `d1478f1`, 2026-04-19): Added
+> documentation clarifying `known_receivers` requires BARE trailing
+> tokens (not dotted forms like `self.db`, which would silently
+> mis-suppress because the extracted receiver is `tokens[-2]` = `"db"`);
+> added `_NON_TAINT_ARG_NODE_TYPES` module-scope frozenset and filter
+> to skip literal-constant arg nodes (`string`, `integer`, `float`,
+> `true`, `false`, `none`, `ellipsis`) before the taint check,
+> eliminating a predictable FP class where string literals textually
+> mention source names (e.g., log messages, SQL comments like
+> `"-- hydrated from request.args"`, error strings). Also added a
+> concrete `re.search` vs anchored-regex example to the `sink_regex`
+> docstring. 3 regression tests added (`test_d2_known_receivers_uses_
+> bare_trailing_token_not_dotted`, `test_d2_does_not_fire_on_string_
+> literal_mentioning_source`, `test_d2_still_fires_on_call_arg_even_
+> when_string_literals_present`); 13 → 16 D2 tests.
 
 **Files:**
 - Modify: `src/screw_agents/gap_signal.py`
