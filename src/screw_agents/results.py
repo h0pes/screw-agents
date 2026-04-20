@@ -10,6 +10,7 @@ implements the rendering + file I/O half of the protocol while
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -20,6 +21,89 @@ from screw_agents.models import Finding
 
 if TYPE_CHECKING:
     from screw_agents.registry import AgentRegistry
+
+
+# Phase 3b T19: severity rank for primary-finding selection within a merge
+# bucket. Lower rank = higher priority. Anything not in the map (unknown or
+# missing severity) ranks last via the dict.get default of 5 — this prevents
+# an ill-formed severity from promoting to primary by accident. Lookup is
+# case-normalized (``severity.lower()``) at the call site so a YAML agent
+# emitting ``"High"`` (capitalized prose drift) still ranks as ``"high"``.
+_SEVERITY_RANK: dict[str, int] = {
+    "critical": 0,
+    "high": 1,
+    "medium": 2,
+    "low": 3,
+    "info": 4,
+}
+
+
+def _merge_findings_augmentatively(findings: list[Finding]) -> list[Finding]:
+    """Merge findings that represent the same vulnerability detected by
+    multiple scan sources (e.g., a YAML agent AND an adaptive script).
+
+    Dedup key: ``(location.file, location.line_start, classification.cwe)``.
+    ``line_end`` is deliberately NOT part of the key — different scanners
+    compute different line ranges for the same underlying issue and adding
+    it would reduce merge rate, defeating the augmentative-merge goal.
+
+    When duplicates exist, the function:
+
+    1. Picks a primary finding by highest severity (critical > high > medium
+       > low > info > unknown), then alphabetical agent name ascending, then
+       first-in-input order (Python stable sort).
+    2. Attaches a populated ``merged_from_sources`` list to the primary,
+       formatted as ``["<agent> (<severity>)", ...]`` for all sources in the
+       bucket (including the primary itself). Order follows the ORIGINAL
+       input order of the bucket, not sorted order — downstream consumers
+       see the natural insertion ordering.
+    3. Returns exactly one :class:`Finding` per ``(file, line_start, cwe)``
+       bucket.
+
+    Unmerged findings (single-entry buckets) pass through unchanged with
+    ``merged_from_sources = None``. Bucket output order follows insertion
+    order of the FIRST finding per key (``OrderedDict`` semantics).
+
+    Args:
+        findings: List of :class:`Finding` objects, possibly with duplicates.
+
+    Returns:
+        List of :class:`Finding` objects with duplicates merged.
+    """
+    buckets: OrderedDict[tuple[str, int, str], list[Finding]] = OrderedDict()
+    for f in findings:
+        key = (f.location.file, f.location.line_start, f.classification.cwe)
+        buckets.setdefault(key, []).append(f)
+
+    merged: list[Finding] = []
+    for _key, group in buckets.items():
+        if len(group) == 1:
+            merged.append(group[0])
+            continue
+
+        # Deterministic primary selection: highest severity → alphabetical
+        # agent → first-in-input (Python's sorted() is stable, so the
+        # original list order resolves final ties).
+        def _sort_key(f: Finding) -> tuple[int, str]:
+            return (
+                _SEVERITY_RANK.get(f.classification.severity.lower(), 5),
+                f.agent,
+            )
+
+        primary = sorted(group, key=_sort_key)[0]
+
+        # Build source list from the ORIGINAL group (preserves input order),
+        # not from sorted order — this gives downstream consumers the
+        # natural ordering they'd expect from insertion.
+        sources = [
+            f"{f.agent} ({f.classification.severity})" for f in group
+        ]
+
+        merged.append(
+            primary.model_copy(update={"merged_from_sources": sources})
+        )
+
+    return merged
 
 _GITIGNORE_CONTENT = (
     "# Scan results are point-in-time — don't track in version control\n"
@@ -72,6 +156,15 @@ def render_and_write(
         formats = ["json", "markdown"]
     # Parse findings via Pydantic
     findings = [Finding(**f) for f in findings_raw]
+
+    # Phase 3b T19: augmentative merge BEFORE exclusion matching + format.
+    # Findings that share (file, line_start, cwe) from different scan sources
+    # (e.g., a YAML agent AND an adaptive script) collapse to a single primary
+    # finding with `merged_from_sources` populated. Exclusion matching runs
+    # against the merged set so an exclusion matching the primary's
+    # `(file, line, agent)` still suppresses correctly; the primary's agent
+    # field is retained as the severity/alphabetical winner.
+    findings = _merge_findings_augmentatively(findings)
 
     # Apply exclusions server-side (correct scope semantics).
     # Wrap FileExistsError (T6-I1) and PermissionError (T6-I2) from the

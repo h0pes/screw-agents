@@ -752,6 +752,69 @@ few_shot_examples:
         end
       explanation: "Template loaded from file by Rails. User input in instance variable for context data only. Safe."
 
+adaptive_inputs:
+  # Phase 3b T16 — per-agent inputs for the D2 taint-verified unresolved-sink
+  # gap signal. Method regex covers the template-render / parse / compile
+  # entry points across the engines referenced in heuristics above:
+  # Flask/Jinja2 (render_template_string, render_template, from_string),
+  # Mako/Jinja2 Template(...).render, Tornado generate, FreeMarker/
+  # Velocity evaluate, Twig createTemplate, Smarty fetch, Go template
+  # Parse + Execute, Tera render_str + one_off, minijinja
+  # template_from_str + render_str, Handlebars compile + render_template,
+  # Razor RunCompile, Scriban Parse + Render.
+  # Anchored `^(...)$` post-I1 hardening: `re.search` on `parse` without
+  # anchors matches `parser`, `parsed`; `compile` matches `compiled`,
+  # `compiler`; `render` matches `rendered`, `renderer`; `fetch` matches
+  # `prefetch`, `fetcher`; `generate` matches `generated`, `generator`;
+  # `Execute` matches `Executed`, `Executes`.
+  sink_regex: "^(render_template_string|render_template|render_str|render|from_string|template_from_str|Parse|parse|evaluate|compile|createTemplate|fetch|generate|one_off|RunCompile|Execute|Render)$"
+  # BARE trailing-token receivers — template-engine object names from
+  # heuristics. `env.render_str(...)` → `env`; `tera.render_str(...)` →
+  # `tera`; `jinja2.Template(...)` → `jinja2`.
+  known_receivers:
+    - Environment
+    - SandboxedEnvironment
+    - Template
+    - Jinja2
+    - jinja2
+    - env
+    - Tera
+    - tera
+    - Handlebars
+    - handlebars
+    - Velocity
+    - VelocityEngine
+    - Blade
+    - Engine
+    - twig
+    - Twig
+    - smarty
+    - Smarty
+    - ERB
+    - pug
+    - ejs
+    - nunjucks
+    - Mustache
+    - Liquid
+    - thymeleaf
+  known_sources:
+    - "request.args"
+    - "request.form"
+    - "request.json"
+    - "request.values"
+    - "request.GET"
+    - "request.POST"
+    - "req.query"
+    - "req.body"
+    - "req.params"
+    - "params["
+    - "input("
+    - "$_GET"
+    - "$_POST"
+    - "$_REQUEST"
+    - "r.FormValue"
+    - "r.URL.Query"
+
 target_strategy:
   scope: "function"
   include_imports: true

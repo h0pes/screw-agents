@@ -55,22 +55,24 @@ def run_init_trust(
         for forward compatibility, but no current code path reaches it.
 
     Raises:
-        ValueError: If ``.screw`` exists as a file (not directory), if
-            ``.screw/config.yaml`` has invalid schema, or if a permission
-            error blocks reading/writing the config. The error message is
-            user-actionable (includes the offending path and a suggested fix).
+        ValueError: If ``.screw/config.yaml`` has a filesystem-shape error
+            (e.g., the path exists as a directory when a file is expected,
+            or vice versa), if ``.screw/config.yaml`` has invalid schema,
+            or if a permission error blocks reading/writing the config.
+            The error message is user-actionable (includes the offending
+            path and a suggested fix).
         RuntimeError: If the local key generation fails with an OS error.
             The error message includes the key path and the underlying cause.
     """
     # Wrap load_config for T6-I1/I2 friendly errors at the CLI boundary.
+    # T13 re-review I1 residual: `IsADirectoryError` is a sibling (not a
+    # subclass) of `NotADirectoryError`, so the previous narrow tuple
+    # leaked a traceback when config.yaml existed as a directory. `OSError`
+    # is the common parent of FileExistsError / NotADirectoryError /
+    # IsADirectoryError / PermissionError. PermissionError kept FIRST so
+    # its specific message wins over the generic OSError catch-all.
     try:
         config = load_config(project_root)
-    except (FileExistsError, NotADirectoryError) as exc:
-        raise ValueError(
-            f"A `.screw` path exists at {project_root / '.screw'} but is not "
-            f"a directory. Remove or rename it before running "
-            f"`screw-agents init-trust`. Original error: {exc}"
-        ) from exc
     except PermissionError as exc:
         raise ValueError(
             f"Cannot access `.screw/config.yaml` at "
@@ -78,11 +80,24 @@ def run_init_trust(
             f"Check directory permissions or run with appropriate user. "
             f"Original error: {exc}"
         ) from exc
+    except OSError as exc:
+        raise ValueError(
+            f"Cannot access `.screw/config.yaml` at "
+            f"{project_root / '.screw' / 'config.yaml'}: filesystem shape "
+            f"error ({type(exc).__name__}). The `.screw` path or "
+            f"config.yaml may be the wrong type (file vs. directory). "
+            f"Original error: {exc}"
+        ) from exc
 
     # T9-I3 — friendly error wrapping for _get_or_create_local_private_key.
+    # T13 re-review I1 residual: include IsADirectoryError alongside
+    # FileExistsError / NotADirectoryError. All three are OSError siblings
+    # (NOT subclasses of one another) and can be raised when a regular
+    # file or directory blocks `.screw/local/keys/` mkdir or the key file
+    # write path.
     try:
         _priv, pub_line = _get_or_create_local_private_key(project_root)
-    except (FileExistsError, NotADirectoryError) as exc:
+    except (FileExistsError, NotADirectoryError, IsADirectoryError) as exc:
         # T12-N1 — `mkdir(parents=True, exist_ok=True)` raises one of these
         # if `.screw/local/keys/` (or any parent) exists as a FILE rather
         # than a directory. Surface that distinct case actionably instead

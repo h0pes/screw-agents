@@ -6,7 +6,9 @@ extend it with executor pipeline tests.
 
 from __future__ import annotations
 
+import hashlib
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -72,9 +74,6 @@ def test_get_backend_raises_on_unsupported_platform(monkeypatch):
 # -------------------------------------------------------------------------
 # Task 11 — executor pipeline tests
 # -------------------------------------------------------------------------
-
-
-from pathlib import Path
 
 
 def test_executor_runs_valid_script_end_to_end(tmp_path: Path):
@@ -477,3 +476,199 @@ def test_executor_returns_empty_findings_on_sandbox_timeout(tmp_path: Path, monk
     assert result.findings == []
     assert result.sandbox_result.killed_by_timeout is True
     assert result.sandbox_result.returncode == -1
+
+
+# -------------------------------------------------------------------------
+# T11-N1 — signature-path regression tests
+#
+# Layer 3 (Ed25519 signature verification) is currently tested only via
+# `skip_trust_checks=True` bypass. These tests exercise the REAL signed
+# path end-to-end: generate an ephemeral Ed25519 key, sign a script via
+# the shared `build_signed_script_meta` helper (so sign-side and
+# verify-side never drift), register the public key in
+# `.screw/config.yaml`'s `script_reviewers`, then run `execute_script`
+# with `skip_trust_checks=False`. Closes the end-to-end gap.
+# -------------------------------------------------------------------------
+
+
+def _build_signed_script_fixture(
+    tmp_path: Path,
+    *,
+    source: str,
+    signer_email: str = "marco@example.com",
+    script_name: str = "signed_test",
+) -> tuple[Path, Path, Path]:
+    """Construct a signed script + meta + project_root fixture.
+
+    Generates an ephemeral Ed25519 keypair, writes the public key into
+    `.screw/config.yaml`'s `script_reviewers`, and signs the meta via the
+    shared `build_signed_script_meta` helper — guaranteeing the fixture,
+    the `validate-script` CLI, and the `sign_adaptive_script` MCP tool
+    can never drift. Returns ``(script_path, meta_path, project_root)``.
+    """
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+        Ed25519PrivateKey,
+    )
+
+    from screw_agents.adaptive.signing import build_signed_script_meta
+    from screw_agents.trust import _public_key_to_openssh_line
+
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    screw_dir = project_root / ".screw"
+    screw_dir.mkdir()
+
+    priv = Ed25519PrivateKey.generate()
+    pub_line = _public_key_to_openssh_line(
+        priv.public_key(), comment=signer_email
+    )
+
+    import yaml as _yaml
+
+    (screw_dir / "config.yaml").write_text(
+        _yaml.dump(
+            {
+                "version": 1,
+                "exclusion_reviewers": [],
+                "script_reviewers": [
+                    {
+                        "name": "Tester",
+                        "email": signer_email,
+                        "key": pub_line,
+                    }
+                ],
+                "adaptive": False,
+                "legacy_unsigned_exclusions": "reject",
+                "trusted_reviewers_file": None,
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    script_dir = tmp_path / "custom-scripts"
+    script_dir.mkdir()
+    script_path = script_dir / f"{script_name}.py"
+    script_path.write_text(source, encoding="utf-8")
+
+    sha256 = hashlib.sha256(source.encode("utf-8")).hexdigest()
+
+    # Route through the shared CLI helper so sign-side canonicalization in
+    # this fixture matches byte-for-byte what `validate-script` produces,
+    # which in turn matches what the executor canonicalizes on verify. Any
+    # future refactor of the signing canonicalization only needs to update
+    # one place.
+    meta_raw = {
+        "name": script_name,
+        "created": "2026-04-19T10:00:00Z",
+        "created_by": signer_email,
+        "domain": "injection-input-handling",
+        "description": "T11-N1 signed-path regression fixture",
+        "target_patterns": [],
+    }
+    meta_dict = build_signed_script_meta(
+        meta_raw=meta_raw,
+        source=source,
+        current_sha256=sha256,
+        signer_email=signer_email,
+        private_key=priv,
+    )
+
+    meta_path = script_dir / f"{script_name}.meta.yaml"
+    meta_path.write_text(
+        _yaml.dump(meta_dict, sort_keys=False), encoding="utf-8"
+    )
+
+    return script_path, meta_path, project_root
+
+
+def test_execute_script_valid_signature_path(tmp_path: Path):
+    """T11-N1: a legitimately signed script runs end-to-end under
+    `skip_trust_checks=False`. Layer 2 hash pin + Layer 3 signature both
+    succeed, the sandbox runs, findings are lifted into Finding objects.
+
+    Linux-only assertion path (macOS sandbox-exec isn't available on
+    Marco's Arch dev hardware); skips if no sandbox backend is on PATH.
+    """
+    import shutil
+
+    if shutil.which("bwrap") is None and shutil.which("sandbox-exec") is None:
+        pytest.skip("no sandbox backend available on this platform")
+
+    from screw_agents.adaptive.executor import execute_script
+    from screw_agents.models import Finding
+
+    source = (
+        "from screw_agents.adaptive import emit_finding\n"
+        "def analyze(project):\n"
+        "    emit_finding(cwe='CWE-89', file='x.py', line=1,"
+        " message='signed-path ok', severity='high')\n"
+    )
+    script_path, meta_path, project_root = _build_signed_script_fixture(
+        tmp_path, source=source, script_name="signed_ok"
+    )
+
+    result = execute_script(
+        script_path=script_path,
+        meta_path=meta_path,
+        project_root=project_root,
+        skip_trust_checks=False,  # engage Layer 2 + Layer 3
+        wall_clock_s=30,
+    )
+
+    assert result.stale is False
+    assert len(result.findings) == 1
+    finding = result.findings[0]
+    assert isinstance(finding, Finding)
+    assert finding.classification.cwe == "CWE-89"
+    assert finding.analysis.description == "signed-path ok"
+    assert finding.agent == "adaptive_script:signed_ok"
+
+
+def test_execute_script_tampered_signature_raises_signature_failure(
+    tmp_path: Path,
+):
+    """T11-N1: flipping a byte in the stored signature breaks Layer 3.
+    `execute_script` must raise `SignatureFailure` (NOT silently run,
+    NOT raise the generic RuntimeError). Layer 2 hash pin is untouched,
+    so it passes, and Layer 3 is the failing gate.
+    """
+    from screw_agents.adaptive.executor import (
+        SignatureFailure,
+        execute_script,
+    )
+
+    source = (
+        "from screw_agents.adaptive import emit_finding\n"
+        "def analyze(project):\n"
+        "    pass\n"
+    )
+    script_path, meta_path, project_root = _build_signed_script_fixture(
+        tmp_path, source=source, script_name="tampered_sig"
+    )
+
+    # Flip one byte in the signature field while keeping the source (and
+    # therefore sha256) intact — Layer 2 will pass, Layer 3 will fail.
+    import yaml as _yaml
+
+    meta = _yaml.safe_load(meta_path.read_text(encoding="utf-8"))
+    sig = meta["signature"]
+    assert len(sig) > 0, "fixture should have signed the meta"
+    # Swap the first character for a different (still base64-valid) one.
+    new_first = "A" if sig[0] != "A" else "B"
+    meta["signature"] = new_first + sig[1:]
+    meta_path.write_text(_yaml.dump(meta, sort_keys=False), encoding="utf-8")
+
+    # Match the specific Layer 3 failure reason (content/signature mismatch),
+    # NOT the generic "signature verification failed" wrapper — tightens the
+    # test to verify we hit the right failure branch.
+    with pytest.raises(
+        SignatureFailure, match="signature invalid or content mismatch"
+    ):
+        execute_script(
+            script_path=script_path,
+            meta_path=meta_path,
+            project_root=project_root,
+            skip_trust_checks=False,
+            wall_clock_s=10,
+        )

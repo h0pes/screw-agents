@@ -735,6 +735,70 @@ few_shot_examples:
         shutil.copy(src_path, dst_path)  # Instead of os.system(f"cp {src} {dst}")
       explanation: "No OS command execution at all. Python standard library replaces shell commands. shutil.copy instead of os.system('cp ...')."
 
+adaptive_inputs:
+  # Phase 3b T16 — per-agent inputs for the D2 taint-verified unresolved-sink
+  # gap signal. Method regex covers the full set of OS-command execution
+  # entry points referenced by this agent's heuristics: POSIX shells
+  # (system/popen/exec/spawn families), Node.js child_process
+  # (exec/execSync/execFile/spawn/spawnSync), subprocess (run/
+  # check_output/check_call/Popen), PHP command wrappers (shell_exec/
+  # passthru/proc_open/backtick), .NET Process.Start.
+  # Anchored `^(...)$` post-I1 hardening: `re.search` on `exec` without
+  # anchors matches `execute`, `executor`, `executable`; `run` matches
+  # `running`, `runtime`; `Start` matches `Startup`, `Started`.
+  #
+  # Dropped vs the original list:
+  #   - `call` — matches `callback`, `recall`, `callable` even anchored
+  #     as `^call$` the true sink is typically `subprocess.call(...)`
+  #     which `known_receivers` already covers via the `subprocess`
+  #     receiver. The anchored `^call$` on an unknown receiver would
+  #     overmatch more than it'd catch.
+  #   - `new` — too broad even anchored. `Command::new(...)` is the
+  #     intended Rust constructor, but its receiver `Command` is already
+  #     in `known_receivers`, so D2 on `new` only fires for UNKNOWN
+  #     receivers calling `.new(...)` — which is a prolific constructor
+  #     convention (e.g., `User.new`, `Logger.new`). High FP risk for
+  #     negligible signal.
+  sink_regex: "^(system|popen|spawn|spawnSync|execSync|execFile|exec|run|check_output|check_call|Popen|shell_exec|passthru|proc_open|backtick|Start)$"
+  # BARE trailing-token receivers. `subprocess.run(...)` yields receiver
+  # `subprocess`; `std::process::Command::new(...)` yields `Command`;
+  # `tokio::process::Command::new(...)` yields `Command` as well.
+  known_receivers:
+    - subprocess
+    - os
+    - shlex
+    - shutil
+    - child_process
+    - Runtime
+    - ProcessBuilder
+    - Process
+    - Command
+    - tokio
+  known_sources:
+    - "request.args"
+    - "request.form"
+    - "request.json"
+    - "request.values"
+    - "request.GET"
+    - "request.POST"
+    - "request.headers"
+    - "request.cookies"
+    - "req.query"
+    - "req.body"
+    - "req.params"
+    - "sys.argv"
+    - "os.environ"
+    - "input("
+    - "params["
+    - "process.argv"
+    - "process.env"
+    - "$_GET"
+    - "$_POST"
+    - "$_REQUEST"
+    - "$_COOKIE"
+    - "r.FormValue"
+    - "r.URL.Query"
+
 target_strategy:
   scope: "function"
   include_imports: true

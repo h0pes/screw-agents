@@ -139,6 +139,22 @@ def _dispatch_tool(
             wall_clock_s=args.get("wall_clock_s", 30),
         )
 
+    # --- Phase 3b T18a: sign_adaptive_script (approve-path) ---
+
+    if name == "sign_adaptive_script":
+        return engine.sign_adaptive_script(
+            project_root=Path(args["project_root"]),
+            script_name=args["script_name"],
+            source=args["source"],
+            meta=args["meta"],
+            session_id=args["session_id"],
+        )
+
+    # --- Phase 3b T18a: lint_adaptive_script (pre-approval review) ---
+
+    if name == "lint_adaptive_script":
+        return engine.lint_adaptive_script(source=args["source"])
+
     # --- Phase 3a X1-M1 (T18): accumulate + finalize (replaces write_scan_results) ---
 
     if name == "accumulate_findings":
@@ -156,6 +172,23 @@ def _dispatch_tool(
             scan_metadata=args.get("scan_metadata"),
             formats=args.get("formats"),
         )
+
+    # --- Phase 3b T16: adaptive coverage-gap E2E ---
+
+    if name == "record_context_required_match":
+        return engine.record_context_required_match(
+            project_root=Path(args["project_root"]),
+            match=args["match"],
+            session_id=args.get("session_id"),
+        )
+
+    if name == "detect_coverage_gaps":
+        gaps = engine.detect_coverage_gaps(
+            agent_name=args["agent_name"],
+            project_root=Path(args["project_root"]),
+            session_id=args["session_id"],
+        )
+        return {"coverage_gaps": [g.model_dump() for g in gaps]}
 
     # --- Scan tools (Phase 1 + Phase 2 project_root) ---
 

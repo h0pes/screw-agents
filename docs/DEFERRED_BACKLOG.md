@@ -4,13 +4,13 @@
 
 ---
 
-## Phase 3b Task 13 (init-trust extends trust.py)
+## Trust-layer polish (was "Phase 3b Task 13", re-scoped 2026-04-19)
 
 ### T4-M6 — Split `src/screw_agents/trust.py` into a package
 **Source:** Phase 3a PR#1 punchlist (commit `27d147d`)
 **File:** `src/screw_agents/trust.py` (~552 lines after Task 7.1)
-**Why deferred:** Phase 3b Task 13 (init-trust CLI) will naturally extend trust.py with key-generation utilities. Splitting now would mean churning the file twice.
-**Trigger:** When Phase 3b Task 13's implementation lands.
+**Why deferred:** ~~Phase 3b Task 13 (init-trust CLI) will naturally extend trust.py with key-generation utilities. Splitting now would mean churning the file twice.~~ REVISED 2026-04-19: Phase 3b T13 validate-script CLI was reviewed and found to only IMPORT existing trust.py functions, not extend them. The original split-avoidance rationale no longer applies; trigger revised accordingly.
+**Trigger:** When trust.py gains new exported functions (e.g., Phase 3b T17 screw-script-reviewer or T18 subagent-prompt integration may need new helpers) OR during a dedicated polish commit. Phase 3b T13 validate-script CLI does NOT extend trust.py — it only imports `canonicalize_script`, `load_config`, `sign_content`, and the internal helpers — so T13 is no longer a valid trigger. REVISED 2026-04-19 (post-T18a): T18a (`sign_adaptive_script` + `lint_adaptive_script` MCP tools) does NOT extend trust.py either — it imports the same internal helpers and places the shared canonicalization wrapper at `src/screw_agents/adaptive/signing.py` (adaptive-specific signing lives with adaptive code). T18a is no longer a valid trigger.
 **Suggested split:**
 - `trust/__init__.py` — re-exports
 - `trust/canonical.py` — `canonicalize_exclusion`, `canonicalize_script`, `_canonical_json_bytes`, exclude sets
@@ -23,8 +23,8 @@
 ### T1-M1 — `AdaptiveScriptMeta` runtime-flag fields (dual-layer defense pattern)
 **Source:** Phase 3b PR #4 Task 1 quality review, 2026-04-18
 **File:** `src/screw_agents/models.py` `AdaptiveScriptMeta`
-**Why deferred:** Task 11-14 (executor + validate-script CLI) will need per-script trust state ("trusted", "warned", "quarantined", "allowed") on `AdaptiveScriptMeta`, mirroring the `Exclusion.quarantined` + `Exclusion.trust_state` runtime fields added in Phase 3a. Adding the fields speculatively in Task 1 was rejected — the exact field name and value set should be decided by the implementer who has the executor context.
-**Trigger:** When Phase 3b Task 11 (executor pipeline) or Task 13 (validate-script CLI) needs per-script trust tracking.
+**Why deferred:** ~~Task 11-14 (executor + validate-script CLI) will need per-script trust state ("trusted", "warned", "quarantined", "allowed") on `AdaptiveScriptMeta`, mirroring the `Exclusion.quarantined` + `Exclusion.trust_state` runtime fields added in Phase 3a. Adding the fields speculatively in Task 1 was rejected — the exact field name and value set should be decided by the implementer who has the executor context.~~ REVISED 2026-04-19: T11 (shipped in PR #4) and T13 (bundled in PR #5) were both reviewed and found to NOT need runtime-flag fields. T11's executor returns `AdaptiveScriptResult.stale` as a top-level runtime flag and does not annotate the meta model itself; T13's validate-script writes only persisted fields (`signed_by`, `signature`, `validated`, `sha256`). First likely trigger is T20 stale-script detection (runtime `stale` annotation) or T21 adaptive-cleanup (user-visible trust state).
+**Trigger:** When the executor OR a CLI command needs to annotate `AdaptiveScriptMeta` at runtime (e.g., Phase 3b T20 stale-script detection may attach a `stale: True` runtime flag, or T21 adaptive-cleanup may want `quarantined`/`trust_state` annotations). Phase 3b T11 executor shipped without needing runtime state; T13 validate-script writes only persisted fields (`signed_by`, `signature`, `validated`, `sha256`). Neither is a trigger.
 **Suggested approach:** Mirror the `Exclusion` dual-layer defense exactly — `Field(default=..., exclude=True)` at the schema level + `_RUNTIME_ONLY_FIELDS` ClassVar set + `model_dump` override to catch caller-side `include=` edge cases (see `Exclusion._RUNTIME_ONLY_FIELDS` at `src/screw_agents/models.py` line ~262 and the `model_dump` override at line ~264 for the template). Don't skip the override — Pydantic v2's `include`/`exclude` precedence can let `include` win over field-level `exclude`, so the runtime override is the load-bearing second layer.
 **Estimated scope:** ~30 LOC in models.py + 2-3 new tests. Trivial.
 
@@ -74,6 +74,18 @@ Either path requires re-validating all 17 isolation properties (the rlimit value
 
 **Estimated scope:** 50-100 LOC + re-validation of isolation tests. Small-to-medium PR.
 
+### T8-Sec3 — Rename `_SCRIPT_PROCESS_BUDGET` / `_BWRAP_HEADROOM` to reflect thread-counting semantics
+
+**Source:** T8 latent-bug fix (commit `7cff916`, 2026-04-19)
+**File:** `src/screw_agents/adaptive/sandbox/linux.py`
+**Priority:** Low (naming consistency, not correctness)
+
+**Why deferred:** Following the thread-counting bug fix (RLIMIT_NPROC accounts per-UID threads, not processes; `_compute_nproc_cap` was previously counting processes), the constants `_SCRIPT_PROCESS_BUDGET` and `_BWRAP_HEADROOM` semantically quantify thread-budget, not process-budget. Renaming is a cosmetic improvement with zero behavioral impact. Deferred because it's a symbol rename on module-private constants — trivial to do but noisy churn that doesn't carry its own commit weight.
+
+**Trigger:** Any dedicated sandbox-cleanup polish commit, or alongside T8-Sec1 / T8-Sec2 (the other Phase 3c sandbox-hardening deferrals).
+
+**Suggested fix:** Rename to `_SCRIPT_THREAD_BUDGET` and `_BWRAP_THREAD_HEADROOM`. Update docstrings + the inline comment block at lines 90-113 of `linux.py` + the in-function NOTE at the bottom of `_compute_nproc_cap`'s docstring. ~15 LOC diff.
+
 ### T9-Sec1 — Deduplicate host-side sandbox defenses into shared `_common.py`
 **Source:** Phase 3b PR #4 Task 9 implementation, 2026-04-18
 **File:** `src/screw_agents/adaptive/sandbox/_common.py` (new) + linux.py + macos.py
@@ -107,6 +119,143 @@ need a fix that would have to be applied in two places.
 ---
 
 ## Phase 4+ (autoresearch / scale)
+
+### T19-M1 — Surface `merged_from_sources` in SARIF and CSV output
+**Source:** Phase 3b T19 (commit `bff35b5`, 2026-04-19)
+**File:** `src/screw_agents/formatter.py` `_format_sarif` + `format_csv`
+**Priority:** Low — Markdown + JSON are the primary structured paths and both surface the field.
+
+**What's shipped:** Phase 3b T19 adds `merged_from_sources: list[str] | None` to `Finding`. When a finding is the result of an augmentative merge (multiple scan sources detected the same `(file, line_start, cwe)`), the list carries `"<agent> (<severity>)"` entries in input order. Markdown renders a `**Sources:**` line after Description; JSON carries the field via `model_dump()` automatically.
+
+**What is NOT shipped:** SARIF and CSV formatters do not render the field.
+- **SARIF** has no natural top-level slot for multi-source attribution. The current SARIF `result` object surfaces a single `tool.driver.rules[]` entry per finding; multi-source would need to go into the `properties` bag (SARIF 2.1 schema allows arbitrary property extensions) or a synthetic `relatedLocations` block.
+- **CSV** iterates a fixed column list. Adding a new column would break backward compat for positional parsers (spreadsheet imports, legacy tooling) that expect the current header row.
+
+**Why deferred:** Markdown + JSON cover the primary structured-consumer path:
+- Human reviewers read Markdown.
+- Phase 4 autoresearch consumes JSON.
+- Future SARIF consumers (GitHub Code Scanning, SonarQube) can fall back to the primary's `agent` field; multi-source attribution is useful but not correctness-critical.
+- CSV consumers have stable columns today; breaking them for a secondary format is the wrong trade.
+
+**Trigger:** Any of:
+- Phase 4 autoresearch uses SARIF output in volume and needs source attribution for ranking/filtering
+- A CSV consumer complains about losing source attribution when findings are merged
+- Phase 4+ reporting uplift touches both formatters anyway
+
+**Suggested fix:**
+1. **SARIF** — embed `merged_from_sources` in the finding's `properties` bag under key `merged_from_sources`. Consumers who understand the bag surface it; others see the primary's `agent` field. This is the SARIF-idiomatic path for tool-specific extensions.
+2. **CSV** — append an optional `merged_sources` column AT THE END of the existing column list (appending preserves backward compat for positional parsers that read by index up to the old column count). Empty string for unmerged findings; `"; "`-joined list for merged findings (same separator as other CSV-list fields, comma would collide with CSV delimiter).
+
+**Estimated scope:** ~30 LOC + 2 tests (one SARIF assertion, one CSV assertion). Trivial.
+
+### T19-M2 — Per-source exclusion matching for merged findings
+
+**Source:** Phase 3b T19 quality review, 2026-04-19
+**File:** `src/screw_agents/results.py` (exclusion-match call site around line 200)
++ `src/screw_agents/learning.py::match_exclusions`
+**Priority:** Medium (pre-existing exclusion-model limitation, newly addressable post-T19)
+
+**What's shipped (T19):** Augmentative merge by `(file, line_start, cwe)`.
+Merged primary's `agent` field is the severity-winning source; other
+sources listed in `merged_from_sources: list[str]`. `match_exclusions` at
+`learning.py:363` still keys strict-equal on `agent`.
+
+**What is NOT shipped:** when a merged finding's primary agent differs
+from the exclusion's agent (e.g., user excluded `agent=sqli` but the
+merge's primary is now `agent=adaptive_script:qb-check` because adaptive
+outranked sqli on severity), the exclusion silently fails to match.
+This is a PRE-EXISTING limitation (before T19, the same adaptive finding
+would also not have matched the sqli exclusion because they were SEPARATE
+findings with different agent labels), but T19 makes it newly ADDRESSABLE
+because the structured `merged_from_sources` carries the information
+needed to do per-source matching.
+
+**Why deferred from T19:** T19 was scoped as "augmentative merge", not
+"exclusion-semantics rework". Per-source exclusion matching is a change
+in the exclusion-matching contract, not the merge contract, and deserves
+its own review cycle with exclusion-model implications (e.g., what happens
+when DIFFERENT sources have DIFFERENT matching exclusions? Does one
+override the other? How does `exclusions_applied` in the render result
+represent per-source suppression?).
+
+**Trigger:** Any of:
+- User reports "I excluded this SQLi finding and it came back" after
+  enabling adaptive mode
+- Phase 4 autoresearch needs to correlate exclusions with merged findings
+- The exclusion-model audit that goes with Phase 4's FP learning loop
+
+**Suggested fix:**
+1. In `render_and_write`, when matching a Finding with non-None
+   `merged_from_sources`, iterate ALL source agents (parsed from the
+   list) and call `match_exclusions` for each. Suppress the finding if
+   ANY source matches an exclusion.
+2. Dependency on T19-M3: if `merged_from_sources` migrates from
+   `list[str]` ("agent (severity)") to `list[dict]` ({"agent": ...,
+   "severity": ...}), the per-source iteration becomes cleaner — no
+   string parsing.
+3. Add regression test: merged finding with agent=A primary,
+   merged_from_sources includes agent=B. Exclusion keyed on agent=B
+   must suppress the merged finding. Exclusion keyed on agent=A must
+   also suppress it.
+4. Update `exclusions_applied` in render result to carry the
+   matched-source-agent (so downstream consumers understand why the
+   merged finding was suppressed).
+
+**Estimated scope:** ~40 LOC in `render_and_write` + per-source
+iteration helper + 3 regression tests. Medium complexity due to the
+exclusions_applied schema extension.
+
+### T19-M3 — Structured `merged_from_sources` format (list[str] → list[dict])
+
+**Source:** Phase 3b T19 quality review, 2026-04-19
+**File:** `src/screw_agents/models.py::Finding.merged_from_sources` +
+`src/screw_agents/results.py::_merge_findings_augmentatively` +
+`src/screw_agents/formatter.py` (Markdown renderer) + tests
+
+**Priority:** Low (current format works for display + known consumers)
+
+**What's shipped (T19):** `merged_from_sources: list[str] | None` where
+each string is formatted as `"<agent> (<severity>)"`. Works for Markdown
+display and for JSON consumers who just read the list. Downstream SARIF
+emission (T19-M1 deferral) and potential regex-parsing consumers would
+find the string format fragile — nested parens in agent names would
+break `rsplit(" (", 1)` parsing.
+
+**Why deferred:** Migrating now is strictly an ergonomic improvement
+with no current failing consumer. JSON-side structure is stable; the
+LIST wrapper is the schema contract, element shape is the
+evolvability concern.
+
+**Trigger:** Any of:
+- Phase 4 autoresearch consumes `merged_from_sources` and needs
+  per-source severity programmatically
+- SARIF emission (T19-M1) goes structured via the properties bag
+- A consumer reports the format can't roundtrip an edge-case agent name
+
+**Suggested fix:**
+1. Change schema to `merged_from_sources: list[MergedSource] | None`
+   where:
+   ```python
+   class MergedSource(BaseModel):
+       agent: str
+       severity: str
+   ```
+2. Update merge function to emit `MergedSource(agent=f.agent,
+   severity=f.classification.severity)` instead of formatted strings.
+3. Update Markdown renderer to format on the fly:
+   `", ".join(f"{s.agent} ({s.severity})" for s in f.merged_from_sources)`.
+4. Update all 9 T19 tests to expect structured objects (or use helper
+   to convert for display assertion).
+5. Update T19-M2 (per-source exclusion matching) to iterate structured
+   sources rather than parse strings.
+6. Backward-compat consideration: existing JSON output consumers who
+   parse `list[str]` will break. Because `merged_from_sources` is
+   Phase-3b-new, there are no shipped external consumers yet —
+   migration has zero user impact right now. Later migration would
+   be more expensive.
+
+**Estimated scope:** ~100 LOC across 4 files + 9 test updates +
+1 new model. Small PR.
 
 ### T-FULL-P1 — Paginate `assemble_full_scan` + apply lazy-fetch + agent-relevance filter
 **Source:** X1-M1 (PR #9, 2026-04-17) — incremental dedup landed; full architectural fix deferred.
@@ -484,6 +633,36 @@ surface meta-load errors cleanly to the subagent caller.
 
 **Estimated scope:** ~15 LOC + 2 tests. Trivial.
 
+### T16-M1 — Server-side context-required match detection (vs LLM-reported)
+**Source:** Phase 3b PR #5 Task 16 implementation, 2026-04-19
+**File:** `src/screw_agents/gap_signal.py`, `src/screw_agents/engine.py`
+**Priority:** Medium (Phase 4 refinement)
+
+**What's shipped now:** Subagent LLMs call `record_context_required_match` when they investigate a `severity: context-required` pattern and decide not to emit a finding. The scan engine has no independent way to detect context-required matches; it trusts the LLM's self-report. This closes the adaptive E2E loop but puts the onus on the subagent prompt (T18) to be disciplined.
+
+**Why defer to Phase 4:** Server-side detection of context-required pattern matches would require parsing each agent's `detection_heuristics.context_required` patterns, compiling them against scanned source, and recording every match programmatically — independent of LLM reasoning. That's a lot of heuristic-compilation infrastructure (regex vs tree-sitter pattern matching, per-language behavior, false-positive filtering) and belongs with Phase 4's autoresearch scaffolding that already needs pattern-match telemetry.
+
+**Trigger:** When Phase 4 autoresearch scaffolding lands OR when subagent-prompt discipline for `record_context_required_match` proves unreliable in production (measured via the matches-per-scan metric not moving when scans clearly encounter context_required patterns).
+
+**Suggested approach:** Extend `gap_signal.py` with a `compile_heuristic_patterns(agent: AgentDefinition) -> list[CompiledHeuristic]` helper, add `scan_for_context_required_matches(project_root, agent) -> list[ContextRequiredMatch]` that runs at scan time, call alongside the LLM-driven path, and merge into staging with the existing 4-tuple dedup.
+
+**Estimated scope:** ~150-250 LOC + 6-10 tests. Medium. Depends on Phase 4 heuristic-compilation framework.
+
+### T16-M2 — Multi-session context-required match correlation
+**Source:** Phase 3b PR #5 Task 16 implementation, 2026-04-19
+**File:** `src/screw_agents/staging.py`
+**Priority:** Low (deferred unless cross-session analytics prove useful)
+
+**What's shipped now:** `context_required_matches.json` is strictly per-session. Each scan's matches are consumed at finalize and deleted. There's no cross-session retention or correlation.
+
+**Why defer:** Cross-session correlation (e.g., "this file has had a context-required match on line 42 across 3 scans — promote to persistent watchlist") is an analytics layer, not a coverage-gap-signal layer. Likely belongs alongside `learning/exclusions.yaml` as a second learning artifact once the autoresearch loop (Phase 4) is live. Premature work without clear Phase 4 semantics.
+
+**Trigger:** When autoresearch (Phase 4) needs historical context-required match telemetry as a signal input, OR when a user asks for a "chronic gap" report similar to `aggregate_learning`'s FP report.
+
+**Suggested approach:** New `.screw/learning/context_required_history.yaml` written at finalize (mirroring the `exclusions.yaml` stable-artifact pattern), one `ScanEngine.aggregate_context_required_patterns` method for chronic-gap reporting, never auto-deleted.
+
+**Estimated scope:** ~100 LOC + 5 tests. Small. Can be implemented independently of autoresearch when/if the use case materializes.
+
 ---
 
 ## Shipped
@@ -517,3 +696,172 @@ surface meta-load errors cleanly to the subagent caller.
 The subagent's natural "persist after each batch" instinct is channeled into cheap `accumulate_findings` calls; `finalize_scan_results` is an explicit terminal event. The legacy `write_scan_results` function and MCP tool were removed.
 
 **Follow-up:** `T-STAGING-ORPHAN-GC` (Phase 4+) — orphan cleanup for scans that accumulate but never finalize.
+
+---
+
+## Phase 3b PR #5 round-trip test findings (2026-04-20)
+
+Round-trip manual testing of `/screw:scan sqli src/ --adaptive` on a seeded QueryBuilder fixture surfaced one Critical architectural defect and four Important quality issues. C1 is tracked below as a Phase 3b-follow-up PR ship-blocker (must be fixed before adaptive mode is considered production-safe). I1-I4 + Minor are polish/hardening items that don't block PR #5's infrastructure value.
+
+### C1 — CRITICAL: Human-approval flow regenerates script after approval (trust violation)
+
+**Source:** Phase 3b PR #5 manual round-trip test, 2026-04-20
+**File:** `plugins/screw/agents/screw-*.md` (adaptive-mode sections, 5 per-agent files + orchestrator), `plugins/screw/commands/scan.md`
+**Priority:** **BLOCKER — must fix before adaptive mode is production-safe**
+
+**What's shipped (broken):** T18b's subagent prompts assume the generating subagent pauses at the 5-section review, waits for user input (`approve <script-name>` / `reject <script-name>`), then continues into sign+execute. In Claude Code's architecture, subagents run to completion — they cannot pause. When the user types `approve`, the main session reports *"SendMessage isn't exposed in this session, so I'll resume the scan by spawning a fresh subagent with the approval decision and full script context"* and re-runs the pipeline from scratch. The fresh subagent's LLM regenerates a DIFFERENT adaptive script (confirmed empirically: script v1 used `read_source` + `find_calls(tree, method=...)`; script v2 used `parse_module` — completely different source). **The regenerated script is the one that gets signed and executed, NOT the one the human reviewed.** Layer 0d semantic review + 5-section human review both presupposed the approved source EQUALS the executed source. That invariant is broken.
+
+**Why this is a ship-blocker:** a trusting user running `/screw:scan sqli src/ --adaptive` believes their approval decision applies to the source they read. In reality, LLM non-determinism means they're implicitly approving an unknown variant. Malicious target code could even exploit this: craft code where the "reviewed" script looks benign but a regeneration produces a variant with a subtle bypass. Defense-in-depth layers (1 AST lint, 2 SHA hash pin, 3 signature) all operate on the signed content — but the signing is done AFTER regeneration, so hash/signature match the regenerated content, not the reviewed content.
+
+**Trigger:** Before the `/screw:scan ... --adaptive` flow is considered production-ready. This is the Phase 3b follow-up immediately after PR #5 merges.
+
+**Suggested fix — staging architecture:**
+1. Add new MCP tool `stage_adaptive_script(project_root, source, meta) -> {stage_id, stage_path}` that writes the unsigned script to `.screw/staging/{session_id}/adaptive-scripts/<stage_id>.{py,meta.yaml}` atomically.
+2. Update T18b's subagent prompt: the generating subagent STAGES the script BEFORE composing the 5-section review. The review includes the `stage_id` as part of the script_name shown to the user.
+3. Replace `sign_adaptive_script(source, meta, ...)` signature with `sign_staged_script(stage_id, ...)` OR keep both and make the subagent prompt specify which path to use. Signing path READS from staging + promotes to `.screw/custom-scripts/` — no source parameter means no regeneration possible.
+4. Reject path: `reject <stage_id>` deletes the staging file. Separate from main approve path.
+5. Cleanup: staging files orphan if user never approves/rejects — include in `/screw:adaptive-cleanup` stale-orphan sweep (Phase 4+ or a dedicated T-STAGING-ORPHAN-GC variant).
+
+**Alternative (Option B) accepted during triage:** Document C1 as known experimental-mode limitation with loud warnings in the slash command + subagent prompts. Not recommended — the trust model being silently broken is worse than being feature-gated.
+
+**Estimated scope:** 1-2 focused sessions. ~500-800 LOC across new MCP tool, staging module, T18b subagent prompts (5 per-agent files + orchestrator), tests (staging semantics + round-trip regression). Plan-sync + DEFERRED_BACKLOG cleanup on merge.
+
+### I1 — Layer 0d screw-script-reviewer subagent not invoked (plugin-namespace bug)
+
+**Source:** Phase 3b PR #5 manual round-trip test, 2026-04-20
+**File:** `plugins/screw/agents/screw-sqli.md` (and screw-cmdi/ssti/xss identical-section copies) — the Task tool invocation in Step 3.5d-F
+**Priority:** Important (Layer 0d defense gate is inactive — but framed as advisory-only per T17 design, not a security boundary)
+
+**What's shipped:** T18b's per-agent subagent prompt invokes the Task tool with `subagent_type: "screw-script-reviewer"` (bare name). Claude Code registers the reviewer subagent under the plugin namespace as `screw:screw-script-reviewer` (verified via `/agents` during Step 4). The Task tool doesn't resolve the bare name — the subagent reports *"screw-script-reviewer subagent unavailable in this session"* and falls through with `semantic_review = not-run` in the 5-section review. The user sees the "not-run" status surfaced (good UX) but Layer 0d review is effectively inactive.
+
+**Trigger:** Bundle with the C1 fix (same 5 T18b subagent files + orchestrator need editing).
+
+**Suggested fix:** Change `subagent_type: "screw-script-reviewer"` to `subagent_type: "screw:screw-script-reviewer"` across all 5 per-agent subagent `.md` files. Add a format-smoke test asserting the namespace prefix is present. Verify via manual round-trip that Layer 0d fires.
+
+**Estimated scope:** ~20 LOC across 5 prompt files + 1 test + manual verification. Trivial once C1's staging work is underway (same file set).
+
+### I2 — Layer 1 AST lint doesn't validate imported SYMBOLS against adaptive.__all__
+
+**Source:** Phase 3b PR #5 manual round-trip test, 2026-04-20
+**File:** `src/screw_agents/adaptive/lint.py`
+**Priority:** Important (defense-in-depth gap; executor catches this at runtime but too late for the review flow)
+
+**What's shipped:** Layer 1 AST allowlist lint at `adaptive/lint.py` verifies imports come from `screw_agents.adaptive` (the MODULE) or Python stdlib. It does NOT verify that imported SYMBOLS are members of `screw_agents.adaptive.__all__`. An LLM-hallucinated import like `from screw_agents.adaptive import read_source` (where `read_source` isn't in `__all__`) passes lint (module is allowed) but fails at execution with `ImportError`. Confirmed empirically in the round-trip: the generated script imported `read_source` (and later `parse_module`), lint passed, sandbox reported `returncode=1` + 0 findings.
+
+**Trigger:** Any of: (a) a dedicated Layer 1 hardening commit, (b) an E2E test that specifically probes the gap, (c) a user-reported frustration about "my adaptive script passed lint but fails at execution with cryptic ImportError".
+
+**Suggested fix:**
+1. In `lint.py`, parse `screw_agents.adaptive.__init__.py`'s `__all__` at lint time (cached — it's stable for the lifetime of the process).
+2. For each `from screw_agents.adaptive import <name>` statement, verify `<name>` is in the cached `__all__`. Report a lint violation naming the unrecognized symbol.
+3. Edge case: `import screw_agents.adaptive as X` + `X.unknown` — harder to catch at AST level; accept as follow-up.
+4. Add test cases: `test_lint_rejects_unknown_import_symbol` + the positive-control equivalent.
+
+**Estimated scope:** ~40 LOC + 3-4 tests. Small PR.
+
+### I3 — Sandbox execution stderr not surfaced on failure
+
+**Source:** Phase 3b PR #5 manual round-trip test, 2026-04-20
+**File:** `src/screw_agents/adaptive/executor.py` + `src/screw_agents/adaptive/sandbox/linux.py` + the subagent prompt that renders execution results
+**Priority:** Important (UX/debugging impact — a failed adaptive script returns "returncode=1, 0 findings, no stderr surfaced" giving the user nothing to diagnose)
+
+**What's shipped:** The round-trip observed `execute_adaptive_script` returning a failure result with `returncode=1, wall_clock_s=73ms, killed_by_timeout=False` but the subagent's rendering said *"no stderr surfaced"*. The broken script (import error) would have produced a Python `ImportError` traceback to stderr — but the subagent either didn't receive it OR the subagent's output-render-template didn't include stderr field.
+
+**Trigger:** Bundle with Phase 3c sandbox hardening (alongside T8-Sec1/Sec2/Sec3) OR as a dedicated UX fix.
+
+**Suggested fix:**
+1. Trace: does `sandbox/linux.py::run_in_sandbox` capture stderr? (It should — verified via `subprocess.run(..., capture_output=True)`.)
+2. Trace: does `executor.py::execute_script` pass stderr through to `SandboxResult.stderr` cleanly?
+3. Trace: does the subagent prompt (T18b's Step 3.5d-H sub-step 3) surface stderr when returncode != 0? If not, add it: "On execution failure, render `f.stderr.decode('utf-8', errors='replace')` in a fenced block so the user sees the diagnostic."
+4. Add a round-trip-style test where a deliberately-broken script (bad import) is signed + executed, and assert the subagent's rendered output contains the ImportError text.
+
+**Estimated scope:** ~30 LOC across executor/sandbox pass-through + subagent prompt render-on-failure branch + 1 test. Small.
+
+### I4 — Failed adaptive script stays on disk at .screw/custom-scripts/ after execution failure
+
+**Source:** Phase 3b PR #5 manual round-trip test, 2026-04-20
+**File:** `plugins/screw/agents/screw-*.md` (execute-failure path in Step 3.5d-H)
+**Priority:** Minor (current behavior is defensible — user can inspect the failed script; `/screw:adaptive-cleanup remove` gives them removal UX)
+
+**What's shipped:** When `execute_adaptive_script` returns a failure result, the subagent's prompt (Step 3.5d-H) surfaces the failure message to the user and moves to the next gap OR to finalize. The signed `.py` + `.meta.yaml` pair remains on disk at `.screw/custom-scripts/<script_name>.py`. Future scans will count it as `script_active_count=1` in `verify_trust` (it IS validly signed) and `list_adaptive_scripts` will report it (with `stale=False` if `target_patterns` still matches).
+
+**Design question:** is this the right behavior?
+- **Arguments for keeping:** user can inspect the script to understand the bug, re-run manually, OR use `/screw:adaptive-cleanup remove` to delete it. The trust/cleanup surfaces handle it cleanly.
+- **Arguments for auto-deleting:** a failed-at-execution script has zero utility and clutters the directory. A "Broken adaptive script removed automatically — check the execution log if you need to investigate" message is cleaner UX.
+
+**Recommendation:** document the current keep-on-disk behavior explicitly in `/screw:adaptive-cleanup`'s help text and the 5-section review's post-execution wrap-up. Add a hint: "Execution failed — script retained at `.screw/custom-scripts/<name>.py` for inspection. Run `/screw:adaptive-cleanup remove <name>` to clear it." No code change; just prompt+docs.
+
+**Estimated scope:** ~10 LOC across subagent prompts + command docstring. Trivial.
+
+### I5-Minor — Prompt engineering to reduce LLM API hallucination
+
+**Source:** Phase 3b PR #5 manual round-trip test, 2026-04-20
+**File:** `plugins/screw/agents/screw-*.md` Step 3.5d-C generation-prompt template
+**Priority:** Low (LLM non-determinism is fundamental; this is partial mitigation)
+
+**What's shipped:** T18b's Step 3.5d-C generation-prompt paraphrase tells the LLM *"Import ONLY from `screw_agents.adaptive` and Python standard library."* It lists the 18 export names in the prompt section at lines 96-111 of the per-agent subagent files. The LLM STILL hallucinated `read_source` (not in the list) and `parse_module` (also not in the list). This suggests the current listing is not visually prominent enough during generation OR the LLM deprioritized it.
+
+**Trigger:** Bundle with the C1 fix (prompt engineering already being iterated).
+
+**Suggested fix:**
+1. In the generation prompt (not just the reference section), embed the 18-export list AS the allowlist the LLM must use: *"You MUST use ONLY these 18 functions from screw_agents.adaptive: [list]. Any import of a name NOT in this list is a HARD FAIL — the AST lint will reject and execution will never happen."*
+2. Add a negative examples block: *"Do NOT invent helper names like `read_source`, `parse_module`, `walk_module` — these don't exist. If you need to read a file, use `project.read_file(path)` via ProjectRoot. If you need to parse Python, use `parse_ast(source, language='python')`."*
+3. Consider: generate script with a constrained LLM-as-compiler pattern where allowed names are tokenized/validated before emission. Out of scope for a prompt fix but worth noting.
+
+**Estimated scope:** ~30 LOC of prompt content across 5 per-agent subagent files. Small but repetitive — may motivate extraction to a shared template if the discipline gets tedious (but Claude Code subagent isolation makes shared templates structurally hard; see the T18b byte-identical-section pattern).
+
+### I6 — `adaptive-cleanup.md` `uv run python -c` fails when cwd ≠ worktree
+
+**Source:** Phase 3b PR #5 manual round-trip Steps 7-9, 2026-04-20
+**File:** `plugins/screw/commands/adaptive-cleanup.md` (both list + remove action Bash blocks)
+**Priority:** Important (command broken out-of-box for the intended use case — user's project is outside the screw-agents install; LLM recovers but shouldn't have to)
+
+**What's shipped:** The slash command's backend invocation is `uv run python -c "from screw_agents.cli.adaptive_cleanup import ..."` without `--project`. When the user's project is outside the screw-agents install directory (the normal case — users don't run scans INSIDE the screw-agents worktree), `uv run` walks up from cwd looking for `pyproject.toml`, finds none, creates an ephemeral project, and fails with `ModuleNotFoundError: No module named 'screw_agents'`.
+
+**Observed empirically in round-trip:** Marco's test session cwd was `/tmp/screw-roundtrip-qb/`. First `/screw:adaptive-cleanup` invocation produced `ModuleNotFoundError`. The LLM controller recovered by `cd`'ing into the screw-agents worktree at `/home/marco/Programming/AI/screw-agents/.worktrees/phase-3b-pr5` first, then running `uv run python -c "..."` there but passing the test project path as arg to `list_adaptive_scripts(Path('/tmp/screw-roundtrip-qb').resolve())`. Graceful recovery but brittle — depends on LLM finding the worktree path via filesystem search and adapting the command.
+
+**Trigger:** Bundle with C1's subagent prompt rework (same file set) OR as a standalone command-spec polish commit.
+
+**Suggested fix:** Replace both Bash blocks in `adaptive-cleanup.md` (list + remove) with an invocation that's location-agnostic:
+
+```bash
+uv --project "$(python3 -c 'import screw_agents; import os; print(os.path.dirname(os.path.dirname(os.path.dirname(screw_agents.__file__))))')" run python -c "..."
+```
+
+Or simpler — rely on `UV_PROJECT_ENVIRONMENT` / `UV_PROJECT` env vars documented in the command body AND/OR make the MCP-tool-based path the primary. Better yet: expose `list_adaptive_scripts` / `remove_adaptive_script` as proper MCP tools via `engine.py` + `server.py` so the slash command goes through the MCP server (which already has the correct `--project` configured in `.mcp.json`). This matches the pattern of `sign_adaptive_script` / `detect_coverage_gaps` etc. — no `uv run` subshell needed.
+
+**Related root cause:** same class of issue as the `.mcp.json` fix we applied during Step 4 of the round-trip (adapted the MCP server config to use `uv --project <worktree>` so cwd-independence works). The slash command's Bash backend needs the same treatment.
+
+**Estimated scope:** ~10 LOC of markdown change if keeping Bash subshell; ~80 LOC if promoting list/remove to proper MCP tools (recommended — consistent architecture).
+
+**Round-trip steps that passed despite the bug:** Steps 7 (list, not-stale), 8 (list, stale), 9 (remove + confirm gate) all completed correctly after LLM recovery. The adaptive-cleanup backend logic itself is sound — it's only the command-invocation envelope that needs fixing.
+
+### Round-trip test validation summary (2026-04-20)
+
+Despite C1 (adaptive-mode approval flow broken) and I1-I6 (six smaller findings), the round-trip manual tests confirmed the following PR #5 subsystems work correctly:
+
+**Confirmed working:**
+- Trust infrastructure end-to-end (init-trust → validate-script / sign_adaptive_script → verify_script at execution-time Layer 3). Signature round-trip passes.
+- MCP tool layer: `scan_sqli`, `record_context_required_match`, `accumulate_findings`, `detect_coverage_gaps`, `lint_adaptive_script`, `sign_adaptive_script`, `execute_adaptive_script`, `finalize_scan_results` — all fire correctly with session_id threading intact.
+- YAML finding rendering with `coverage_gaps` field in finalize response (T16).
+- Augmentative merge infrastructure (T19) — exercised in T22 unit test; not hit at runtime during round-trip because the adaptive script failed before producing findings.
+- T21 `list_adaptive_scripts` with per-script stale detection: toggles `not stale` → `⚠ stale — 0 of N target_patterns match call sites: <patterns>` correctly when target_patterns call sites are removed.
+- T21 `remove_adaptive_script` with MANDATORY confirmation gate. Exact-match "yes" required; `.py` + `.meta.yaml` atomically removed.
+- T21 slash-command rendering: `signing: ✓ signed (by <email>)`, `⚠ stale — <reason>`, discoverability prompt for stale scripts, all fire as specified.
+
+**Broken (blocks adaptive-mode production use):**
+- C1 — approval flow regenerates script after "approve"; user reviews v1, signs+executes v2. Trust model violation.
+
+**Defects that degrade but don't block:**
+- I1 — Layer 0d reviewer not invoked (plugin namespace bug in Task subagent_type)
+- I2 — Layer 1 lint doesn't validate imported symbols against adaptive.__all__
+- I3 — execute failure surfaces "no stderr" instead of the actual ImportError traceback
+- I4 — failed adaptive scripts retained on disk (documentation-only fix)
+- I5 — LLM hallucinates API names despite prompt listing exports
+- I6 — adaptive-cleanup.md `uv run` fails when cwd ≠ worktree (LLM recovers)
+
+**PR #5 merge recommendation:**
+Ship Option A per the initial triage:
+1. Merge PR #5 as-is to preserve the 770+ tests and infrastructure value (T13-T22 + sandbox fix).
+2. Gate adaptive-mode with a loud experimental warning in the slash command body — see commit messages for suggested wording.
+3. Track C1 as the immediate next follow-up PR before promoting adaptive mode to production-ready. Staging architecture is the fix.
+4. I1-I6 can batch into the same C1-fix PR (most touch the same file set) or land as a standalone polish PR.

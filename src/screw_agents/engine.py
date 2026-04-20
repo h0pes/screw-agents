@@ -11,23 +11,44 @@ from __future__ import annotations
 import base64
 import hashlib
 import json as _json
+import os
+import re
 from pathlib import Path
 from typing import Any
 
 import yaml
 
 from screw_agents.adaptive.executor import execute_script
+from screw_agents.adaptive.signing import (
+    build_signed_script_meta,
+    compute_script_sha256,
+)
 from screw_agents.aggregation import (
     aggregate_directory_suggestions,
     aggregate_fp_report,
     aggregate_pattern_confidence,
 )
 from screw_agents.formatter import format_findings
-from screw_agents.learning import load_exclusions
+from screw_agents.learning import (
+    _get_or_create_local_private_key,
+    load_exclusions,
+)
 from screw_agents.models import AgentDefinition, Exclusion, Finding, HeuristicEntry
 from screw_agents.registry import AgentRegistry
 from screw_agents.resolver import ResolvedCode, filter_by_relevance, resolve_target
-from screw_agents.trust import load_config, verify_script
+from screw_agents.trust import (
+    _find_matching_reviewer,
+    _fingerprint_public_key,
+    _load_public_keys_with_reviewers,
+    load_config,
+    verify_script,
+)
+
+# Filesystem-safe script name regex: lowercase alphanum + dash, 3-63 chars,
+# must start with alphanumeric. Mirrors the safety envelope used elsewhere
+# in adaptive scripts — conservative to avoid path traversal / shell
+# metacharacters / Windows reserved names when these land on disk.
+_SCRIPT_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{2,62}$")
 
 _DEFAULT_DOMAINS_DIR = Path(__file__).resolve().parent.parent.parent / "domains"
 
@@ -219,6 +240,368 @@ class ScanEngine:
             "sandbox_result": result.sandbox_result.model_dump(
                 mode="json", exclude={"stdout", "stderr"}
             ),
+        }
+
+    def sign_adaptive_script(
+        self,
+        *,
+        project_root: Path,
+        script_name: str,
+        source: str,
+        meta: dict[str, Any],
+        session_id: str,
+    ) -> dict[str, Any]:
+        """Sign a freshly-generated adaptive script and write to disk.
+
+        Called from the approve-path of the adaptive review flow (Phase 3b
+        T18a/T18b): the subagent generated a script, the user typed
+        ``approve <name>``, and this tool does the atomic persist + sign.
+        Fresh-script-only — a name collision is an error, NOT an idempotent
+        re-sign. Use ``cli.validate_script.run_validate_script`` for the
+        re-sign path on an existing quarantined script.
+
+        Args:
+            project_root: Project root with ``.screw/`` directory.
+            script_name: Filesystem-safe name
+                (regex ``^[a-z0-9][a-z0-9-]{2,62}$``); produces
+                ``<name>.py`` + ``<name>.meta.yaml`` in
+                ``.screw/custom-scripts/``.
+            source: Python source code. Not validated to be syntactically
+                valid Python or lint-clean — caller (subagent) is
+                responsible for invoking ``lint_adaptive_script`` before
+                approval; this tool assumes human review already passed.
+            meta: Partial meta dict conforming to AdaptiveScriptMeta minus
+                signing fields. Must include ``name``, ``created``,
+                ``created_by``, ``domain``; may include ``description``,
+                ``target_patterns``. Tool computes ``sha256``, sets
+                ``validated=True``, signs, and writes.
+            session_id: Scan session the script was generated for. Echoed
+                in the response for orchestrator correlation; NOT written
+                to disk and NOT used to modify session staging. A future
+                commit may persist the association in ``.screw/local/`` —
+                plumbing the id through now avoids a follow-on API change.
+
+        Returns:
+            Dict with keys:
+                - ``status``: ``"signed"`` on success, ``"error"`` on
+                  recoverable failure (name collision, missing reviewers,
+                  local key not in reviewers, meta schema failure).
+                - ``message``: human-readable summary.
+                - On ``signed``: also includes ``script_path``,
+                  ``meta_path``, ``signed_by``, ``sha256``, ``session_id``.
+
+        Note for T18b reject-flow implementers: name collision in this
+        tool is an error (fresh-script semantics — see the
+        ``script_path.exists()`` branch). If T18b's reject flow writes
+        any file to ``.screw/custom-scripts/`` pre-approval (e.g., a
+        draft preview), it MUST ensure the name is reusable on retry —
+        either by deleting the draft file on reject OR by appending a
+        nonce suffix when the user re-requests generation for the same
+        gap. Without this discipline, a future reviewer hits the "why
+        is sign returning error when there's no visible file" surprise
+        if the draft landed outside the visible script pair.
+
+        Raises:
+            ValueError: On filesystem shape errors
+                (PermissionError / IsADirectoryError / NotADirectoryError
+                while accessing ``.screw/config.yaml`` or writing script
+                files), wrapped via the shared T13 I1 discipline.
+            RuntimeError: On local key generation failure (permission /
+                OS error under ``.screw/local/keys/``).
+
+        Atomic-write contract: both ``.py`` and ``.meta.yaml`` are written
+        via tmp file + ``os.replace`` swap. ORDER matters — the source
+        file is written FIRST, then the meta. If the meta write fails
+        after the source landed, the source file is best-effort unlinked
+        to avoid the "script exists but meta missing" partial state that
+        Layer 3 verification would fail on the next executor call. The
+        reverse failure mode (source write fails) leaves no partial
+        state because the tmp file is deleted before any commit.
+        """
+        # Name validation — reject anything that could turn into path
+        # traversal, shell metacharacters, or Windows reserved names
+        # when these land on disk.
+        if not _SCRIPT_NAME_RE.match(script_name):
+            return {
+                "status": "error",
+                "message": (
+                    f"Invalid script name {script_name!r}. Must match "
+                    f"regex {_SCRIPT_NAME_RE.pattern!r} "
+                    f"(lowercase alphanumeric + dashes, 3-63 chars, "
+                    f"starts with alphanumeric)."
+                ),
+            }
+
+        script_dir = project_root / ".screw" / "custom-scripts"
+        script_path = script_dir / f"{script_name}.py"
+        meta_path = script_dir / f"{script_name}.meta.yaml"
+
+        # Fresh-script semantics: if EITHER file already exists, refuse.
+        # Idempotent re-sign is the validate-script CLI's job, not this
+        # tool's — bailing cleanly prevents the subagent accidentally
+        # overwriting a user's hand-edited custom script.
+        if script_path.exists() or meta_path.exists():
+            return {
+                "status": "error",
+                "message": (
+                    f"Script {script_name} already exists at "
+                    f"{script_path} or {meta_path}. Refusing to overwrite; "
+                    f"use `screw-agents validate-script {script_name}` to "
+                    f"re-sign an existing script."
+                ),
+            }
+
+        # Ensure the target directory exists — a fresh project may not
+        # have .screw/custom-scripts/ yet.
+        try:
+            script_dir.mkdir(parents=True, exist_ok=True)
+        except PermissionError as exc:
+            raise ValueError(
+                f"Cannot create adaptive script directory at {script_dir}: "
+                f"permission denied. Original error: {exc}"
+            ) from exc
+        except OSError as exc:
+            raise ValueError(
+                f"Cannot create adaptive script directory at {script_dir}: "
+                f"filesystem shape error ({type(exc).__name__}). "
+                f"Original error: {exc}"
+            ) from exc
+
+        # T13 I1 discipline — friendly error wrapping around load_config.
+        # Mirrors validate_script.py:229-247.
+        try:
+            config = load_config(project_root)
+        except PermissionError as exc:
+            raise ValueError(
+                f"Cannot access `.screw/config.yaml` at "
+                f"{project_root / '.screw' / 'config.yaml'}: "
+                f"permission denied. Check directory permissions or run "
+                f"with appropriate user. Original error: {exc}"
+            ) from exc
+        except OSError as exc:
+            raise ValueError(
+                f"Cannot access `.screw/config.yaml` at "
+                f"{project_root / '.screw' / 'config.yaml'}: filesystem "
+                f"shape error ({type(exc).__name__}). The `.screw` path "
+                f"or config.yaml may be the wrong type (file vs. "
+                f"directory). Original error: {exc}"
+            ) from exc
+
+        if not config.script_reviewers:
+            return {
+                "status": "error",
+                "message": (
+                    "No script_reviewers configured in .screw/config.yaml. "
+                    "Run `screw-agents init-trust --name <name> "
+                    "--email <email>` first to register your local "
+                    "signing key."
+                ),
+            }
+
+        # T13 I1 discipline — friendly error wrapping around
+        # _get_or_create_local_private_key.
+        try:
+            priv, _pub_line = _get_or_create_local_private_key(project_root)
+        except PermissionError as exc:
+            raise RuntimeError(
+                f"Cannot create local signing key at "
+                f"{project_root / '.screw' / 'local' / 'keys'}: permission "
+                f"denied. Check directory permissions. Original: {exc}"
+            ) from exc
+        except OSError as exc:
+            raise RuntimeError(
+                f"Failed to create local signing key at "
+                f"{project_root / '.screw' / 'local' / 'keys'}: {exc}. "
+                f"Check disk space and filesystem state."
+            ) from exc
+
+        # Model A fingerprint-based signer identity selection.
+        # Matching against config.script_reviewers[0].email is WRONG on
+        # multi-reviewer projects (the local key may not be [0]).
+        keys_with_reviewers, _dropped = _load_public_keys_with_reviewers(
+            config.script_reviewers
+        )
+        local_fingerprint = _fingerprint_public_key(priv.public_key())
+        matching_reviewer = _find_matching_reviewer(
+            local_fingerprint, keys_with_reviewers
+        )
+
+        if matching_reviewer is None:
+            return {
+                "status": "error",
+                "message": (
+                    "Local signing key does not match any registered "
+                    "reviewer in script_reviewers. Run "
+                    "`screw-agents init-trust` to register this machine's "
+                    "key before signing scripts."
+                ),
+            }
+
+        signer_email = matching_reviewer.email
+        current_sha256 = compute_script_sha256(source)
+
+        # Delegate canonicalization + signing to the shared helper so the
+        # approve-path and the validate-script CLI produce byte-identical
+        # canonical input to the executor's Layer 3 verification.
+        try:
+            meta_for_persist = build_signed_script_meta(
+                meta_raw=meta,
+                source=source,
+                current_sha256=current_sha256,
+                signer_email=signer_email,
+                private_key=priv,
+            )
+        except ValueError as exc:
+            return {
+                "status": "error",
+                "message": (
+                    f"Meta dict failed AdaptiveScriptMeta schema: {exc}"
+                ),
+            }
+
+        # Atomic write, ORDER-SENSITIVE: source file first, then meta.
+        # Rationale: if the meta landed first but source failed, the
+        # executor's Layer 2 hash pin would never be checked (no source
+        # file to hash). If the source lands but meta fails, Layer 2
+        # would fail on next executor run — same partial-state bug class.
+        # Writing source first + best-effort rollback on meta failure
+        # ensures either BOTH files are present and consistent, or
+        # NEITHER is (modulo the best-effort rollback itself racing).
+        #
+        # Single-writer assumption: between the two `os.replace` calls
+        # below, a concurrent reader of `.screw/custom-scripts/` sees the
+        # source file without its meta (brief window). Tolerable today
+        # because approve-path is human-gated — only one reviewer typing
+        # `approve <name>` at a time. If Phase 4 autoresearch automates
+        # the approve path, revisit: consider lock-file serialization or
+        # landing both `.tmp` files before either `os.replace`.
+        script_tmp = script_dir / f"{script_name}.py.tmp"
+        meta_tmp = script_dir / f"{script_name}.meta.yaml.tmp"
+        try:
+            script_tmp.write_text(source, encoding="utf-8")
+            os.replace(script_tmp, script_path)
+        except (PermissionError, OSError) as exc:
+            # T13 I1 discipline — narrow `PermissionError` would leak
+            # bare tracebacks for `IsADirectoryError`, `NotADirectoryError`,
+            # `FileExistsError`, ENOSPC, EROFS (read-only mount), quota
+            # exceeded. All are `OSError` subclasses but NOT
+            # `PermissionError` subclasses. Catch the superset and surface
+            # the concrete type in the message so the user knows whether
+            # to chmod, free disk space, or fix a filesystem shape error.
+            if script_tmp.exists():
+                try:
+                    script_tmp.unlink()
+                except OSError:
+                    pass
+            raise ValueError(
+                f"Cannot write script source at {script_path}: "
+                f"{type(exc).__name__}. Check directory permissions and "
+                f"disk space. Original error: {exc}"
+            ) from exc
+
+        try:
+            meta_tmp.write_text(
+                yaml.dump(
+                    meta_for_persist,
+                    default_flow_style=False,
+                    sort_keys=False,
+                ),
+                encoding="utf-8",
+            )
+            os.replace(meta_tmp, meta_path)
+        except (PermissionError, OSError) as exc:
+            # Best-effort rollback: we succeeded writing the script but
+            # failed on the meta. Leaving the orphaned .py creates a
+            # partial-state bug (Layer 2 would fail on next executor
+            # call). Unlink the orphan; if the unlink itself fails,
+            # swallow — the user will see both the script and our
+            # error message and can clean up manually.
+            if meta_tmp.exists():
+                try:
+                    meta_tmp.unlink()
+                except OSError:
+                    pass
+            try:
+                script_path.unlink()
+            except OSError:
+                pass
+            raise ValueError(
+                f"Cannot write script metadata at {meta_path}: "
+                f"{type(exc).__name__}. Script file at {script_path} was "
+                f"rolled back best-effort. Original error: {exc}"
+            ) from exc
+
+        return {
+            "status": "signed",
+            "message": (
+                f"Signed adaptive script {script_name} with {signer_email} "
+                f"(sha256={current_sha256[:12]}...)."
+            ),
+            "script_path": str(script_path),
+            "meta_path": str(meta_path),
+            "signed_by": signer_email,
+            "sha256": current_sha256,
+            "session_id": session_id,
+        }
+
+    def lint_adaptive_script(self, *, source: str) -> dict[str, Any]:
+        """Run Layer 1 AST allowlist lint on a script source WITHOUT executing it.
+
+        Called from the pre-approval path of the adaptive review flow: the
+        subagent just generated a script and wants to show the human
+        reviewer the lint result in the 5-section review BEFORE approval.
+        Distinct from the lint that runs inside ``execute_script`` (which
+        happens AFTER human approval and would surface failures too late
+        for the reviewer to decline).
+
+        The underlying ``screw_agents.adaptive.lint.lint_script`` already
+        catches ``SyntaxError`` internally and returns a ``LintReport``
+        with a single ``rule="syntax"`` violation. This wrapper promotes
+        that single-violation case to a dedicated ``status="syntax_error"``
+        response so reviewers can distinguish "this isn't valid Python
+        yet" from "this Python is valid but violates the allowlist".
+
+        Args:
+            source: Python source code to lint. Not modified.
+
+        Returns:
+            Dict with:
+                - ``status``: ``"pass"`` | ``"fail"`` | ``"syntax_error"``
+                - ``violations`` (when status="fail"): list of dicts with
+                  ``rule``, ``message``, ``line`` keys.
+                - ``details`` (when status="syntax_error"): str describing
+                  the parse error (``"<msg> at line <N>"``).
+
+        No side effects. Pure function. Safe to call any number of times.
+        """
+        from screw_agents.adaptive.lint import lint_script
+
+        report = lint_script(source)
+
+        if report.passed:
+            return {"status": "pass", "violations": []}
+
+        # Promote the single-violation syntax case to status="syntax_error".
+        # lint_script returns exactly one violation with rule="syntax" when
+        # the source doesn't parse — any other violations are allowlist
+        # fails, and parseable-but-disallowed scripts produce at least the
+        # structural violations and never a `syntax` rule.
+        if (
+            len(report.violations) == 1
+            and report.violations[0].rule == "syntax"
+        ):
+            v = report.violations[0]
+            return {
+                "status": "syntax_error",
+                "details": f"{v.message} at line {v.line}",
+            }
+
+        return {
+            "status": "fail",
+            "violations": [
+                {"rule": v.rule, "message": v.message, "line": v.line}
+                for v in report.violations
+            ],
         }
 
     def aggregate_learning(
@@ -703,6 +1086,145 @@ class ScanEngine:
             "meta": self._agent_meta_summary(agent),
         }
 
+    def record_context_required_match(
+        self,
+        project_root: Path,
+        match: dict[str, Any],
+        session_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Append a dropped context-required pattern match to staging.
+
+        Phase 3b T16 (part 2): called by orchestrator subagents during an
+        --adaptive scan each time they investigate a
+        `severity: context-required` pattern match and decide NOT to emit
+        a finding. The match is recorded under
+        ``.screw/staging/{session_id}/context_required_matches.json`` with
+        the same atomic-write + session-carryforward + finalization-lock
+        semantics as ``accumulate_findings``. Dedup is by the 4-tuple
+        ``(agent, file, line, pattern)`` so idempotent re-reports do not
+        inflate the count.
+
+        `detect_coverage_gaps` (T16 part 3) reads this file back at
+        finalize time and feeds it to D1
+        (``detect_d1_context_required_gaps``) to emit the gap.
+
+        Args:
+            project_root: Absolute path to the project root.
+            match: Dict with required keys ``agent: str``, ``file: str``,
+                ``line: int``, ``pattern: str``. Structural match matches
+                ``ContextRequiredMatch`` TypedDict in
+                ``screw_agents.gap_signal``.
+            session_id: Opaque session token. Pass None on the first call
+                — server generates a fresh id and returns it. Pass the
+                returned id on subsequent calls to append to the same
+                session. Idempotent with respect to the 4-tuple key.
+
+        Returns:
+            Dict with keys:
+                session_id: str -- echoed or newly generated
+                matches_recorded: int -- total matches in staging after
+                    merge (not just this call)
+
+        Raises:
+            ValueError: On malformed ``match`` (missing required key,
+                wrong type) or when the session was already finalized.
+        """
+        from screw_agents.staging import accumulate_context_required_match
+        new_session_id, count = accumulate_context_required_match(
+            project_root, match, session_id
+        )
+        return {"session_id": new_session_id, "matches_recorded": count}
+
+    def detect_coverage_gaps(
+        self,
+        *,
+        agent_name: str,
+        project_root: Path,
+        session_id: str,
+    ) -> list["CoverageGap"]:
+        """Compute D1 + D2 coverage gaps for a single agent within a scan session.
+
+        Phase 3b T16 (part 3): closes the adaptive end-to-end loop. Reads
+        context-required matches from
+        ``.screw/staging/{session_id}/context_required_matches.json``
+        (populated by ``record_context_required_match`` during the scan)
+        and combines with D2 output from AST analysis using the agent's
+        ``adaptive_inputs`` YAML declaration.
+
+        Per-agent contract: returns ONLY the gaps attributable to
+        ``agent_name``. D1 matches whose recorded ``agent`` field is some
+        OTHER agent are filtered out — the recorded match carries its own
+        attribution, and per-agent callers (MCP tool, T17/T18) must not
+        see another agent's gaps. C1 post-review hardening (see
+        gap-integration block in ``finalize_scan_results`` for the
+        multi-agent-session integration that runs D1 once globally).
+
+        D1 correlation note: with the current producer contract, subagents
+        only call ``record_context_required_match`` for DROPPED matches
+        (not emitted ones), so ``emitted_findings_by_match`` is always
+        empty. T14's API still accepts the mapping for forward-
+        compatibility with a future producer that tracks both sides.
+
+        Args:
+            agent_name: Registered agent identifier (e.g. ``"sqli"``).
+            project_root: Absolute path to the project root.
+            session_id: The session id returned by
+                ``accumulate_findings`` or ``record_context_required_match``.
+
+        Returns:
+            Combined list of CoverageGap attributable to ``agent_name``.
+            Empty list when the staging file is missing (scan never
+            recorded a match for this agent), the agent has no
+            ``adaptive_inputs`` (opted out of D2), and no matches were
+            recorded for this agent.
+
+        Raises:
+            KeyError: Unknown ``agent_name`` (not in the registry). Raised
+                as KeyError rather than ValueError to distinguish
+                "caller passed a bogus name" from "staging is malformed".
+        """
+        from screw_agents.gap_signal import (
+            detect_d1_context_required_gaps,
+            detect_d2_unresolved_sink_gaps,
+        )
+        from screw_agents.models import CoverageGap
+        from screw_agents.staging import load_context_required_matches
+
+        agent = self._registry.get_agent(agent_name)
+        if agent is None:
+            raise KeyError(
+                f"Unknown agent {agent_name!r}; "
+                f"not in registry. Known agents: "
+                f"{sorted(self._registry.agents.keys())}"
+            )
+
+        # D1 from staging, FILTERED by agent_name so this method returns a
+        # clean per-agent view. Missing staging file is valid (scan never
+        # recorded a context-required match).
+        all_matches = load_context_required_matches(project_root, session_id)
+        matches = [m for m in all_matches if m.get("agent") == agent_name]
+        gaps: list[CoverageGap] = list(
+            detect_d1_context_required_gaps(
+                context_required_matches=matches,  # type: ignore[arg-type]
+                emitted_findings_by_match={},
+            )
+        )
+
+        # D2 from YAML `adaptive_inputs`. Agents that opted out (no
+        # adaptive_inputs block) skip D2 gracefully.
+        if agent.adaptive_inputs is not None:
+            gaps.extend(
+                detect_d2_unresolved_sink_gaps(
+                    project_root=project_root,
+                    agent=agent_name,
+                    sink_regex=agent.adaptive_inputs.sink_regex,
+                    known_receivers=agent.adaptive_inputs.known_receivers,
+                    known_sources=agent.adaptive_inputs.known_sources,
+                )
+            )
+
+        return gaps
+
     def accumulate_findings(
         self,
         project_root: Path,
@@ -781,9 +1303,16 @@ class ScanEngine:
                 session (neither a staged findings.json nor a cached
                 result.json exists).
         """
+        from screw_agents.gap_signal import (
+            detect_d1_context_required_gaps,
+            detect_d2_unresolved_sink_gaps,
+        )
+        from screw_agents.models import CoverageGap
         from screw_agents.results import render_and_write
         from screw_agents.staging import (
             finalize_result_cached,
+            has_context_required_staging,
+            load_context_required_matches,
             read_for_finalize,
             save_finalize_result,
         )
@@ -805,6 +1334,78 @@ class ScanEngine:
             formats=formats,
             agent_registry=self._registry,
         )
+
+        # Phase 3b T16: attach coverage-gap detection to the finalize
+        # response. MUST happen before `save_finalize_result` so the
+        # context_required_matches.json staging is still present (the save
+        # cleans it up).
+        #
+        # C1 post-review hardening — D1 runs ONCE globally per session,
+        # D2 runs per-agent:
+        #
+        #   * D1 matches carry their own `agent` attribution (the
+        #     subagent recorded it at investigation time). Running D1
+        #     per-agent-in-agent_names would duplicate every gap by the
+        #     loop cardinality — a single sqli match + agent_names=
+        #     ["sqli","cmdi","ssti","xss"] would yield 4 identical
+        #     entries. That's silent count inflation downstream.
+        #
+        #   * D2 inputs (sink_regex, known_receivers, known_sources)
+        #     live in each agent's adaptive_inputs YAML, so D2 is
+        #     inherently per-agent-config.
+        #
+        # The per-agent `ScanEngine.detect_coverage_gaps` method still
+        # exists (exposed as an MCP tool, used by external callers) with
+        # a clean per-agent contract — see its docstring for the filter
+        # semantics.
+        #
+        # Inclusion rule (backward compat): `coverage_gaps` key appears in
+        # the response ONLY when the scan had adaptive signal — either at
+        # least one agent has `adaptive_inputs` declared (D2-capable), or
+        # the scan session recorded context-required matches (D1-capable).
+        # Non-adaptive scans see no schema change.
+        has_staged_matches = has_context_required_staging(project_root, session_id)
+        adaptive_agents = [
+            name for name in agent_names
+            if (a := self._registry.get_agent(name)) is not None
+            and a.adaptive_inputs is not None
+        ]
+        if adaptive_agents or has_staged_matches:
+            coverage_gaps: list[CoverageGap] = []
+
+            # D1 — one pass over staging for ALL agents in this session.
+            # Each recorded match carries its own `agent` field; no
+            # filtering by agent_names (a future match recorded by an
+            # agent not currently listed in agent_names is still surfaced
+            # — its existence is the signal).
+            if has_staged_matches:
+                matches = load_context_required_matches(project_root, session_id)
+                coverage_gaps.extend(
+                    detect_d1_context_required_gaps(
+                        context_required_matches=matches,  # type: ignore[arg-type]
+                        emitted_findings_by_match={},
+                    )
+                )
+
+            # D2 — per-agent, driven by each agent's adaptive_inputs.
+            # Unknown agent names in agent_names are skipped silently
+            # (the renderer above already tolerates them).
+            for name in agent_names:
+                agent = self._registry.get_agent(name)
+                if agent is None or agent.adaptive_inputs is None:
+                    continue
+                coverage_gaps.extend(
+                    detect_d2_unresolved_sink_gaps(
+                        project_root=project_root,
+                        agent=name,
+                        sink_regex=agent.adaptive_inputs.sink_regex,
+                        known_receivers=agent.adaptive_inputs.known_receivers,
+                        known_sources=agent.adaptive_inputs.known_sources,
+                    )
+                )
+
+            result["coverage_gaps"] = [g.model_dump() for g in coverage_gaps]
+
         save_finalize_result(project_root, session_id, result)
         return result
 
@@ -1204,6 +1805,203 @@ class ScanEngine:
                     },
                 },
                 "required": ["project_root", "script_name"],
+            },
+        })
+
+        # Phase 3b T18a: sign_adaptive_script — approve-path MCP tool for
+        # the adaptive review flow. Subagent generated a fresh script, user
+        # approved, this tool writes + signs + stages. Distinct from the
+        # `validate-script` CLI (which re-signs existing scripts); this
+        # tool is fresh-only and returns status="error" on name collision.
+        tools.append({
+            "name": "sign_adaptive_script",
+            "description": (
+                "Sign a freshly-generated adaptive analysis script and "
+                "write it to .screw/custom-scripts/. Called from the "
+                "approve-path of the adaptive review flow (after human "
+                "review + `approve <name>`). Atomic write: both .py and "
+                ".meta.yaml land via os.replace; rollback on meta "
+                "failure keeps the filesystem in a consistent state. "
+                "Requires the local machine's signing key to match a "
+                "registered reviewer in .screw/config.yaml's "
+                "script_reviewers (Model A fingerprint matching). "
+                "Fresh-script only — name collisions return "
+                "status=\"error\"; use `validate-script` CLI to re-sign "
+                "an existing script."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "project_root": {
+                        "type": "string",
+                        "description": "Absolute path to the project root.",
+                    },
+                    "script_name": {
+                        "type": "string",
+                        "description": (
+                            "Filesystem-safe name (regex "
+                            "`^[a-z0-9][a-z0-9-]{2,62}$`). Produces "
+                            "<name>.py + <name>.meta.yaml in "
+                            ".screw/custom-scripts/."
+                        ),
+                    },
+                    "source": {
+                        "type": "string",
+                        "description": (
+                            "Python source code for the adaptive script. "
+                            "Caller is responsible for validating with "
+                            "`lint_adaptive_script` before approval."
+                        ),
+                    },
+                    "meta": {
+                        "type": "object",
+                        "description": (
+                            "Partial meta dict conforming to "
+                            "AdaptiveScriptMeta minus signing fields. "
+                            "Must include name, created, created_by, "
+                            "domain; may include description, "
+                            "target_patterns. Tool computes sha256, sets "
+                            "validated=True, signs, and writes."
+                        ),
+                    },
+                    "session_id": {
+                        "type": "string",
+                        "description": (
+                            "Scan session id the script was generated for. "
+                            "Currently echoed in the response only; NOT "
+                            "persisted server-side and NOT used to modify "
+                            "session staging. A future commit may persist "
+                            "the association in `.screw/local/` for audit "
+                            "correlation — plumbing the id through now "
+                            "avoids a follow-on API change."
+                        ),
+                    },
+                },
+                "required": [
+                    "project_root",
+                    "script_name",
+                    "source",
+                    "meta",
+                    "session_id",
+                ],
+            },
+        })
+
+        # Phase 3b T18a: lint_adaptive_script — pre-approval Layer 1 AST
+        # lint (pure function). Distinct from the lint inside
+        # execute_script which runs AFTER approval; this tool surfaces
+        # lint results in the 5-section review BEFORE the reviewer decides.
+        tools.append({
+            "name": "lint_adaptive_script",
+            "description": (
+                "Run the Layer 1 AST allowlist lint on adaptive-script "
+                "source WITHOUT executing it. Used during the pre-approval "
+                "review path so the human reviewer sees lint results "
+                "BEFORE approval (execute_script also runs lint, but only "
+                "after human approval — too late to decline). Returns "
+                "status='pass' | 'fail' | 'syntax_error'. Pure function: "
+                "no side effects, safe to call repeatedly."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "source": {
+                        "type": "string",
+                        "description": (
+                            "Python source code to lint. Not modified."
+                        ),
+                    },
+                },
+                "required": ["source"],
+            },
+        })
+
+        # Phase 3b T16: record_context_required_match + detect_coverage_gaps
+        # (closes the adaptive E2E loop: scan records dropped
+        # context-required matches → finalize runs gap detection → orchestrator
+        # reads gaps to decide whether to generate an adaptive script).
+        tools.append({
+            "name": "record_context_required_match",
+            "description": (
+                "Record a context-required pattern match that the subagent "
+                "investigated but decided NOT to emit as a finding. During an "
+                "--adaptive scan, call this once per dropped match so the D1 "
+                "coverage-gap signal can fire at finalize time. Dedup is by "
+                "(agent, file, line, pattern); idempotent re-recording is a "
+                "no-op. Pair with `detect_coverage_gaps` (called implicitly by "
+                "`finalize_scan_results` for adaptive-capable agents)."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "project_root": {
+                        "type": "string",
+                        "description": "Absolute path to the project root.",
+                    },
+                    "match": {
+                        "type": "object",
+                        "description": (
+                            "Context-required match with keys agent, file, "
+                            "line, pattern. Shape matches the "
+                            "ContextRequiredMatch TypedDict in gap_signal.py."
+                        ),
+                        "properties": {
+                            "agent": {"type": "string"},
+                            "file": {"type": "string"},
+                            "line": {"type": "integer"},
+                            "pattern": {"type": "string"},
+                        },
+                        "required": ["agent", "file", "line", "pattern"],
+                    },
+                    "session_id": {
+                        "type": ["string", "null"],
+                        "description": (
+                            "Pass null (or omit) on the FIRST call — server "
+                            "generates a fresh id and returns it. Pass the "
+                            "returned id on subsequent calls to append to the "
+                            "same session. For a scan that also uses "
+                            "accumulate_findings, pass that tool's returned "
+                            "session_id here so both staging files share the "
+                            "same session directory."
+                        ),
+                    },
+                },
+                "required": ["project_root", "match"],
+            },
+        })
+        tools.append({
+            "name": "detect_coverage_gaps",
+            "description": (
+                "Compute D1 + D2 coverage gaps for a completed adaptive scan. "
+                "D1 reads context-required matches recorded during the scan "
+                "via `record_context_required_match`; D2 runs AST taint "
+                "analysis using the agent's YAML `adaptive_inputs`. Returns "
+                "the combined gap list. Raises KeyError on unknown agent. "
+                "Note: `finalize_scan_results` invokes this automatically for "
+                "adaptive-capable agents and includes gaps in its response; "
+                "call this tool directly only when you need gaps without "
+                "finalizing the scan."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "agent_name": {
+                        "type": "string",
+                        "description": "Registered agent identifier (e.g. 'sqli').",
+                    },
+                    "project_root": {
+                        "type": "string",
+                        "description": "Absolute path to the project root.",
+                    },
+                    "session_id": {
+                        "type": "string",
+                        "description": (
+                            "Session id from accumulate_findings / "
+                            "record_context_required_match."
+                        ),
+                    },
+                },
+                "required": ["agent_name", "project_root", "session_id"],
             },
         })
 

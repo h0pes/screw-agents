@@ -6,11 +6,14 @@ Unified dispatcher for user-facing CLI commands. Subcommands:
 - ``screw-agents init-trust`` — register the local SSH key as a trusted reviewer
 - ``screw-agents migrate-exclusions`` — bulk-sign legacy unsigned exclusions
 - ``screw-agents validate-exclusion <id>`` — sign a single quarantined exclusion
+- ``screw-agents validate-script <name>`` — re-sign a quarantined adaptive
+  script after manual review (Phase 3b Task 13)
 
-All four subcommands are implemented and tested as of Phase 3a PR#1
-(Tasks 12-14). Each subcommand module is imported on-demand inside
-``main()`` to avoid import-time side effects and keep the CLI startup
-lightweight.
+The four trust-plane subcommands (init-trust, migrate-exclusions,
+validate-exclusion, validate-script) share the same Ed25519 signing
+plumbing via ``screw_agents.trust``. Each subcommand module is imported
+on-demand inside ``main()`` to avoid import-time side effects and keep the
+CLI startup lightweight.
 """
 
 from __future__ import annotations
@@ -19,7 +22,9 @@ import argparse
 import asyncio
 import logging
 import sys
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -110,6 +115,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="Project root directory (default: current working directory)",
     )
 
+    # --- validate-script (Phase 3b Task 13) ---
+    validate_script_p = subparsers.add_parser(
+        "validate-script",
+        help="Re-sign a quarantined adaptive script after manual review",
+    )
+    validate_script_p.add_argument(
+        "script_name",
+        help="The adaptive script name without .py suffix (e.g. 'sqli_a')",
+    )
+    validate_script_p.add_argument(
+        "--project-root",
+        type=Path,
+        default=Path("."),
+        help="Project root directory (default: current working directory)",
+    )
+
     return parser
 
 
@@ -129,35 +150,62 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "serve":
         return _run_serve(args)
 
+    project_root = args.project_root.resolve()
+
     if args.command == "init-trust":
-        return _run_init_trust_command(args)
+        from screw_agents.cli.init_trust import run_init_trust
+
+        # run_init_trust raises ValueError/RuntimeError on all failure modes
+        # and returns only successful statuses (created, already_registered).
+        # No failure_statuses membership check needed — exceptions ARE the
+        # failure path.
+        return _run_trust_command(
+            "init-trust",
+            run_init_trust,
+            failure_statuses=(),
+            project_root=project_root,
+            name=args.name,
+            email=args.email,
+        )
 
     if args.command == "migrate-exclusions":
         from screw_agents.cli.migrate_exclusions import run_migrate_exclusions
 
-        project_root = args.project_root.resolve()
-        result = run_migrate_exclusions(
-            project_root=project_root, skip_confirm=args.yes
+        # Status space: success / no_exclusions / error. no_exclusions is a
+        # graceful no-op.
+        return _run_trust_command(
+            "migrate-exclusions",
+            run_migrate_exclusions,
+            failure_statuses=("error",),
+            project_root=project_root,
+            skip_confirm=args.yes,
         )
-        print(result["message"])
-        # T13-N1 fix: status space is success/no_exclusions/error.
-        # no_exclusions is a graceful no-op (nothing to migrate), only
-        # "error" is a genuine failure.
-        return 1 if result["status"] == "error" else 0
 
     if args.command == "validate-exclusion":
         from screw_agents.cli.validate_exclusion import run_validate_exclusion
 
-        project_root = args.project_root.resolve()
-        result = run_validate_exclusion(
-            project_root=project_root, exclusion_id=args.exclusion_id
+        # Status space: validated / already_validated / not_found / error.
+        # not_found is user input error (wrong ID) — scriptable CI should
+        # detect via exit 1.
+        return _run_trust_command(
+            "validate-exclusion",
+            run_validate_exclusion,
+            failure_statuses=("error", "not_found"),
+            project_root=project_root,
+            exclusion_id=args.exclusion_id,
         )
-        print(result["message"])
-        # T13-N1 fix: status space is validated/already_validated/
-        # not_found/error. validated and already_validated are successful
-        # outcomes. not_found is a user input error (wrong ID) that
-        # scriptable CI should detect via exit 1.
-        return 1 if result["status"] in ("error", "not_found") else 0
+
+    if args.command == "validate-script":
+        from screw_agents.cli.validate_script import run_validate_script
+
+        # Status space parallels validate-exclusion.
+        return _run_trust_command(
+            "validate-script",
+            run_validate_script,
+            failure_statuses=("error", "not_found"),
+            project_root=project_root,
+            script_name=args.script_name,
+        )
 
     return 0  # unreachable — argparse enforces required=True
 
@@ -178,26 +226,50 @@ def _run_serve(args: argparse.Namespace) -> int:
     return 0
 
 
-def _run_init_trust_command(args: argparse.Namespace) -> int:
-    """Handle the ``screw-agents init-trust`` subcommand.
+def _run_trust_command(
+    command_label: str,
+    runner: Callable[..., dict[str, Any]],
+    *,
+    failure_statuses: tuple[str, ...] = ("error",),
+    **kwargs: Any,
+) -> int:
+    """Run a trust-path CLI command with friendly error surfacing.
 
-    Wraps friendly error reporting around the underlying ``run_init_trust``
-    implementation. Returns 0 on success (created or already_registered),
-    1 on failure.
+    All four trust-path commands (init-trust, migrate-exclusions,
+    validate-exclusion, validate-script) raise ``ValueError`` or
+    ``RuntimeError`` for actionable misconfigurations (bad permissions,
+    malformed config, missing .screw directory). Without wrapping, users
+    see a raw traceback. This helper prints a one-line message to stderr
+    with the command label so the failure looks like::
+
+        screw-agents validate-script: permission denied at ...
+
+    Then returns exit code 1.
+
+    On success, prints ``result["message"]`` to stdout and returns 0 iff
+    ``result["status"]`` is NOT in ``failure_statuses``. init-trust passes
+    an empty tuple here because ``run_init_trust`` raises on every failure
+    path already; the other three commands have statuses like
+    ``"not_found"`` or ``"error"`` that encode user-facing failure without
+    raising.
+
+    Args:
+        command_label: Human-visible command name (e.g., ``"validate-script"``)
+            used in stderr output.
+        runner: The underlying ``run_*`` function to invoke.
+        failure_statuses: Statuses that count as failure → exit 1.
+        **kwargs: Forwarded to ``runner``.
+
+    Returns:
+        Process exit code: 0 on success, 1 on failure.
     """
-    from screw_agents.cli.init_trust import run_init_trust
-
-    project_root = args.project_root.resolve()
     try:
-        result = run_init_trust(
-            project_root=project_root, name=args.name, email=args.email
-        )
+        result = runner(**kwargs)
     except (ValueError, RuntimeError) as exc:
-        print(f"screw-agents init-trust: {exc}", file=sys.stderr)
+        print(f"screw-agents {command_label}: {exc}", file=sys.stderr)
         return 1
-
     print(result["message"])
-    return 0 if result["status"] in ("created", "already_registered") else 1
+    return 1 if result["status"] in failure_statuses else 0
 
 
 if __name__ == "__main__":

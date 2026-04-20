@@ -34,10 +34,11 @@ mount bind of project root (read-only) + tmpfs + setrlimit inside the child.
   (no CAP_NET_RAW).
 - Processes: --unshare-pid isolates the process tree; --die-with-parent
   kills the child if the parent exits; RLIMIT_NPROC caps the per-UID
-  process count at `current_baseline + 64 + bwrap_headroom` to prevent
-  fork-bomb DoS of the host PID space (the cap is dynamic because
+  thread count (not process count — modern Linux RLIMIT_NPROC is
+  thread-based) at `current_baseline_threads + 64 + bwrap_headroom` to
+  prevent fork-bomb DoS of the host PID space (the cap is dynamic because
   RLIMIT_NPROC is per-UID and a static cap would break bwrap on
-  interactive desktops with many baseline processes).
+  interactive desktops with many baseline processes/threads).
 - Capabilities: bwrap drops all capabilities (CapEff = 0000000000000000);
   ptrace fails EPERM; raw sockets fail EPERM. Real seccomp filter is
   deferred to Phase 3c (currently we rely on namespace + capability
@@ -376,37 +377,65 @@ def _compute_nproc_cap() -> int:
     """Compute a per-invocation RLIMIT_NPROC cap that bounds fork bombs without
     breaking bwrap on systems with a populated user session.
 
-    RLIMIT_NPROC is per-UID, not per-process: it counts ALL processes owned by
-    the current user (desktop session, editors, browsers, the orchestrator
-    itself). A static cap of 64 would prevent bwrap from cloning to set up
-    namespaces on any normal interactive desktop. Instead we add a small
-    per-script budget on top of the live baseline: the script can fork at
-    most _SCRIPT_PROCESS_BUDGET more times before EAGAIN, regardless of
-    baseline. The race window between counting and exec is benign — if
-    baseline grows by N during the gap, the script's effective budget shrinks
-    by N (still bounded).
+    RLIMIT_NPROC is per-UID **threads** (LWPs), NOT processes: on modern Linux
+    kernels, each process contributes `nlwp` threads to the per-UID kernel
+    accounting. A Python interpreter under tokio runtime, a web browser, a
+    chat client, and a desktop session easily contribute 200+ threads; a
+    static process-based cap of 64 would prevent bwrap from cloning on any
+    normal interactive desktop.
 
-    Reads /proc/<uid>/* directly to avoid spawning a `ps` subprocess (which
-    would itself grow the count by 1 transiently).
+    The naive version of this function (pre-fix) counted top-level /proc/<pid>/
+    entries (processes) and added _SCRIPT_PROCESS_BUDGET + _BWRAP_HEADROOM.
+    That was miscalibrated: on a host with many single-threaded processes,
+    process-count and thread-count are close, so the cap worked. But once any
+    heavily-threaded process (tokio runtime, JVM, Node.js worker pool, etc.)
+    appears on the host, thread-count pulls ahead and the kernel hits EAGAIN
+    on bwrap's first clone(CLONE_NEWUSER).
+
+    The correct measurement: iterate /proc/<pid>/task/ for each UID-owned
+    process and accumulate. This matches the kernel's RLIMIT_NPROC accounting
+    exactly.
+
+    The race window between counting and exec is benign — if thread count
+    grows by N during the gap, the script's effective budget shrinks by N
+    (still bounded by _SCRIPT_PROCESS_BUDGET + _BWRAP_HEADROOM added on top).
+
+    Reads /proc directly to avoid spawning a `ps` subprocess (which would
+    itself grow the thread count by at least 1 transiently).
+
+    NOTE: _SCRIPT_PROCESS_BUDGET / _BWRAP_HEADROOM constant names are kept
+    for git-history continuity; semantically they now quantify thread budget,
+    not process budget. Rename tracked as Phase 3c T8-Sec3.
     """
     uid = os.getuid()
-    count = 0
+    thread_count = 0
     try:
         for entry in os.scandir("/proc"):
             if not entry.name.isdigit():
                 continue
             try:
                 # st_uid of /proc/<pid> is the process's real UID
-                if entry.stat().st_uid == uid:
-                    count += 1
+                if entry.stat().st_uid != uid:
+                    continue
             except (FileNotFoundError, PermissionError):
-                # Process may have exited between scandir and stat; skip.
+                # Process exited between scandir and stat; skip.
                 continue
+            # Count threads under this process via /proc/<pid>/task/
+            task_dir = Path("/proc") / entry.name / "task"
+            try:
+                # Each entry in task/ is a TID (thread). iterdir() is fastest
+                # since we don't need stat() — just enumerate directory entries.
+                thread_count += sum(1 for _ in task_dir.iterdir())
+            except (FileNotFoundError, PermissionError, NotADirectoryError):
+                # Process exited between stat and task-dir read, OR /proc layout
+                # anomaly. Fall back to counting the process itself as 1 thread
+                # to keep the accounting monotonically honest.
+                thread_count += 1
     except OSError:
         # /proc unreadable — extremely unusual; fall back to a generous cap
         # that still bounds fork bombs at < 1000 successful forks.
-        count = 256
-    return count + _SCRIPT_PROCESS_BUDGET + _BWRAP_HEADROOM
+        thread_count = 256
+    return thread_count + _SCRIPT_PROCESS_BUDGET + _BWRAP_HEADROOM
 
 
 def _safe_read_findings(findings_file: Path) -> str | None:
