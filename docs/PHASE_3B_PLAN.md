@@ -5316,6 +5316,62 @@ git commit -m "test(phase3b): verify_trust counts signed adaptive scripts"
 > separate `unused` concept), cross-commit stale tracking (would need
 > git history). These can be Phase 4 autoresearch refinements.
 
+> **SHIPPED NOTE (T21, commit `0338c88`, 2026-04-19):** Both the original
+> plan scope (list + remove) AND the EXPANDED SCOPE NOTE's per-script
+> stale detection shipped together in a single commit. The prior T20
+> plan-sync commit (`d903377`) documented the scope-expansion decision;
+> this commit implements it.
+>
+> **Shipped deliverables vs the plan below:**
+>
+> 1. **Backend (`src/screw_agents/cli/adaptive_cleanup.py`, ~230 LOC):**
+>    - `list_adaptive_scripts` returns dicts with the FULL metadata surface
+>      (name, created, created_by, domain, description, target_patterns,
+>      findings_produced, last_used, validated, signed_by) PLUS computed
+>      `stale` / `stale_reason` fields. The plan's minimal dict in
+>      Step 3 was expanded to match the metadata AdaptiveScriptMeta
+>      model and to surface signing status for the slash-command UI.
+>    - `remove_adaptive_script` returns FOUR statuses, not two: `removed`
+>      (both existed), `not_found` (neither existed), `partial` (only one
+>      existed — stale-state recovery), `error` (OSError wrapped). The
+>      plan's Step 3 had only `removed` / `not_found`; the `partial`
+>      status was added so crashes mid-unlink are visible to the user.
+>    - `_check_stale` is a new private helper that mirrors the executor's
+>      `_is_stale` semantic EXACTLY (same `find_calls` helper, same
+>      empty-patterns / any-live / all-dead logic). Graceful on invalid
+>      `project_root` — returns `(False, "cannot compute: project_root
+>      unreadable")` rather than falsely flagging stale.
+>
+> 2. **Slash command (`plugins/screw/commands/adaptive-cleanup.md`):**
+>    Full frontmatter + body following `scan.md` / `learn-report.md`
+>    patterns. Invokes the backend via `uv run python -c` one-liners
+>    (no MCP tool needed — per the plan's note and the repo convention).
+>    Includes a MANDATORY confirmation gate before any `remove`
+>    invocation ("yes" or "cancel", case-insensitive). Surfaces stale
+>    scripts with a ⚠ tag + discoverability prompt.
+>
+> 3. **Tests (`tests/test_adaptive_cleanup.py`, 11 tests):** expanded
+>    from the plan's 2 tests to cover list hygiene (empty project,
+>    missing-py skipped, malformed-YAML skipped), stale detection
+>    (empty patterns, all-dead, any-live mixed, invalid project_root),
+>    and all three removal paths (removed, not_found, partial).
+>
+> **Drift-check watchpoint:** `_check_stale` in
+> `src/screw_agents/cli/adaptive_cleanup.py` and `_is_stale` in
+> `src/screw_agents/adaptive/executor.py` MUST stay semantically
+> aligned — they both consume `target_patterns` and short-circuit on
+> the first `find_calls` match. If either is refactored (e.g., to add
+> weighted/partial-match scoring, or to move stale detection into a
+> shared helper), update both in lockstep. A test matrix for the
+> shared helper is the cleanest long-term fix.
+>
+> **Out-of-scope items from the EXPANDED SCOPE NOTE remain deferred**
+> (automatic removal, "never produced a finding" heuristic, cross-commit
+> git-history tracking) — Phase 4 autoresearch candidates.
+>
+> **Test-count delta:** 753 → 764 (+11). No regressions. Baseline
+> inherited from T20 (commit `d903377`).
+
 **Files:**
 - Create: `src/screw_agents/cli/adaptive_cleanup.py`
 - Create: `plugins/screw/commands/adaptive-cleanup.md`
