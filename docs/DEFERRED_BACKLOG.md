@@ -696,3 +696,115 @@ surface meta-load errors cleanly to the subagent caller.
 The subagent's natural "persist after each batch" instinct is channeled into cheap `accumulate_findings` calls; `finalize_scan_results` is an explicit terminal event. The legacy `write_scan_results` function and MCP tool were removed.
 
 **Follow-up:** `T-STAGING-ORPHAN-GC` (Phase 4+) — orphan cleanup for scans that accumulate but never finalize.
+
+---
+
+## Phase 3b PR #5 round-trip test findings (2026-04-20)
+
+Round-trip manual testing of `/screw:scan sqli src/ --adaptive` on a seeded QueryBuilder fixture surfaced one Critical architectural defect and four Important quality issues. C1 is tracked below as a Phase 3b-follow-up PR ship-blocker (must be fixed before adaptive mode is considered production-safe). I1-I4 + Minor are polish/hardening items that don't block PR #5's infrastructure value.
+
+### C1 — CRITICAL: Human-approval flow regenerates script after approval (trust violation)
+
+**Source:** Phase 3b PR #5 manual round-trip test, 2026-04-20
+**File:** `plugins/screw/agents/screw-*.md` (adaptive-mode sections, 5 per-agent files + orchestrator), `plugins/screw/commands/scan.md`
+**Priority:** **BLOCKER — must fix before adaptive mode is production-safe**
+
+**What's shipped (broken):** T18b's subagent prompts assume the generating subagent pauses at the 5-section review, waits for user input (`approve <script-name>` / `reject <script-name>`), then continues into sign+execute. In Claude Code's architecture, subagents run to completion — they cannot pause. When the user types `approve`, the main session reports *"SendMessage isn't exposed in this session, so I'll resume the scan by spawning a fresh subagent with the approval decision and full script context"* and re-runs the pipeline from scratch. The fresh subagent's LLM regenerates a DIFFERENT adaptive script (confirmed empirically: script v1 used `read_source` + `find_calls(tree, method=...)`; script v2 used `parse_module` — completely different source). **The regenerated script is the one that gets signed and executed, NOT the one the human reviewed.** Layer 0d semantic review + 5-section human review both presupposed the approved source EQUALS the executed source. That invariant is broken.
+
+**Why this is a ship-blocker:** a trusting user running `/screw:scan sqli src/ --adaptive` believes their approval decision applies to the source they read. In reality, LLM non-determinism means they're implicitly approving an unknown variant. Malicious target code could even exploit this: craft code where the "reviewed" script looks benign but a regeneration produces a variant with a subtle bypass. Defense-in-depth layers (1 AST lint, 2 SHA hash pin, 3 signature) all operate on the signed content — but the signing is done AFTER regeneration, so hash/signature match the regenerated content, not the reviewed content.
+
+**Trigger:** Before the `/screw:scan ... --adaptive` flow is considered production-ready. This is the Phase 3b follow-up immediately after PR #5 merges.
+
+**Suggested fix — staging architecture:**
+1. Add new MCP tool `stage_adaptive_script(project_root, source, meta) -> {stage_id, stage_path}` that writes the unsigned script to `.screw/staging/{session_id}/adaptive-scripts/<stage_id>.{py,meta.yaml}` atomically.
+2. Update T18b's subagent prompt: the generating subagent STAGES the script BEFORE composing the 5-section review. The review includes the `stage_id` as part of the script_name shown to the user.
+3. Replace `sign_adaptive_script(source, meta, ...)` signature with `sign_staged_script(stage_id, ...)` OR keep both and make the subagent prompt specify which path to use. Signing path READS from staging + promotes to `.screw/custom-scripts/` — no source parameter means no regeneration possible.
+4. Reject path: `reject <stage_id>` deletes the staging file. Separate from main approve path.
+5. Cleanup: staging files orphan if user never approves/rejects — include in `/screw:adaptive-cleanup` stale-orphan sweep (Phase 4+ or a dedicated T-STAGING-ORPHAN-GC variant).
+
+**Alternative (Option B) accepted during triage:** Document C1 as known experimental-mode limitation with loud warnings in the slash command + subagent prompts. Not recommended — the trust model being silently broken is worse than being feature-gated.
+
+**Estimated scope:** 1-2 focused sessions. ~500-800 LOC across new MCP tool, staging module, T18b subagent prompts (5 per-agent files + orchestrator), tests (staging semantics + round-trip regression). Plan-sync + DEFERRED_BACKLOG cleanup on merge.
+
+### I1 — Layer 0d screw-script-reviewer subagent not invoked (plugin-namespace bug)
+
+**Source:** Phase 3b PR #5 manual round-trip test, 2026-04-20
+**File:** `plugins/screw/agents/screw-sqli.md` (and screw-cmdi/ssti/xss identical-section copies) — the Task tool invocation in Step 3.5d-F
+**Priority:** Important (Layer 0d defense gate is inactive — but framed as advisory-only per T17 design, not a security boundary)
+
+**What's shipped:** T18b's per-agent subagent prompt invokes the Task tool with `subagent_type: "screw-script-reviewer"` (bare name). Claude Code registers the reviewer subagent under the plugin namespace as `screw:screw-script-reviewer` (verified via `/agents` during Step 4). The Task tool doesn't resolve the bare name — the subagent reports *"screw-script-reviewer subagent unavailable in this session"* and falls through with `semantic_review = not-run` in the 5-section review. The user sees the "not-run" status surfaced (good UX) but Layer 0d review is effectively inactive.
+
+**Trigger:** Bundle with the C1 fix (same 5 T18b subagent files + orchestrator need editing).
+
+**Suggested fix:** Change `subagent_type: "screw-script-reviewer"` to `subagent_type: "screw:screw-script-reviewer"` across all 5 per-agent subagent `.md` files. Add a format-smoke test asserting the namespace prefix is present. Verify via manual round-trip that Layer 0d fires.
+
+**Estimated scope:** ~20 LOC across 5 prompt files + 1 test + manual verification. Trivial once C1's staging work is underway (same file set).
+
+### I2 — Layer 1 AST lint doesn't validate imported SYMBOLS against adaptive.__all__
+
+**Source:** Phase 3b PR #5 manual round-trip test, 2026-04-20
+**File:** `src/screw_agents/adaptive/lint.py`
+**Priority:** Important (defense-in-depth gap; executor catches this at runtime but too late for the review flow)
+
+**What's shipped:** Layer 1 AST allowlist lint at `adaptive/lint.py` verifies imports come from `screw_agents.adaptive` (the MODULE) or Python stdlib. It does NOT verify that imported SYMBOLS are members of `screw_agents.adaptive.__all__`. An LLM-hallucinated import like `from screw_agents.adaptive import read_source` (where `read_source` isn't in `__all__`) passes lint (module is allowed) but fails at execution with `ImportError`. Confirmed empirically in the round-trip: the generated script imported `read_source` (and later `parse_module`), lint passed, sandbox reported `returncode=1` + 0 findings.
+
+**Trigger:** Any of: (a) a dedicated Layer 1 hardening commit, (b) an E2E test that specifically probes the gap, (c) a user-reported frustration about "my adaptive script passed lint but fails at execution with cryptic ImportError".
+
+**Suggested fix:**
+1. In `lint.py`, parse `screw_agents.adaptive.__init__.py`'s `__all__` at lint time (cached — it's stable for the lifetime of the process).
+2. For each `from screw_agents.adaptive import <name>` statement, verify `<name>` is in the cached `__all__`. Report a lint violation naming the unrecognized symbol.
+3. Edge case: `import screw_agents.adaptive as X` + `X.unknown` — harder to catch at AST level; accept as follow-up.
+4. Add test cases: `test_lint_rejects_unknown_import_symbol` + the positive-control equivalent.
+
+**Estimated scope:** ~40 LOC + 3-4 tests. Small PR.
+
+### I3 — Sandbox execution stderr not surfaced on failure
+
+**Source:** Phase 3b PR #5 manual round-trip test, 2026-04-20
+**File:** `src/screw_agents/adaptive/executor.py` + `src/screw_agents/adaptive/sandbox/linux.py` + the subagent prompt that renders execution results
+**Priority:** Important (UX/debugging impact — a failed adaptive script returns "returncode=1, 0 findings, no stderr surfaced" giving the user nothing to diagnose)
+
+**What's shipped:** The round-trip observed `execute_adaptive_script` returning a failure result with `returncode=1, wall_clock_s=73ms, killed_by_timeout=False` but the subagent's rendering said *"no stderr surfaced"*. The broken script (import error) would have produced a Python `ImportError` traceback to stderr — but the subagent either didn't receive it OR the subagent's output-render-template didn't include stderr field.
+
+**Trigger:** Bundle with Phase 3c sandbox hardening (alongside T8-Sec1/Sec2/Sec3) OR as a dedicated UX fix.
+
+**Suggested fix:**
+1. Trace: does `sandbox/linux.py::run_in_sandbox` capture stderr? (It should — verified via `subprocess.run(..., capture_output=True)`.)
+2. Trace: does `executor.py::execute_script` pass stderr through to `SandboxResult.stderr` cleanly?
+3. Trace: does the subagent prompt (T18b's Step 3.5d-H sub-step 3) surface stderr when returncode != 0? If not, add it: "On execution failure, render `f.stderr.decode('utf-8', errors='replace')` in a fenced block so the user sees the diagnostic."
+4. Add a round-trip-style test where a deliberately-broken script (bad import) is signed + executed, and assert the subagent's rendered output contains the ImportError text.
+
+**Estimated scope:** ~30 LOC across executor/sandbox pass-through + subagent prompt render-on-failure branch + 1 test. Small.
+
+### I4 — Failed adaptive script stays on disk at .screw/custom-scripts/ after execution failure
+
+**Source:** Phase 3b PR #5 manual round-trip test, 2026-04-20
+**File:** `plugins/screw/agents/screw-*.md` (execute-failure path in Step 3.5d-H)
+**Priority:** Minor (current behavior is defensible — user can inspect the failed script; `/screw:adaptive-cleanup remove` gives them removal UX)
+
+**What's shipped:** When `execute_adaptive_script` returns a failure result, the subagent's prompt (Step 3.5d-H) surfaces the failure message to the user and moves to the next gap OR to finalize. The signed `.py` + `.meta.yaml` pair remains on disk at `.screw/custom-scripts/<script_name>.py`. Future scans will count it as `script_active_count=1` in `verify_trust` (it IS validly signed) and `list_adaptive_scripts` will report it (with `stale=False` if `target_patterns` still matches).
+
+**Design question:** is this the right behavior?
+- **Arguments for keeping:** user can inspect the script to understand the bug, re-run manually, OR use `/screw:adaptive-cleanup remove` to delete it. The trust/cleanup surfaces handle it cleanly.
+- **Arguments for auto-deleting:** a failed-at-execution script has zero utility and clutters the directory. A "Broken adaptive script removed automatically — check the execution log if you need to investigate" message is cleaner UX.
+
+**Recommendation:** document the current keep-on-disk behavior explicitly in `/screw:adaptive-cleanup`'s help text and the 5-section review's post-execution wrap-up. Add a hint: "Execution failed — script retained at `.screw/custom-scripts/<name>.py` for inspection. Run `/screw:adaptive-cleanup remove <name>` to clear it." No code change; just prompt+docs.
+
+**Estimated scope:** ~10 LOC across subagent prompts + command docstring. Trivial.
+
+### I5-Minor — Prompt engineering to reduce LLM API hallucination
+
+**Source:** Phase 3b PR #5 manual round-trip test, 2026-04-20
+**File:** `plugins/screw/agents/screw-*.md` Step 3.5d-C generation-prompt template
+**Priority:** Low (LLM non-determinism is fundamental; this is partial mitigation)
+
+**What's shipped:** T18b's Step 3.5d-C generation-prompt paraphrase tells the LLM *"Import ONLY from `screw_agents.adaptive` and Python standard library."* It lists the 18 export names in the prompt section at lines 96-111 of the per-agent subagent files. The LLM STILL hallucinated `read_source` (not in the list) and `parse_module` (also not in the list). This suggests the current listing is not visually prominent enough during generation OR the LLM deprioritized it.
+
+**Trigger:** Bundle with the C1 fix (prompt engineering already being iterated).
+
+**Suggested fix:**
+1. In the generation prompt (not just the reference section), embed the 18-export list AS the allowlist the LLM must use: *"You MUST use ONLY these 18 functions from screw_agents.adaptive: [list]. Any import of a name NOT in this list is a HARD FAIL — the AST lint will reject and execution will never happen."*
+2. Add a negative examples block: *"Do NOT invent helper names like `read_source`, `parse_module`, `walk_module` — these don't exist. If you need to read a file, use `project.read_file(path)` via ProjectRoot. If you need to parse Python, use `parse_ast(source, language='python')`."*
+3. Consider: generate script with a constrained LLM-as-compiler pattern where allowed names are tokenized/validated before emission. Out of scope for a prompt fix but worth noting.
+
+**Estimated scope:** ~30 LOC of prompt content across 5 per-agent subagent files. Small but repetitive — may motivate extraction to a shared template if the discipline gets tedious (but Claude Code subagent isolation makes shared templates structurally hard; see the T18b byte-identical-section pattern).
