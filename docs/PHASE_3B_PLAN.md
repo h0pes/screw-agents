@@ -5534,6 +5534,89 @@ git commit -m "feat(phase3b): /screw:adaptive-cleanup slash command"
 
 ### Task 22: End-to-End Integration Test — Full `--adaptive` Workflow
 
+> **SHIPPED NOTE (T22, commit `a1a28df`, 2026-04-20):** The plan below
+> proposed a minimal 3-call test (init-trust → validate-script CLI →
+> execute_adaptive_script) that was rejected at the T22 pre-audit as
+> insufficient for a PR-exit-gate role. Given the integration-boundary
+> bug pattern across this PR — T13-C1 (sign/verify canonical-bytes
+> drift), T16-C1 (multi-agent D1 duplication), T18b-C1 (session_id
+> threading), T19-I1 (severity case-normalization), T20 (signing-count
+> stub) — a one-shot 3-call test would not have caught any of those.
+> The shipped T22 is a single full-composition test that exercises
+> every T13-T21 MCP tool and engine method in the exact order a real
+> subagent produces under `/screw:scan sqli --adaptive`. If any
+> integration boundary silently regresses, the first failing assertion
+> pins the regressing task.
+>
+> **Scope expansion summary:**
+>
+> 1. **Scripts replaced with MCP tools.** The plan invoked
+>    `run_validate_script` (T13 re-sign CLI). The shipped test invokes
+>    `engine.sign_adaptive_script` (T18a fresh-script approve path) —
+>    this is the tool the subagent actually uses at approve time, not
+>    the re-sign CLI. Validates the T13-C1 regression lock (shared
+>    `build_signed_script_meta` produces byte-identical canonical
+>    input on sign-side and verify-side) through the MCP-tool
+>    consumer at the same boundary the sqli `test_sign_adaptive_script`
+>    unit test locks, now with real execute_script consumption.
+>
+> 2. **D1 + D2 signals exercised end to end.** Plan covered neither
+>    — it only tested execution. Shipped test: records a dropped
+>    context-required match at `dao.py:9` (D1), lets D2 pick up
+>    `self.qb.execute_raw(q)` at `dao.py:11` (qb ∉ sqli.known_receivers,
+>    tainted arg), and asserts both appear in `detect_coverage_gaps`
+>    AND the D1 entry survives into `finalize_scan_results`'s
+>    `coverage_gaps` response field. Locks T14/T15/T16 against
+>    regression at the tool boundary.
+>
+> 3. **Augmentative merge covered.** Plan covered neither. Shipped
+>    test: YAML finding (agent=sqli) and adaptive finding
+>    (agent=adaptive_script:qb-check) both target
+>    (dao.py, 13, CWE-89). After finalize, the markdown output
+>    contains a `**Sources:**` line listing both agents — locks T19's
+>    `_merge_findings_augmentatively` + formatter's merged-source
+>    rendering against regression.
+>
+> 4. **T20 + T21 integrated.** Plan covered neither. Shipped test
+>    asserts `verify_trust` reports `script_active_count=1` (T20
+>    signing-count round-trip) AND `list_adaptive_scripts` returns
+>    the script with `stale=False` (T21 per-script stale detection
+>    against a live `QueryBuilder().execute_raw(q)` call).
+>
+> 5. **Hand-written script, no LLM.** Matches the plan's approach —
+>    the adaptive script source is hand-written to match what T18b's
+>    subagent prompt would produce. Generation-layer validation is a
+>    prompt concern covered by format-smoke tests in
+>    `test_adaptive_subagent_prompts.py`, not this integration test.
+>
+> 6. **Shape discipline throughout.** Nested Finding shape
+>    (`location.file`, `classification.cwe` — NOT flat `f.file`,
+>    `f.cwe`); quoted ISO timestamps in YAML meta;
+>    `execute_adaptive_script` omits `session_id` (T18b Deviation 1).
+>    These were drift sources in T19 and T22's own drafting.
+>
+> **Shipped deliverables vs the plan below:**
+>
+> - `tests/test_adaptive_workflow.py` (~466 LOC) — one
+>   `test_full_adaptive_workflow_composition` function, `pytestmark`
+>   skipif guard for non-sandbox platforms (same predicate as other
+>   adaptive integration tests).
+>
+> **Fixture line numbers** (pinned by the fixture string — if the
+> fixture is edited, update assertions in lockstep):
+>   - Line 9: `cursor.execute(q)` — D1 recorded match
+>   - Line 11: `self.qb.execute_raw(q)` — D2 unresolved_sink
+>   - Line 13: `QueryBuilder().execute_raw(q)` — adaptive script target
+>     AND YAML merge alignment point (both findings target
+>     `(dao.py, 13, CWE-89)`)
+>
+> **Test-count delta:** 770 → 771 (+1). No regressions. Baseline
+> inherited from T21 hardening (commit `b2fe5ca`).
+>
+> **Exit-gate role:** T22 is the PR #5 final merge gate. After this
+> commit + the PR #5 exit-checklist updates (below), Phase 3b PR #5
+> is complete and the branch is ready for merge to main.
+
 **Files:**
 - Create: `tests/test_adaptive_workflow.py`
 
@@ -5643,8 +5726,22 @@ git commit -m "test(phase3b): end-to-end adaptive workflow on QueryBuilder fixtu
 
 ## PR #5 Exit Checklist
 
-- [ ] All tests green: `uv run pytest tests/test_gap_signal.py tests/test_detect_coverage_gaps.py tests/test_cli_validate_script.py tests/test_adaptive_cleanup.py tests/test_adaptive_workflow.py tests/test_results.py -v`
-- [ ] Phase 3a and Phase 3b PR #4 regression tests still green
+> **SHIPPED NOTE (PR #5 complete, 2026-04-20):** All 10 tasks T13-T22
+> shipped across the commit chain from T13 (`28afc91`) to T22
+> (`a1a28df`). Test suite: 770 → 771 (+1 from T22). Zero regressions
+> across the T13-T22 sequence. Branch `phase-3b-pr5` is ready for merge
+> to `main`. Remaining items (manual-test rows below) are user-driven
+> smoke tests for the slash-command UX — they cannot be automated from
+> the Python test suite and are carried into the manual PR review.
+
+- [x] All tests green: `uv run pytest -q` → 771 passed, 8 skipped
+- [x] T13-T22 shipped: T13 (`ed1e451`'s predecessor chain) through T22
+  (`a1a28df`). See per-task SHIPPED NOTE sections above.
+- [x] Full-composition E2E integration test (T22) — one test exercises
+  every T13-T21 integration point in the `/screw:scan --adaptive`
+  sequence.
+- [x] Phase 3a and Phase 3b PR #4 regression tests still green (zero
+  regressions across all 771 tests).
 - [ ] Manual test in Claude Code:
   1. Create a fresh project with a QueryBuilder fixture
   2. `unset ANTHROPIC_API_KEY`
