@@ -101,12 +101,16 @@ class TestListAdaptiveScripts:
         assert "stale_reason" in first
 
     def test_list_script_missing_py_is_skipped(self, tmp_path: Path):
-        """meta.yaml present, .py absent → skip (don't include in output)."""
+        """An orphan ``.meta.yaml`` (no companion ``.py``) is skipped — but a
+        sibling valid script must still appear in the output. Asserting only
+        empty output would false-pass against an unconditional-empty bug;
+        this test pins the exact exclusion by using set equality against a
+        valid ``good`` neighbor."""
         from screw_agents.cli.adaptive_cleanup import list_adaptive_scripts
 
         script_dir = tmp_path / ".screw" / "custom-scripts"
         script_dir.mkdir(parents=True)
-        # Write only the meta, no .py
+        # Orphan meta — no companion .py
         (script_dir / "orphan.meta.yaml").write_text(
             "name: orphan\ncreated: 2026-04-14T10:00:00Z\n"
             "created_by: marco@example.com\n"
@@ -115,8 +119,18 @@ class TestListAdaptiveScripts:
             encoding="utf-8",
         )
 
+        # Valid sibling — both files present. Mirrors the pattern in
+        # test_list_script_malformed_yaml_is_skipped so the assertion
+        # catches both "orphan was not skipped" AND "valid sibling was
+        # mis-filtered" regressions.
+        _write_script_pair(script_dir, "good", target_patterns=[])
+
         scripts = list_adaptive_scripts(tmp_path)
-        assert scripts == []
+        names = {s["name"] for s in scripts}
+        assert names == {"good"}, (
+            f"Expected only 'good' script; got {names}. Orphan was not "
+            f"skipped OR valid sibling was also skipped."
+        )
 
     def test_list_script_malformed_yaml_is_skipped(self, tmp_path: Path):
         """Unparseable YAML → skip silently."""
@@ -223,6 +237,120 @@ class TestCheckStale:
         stale, reason = _check_stale(nonexistent, ["foo.bar"])
         assert stale is False
         assert reason == "cannot compute: project_root unreadable"
+
+    def test_stale_when_project_has_no_python_files(self, tmp_path: Path):
+        """A project with no .py files at all — all target_patterns return
+        zero matches from find_calls because there's nothing to scan. Every
+        pattern-declaring script gets flagged stale. This is the correct
+        semantic (Python-pattern-based adaptive script on a non-Python
+        project is genuinely stale) — lock it so a future refactor doesn't
+        accidentally special-case away the stale flag.
+
+        Complementary to ``test_stale_all_patterns_dead``: that test has
+        Python files but no matching patterns; this test has patterns but
+        no Python files.
+        """
+        from screw_agents.cli.adaptive_cleanup import _check_stale
+
+        # Write a non-Python file to prove the project_root is valid and
+        # readable — ProjectRoot accepts it, find_calls just finds no .py
+        # files to iterate.
+        (tmp_path / "Cargo.toml").write_text(
+            '[package]\nname = "test"\nversion = "0.1.0"\n',
+            encoding="utf-8",
+        )
+
+        stale, reason = _check_stale(
+            tmp_path, ["db.execute", "QueryBuilder.raw"]
+        )
+        assert stale is True
+        assert reason is not None
+        assert "db.execute" in reason and "QueryBuilder.raw" in reason
+
+
+class TestStaleSemanticAlignment:
+    """Lock the boolean equivalence between ``cleanup._check_stale`` and
+    ``executor._is_stale``. Both functions use the same ``find_calls``
+    helper with the same decision tree — this test ensures the alignment
+    is actively maintained as either side refactors.
+
+    The SHIPPED NOTE and ``adaptive_cleanup.py`` module docstring both
+    call out this alignment as load-bearing. Without a test, a future
+    refactor of either function could silently drift without any signal.
+    """
+
+    @pytest.mark.parametrize(
+        "target_patterns,scenario_description",
+        [
+            ([], "empty patterns"),
+            (["NonExistent.method"], "single dead pattern"),
+            (
+                ["NonExistent.method", "AlsoGone.func"],
+                "multiple dead patterns",
+            ),
+            (
+                ["subprocess.run", "NonExistent.method"],
+                "mixed — some live",
+            ),
+            (["db.execute"], "single live pattern"),
+        ],
+    )
+    def test_check_stale_matches_executor_is_stale(
+        self,
+        tmp_path: Path,
+        target_patterns: list[str],
+        scenario_description: str,
+    ) -> None:
+        """For every scenario, ``cleanup._check_stale`` and
+        ``executor._is_stale`` MUST agree on the boolean ``stale``
+        outcome. The informational ``stale_reason`` string is cleanup's
+        addition and is not compared.
+
+        Failure indicates drift — one function was refactored without
+        the other. Update both sides to re-align, or update this test
+        if the drift is intentional (and update the
+        ``adaptive_cleanup.py:1-20`` docstring accordingly).
+        """
+        from screw_agents.adaptive.executor import _is_stale
+        from screw_agents.cli.adaptive_cleanup import _check_stale
+        from screw_agents.models import AdaptiveScriptMeta
+
+        # Fixture project with known live patterns (db.execute,
+        # subprocess.run) so parametric scenarios can exercise both
+        # live-pattern and dead-pattern branches against the same tree.
+        (tmp_path / "src.py").write_text(
+            "import subprocess\n"
+            "def handler(request):\n"
+            "    db.execute('SELECT 1')\n"
+            "    subprocess.run(['ls'], check=True)\n",
+            encoding="utf-8",
+        )
+
+        # Build an AdaptiveScriptMeta for the executor. Defaults satisfy
+        # the model's required fields so the stale check is what we're
+        # actually varying.
+        meta = AdaptiveScriptMeta(
+            name="alignment-test",
+            created="2026-04-20T10:00:00Z",
+            created_by="test@example.com",
+            domain="injection-input-handling",
+            description="test fixture",
+            target_patterns=target_patterns,
+            sha256="placeholder",
+        )
+
+        executor_stale = _is_stale(meta, tmp_path)
+        cleanup_stale, _reason = _check_stale(tmp_path, target_patterns)
+
+        assert executor_stale == cleanup_stale, (
+            f"Stale-semantic drift in scenario "
+            f"'{scenario_description}': executor._is_stale returned "
+            f"{executor_stale} but cleanup._check_stale returned "
+            f"{cleanup_stale}. These MUST agree on the boolean outcome "
+            f"— a divergence means one side was refactored without the "
+            f"other. See adaptive_cleanup.py:1-20 docstring for the "
+            f"alignment contract."
+        )
 
 
 class TestRemoveAdaptiveScript:
