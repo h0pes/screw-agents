@@ -417,13 +417,45 @@ def test_full_adaptive_workflow_composition(tmp_path: Path) -> None:
         f"should bucket by (file, line_start, cwe) and render one "
         f"primary with a Sources line."
     )
-    # Both source agents must appear in the Sources list.
-    assert "sqli" in md_content
-    assert "adaptive_script:qb-check" in md_content, (
-        "adaptive source label `adaptive_script:qb-check` missing from "
-        "merged markdown — executor's _parse_findings agent label "
-        "(`adaptive_script:<meta.name>`) or T19's source-list "
-        "formatter (`<agent> (<severity>)`) may have regressed."
+    # Review I3: assert EXACTLY one Sources line (not multiple) — a
+    # regression that spuriously merged unrelated findings would inflate
+    # the Sources count. Only the dao.py:13 bucket should render one.
+    assert md_content.count("**Sources:**") == 1, (
+        f"expected exactly 1 Sources line (one merged finding); got "
+        f"{md_content.count('**Sources:**')}. Multiple Sources lines "
+        f"indicate augmentative merge is producing extra merged "
+        f"findings it shouldn't."
+    )
+    # Review I3: extract the Sources LINE specifically and verify BOTH
+    # agents appear on it. The weaker `agent in md_content` checks below
+    # would false-pass because agent names also appear in the Overview
+    # table (merge regression would still leave both agents visible
+    # separately). Only the merged-Sources line proves augmentative
+    # attribution is intact.
+    sources_line = next(
+        line for line in md_content.splitlines() if "**Sources:**" in line
+    )
+    assert "sqli" in sources_line, (
+        f"sqli agent missing from Sources line (got '{sources_line}') — "
+        f"merged_from_sources list lost the YAML source label."
+    )
+    assert "adaptive_script:qb-check" in sources_line, (
+        f"adaptive_script:qb-check agent missing from Sources line "
+        f"(got '{sources_line}') — merged_from_sources list lost the "
+        f"adaptive source label. T19 or executor's agent-label format "
+        f"(`adaptive_script:<meta.name>`) may have regressed."
+    )
+    # Review I4: positively verify that merge collapsed 2 inputs → 1
+    # output via the summary.total field. If merge failed, this asserts
+    # 2 (not 1) and catches the regression. Complements the Sources
+    # line check above — together they cover both "merge didn't happen"
+    # (total > 1) and "merge happened but attribution lost" (Sources
+    # line missing agents).
+    assert finalize_response["summary"]["total"] == 1, (
+        f"expected 1 merged finding in summary.total after augmentative "
+        f"merge of 2 inputs at dao.py:13 CWE-89; got "
+        f"{finalize_response['summary']['total']}. Merge regressed — "
+        f"two findings were rendered separately instead of collapsing."
     )
 
     # ------------------------------------------------------------------
