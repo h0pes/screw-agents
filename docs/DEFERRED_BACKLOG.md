@@ -808,3 +808,60 @@ Round-trip manual testing of `/screw:scan sqli src/ --adaptive` on a seeded Quer
 3. Consider: generate script with a constrained LLM-as-compiler pattern where allowed names are tokenized/validated before emission. Out of scope for a prompt fix but worth noting.
 
 **Estimated scope:** ~30 LOC of prompt content across 5 per-agent subagent files. Small but repetitive — may motivate extraction to a shared template if the discipline gets tedious (but Claude Code subagent isolation makes shared templates structurally hard; see the T18b byte-identical-section pattern).
+
+### I6 — `adaptive-cleanup.md` `uv run python -c` fails when cwd ≠ worktree
+
+**Source:** Phase 3b PR #5 manual round-trip Steps 7-9, 2026-04-20
+**File:** `plugins/screw/commands/adaptive-cleanup.md` (both list + remove action Bash blocks)
+**Priority:** Important (command broken out-of-box for the intended use case — user's project is outside the screw-agents install; LLM recovers but shouldn't have to)
+
+**What's shipped:** The slash command's backend invocation is `uv run python -c "from screw_agents.cli.adaptive_cleanup import ..."` without `--project`. When the user's project is outside the screw-agents install directory (the normal case — users don't run scans INSIDE the screw-agents worktree), `uv run` walks up from cwd looking for `pyproject.toml`, finds none, creates an ephemeral project, and fails with `ModuleNotFoundError: No module named 'screw_agents'`.
+
+**Observed empirically in round-trip:** Marco's test session cwd was `/tmp/screw-roundtrip-qb/`. First `/screw:adaptive-cleanup` invocation produced `ModuleNotFoundError`. The LLM controller recovered by `cd`'ing into the screw-agents worktree at `/home/marco/Programming/AI/screw-agents/.worktrees/phase-3b-pr5` first, then running `uv run python -c "..."` there but passing the test project path as arg to `list_adaptive_scripts(Path('/tmp/screw-roundtrip-qb').resolve())`. Graceful recovery but brittle — depends on LLM finding the worktree path via filesystem search and adapting the command.
+
+**Trigger:** Bundle with C1's subagent prompt rework (same file set) OR as a standalone command-spec polish commit.
+
+**Suggested fix:** Replace both Bash blocks in `adaptive-cleanup.md` (list + remove) with an invocation that's location-agnostic:
+
+```bash
+uv --project "$(python3 -c 'import screw_agents; import os; print(os.path.dirname(os.path.dirname(os.path.dirname(screw_agents.__file__))))')" run python -c "..."
+```
+
+Or simpler — rely on `UV_PROJECT_ENVIRONMENT` / `UV_PROJECT` env vars documented in the command body AND/OR make the MCP-tool-based path the primary. Better yet: expose `list_adaptive_scripts` / `remove_adaptive_script` as proper MCP tools via `engine.py` + `server.py` so the slash command goes through the MCP server (which already has the correct `--project` configured in `.mcp.json`). This matches the pattern of `sign_adaptive_script` / `detect_coverage_gaps` etc. — no `uv run` subshell needed.
+
+**Related root cause:** same class of issue as the `.mcp.json` fix we applied during Step 4 of the round-trip (adapted the MCP server config to use `uv --project <worktree>` so cwd-independence works). The slash command's Bash backend needs the same treatment.
+
+**Estimated scope:** ~10 LOC of markdown change if keeping Bash subshell; ~80 LOC if promoting list/remove to proper MCP tools (recommended — consistent architecture).
+
+**Round-trip steps that passed despite the bug:** Steps 7 (list, not-stale), 8 (list, stale), 9 (remove + confirm gate) all completed correctly after LLM recovery. The adaptive-cleanup backend logic itself is sound — it's only the command-invocation envelope that needs fixing.
+
+### Round-trip test validation summary (2026-04-20)
+
+Despite C1 (adaptive-mode approval flow broken) and I1-I6 (six smaller findings), the round-trip manual tests confirmed the following PR #5 subsystems work correctly:
+
+**Confirmed working:**
+- Trust infrastructure end-to-end (init-trust → validate-script / sign_adaptive_script → verify_script at execution-time Layer 3). Signature round-trip passes.
+- MCP tool layer: `scan_sqli`, `record_context_required_match`, `accumulate_findings`, `detect_coverage_gaps`, `lint_adaptive_script`, `sign_adaptive_script`, `execute_adaptive_script`, `finalize_scan_results` — all fire correctly with session_id threading intact.
+- YAML finding rendering with `coverage_gaps` field in finalize response (T16).
+- Augmentative merge infrastructure (T19) — exercised in T22 unit test; not hit at runtime during round-trip because the adaptive script failed before producing findings.
+- T21 `list_adaptive_scripts` with per-script stale detection: toggles `not stale` → `⚠ stale — 0 of N target_patterns match call sites: <patterns>` correctly when target_patterns call sites are removed.
+- T21 `remove_adaptive_script` with MANDATORY confirmation gate. Exact-match "yes" required; `.py` + `.meta.yaml` atomically removed.
+- T21 slash-command rendering: `signing: ✓ signed (by <email>)`, `⚠ stale — <reason>`, discoverability prompt for stale scripts, all fire as specified.
+
+**Broken (blocks adaptive-mode production use):**
+- C1 — approval flow regenerates script after "approve"; user reviews v1, signs+executes v2. Trust model violation.
+
+**Defects that degrade but don't block:**
+- I1 — Layer 0d reviewer not invoked (plugin namespace bug in Task subagent_type)
+- I2 — Layer 1 lint doesn't validate imported symbols against adaptive.__all__
+- I3 — execute failure surfaces "no stderr" instead of the actual ImportError traceback
+- I4 — failed adaptive scripts retained on disk (documentation-only fix)
+- I5 — LLM hallucinates API names despite prompt listing exports
+- I6 — adaptive-cleanup.md `uv run` fails when cwd ≠ worktree (LLM recovers)
+
+**PR #5 merge recommendation:**
+Ship Option A per the initial triage:
+1. Merge PR #5 as-is to preserve the 770+ tests and infrastructure value (T13-T22 + sandbox fix).
+2. Gate adaptive-mode with a loud experimental warning in the slash command body — see commit messages for suggested wording.
+3. Track C1 as the immediate next follow-up PR before promoting adaptive mode to production-ready. Staging architecture is the fix.
+4. I1-I6 can batch into the same C1-fix PR (most touch the same file set) or land as a standalone polish PR.
