@@ -5202,8 +5202,34 @@ git commit -m "feat(phase3b): augmentative finding merge with source labeling"
 
 ### Task 20: Stale Script Detection (Already in Executor — Exposes in verify_trust)
 
+> **SHIPPED NOTE (T20, commit TBD, 2026-04-20):** The plan's title promises
+> "Stale Script Detection (Exposes in verify_trust)" but the code step
+> actually adds only a regression test for adaptive-script **signing**
+> counts (`script_active_count`, `script_quarantine_count`) — not for
+> stale detection. Clarifying the design split after user review:
+>
+> - **What shipped in T20:** regression tests locking verify_trust's
+>   aggregate signing counts (1 positive + 1 negative test). Covers the
+>   E2E composition: `init-trust` → `validate-script` (via T18a-extracted
+>   `build_signed_script_meta`) → `verify_trust`. Also adds a quarantine
+>   test for unsigned adaptive scripts so attacker-dropped files can't
+>   be silently treated as trusted.
+> - **What was NOT added to verify_trust:** per-script stale detection
+>   (AST walk over `target_patterns` to check if any call sites still
+>   exist in the project). Architecturally this belongs in T21's
+>   `list_adaptive_scripts` where it's paid on-demand when the user
+>   runs `/screw:adaptive-cleanup` — NOT in verify_trust's hot path
+>   (called on every scan).
+> - **Engine change scope:** zero. `verify_trust` already correctly
+>   aggregates signing counts from PR #4 T12; T20 just adds regression
+>   coverage. `engine.py` is untouched in T20.
+> - **Per-script stale detection moves to T21** (see that task's SHIPPED
+>   NOTE / updated plan section below).
+>
+> **Test-count delta:** 751 → 753 (+2). No regressions.
+
 **Files:**
-- Modify: `src/screw_agents/engine.py`
+- Modify: `src/screw_agents/engine.py` (ORIGINAL PLAN — actually NOT modified; the existing PR#4 T12 implementation is unchanged)
 - Modify: `tests/test_phase3a_trust_tool.py`
 
 - [ ] **Step 1: Write a test that verifies stale scripts show up in verify_trust**
@@ -5255,6 +5281,40 @@ git commit -m "test(phase3b): verify_trust counts signed adaptive scripts"
 ---
 
 ### Task 21: `/screw:adaptive-cleanup` Slash Command
+
+> **EXPANDED SCOPE NOTE (2026-04-20, user decision during T20 pre-audit):**
+> T21 expands to ALSO ship per-script stale detection in
+> `list_adaptive_scripts`. The plan originally scoped T21 as list+remove
+> only; T20's title promised stale detection in verify_trust but that's
+> the wrong architectural layer (hot-path vs on-demand). Per-script
+> stale belongs HERE where:
+> - AST-walk cost is paid only when the user runs `/screw:adaptive-cleanup`
+> - Output is per-script (matches user mental model: "which scripts are
+>   stale, let me remove them")
+> - Hooks naturally into the existing executor `_is_stale` logic by
+>   calling `find_calls(project, pattern)` for each script's
+>   `target_patterns`
+>
+> **T21 expanded deliverables (added to the original plan below):**
+> - `list_adaptive_scripts` output includes per-script `stale: bool`
+>   field (computed from `target_patterns` vs live project AST)
+> - `list_adaptive_scripts` output includes `stale_reason: str | None`
+>   naming which target_patterns fail to find call sites (informative
+>   for the user's cleanup decision)
+> - Slash-command UI surfaces stale scripts with a visual indicator
+>   (e.g., "⚠ stale" tag next to script name)
+> - Regression tests for the stale-detection branch (2-3 tests covering:
+>   all patterns live → not stale; one pattern dead → stale; multiple
+>   scripts mixed; empty target_patterns edge case)
+> - Graceful handling when `target_patterns` is empty (a script with
+>   no declared patterns can't go stale by this metric — mark as
+>   "not stale" with reason "no target_patterns declared")
+>
+> **Out of scope for T21 even with expansion:** automatic removal of
+> stale scripts (user decides), staleness heuristics beyond
+> target_patterns (e.g., "script has never produced a finding" is a
+> separate `unused` concept), cross-commit stale tracking (would need
+> git history). These can be Phase 4 autoresearch refinements.
 
 **Files:**
 - Create: `src/screw_agents/cli/adaptive_cleanup.py`

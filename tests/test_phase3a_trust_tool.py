@@ -154,3 +154,112 @@ exclusions:
     assert result["trust_status"]["exclusion_active_count"] == 0
     # Subagent-facing exclusions list omits the quarantined entry
     assert result["exclusions"] == []
+
+
+def test_verify_trust_counts_signed_adaptive_scripts(
+    engine: ScanEngine, tmp_path: Path
+):
+    """Phase 3b T20 regression: verify_trust must count a signed adaptive
+    script as `script_active_count=1`, not quarantine it.
+
+    Locks the end-to-end composition of:
+      - init-trust (registers local key as script_reviewer)
+      - validate-script CLI (signs the fresh script using the T18a-extracted
+        `build_signed_script_meta` helper — routes through AdaptiveScriptMeta
+        .model_dump() before canonicalization per T13-C1 discipline)
+      - verify_trust (iterates .screw/custom-scripts/*.meta.yaml and runs
+        trust.verify_script on each)
+
+    Failure here would indicate sign/verify canonical-bytes drift — the same
+    class of bug T13-C1 fixed. If this test ever fails, first check whether
+    validate-script's canonicalization path still matches verify_trust's.
+
+    Note on stale detection: the plan's title says "Stale Script Detection
+    (Exposes in verify_trust)" but `verify_trust` aggregates only signing
+    counts (fast, called on every scan). Per-script stale detection is a
+    cleanup-path concern surfaced in T21's `list_adaptive_scripts` output
+    (where the AST-walk cost is paid on-demand when the user runs
+    `/screw:adaptive-cleanup`), not in `verify_trust`'s hot path.
+    """
+    from screw_agents.cli.init_trust import run_init_trust
+    from screw_agents.cli.validate_script import run_validate_script
+
+    # Register local Ed25519 key as a trusted script_reviewer.
+    run_init_trust(project_root=tmp_path, name="Marco", email="marco@example.com")
+
+    # Write a fresh (unsigned) adaptive script + meta. validate-script will
+    # recompute sha256 and sign it (T13-C1-correct path).
+    script_dir = tmp_path / ".screw" / "custom-scripts"
+    script_dir.mkdir(parents=True)
+    (script_dir / "test.py").write_text(
+        "from screw_agents.adaptive import emit_finding\n"
+        "def analyze(project):\n"
+        "    pass\n"
+    )
+    (script_dir / "test.meta.yaml").write_text(
+        "name: test\n"
+        'created: "2026-04-14T10:00:00Z"\n'
+        "created_by: marco@example.com\n"
+        "domain: injection-input-handling\n"
+        "description: test fixture for T20 verify_trust signing count\n"
+        "target_patterns: []\n"
+        "sha256: placeholder\n"  # recomputed by validate-script
+    )
+
+    sign_result = run_validate_script(project_root=tmp_path, script_name="test")
+    assert sign_result["status"] == "validated", (
+        f"validate-script expected to succeed; got {sign_result}"
+    )
+
+    status = engine.verify_trust(project_root=tmp_path)
+    assert status["script_active_count"] == 1, (
+        f"Signed adaptive script must be counted as active; "
+        f"got script_active_count={status['script_active_count']}"
+    )
+    assert status["script_quarantine_count"] == 0, (
+        f"Signed adaptive script must NOT be quarantined; "
+        f"got script_quarantine_count={status['script_quarantine_count']}"
+    )
+    # Exclusion counts unaffected by script-only setup
+    assert status["exclusion_active_count"] == 0
+    assert status["exclusion_quarantine_count"] == 0
+
+
+def test_verify_trust_quarantines_unsigned_adaptive_script(
+    engine: ScanEngine, tmp_path: Path
+):
+    """Phase 3b T20 companion regression: an UNSIGNED adaptive script
+    (`.py` + `.meta.yaml` both present, but meta has no signature) must
+    count as `script_quarantine_count=1`, NOT active.
+
+    This locks the other half of the signing-count contract: an attacker
+    dropping an unsigned script into .screw/custom-scripts/ must not be
+    silently treated as trusted. The quarantine surface then gets surfaced
+    in the trust_status section of the scan response (per the subagent
+    prompt rules in T13-T18b).
+    """
+    from screw_agents.cli.init_trust import run_init_trust
+
+    run_init_trust(project_root=tmp_path, name="Marco", email="marco@example.com")
+
+    # Unsigned script — meta has NO signature/signed_by fields.
+    script_dir = tmp_path / ".screw" / "custom-scripts"
+    script_dir.mkdir(parents=True)
+    (script_dir / "unsigned.py").write_text(
+        "from screw_agents.adaptive import emit_finding\n"
+        "def analyze(project):\n"
+        "    pass\n"
+    )
+    (script_dir / "unsigned.meta.yaml").write_text(
+        "name: unsigned\n"
+        'created: "2026-04-14T10:00:00Z"\n'
+        "created_by: attacker@example.com\n"
+        "domain: injection-input-handling\n"
+        "description: unsigned fixture\n"
+        "target_patterns: []\n"
+        "sha256: placeholder\n"
+    )
+
+    status = engine.verify_trust(project_root=tmp_path)
+    assert status["script_quarantine_count"] == 1
+    assert status["script_active_count"] == 0
