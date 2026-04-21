@@ -18,21 +18,58 @@ Registry event types (one entry per event, append-only):
     - tamper_detected
     - swept (issued by sweep_stale_staging)
 
-SECURITY NOTE:
-    This module does NOT validate ``script_name``. Callers MUST validate
-    the name against ``^[a-z0-9][a-z0-9-]{2,62}$`` (the regex that
-    ``_sign_script_bytes`` enforces) BEFORE calling ``write_staged_files``
-    or ``delete_staged_files``. A malicious or buggy caller passing
-    ``"../../../etc/shadow"`` as ``script_name`` will write outside the
-    staging directory. In the normal C1 flow, ``engine.stage_adaptive_script``
-    validates the name before reaching this module (see T3).
+SECURITY — script_name validation:
+    This module enforces ``script_name`` against
+    ``^[a-z0-9][a-z0-9-]{2,62}$`` as defense-in-depth. The canonical
+    validator lives in ``_sign_script_bytes`` (T2); every engine-layer
+    caller runs that validation before reaching this module. Defense here
+    ensures that:
+    - Bypass bugs in upstream callers surface as ``ValueError`` from
+      the closest boundary, not as path-traversal filesystem ops.
+    - Direct callers of this public module (tests, future tooling)
+      cannot construct a traversal primitive via ``script_name``.
+    Short-term regex duplication with ``_sign_script_bytes`` is
+    deliberate; extract to a shared constant if T2 chooses.
 """
 
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
+
+# Matches `_sign_script_bytes`'s name regex exactly (both will be extracted
+# to a shared constant when T2 lands; until then, keep byte-identical).
+# Lowercase alpha-num first char, then 2-62 chars of lowercase alpha-num +
+# dash. Total length 3-63.
+_SCRIPT_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{2,62}$")
+
+
+def _validate_script_name(script_name: str) -> None:
+    """Raise ValueError if ``script_name`` doesn't match the allowlist regex.
+
+    Called from every public FS op that derives a path from ``script_name``.
+    This is DEFENSE IN DEPTH — the canonical validator lives in
+    ``_sign_script_bytes`` (T2), which runs before these FS ops in the
+    normal C1 flow. We validate here too so that:
+
+    - Direct callers of this module (e.g., tests, future tooling) cannot
+      bypass the name check.
+    - Any bypass bug in the engine-layer caller surfaces as a ValueError
+      from the closest boundary (staging.py), not as a path-traversal
+      filesystem operation.
+
+    Threat: ``script_name="../../etc/shadow"`` (or any path-separator-bearing
+    string) would otherwise be interpolated into ``stage_dir / f"{script_name}.py"``
+    and write outside the staging dir.
+    """
+    if not _SCRIPT_NAME_RE.match(script_name):
+        raise ValueError(
+            f"script_name {script_name!r} does not match "
+            f"^[a-z0-9][a-z0-9-]{{2,62}}$ (3-63 chars, lowercase alnum + dash, "
+            f"must start with alnum)"
+        )
 
 __all__ = [
     "resolve_staging_dir",
@@ -91,10 +128,12 @@ def write_staged_files(
     Raises ValueError wrapping (PermissionError, OSError) with
     {type(exc).__name__} in the message (T13-C1 discipline).
 
-    SECURITY: ``script_name`` is NOT validated here — callers must have
-    already verified it matches ``^[a-z0-9][a-z0-9-]{2,62}$`` or they risk
-    path traversal via the ``stage_dir / f"{script_name}.py"`` derivation.
+    SECURITY: ``script_name`` is validated against
+    ``^[a-z0-9][a-z0-9-]{2,62}$`` at entry (defense-in-depth; the canonical
+    validator lives in ``_sign_script_bytes``). Invalid names raise
+    ``ValueError`` before any filesystem access.
     """
+    _validate_script_name(script_name)
     stage_dir = resolve_staging_dir(project_root, session_id)
     try:
         stage_dir.mkdir(parents=True, exist_ok=True)
@@ -157,8 +196,12 @@ def read_staged_files(
     Raises FileNotFoundError if either file is missing.
     Raises ValueError wrapping OSError on other filesystem errors.
 
-    SECURITY: ``script_name`` is NOT validated here — caller must have verified it.
+    SECURITY: ``script_name`` is validated against
+    ``^[a-z0-9][a-z0-9-]{2,62}$`` at entry (defense-in-depth; the canonical
+    validator lives in ``_sign_script_bytes``). Invalid names raise
+    ``ValueError`` before any filesystem access.
     """
+    _validate_script_name(script_name)
     stage_dir = resolve_staging_dir(project_root, session_id)
     py_path = stage_dir / f"{script_name}.py"
     meta_path = stage_dir / f"{script_name}.meta.yaml"
@@ -188,8 +231,12 @@ def delete_staged_files(
     Missing files are NOT an error — second-reject/second-promote scenarios.
     Raises ValueError wrapping OSError on permission / busy-file errors.
 
-    SECURITY: ``script_name`` is NOT validated here — caller must have verified it.
+    SECURITY: ``script_name`` is validated against
+    ``^[a-z0-9][a-z0-9-]{2,62}$`` at entry (defense-in-depth; the canonical
+    validator lives in ``_sign_script_bytes``). Invalid names raise
+    ``ValueError`` before any filesystem access.
     """
+    _validate_script_name(script_name)
     stage_dir = resolve_staging_dir(project_root, session_id)
     for suffix in (".py", ".meta.yaml"):
         target = stage_dir / f"{script_name}{suffix}"

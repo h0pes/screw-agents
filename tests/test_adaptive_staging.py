@@ -259,3 +259,96 @@ def test_delete_staged_files_idempotent_on_missing(tmp_path: Path) -> None:
         script_name="nope",
         session_id="sess-abc",
     )
+
+
+def test_write_staged_files_rejects_path_traversal_script_name(tmp_path: Path) -> None:
+    from screw_agents.adaptive.staging import write_staged_files
+
+    project = tmp_path / "project"
+    project.mkdir()
+
+    with pytest.raises(ValueError, match="script_name"):
+        write_staged_files(
+            project_root=project,
+            script_name="../../../etc/shadow",
+            source="pass\n",
+            meta_yaml="name: x\n",
+            session_id="sess-abc",
+        )
+
+
+def test_write_staged_files_rejects_uppercase_script_name(tmp_path: Path) -> None:
+    from screw_agents.adaptive.staging import write_staged_files
+
+    project = tmp_path / "project"
+    project.mkdir()
+
+    with pytest.raises(ValueError, match="script_name"):
+        write_staged_files(
+            project_root=project,
+            script_name="Foo-Bar",
+            source="pass\n",
+            meta_yaml="name: x\n",
+            session_id="sess-abc",
+        )
+
+
+def test_write_staged_files_rejects_too_short_script_name(tmp_path: Path) -> None:
+    from screw_agents.adaptive.staging import write_staged_files
+
+    project = tmp_path / "project"
+    project.mkdir()
+
+    with pytest.raises(ValueError, match="script_name"):
+        write_staged_files(
+            project_root=project,
+            script_name="ab",  # only 2 chars, regex requires >= 3
+            source="pass\n",
+            meta_yaml="name: x\n",
+            session_id="sess-abc",
+        )
+
+
+def test_read_staged_files_rejects_invalid_script_name(tmp_path: Path) -> None:
+    from screw_agents.adaptive.staging import read_staged_files
+
+    project = tmp_path / "project"
+    project.mkdir()
+
+    with pytest.raises(ValueError, match="script_name"):
+        read_staged_files(
+            project_root=project,
+            script_name="../secrets",
+            session_id="sess-abc",
+        )
+
+
+def test_delete_staged_files_rejects_invalid_script_name(tmp_path: Path) -> None:
+    from screw_agents.adaptive.staging import delete_staged_files
+
+    project = tmp_path / "project"
+    project.mkdir()
+
+    with pytest.raises(ValueError, match="script_name"):
+        delete_staged_files(
+            project_root=project,
+            script_name="../secrets",
+            session_id="sess-abc",
+        )
+
+
+def test_write_staged_files_accepts_valid_script_name_edge_cases(tmp_path: Path) -> None:
+    """Regression: exactly 3 chars + exactly 63 chars + all-digits + with dashes."""
+    from screw_agents.adaptive.staging import write_staged_files
+
+    project = tmp_path / "project"
+    project.mkdir()
+    common = dict(source="pass\n", meta_yaml="name: x\n", session_id="sess-abc")
+
+    for name in ("abc", "0" * 63, "test-script-001", "9abc"):
+        paths = write_staged_files(
+            project_root=project,
+            script_name=name,
+            **common,
+        )
+        assert paths.py_path.exists()
