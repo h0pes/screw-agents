@@ -432,8 +432,12 @@ def write_staged_files(
 
     py_path = stage_dir / f"{script_name}.py"
     meta_path = stage_dir / f"{script_name}.meta.yaml"
-    py_tmp = py_path.with_suffix(".py.tmp")
-    meta_tmp = meta_path.with_suffix(".meta.yaml.tmp")
+    # String-concat from script_name (not Path.with_suffix) — mirrors T18a's
+    # engine.py pattern exactly. `Path("x.meta.yaml").with_suffix(".meta.yaml.tmp")`
+    # produces `x.meta.meta.yaml.tmp` because Path.suffix is only the last
+    # dotted segment. Concat keeps tmp names symmetric with their targets.
+    py_tmp = stage_dir / f"{script_name}.py.tmp"
+    meta_tmp = stage_dir / f"{script_name}.meta.yaml.tmp"
 
     # Source first.
     try:
