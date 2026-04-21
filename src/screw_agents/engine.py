@@ -669,6 +669,24 @@ class ScanEngine:
                     "last_event": last_event,
                 }
             registry_sha = registry_entry.get("script_sha256")
+            if registry_sha is None:
+                # I-opus-1 hardening: symmetric to I3's staged_at check. A `staged`
+                # entry missing `script_sha256` is a schema violation (T3's
+                # validate_pending_approval should catch this on write). If we see
+                # it at read time, the registry has been tampered or a legacy entry
+                # predates the validator. Force ops to investigate rather than
+                # crash on registry_sha[:8] later.
+                return {
+                    "status": "error",
+                    "error": "invalid_registry_entry",
+                    "message": (
+                        f"Registry entry for {script_name!r}/{session_id!r} is "
+                        f"missing the 'script_sha256' field required for tamper "
+                        f"detection. Registry may be corrupted or written by an "
+                        f"older schema version. Inspect "
+                        f"`.screw/local/pending-approvals.jsonl`."
+                    ),
+                }
             if actual_sha256 != registry_sha:
                 # TAMPER DETECTED. Preserve the staging bytes for forensic
                 # inspection + write a .TAMPERED marker + append a
@@ -837,6 +855,17 @@ class ScanEngine:
         Fresh-script-only — a name collision is an error, NOT an idempotent
         re-sign. Use ``cli.validate_script.run_validate_script`` for the
         re-sign path on an existing quarantined script.
+
+        C1 STATUS NOTE (2026-04-21): This method accepts ``source`` and ``meta``
+        parameters, which is the regeneration vector T18b-C1 identified. The C1
+        architectural closure lives in ``promote_staged_script`` (T4), which reads
+        staged bytes from disk and takes no ``source``/``meta`` arguments. This
+        method is retained for (a) programmatic/autoresearch consumers that
+        generate-and-sign without human review, and (b) the legacy approve path
+        until the subagent prompt migrations land. See DEFERRED_BACKLOG entry
+        BACKLOG-PR6-22 for the retirement-migration plan. Operators and auditors
+        should NOT assume C1 is fully closed at the MCP boundary while this
+        method still exists in the exposed tool set.
 
         Args:
             project_root: Project root with ``.screw/`` directory.

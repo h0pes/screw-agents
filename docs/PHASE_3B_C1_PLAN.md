@@ -2450,6 +2450,13 @@ git commit -m "feat(phase3b-c1): promote_staged_script MCP tool — C1 fix (T4)"
 
 **Cross-plan sync:** confirm all 12 Q-decisions from spec §3.2 are exercised by at least one test. If a Q decision ISN'T exercised (e.g., no test for invalid_lifecycle_state), add one now. C1 regression coverage is non-negotiable.
 
+**T4 Opus 4.7 re-review (2026-04-21):** Spec review APPROVED (all 10 HR + 15 tests pass). Quality review found 2 Important + 8 Minor items. Both Important items fixed in T4 part 2 commit:
+
+- **I-opus-1 (missing `script_sha256` in registry):** symmetric to I3's `staged_at` discipline. The tamper-detection code path used `registry_sha[:8]` in error messages; a missing `script_sha256` would crash with `TypeError: 'NoneType' object is not subscriptable`. Fixed with an explicit `invalid_registry_entry` return + regression test `test_promote_rejects_missing_script_sha256`.
+- **I-opus-2 (cross-plan C1-closure status):** added a C1 STATUS NOTE docstring paragraph to `sign_adaptive_script` documenting that T4 closes C1 for the staged-path approve flow but the direct-sign path remains open. Operators/auditors should not assume C1 is fully closed at the MCP boundary. Retirement migration tracked as BACKLOG-PR6-22.
+
+Minor items (I-opus-3 through I-opus-10) deferred to `docs/DEFERRED_BACKLOG.md` as `BACKLOG-PR6-21..28`.
+
 ---
 
 ### Task 5: `reject_staged_script` MCP Tool

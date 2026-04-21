@@ -991,3 +991,67 @@ assert list(stage_dir.iterdir()) == []
 **Trigger:** If an attacker is observed targeting .meta.yaml specifically (rather than .py), OR next trust-path threat-model refresh.
 **Suggested fix:** on `yaml.YAMLError`, touch a `.METATAMPERED` marker + append a `meta_tampered` (or reuse `tamper_detected` with an evidence_type field) audit event. Same forensic-preservation pattern as the sha-mismatch tamper path.
 **Estimated scope:** 15 LOC + 1 test.
+
+### BACKLOG-PR6-21 — Fallback-path UX: reviewer-responsibility disclaimer
+**Source:** Phase 3b PR #6 T4 Opus re-review (I-opus-3), 2026-04-21
+**File:** `src/screw_agents/engine.py` — `promote_staged_script` fallback-path error message
+**Why deferred:** The `fallback_required` response message hands the user the sha prefix and instructs them to paste it back. A user who did not personally review the staged bytes can copy-paste their way to a confirm. This is a design tradeoff (Q3 spec accepted) rather than a vulnerability, but the UX should explicitly name the reviewer's responsibility.
+**Trigger:** Next UX polish pass on the approve-flow slash commands, OR if a user reports confusion / a post-incident review flags the UX.
+**Suggested fix:** append to the fallback message body: "You are confirming the staging bytes' sha matches what you reviewed at stage time. If you did not personally review these bytes, run `reject` instead."
+**Estimated scope:** ~5 LOC message text change + 1 format-smoke test assertion update.
+
+### BACKLOG-PR6-22 — `sign_adaptive_script` retirement / C1-closure migration
+**Source:** Phase 3b PR #6 T4 Opus re-review (I-opus-2), 2026-04-21
+**File:** `src/screw_agents/engine.py` — `sign_adaptive_script`; `src/screw_agents/server.py` dispatcher; `plugins/screw/agents/screw-{sqli,cmdi,ssti,xss}.md` subagent prompts
+**Why deferred:** T4 closed C1 for the staged-path approve flow via `promote_staged_script`. The direct `sign_adaptive_script` MCP tool still accepts `source` / `meta` arguments — the regeneration vector at the MCP boundary. Fully closing C1 requires: (a) migrating subagent prompts to always use stage→promote, (b) retiring or dev-gating the direct-sign path, (c) updating the autoresearch hook (BACKLOG-PR6-13) to the staged path as well.
+**Trigger:** After subagent prompt migrations ship (T15-T17), AND autoresearch scaffolding uses staged path.
+**Suggested approach:** Phased retirement — (1) add deprecation warning to `sign_adaptive_script` responses pointing to the staged path; (2) remove from default tool set, keep as `screw-agents migrate-sign` CLI for legacy flows; (3) eventually delete.
+**Estimated scope:** ~50 LOC deprecation shim + multi-file prompt migrations + tests + release notes.
+
+### BACKLOG-PR6-23 — Tamper-path `append_registry_entry` failure handling
+**Source:** Phase 3b PR #6 T4 Opus re-review (I-opus-5), 2026-04-21
+**File:** `src/screw_agents/engine.py` — `promote_staged_script` tamper branch
+**Why deferred:** If `append_registry_entry(tamper_entry)` fails (filesystem error) during tamper handling, the marker file is touched but the audit event is missing, and the `ValueError` escapes before the caller receives the tamper-detected error-dict. Tamper path is rare but critical; slightly more resilient surface is defensible.
+**Trigger:** If a real-world incident shows a tamper case followed by a registry-write failure leaving ops with incomplete forensic evidence, OR next trust-path polish pass.
+**Suggested fix:** wrap `append_registry_entry(tamper_entry)` in try/except ValueError; log the append failure (stderr / warn) but still return the tamper-detected error-dict with marker path.
+**Estimated scope:** ~10 LOC + 1 monkey-patch test.
+
+### BACKLOG-PR6-24 — Promoted-audit append failure rationale comment
+**Source:** Phase 3b PR #6 T4 Opus re-review (I-opus-4), 2026-04-21
+**File:** `src/screw_agents/engine.py` — `promote_staged_script` success path (after sign + delete)
+**Why deferred:** The final `append_registry_entry(promoted_entry)` at the end of promote is intentionally NOT wrapped — filesystem errors escape loud for ops to see. But the symmetry with the Step 8 swallowed-delete comment would help future readers; add an explicit comment documenting the choice.
+**Trigger:** Next docstring polish pass.
+**Suggested fix:** add a 3-line comment: "Step 9: append promoted audit event. If this raises, the sign already succeeded (custom-scripts is ground truth); the missing audit entry is recoverable by reconciling custom-scripts/ against the registry. We do NOT swallow here — ops needs to see the filesystem error loudly."
+**Estimated scope:** 3 LOC comment.
+
+### BACKLOG-PR6-25 — Lazy imports style consistency in `promote_staged_script`
+**Source:** Phase 3b PR #6 T4 Opus re-review (I-opus-6), 2026-04-21
+**File:** `src/screw_agents/engine.py` — `promote_staged_script` method body
+**Why deferred:** `promote_staged_script` imports `yaml`, `datetime`, and staging/signing helpers inside the method body. Other engine methods (e.g., `stage_adaptive_script` as implemented in T3) keep these at module scope. Style inconsistency; not a correctness issue. No circular-import concern visible.
+**Trigger:** Next readability polish pass, OR if a contributor trips over the inconsistent style.
+**Suggested fix:** hoist lazy imports to module scope; verify no circular imports introduced.
+**Estimated scope:** ~15 LOC import consolidation + verification.
+
+### BACKLOG-PR6-26 — Future-dated `staged_at` test coverage
+**Source:** Phase 3b PR #6 T4 Opus re-review (I-opus-8), 2026-04-21
+**File:** `tests/test_adaptive_staging.py`
+**Why deferred:** No test for clock-skew: `staged_at` in the future. Current behavior: `age` is negative; `age > timedelta(hours=24)` is False; staleness check is skipped; promote succeeds. Not a security concern (negative age means "staged recently"), but the behavior should be documented by a test.
+**Trigger:** Next test-coverage sweep.
+**Suggested fix:** add `test_promote_future_staged_at_proceeds_without_stale_error` asserting the promote path proceeds cleanly when `staged_at` is in the future.
+**Estimated scope:** ~20 LOC test.
+
+### BACKLOG-PR6-27 — `confirm_stale` schema `default` key
+**Source:** Phase 3b PR #6 T4 Opus re-review (I-opus-9), 2026-04-21
+**File:** `src/screw_agents/engine.py` — `promote_staged_script` tool schema
+**Why deferred:** Tool schema does not include `"default": false` for `confirm_stale`; method implementation defaults to False; dispatcher reads `args.get("confirm_stale", False)`. Functionally correct but not self-documenting from the schema alone.
+**Trigger:** Next schema polish pass OR T22 additionalProperties sweep (if it also audits default keys).
+**Suggested fix:** add `"default": false` to the `confirm_stale` schema block.
+**Estimated scope:** 1-2 LOC.
+
+### BACKLOG-PR6-28 — `promote_staged_script` method-length refactor
+**Source:** Phase 3b PR #6 T4 Opus re-review (I-opus-10), 2026-04-21
+**File:** `src/screw_agents/engine.py` — `promote_staged_script` (~340 LOC)
+**Why deferred:** Method is long. The staleness check (~60 LOC), fallback path (~40 LOC), and primary/tamper branch (~40 LOC) are distinct phases and could extract cleanly into `_check_staleness`, `_resolve_via_fallback`, `_handle_tamper` private helpers. This would simplify unit-testing those branches in isolation. The method IS readable as written, but a refactor would aid maintainability.
+**Trigger:** Next readability polish pass, OR if a future T5/T6/T7 task touches the same method and the size becomes a merge-conflict risk.
+**Suggested fix:** extract three private helpers; update tests to exercise them directly where helpful; preserve public signature.
+**Estimated scope:** ~100 LOC refactor + test reorganization.

@@ -1388,6 +1388,54 @@ def test_promote_rejects_malformed_staged_at(tmp_path: Path) -> None:
     )
 
 
+def test_promote_rejects_missing_script_sha256(tmp_path) -> None:
+    """I-opus-1 regression: symmetric to I3's staged_at discipline.
+    A `staged` registry entry missing `script_sha256` must return
+    invalid_registry_entry — not crash on NoneType subscript.
+    """
+    from screw_agents.cli.init_trust import run_init_trust
+    from screw_agents.engine import ScanEngine
+    from screw_agents.adaptive.staging import resolve_registry_path
+
+    project = tmp_path / "project"
+    project.mkdir()
+    run_init_trust(project_root=project, name="T", email="t@e.co")
+    engine = ScanEngine.from_defaults()
+    engine.stage_adaptive_script(
+        project_root=project,
+        script_name="test-no-sha",
+        source="pass\n",
+        meta={"name": "test-no-sha", "created": "2026-04-21T10:00:00Z",
+              "created_by": "t@e.co", "domain": "injection-input-handling",
+              "description": "d", "target_patterns": ["x"]},
+        session_id="sess-abc",
+        target_gap=None,
+    )
+
+    # Corrupt the registry: remove script_sha256 from the staged entry.
+    # (Simulates a legacy entry or hand-edited tamper.)
+    registry = resolve_registry_path(project)
+    import json as _json
+    lines = registry.read_text().splitlines()
+    rewritten = []
+    for line in lines:
+        entry = _json.loads(line)
+        if entry.get("script_name") == "test-no-sha":
+            entry.pop("script_sha256", None)
+        rewritten.append(_json.dumps(entry, separators=(",", ":"), sort_keys=True))
+    registry.write_text("\n".join(rewritten) + "\n")
+
+    response = engine.promote_staged_script(
+        project_root=project,
+        script_name="test-no-sha",
+        session_id="sess-abc",
+    )
+
+    assert response["status"] == "error"
+    assert response["error"] == "invalid_registry_entry"
+    assert "script_sha256" in response["message"]
+
+
 def test_promote_fallback_registry_missing(tmp_path: Path) -> None:
     """Registry file absent → fallback_required with recovered_sha256_prefix."""
     from screw_agents.adaptive.staging import (
