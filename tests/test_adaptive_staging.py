@@ -7,9 +7,7 @@ The full stage→promote→execute integration is test_adaptive_workflow_staged.
 
 from __future__ import annotations
 
-import json
 import os
-import time
 from pathlib import Path
 
 import pytest
@@ -37,6 +35,39 @@ def test_resolve_staging_dir_rejects_empty_session_id(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="session_id"):
         resolve_staging_dir(project, "")
+
+
+def test_resolve_staging_dir_rejects_dot_session_ids(tmp_path: Path) -> None:
+    from screw_agents.adaptive.staging import resolve_staging_dir
+
+    project = tmp_path / "project"
+    project.mkdir()
+
+    for bad in (".", ".."):
+        with pytest.raises(ValueError, match="collapse"):
+            resolve_staging_dir(project, bad)
+
+
+def test_resolve_staging_dir_rejects_path_traversal_chars(tmp_path: Path) -> None:
+    from screw_agents.adaptive.staging import resolve_staging_dir
+
+    project = tmp_path / "project"
+    project.mkdir()
+
+    for bad in ("a/b", "a\\b", "a\x00b"):
+        with pytest.raises(ValueError, match="invalid path chars"):
+            resolve_staging_dir(project, bad)
+
+
+def test_resolve_staging_dir_accepts_dots_within_session_id(tmp_path: Path) -> None:
+    """Regression for I-2: `a..b` is a legitimate name, not a traversal."""
+    from screw_agents.adaptive.staging import resolve_staging_dir
+
+    project = tmp_path / "project"
+    project.mkdir()
+
+    staging_dir = resolve_staging_dir(project, "a..b")
+    assert staging_dir == project / ".screw" / "staging" / "a..b" / "adaptive-scripts"
 
 
 def test_resolve_registry_path(tmp_path: Path) -> None:
@@ -107,7 +138,7 @@ def test_write_staged_files_rolls_back_py_on_meta_failure(
     assert not (stage_dir / "test-script.py").exists()
 
 
-def test_read_staged_files_returns_bytes(tmp_path: Path) -> None:
+def test_read_staged_files_returns_str_roundtrip(tmp_path: Path) -> None:
     from screw_agents.adaptive.staging import read_staged_files, write_staged_files
 
     project = tmp_path / "project"
@@ -172,6 +203,49 @@ def test_delete_staged_files_removes_both(tmp_path: Path) -> None:
     stage_dir = resolve_staging_dir(project, "sess-abc")
     assert not (stage_dir / "test-script.py").exists()
     assert not (stage_dir / "test-script.meta.yaml").exists()
+
+
+def test_write_staged_files_rollback_unlink_failure_does_not_mask_value_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """C-2 regression: if rollback unlink raises PermissionError, the
+    user still sees the informative ValueError about the meta failure."""
+    from screw_agents.adaptive import staging
+
+    project = tmp_path / "project"
+    project.mkdir()
+
+    # Make the second os.replace (meta) fail.
+    original_replace = os.replace
+    call_count = {"n": 0}
+
+    def flaky_replace(src, dst):
+        call_count["n"] += 1
+        if call_count["n"] == 2:
+            raise PermissionError("simulated meta-write failure")
+        return original_replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", flaky_replace)
+
+    # Make the rollback unlink on py_path ALSO fail.
+    from pathlib import Path as _Path
+    original_unlink = _Path.unlink
+
+    def flaky_unlink(self, missing_ok=False):
+        if self.name == "test-script.py":
+            raise PermissionError("simulated rollback-unlink failure")
+        return original_unlink(self, missing_ok=missing_ok)
+
+    monkeypatch.setattr(_Path, "unlink", flaky_unlink)
+
+    with pytest.raises(ValueError, match="failed to write staged meta"):
+        staging.write_staged_files(
+            project_root=project,
+            script_name="test-script",
+            source="print('hi')\n",
+            meta_yaml="name: test\n",
+            session_id="sess-abc",
+        )
 
 
 def test_delete_staged_files_idempotent_on_missing(tmp_path: Path) -> None:

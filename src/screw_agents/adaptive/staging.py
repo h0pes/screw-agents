@@ -17,6 +17,15 @@ Registry event types (one entry per event, append-only):
     - rejected
     - tamper_detected
     - swept (issued by sweep_stale_staging)
+
+SECURITY NOTE:
+    This module does NOT validate ``script_name``. Callers MUST validate
+    the name against ``^[a-z0-9][a-z0-9-]{2,62}$`` (the regex that
+    ``_sign_script_bytes`` enforces) BEFORE calling ``write_staged_files``
+    or ``delete_staged_files``. A malicious or buggy caller passing
+    ``"../../../etc/shadow"`` as ``script_name`` will write outside the
+    staging directory. In the normal C1 flow, ``engine.stage_adaptive_script``
+    validates the name before reaching this module (see T3).
 """
 
 from __future__ import annotations
@@ -45,7 +54,9 @@ def resolve_staging_dir(project_root: Path, session_id: str) -> Path:
     """
     if not session_id:
         raise ValueError("session_id must be non-empty")
-    if "/" in session_id or "\\" in session_id or ".." in session_id:
+    if session_id in (".", ".."):
+        raise ValueError(f"session_id cannot be {session_id!r} (would collapse session isolation)")
+    if "/" in session_id or "\\" in session_id or "\x00" in session_id:
         raise ValueError(f"session_id contains invalid path chars: {session_id!r}")
     return project_root / ".screw" / "staging" / session_id / "adaptive-scripts"
 
@@ -79,6 +90,10 @@ def write_staged_files(
 
     Raises ValueError wrapping (PermissionError, OSError) with
     {type(exc).__name__} in the message (T13-C1 discipline).
+
+    SECURITY: ``script_name`` is NOT validated here — callers must have
+    already verified it matches ``^[a-z0-9][a-z0-9-]{2,62}$`` or they risk
+    path traversal via the ``stage_dir / f"{script_name}.py"`` derivation.
     """
     stage_dir = resolve_staging_dir(project_root, session_id)
     try:
@@ -103,7 +118,10 @@ def write_staged_files(
         py_tmp.write_text(source, encoding="utf-8")
         os.replace(py_tmp, py_path)
     except (PermissionError, OSError) as exc:
-        py_tmp.unlink(missing_ok=True)
+        try:
+            py_tmp.unlink()
+        except OSError:
+            pass
         raise ValueError(
             f"failed to write staged source {py_path} "
             f"({type(exc).__name__}: {exc})"
@@ -114,8 +132,11 @@ def write_staged_files(
         meta_tmp.write_text(meta_yaml, encoding="utf-8")
         os.replace(meta_tmp, meta_path)
     except (PermissionError, OSError) as exc:
-        meta_tmp.unlink(missing_ok=True)
-        py_path.unlink(missing_ok=True)  # best-effort rollback
+        for cleanup_target in (meta_tmp, py_path):
+            try:
+                cleanup_target.unlink()
+            except OSError:
+                pass
         raise ValueError(
             f"failed to write staged meta {meta_path} "
             f"({type(exc).__name__}: {exc}); "
@@ -135,6 +156,8 @@ def read_staged_files(
 
     Raises FileNotFoundError if either file is missing.
     Raises ValueError wrapping OSError on other filesystem errors.
+
+    SECURITY: ``script_name`` is NOT validated here — caller must have verified it.
     """
     stage_dir = resolve_staging_dir(project_root, session_id)
     py_path = stage_dir / f"{script_name}.py"
@@ -164,6 +187,8 @@ def delete_staged_files(
 
     Missing files are NOT an error — second-reject/second-promote scenarios.
     Raises ValueError wrapping OSError on permission / busy-file errors.
+
+    SECURITY: ``script_name`` is NOT validated here — caller must have verified it.
     """
     stage_dir = resolve_staging_dir(project_root, session_id)
     for suffix in (".py", ".meta.yaml"):
