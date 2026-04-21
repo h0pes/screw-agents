@@ -8,7 +8,7 @@ metadata.
 
 from __future__ import annotations
 
-from typing import Any, ClassVar, Literal
+from typing import Any, ClassVar, Literal, TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.main import IncEx
@@ -528,3 +528,45 @@ class SemanticReviewReport(BaseModel):
     unusual_imports: list[str]
     control_flow_summary: str
     estimated_runtime_ms: int
+
+
+# ---------------------------------------------------------------------------
+# Staging Models (Phase 3b C1 — staging architecture TypedDicts)
+# ---------------------------------------------------------------------------
+
+
+class PendingApproval(TypedDict, total=False):
+    """One entry in .screw/local/pending-approvals.jsonl (append-only JSONL)."""
+
+    event: str  # "staged" | "promoted" | "promoted_via_fallback" |
+                # "promoted_confirm_stale" | "rejected" | "tamper_detected" | "swept"
+    script_name: str
+    session_id: str
+    script_sha256: str      # 64-char hex (present on staged, promoted, tamper_detected)
+    target_gap: dict        # {type, file, line, agent} — present on staged
+    staged_at: str          # ISO8601 UTC — present on staged
+    schema_version: int     # 1 for this PR; increments on incompatible changes
+
+    # Event-specific fields:
+    signed_by: str          # promoted events
+    reason: str             # rejected events
+    expected_sha256: str    # tamper_detected
+    actual_sha256: str      # tamper_detected
+    evidence_path: str      # tamper_detected
+    promoted_at: str        # promoted events
+    rejected_at: str        # rejected events
+    tampered_at: str        # tamper_detected
+    swept_at: str           # swept events
+    sweep_reason: str       # swept events ("stale_orphan" | "completed_orphan")
+
+
+class StaleStagingReport(TypedDict):
+    """Return shape for sweep_stale_staging."""
+
+    status: str
+    max_age_days: int
+    dry_run: bool
+    sessions_scanned: int
+    sessions_removed: int
+    scripts_removed: list[dict]       # [{script_name, session_id, reason, age_days}, ...]
+    tampered_preserved: list[dict]    # [{script_name, session_id, evidence_path, age_days}, ...]
