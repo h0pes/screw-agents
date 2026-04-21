@@ -972,3 +972,629 @@ def test_append_registry_entry_rejects_missing_required_field(tmp_path: Path) ->
     assert not resolve_registry_path(project).exists()
     # And the parent dir wasn't touched either.
     assert not (project / ".screw" / "local").exists()
+
+
+# =====================================================================
+# Phase 3b T4: promote_staged_script (C1 FIX — the heart of the PR)
+# =====================================================================
+
+
+# --- I1: ScrewConfig schema fields (stale_staging_hours, staging_max_age_days)
+
+
+def test_screw_config_staging_fields_default_values() -> None:
+    """I1 regression: ScrewConfig exposes stale_staging_hours + staging_max_age_days
+    with their documented defaults."""
+    from screw_agents.models import ScrewConfig
+
+    config = ScrewConfig()
+    assert config.stale_staging_hours == 24
+    assert config.staging_max_age_days == 14
+
+
+def test_screw_config_staging_fields_accept_custom_values() -> None:
+    """I1 regression: custom values within range load cleanly."""
+    from screw_agents.models import ScrewConfig
+
+    config = ScrewConfig(stale_staging_hours=72, staging_max_age_days=30)
+    assert config.stale_staging_hours == 72
+    assert config.staging_max_age_days == 30
+
+
+def test_screw_config_staging_fields_reject_out_of_range() -> None:
+    """I1 regression: out-of-range values (below minimum or above maximum)
+    raise ValidationError at model-construction time rather than silently
+    degrading inside helpers."""
+    from pydantic import ValidationError
+
+    from screw_agents.models import ScrewConfig
+
+    # stale_staging_hours: ge=1, le=168
+    with pytest.raises(ValidationError):
+        ScrewConfig(stale_staging_hours=0)
+    with pytest.raises(ValidationError):
+        ScrewConfig(stale_staging_hours=169)
+
+    # staging_max_age_days: ge=1, le=365
+    with pytest.raises(ValidationError):
+        ScrewConfig(staging_max_age_days=0)
+    with pytest.raises(ValidationError):
+        ScrewConfig(staging_max_age_days=366)
+
+
+# --- C1 REGRESSION LOCK ---------------------------------------------------
+
+
+def test_promote_staged_script_signature_rejects_source_param() -> None:
+    """C1 REGRESSION LOCK.
+
+    promote_staged_script MUST NOT accept a `source` parameter. The whole
+    point of the C1 fix is that the approve path reads source from disk,
+    not from an LLM-provided argument. If a future refactor adds `source`
+    back, the regeneration vulnerability reopens. This test catches it.
+    """
+    import inspect
+
+    from screw_agents.engine import ScanEngine
+
+    sig = inspect.signature(ScanEngine.promote_staged_script)
+    assert "source" not in sig.parameters, (
+        "promote_staged_script must not accept `source` parameter — C1 "
+        "architectural closure regressed. See spec §3.2."
+    )
+    # Also reject `meta` — meta is read from staging, same rationale.
+    assert "meta" not in sig.parameters, (
+        "promote_staged_script must not accept `meta` parameter either"
+    )
+
+
+# --- Happy path + error paths --------------------------------------------
+
+
+def _stage_script_for_promote(
+    engine,
+    project: Path,
+    script_name: str,
+    *,
+    source: str,
+    session_id: str,
+    created_by: str = "t@e.co",
+) -> dict:
+    """Helper: shared stage invocation for promote tests."""
+    meta = {
+        "name": script_name,
+        "created": "2026-04-20T10:00:00Z",
+        "created_by": created_by,
+        "domain": "injection-input-handling",
+        "description": "test",
+        "target_patterns": ["foo.bar"],
+    }
+    return engine.stage_adaptive_script(
+        project_root=project,
+        script_name=script_name,
+        source=source,
+        meta=meta,
+        session_id=session_id,
+        target_gap=None,
+    )
+
+
+def test_promote_staged_script_happy_path(tmp_path: Path) -> None:
+    """Stage then promote: signed artifact lands in custom-scripts/ with
+    byte-identical source."""
+    from screw_agents.adaptive.staging import resolve_registry_path
+    from screw_agents.cli.init_trust import run_init_trust
+    from screw_agents.engine import ScanEngine
+
+    project = tmp_path / "project"
+    project.mkdir()
+    run_init_trust(project_root=project, name="T4 Tester", email="t4@example.com")
+    engine = ScanEngine.from_defaults()
+    source = (
+        "from screw_agents.adaptive import emit_finding\n\n"
+        "def analyze(project):\n    pass\n"
+    )
+
+    stage_r = _stage_script_for_promote(
+        engine,
+        project,
+        "test-promote-001",
+        source=source,
+        session_id="sess-abc",
+        created_by="t4@example.com",
+    )
+    assert stage_r["status"] == "staged"
+
+    promote_r = engine.promote_staged_script(
+        project_root=project,
+        script_name="test-promote-001",
+        session_id="sess-abc",
+    )
+
+    assert promote_r["status"] == "signed"
+    assert promote_r["signed_by"] == "t4@example.com"
+    assert promote_r["sha256"] == stage_r["script_sha256"]
+    assert promote_r["promoted_via_fallback"] is False
+
+    # Custom-scripts file contains EXACTLY the staged source.
+    signed_py = project / ".screw" / "custom-scripts" / "test-promote-001.py"
+    assert signed_py.exists()
+    assert signed_py.read_text(encoding="utf-8") == source
+
+    # Staging files deleted.
+    stage_py = (
+        project
+        / ".screw"
+        / "staging"
+        / "sess-abc"
+        / "adaptive-scripts"
+        / "test-promote-001.py"
+    )
+    assert not stage_py.exists()
+
+    # Registry has both staged + promoted entries.
+    entries = [
+        json.loads(line)
+        for line in resolve_registry_path(project).read_text().splitlines()
+        if line.strip()
+    ]
+    events = [e["event"] for e in entries]
+    assert "staged" in events
+    assert "promoted" in events
+
+
+def test_promote_staging_not_found(tmp_path: Path) -> None:
+    from screw_agents.engine import ScanEngine
+
+    project = tmp_path / "project"
+    project.mkdir()
+    engine = ScanEngine.from_defaults()
+
+    response = engine.promote_staged_script(
+        project_root=project,
+        script_name="nope",
+        session_id="sess-abc",
+    )
+
+    assert response["status"] == "error"
+    assert response["error"] == "staging_not_found"
+
+
+def test_promote_detects_tamper(tmp_path: Path) -> None:
+    """Between stage and promote, overwrite staging .py with different bytes.
+    Promote must reject with tamper_detected + evidence_path + TAMPERED marker."""
+    from screw_agents.adaptive.staging import resolve_staging_dir
+    from screw_agents.cli.init_trust import run_init_trust
+    from screw_agents.engine import ScanEngine
+
+    project = tmp_path / "project"
+    project.mkdir()
+    run_init_trust(project_root=project, name="T", email="t@e.co")
+    engine = ScanEngine.from_defaults()
+    source = (
+        "from screw_agents.adaptive import emit_finding\n"
+        "def analyze(p):\n    pass\n"
+    )
+
+    _stage_script_for_promote(
+        engine,
+        project,
+        "test-tamper-001",
+        source=source,
+        session_id="sess-abc",
+    )
+
+    # TAMPER: overwrite staging .py with different bytes.
+    stage_py = resolve_staging_dir(project, "sess-abc") / "test-tamper-001.py"
+    stage_py.write_text(
+        "# malicious\nimport os\nos.system('rm -rf /')\n", encoding="utf-8"
+    )
+
+    response = engine.promote_staged_script(
+        project_root=project,
+        script_name="test-tamper-001",
+        session_id="sess-abc",
+    )
+
+    assert response["status"] == "error"
+    assert response["error"] == "tamper_detected"
+    assert response["expected_sha256_prefix"]
+    assert response["actual_sha256_prefix"]
+    assert response["expected_sha256_prefix"] != response["actual_sha256_prefix"]
+    assert "evidence_path" in response
+
+    # TAMPERED marker file exists.
+    marker = resolve_staging_dir(project, "sess-abc") / "test-tamper-001.TAMPERED"
+    assert marker.exists()
+
+    # Staging files NOT deleted (forensic evidence).
+    assert stage_py.exists()
+
+    # No custom-scripts artifact written.
+    signed_py = project / ".screw" / "custom-scripts" / "test-tamper-001.py"
+    assert not signed_py.exists()
+
+
+def test_promote_audit_on_tamper(tmp_path: Path) -> None:
+    """tamper_detected appends a tamper_detected event to the registry with
+    expected/actual sha256 + evidence_path."""
+    from screw_agents.adaptive.staging import (
+        resolve_registry_path,
+        resolve_staging_dir,
+    )
+    from screw_agents.cli.init_trust import run_init_trust
+    from screw_agents.engine import ScanEngine
+
+    project = tmp_path / "project"
+    project.mkdir()
+    run_init_trust(project_root=project, name="T", email="t@e.co")
+    engine = ScanEngine.from_defaults()
+    _stage_script_for_promote(
+        engine,
+        project,
+        "test-tamper-aud",
+        source="pass\n",
+        session_id="sess-abc",
+    )
+
+    # Tamper.
+    stage_py = resolve_staging_dir(project, "sess-abc") / "test-tamper-aud.py"
+    stage_py.write_text("# different\npass\n", encoding="utf-8")
+
+    response = engine.promote_staged_script(
+        project_root=project,
+        script_name="test-tamper-aud",
+        session_id="sess-abc",
+    )
+    assert response["status"] == "error"
+    assert response["error"] == "tamper_detected"
+
+    entries = [
+        json.loads(line)
+        for line in resolve_registry_path(project).read_text().splitlines()
+        if line.strip()
+    ]
+    tamper_entries = [e for e in entries if e.get("event") == "tamper_detected"]
+    assert len(tamper_entries) == 1
+    assert tamper_entries[0]["script_name"] == "test-tamper-aud"
+    assert tamper_entries[0]["session_id"] == "sess-abc"
+    assert tamper_entries[0]["expected_sha256"]
+    assert tamper_entries[0]["actual_sha256"]
+    assert tamper_entries[0]["expected_sha256"] != tamper_entries[0]["actual_sha256"]
+    assert "evidence_path" in tamper_entries[0]
+
+
+def test_promote_stale_staging_requires_confirm_stale(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Stage with staged_at 48h in the past; promote without confirm_stale
+    returns stale_staging error. Retry with confirm_stale succeeds and emits
+    the I5 `promoted_confirm_stale` audit event."""
+    from datetime import datetime, timedelta, timezone
+
+    from screw_agents.adaptive.staging import resolve_registry_path
+    from screw_agents.cli.init_trust import run_init_trust
+    from screw_agents.engine import ScanEngine
+
+    project = tmp_path / "project"
+    project.mkdir()
+    run_init_trust(project_root=project, name="T", email="t@e.co")
+    engine = ScanEngine.from_defaults()
+
+    # Stage normally.
+    _stage_script_for_promote(
+        engine,
+        project,
+        "test-stale-001",
+        source="pass\n",
+        session_id="sess-old",
+    )
+
+    # Rewrite registry with a 48h-old staged_at.
+    old_time = (datetime.now(timezone.utc) - timedelta(hours=48)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+    registry = resolve_registry_path(project)
+    lines = registry.read_text().splitlines()
+    rewritten = []
+    for line in lines:
+        entry = json.loads(line)
+        if entry.get("script_name") == "test-stale-001":
+            entry["staged_at"] = old_time
+        rewritten.append(json.dumps(entry, separators=(",", ":"), sort_keys=True))
+    registry.write_text("\n".join(rewritten) + "\n")
+
+    # Promote without confirm_stale → stale error.
+    response = engine.promote_staged_script(
+        project_root=project,
+        script_name="test-stale-001",
+        session_id="sess-old",
+    )
+
+    assert response["status"] == "error"
+    assert response["error"] == "stale_staging"
+    assert response["hours_old"] >= 48
+    assert response["threshold_hours"] == 24
+
+    # Retry with confirm_stale → success.
+    response2 = engine.promote_staged_script(
+        project_root=project,
+        script_name="test-stale-001",
+        session_id="sess-old",
+        confirm_stale=True,
+    )
+    assert response2["status"] == "signed"
+
+    # I5 regression: confirm-stale retry must emit `promoted_confirm_stale`
+    # audit event (not plain `promoted`). Locks the audit-event taxonomy
+    # so downstream forensics can distinguish routine promotes from
+    # staleness-override promotes.
+    entries = [
+        json.loads(line)
+        for line in resolve_registry_path(project).read_text().splitlines()
+        if line.strip()
+    ]
+    promoted_events = [
+        e for e in entries if e.get("event", "").startswith("promoted")
+    ]
+    assert len(promoted_events) == 1
+    assert promoted_events[0]["event"] == "promoted_confirm_stale", (
+        f"Expected `promoted_confirm_stale` audit event; "
+        f"got {promoted_events[0]['event']!r}"
+    )
+
+
+def test_promote_rejects_malformed_staged_at(tmp_path: Path) -> None:
+    """I3 hardening: staleness check must NOT silently bypass on a
+    malformed timestamp. Force ops to investigate corrupted registry."""
+    from screw_agents.adaptive.staging import resolve_registry_path
+    from screw_agents.cli.init_trust import run_init_trust
+    from screw_agents.engine import ScanEngine
+
+    project = tmp_path / "project"
+    project.mkdir()
+    run_init_trust(project_root=project, name="T", email="t@e.co")
+    engine = ScanEngine.from_defaults()
+    _stage_script_for_promote(
+        engine,
+        project,
+        "test-bad-ts",
+        source="pass\n",
+        session_id="sess-abc",
+    )
+
+    # Corrupt the staged_at timestamp in the registry.
+    registry = resolve_registry_path(project)
+    lines = registry.read_text().splitlines()
+    rewritten = []
+    for line in lines:
+        entry = json.loads(line)
+        if entry.get("script_name") == "test-bad-ts":
+            entry["staged_at"] = "not-a-timestamp"
+        rewritten.append(json.dumps(entry, separators=(",", ":"), sort_keys=True))
+    registry.write_text("\n".join(rewritten) + "\n")
+
+    response = engine.promote_staged_script(
+        project_root=project,
+        script_name="test-bad-ts",
+        session_id="sess-abc",
+    )
+
+    assert response["status"] == "error"
+    assert response["error"] == "invalid_registry_entry"
+    assert (
+        "malformed" in response["message"].lower()
+        or "parse error" in response["message"].lower()
+    )
+
+
+def test_promote_fallback_registry_missing(tmp_path: Path) -> None:
+    """Registry file absent → fallback_required with recovered_sha256_prefix."""
+    from screw_agents.adaptive.staging import (
+        resolve_registry_path,
+        resolve_staging_dir,
+    )
+    from screw_agents.cli.init_trust import run_init_trust
+    from screw_agents.engine import ScanEngine
+
+    project = tmp_path / "project"
+    project.mkdir()
+    run_init_trust(project_root=project, name="T", email="t@e.co")
+    engine = ScanEngine.from_defaults()
+    _stage_script_for_promote(
+        engine,
+        project,
+        "test-fb-missing",
+        source="pass\n",
+        session_id="sess-abc",
+    )
+
+    # Delete the registry file to simulate corruption.
+    resolve_registry_path(project).unlink()
+
+    # Staging files still on disk.
+    stage_py = resolve_staging_dir(project, "sess-abc") / "test-fb-missing.py"
+    assert stage_py.exists()
+
+    response = engine.promote_staged_script(
+        project_root=project,
+        script_name="test-fb-missing",
+        session_id="sess-abc",
+    )
+
+    assert response["status"] == "error"
+    assert response["error"] == "fallback_required"
+    assert "recovered_sha256_prefix" in response
+    assert len(response["recovered_sha256_prefix"]) == 8
+
+
+def test_promote_fallback_sha_prefix_accepted(tmp_path: Path) -> None:
+    """confirm_sha_prefix matches recovered sha → promote proceeds, audit
+    event is `promoted_via_fallback`."""
+    from screw_agents.adaptive.signing import compute_script_sha256
+    from screw_agents.adaptive.staging import resolve_registry_path
+    from screw_agents.cli.init_trust import run_init_trust
+    from screw_agents.engine import ScanEngine
+
+    project = tmp_path / "project"
+    project.mkdir()
+    run_init_trust(project_root=project, name="T", email="t@e.co")
+    engine = ScanEngine.from_defaults()
+    source = "pass\n"
+    _stage_script_for_promote(
+        engine,
+        project,
+        "test-fb-ok",
+        source=source,
+        session_id="sess-abc",
+    )
+
+    # Delete the registry to force fallback path.
+    resolve_registry_path(project).unlink()
+
+    expected_prefix = compute_script_sha256(source)[:8]
+    response = engine.promote_staged_script(
+        project_root=project,
+        script_name="test-fb-ok",
+        session_id="sess-abc",
+        confirm_sha_prefix=expected_prefix,
+    )
+
+    assert response["status"] == "signed"
+    assert response["promoted_via_fallback"] is True
+
+    # Registry now contains a promoted_via_fallback event (registry file was
+    # re-created by the audit append).
+    entries = [
+        json.loads(line)
+        for line in resolve_registry_path(project).read_text().splitlines()
+        if line.strip()
+    ]
+    events = [e["event"] for e in entries]
+    assert "promoted_via_fallback" in events
+
+
+def test_promote_fallback_sha_prefix_mismatch(tmp_path: Path) -> None:
+    """Wrong prefix → fallback_sha_mismatch error."""
+    from screw_agents.adaptive.staging import resolve_registry_path
+    from screw_agents.cli.init_trust import run_init_trust
+    from screw_agents.engine import ScanEngine
+
+    project = tmp_path / "project"
+    project.mkdir()
+    run_init_trust(project_root=project, name="T", email="t@e.co")
+    engine = ScanEngine.from_defaults()
+    _stage_script_for_promote(
+        engine,
+        project,
+        "test-fb-bad",
+        source="pass\n",
+        session_id="sess-abc",
+    )
+
+    # Delete the registry to force fallback path.
+    resolve_registry_path(project).unlink()
+
+    response = engine.promote_staged_script(
+        project_root=project,
+        script_name="test-fb-bad",
+        session_id="sess-abc",
+        confirm_sha_prefix="deadbeef",  # definitely wrong
+    )
+
+    assert response["status"] == "error"
+    assert response["error"] == "fallback_sha_mismatch"
+    assert response["expected_in_phrase"]
+    assert response["got_in_phrase"] == "deadbeef"
+
+
+def test_promote_custom_scripts_collision(tmp_path: Path) -> None:
+    """Signed file already exists in custom-scripts/ → sign_failed surfaces
+    the collision via the I2 taxonomy-normalized error."""
+    from screw_agents.cli.init_trust import run_init_trust
+    from screw_agents.engine import ScanEngine
+
+    project = tmp_path / "project"
+    project.mkdir()
+    run_init_trust(project_root=project, name="T", email="t@e.co")
+    engine = ScanEngine.from_defaults()
+    _stage_script_for_promote(
+        engine,
+        project,
+        "test-collision",
+        source="pass\n",
+        session_id="sess-abc",
+    )
+
+    # Pre-plant a file in custom-scripts/ to trigger _sign_script_bytes's
+    # fresh-script collision error.
+    cs_dir = project / ".screw" / "custom-scripts"
+    cs_dir.mkdir(parents=True, exist_ok=True)
+    (cs_dir / "test-collision.py").write_text("# pre-existing\n", encoding="utf-8")
+
+    response = engine.promote_staged_script(
+        project_root=project,
+        script_name="test-collision",
+        session_id="sess-abc",
+    )
+
+    # I2 regression: when _sign_script_bytes returns {"status": "error",
+    # "message": "..."} without an "error" key, the promote wrapper injects
+    # error="sign_failed" and stashes the inner result under "detail".
+    assert response["status"] == "error"
+    assert response["error"] == "sign_failed"
+    assert "already exists" in response["message"].lower()
+    assert "detail" in response
+
+
+def test_promote_invalid_lifecycle_state(tmp_path: Path) -> None:
+    """Most-recent registry event is `rejected` and staging somehow present
+    (mocked) → invalid_lifecycle_state defensive error."""
+    from screw_agents.adaptive.staging import (
+        _utc_now_iso,
+        append_registry_entry,
+        resolve_staging_dir,
+    )
+    from screw_agents.cli.init_trust import run_init_trust
+    from screw_agents.engine import ScanEngine
+
+    project = tmp_path / "project"
+    project.mkdir()
+    run_init_trust(project_root=project, name="T", email="t@e.co")
+    engine = ScanEngine.from_defaults()
+
+    # Stage normally so the .py + .meta.yaml exist on disk.
+    _stage_script_for_promote(
+        engine,
+        project,
+        "test-lifecycle",
+        source="pass\n",
+        session_id="sess-abc",
+    )
+    # Confirm staging is present.
+    stage_py = resolve_staging_dir(project, "sess-abc") / "test-lifecycle.py"
+    assert stage_py.exists()
+
+    # Append a `rejected` event AFTER the `staged` event so the most-recent
+    # entry is `rejected` even though the filesystem still has the files.
+    append_registry_entry(
+        project,
+        {
+            "event": "rejected",
+            "script_name": "test-lifecycle",
+            "session_id": "sess-abc",
+            "reason": "simulated rejection",
+            "rejected_at": _utc_now_iso(),
+            "schema_version": 1,
+        },
+    )
+
+    response = engine.promote_staged_script(
+        project_root=project,
+        script_name="test-lifecycle",
+        session_id="sess-abc",
+    )
+
+    assert response["status"] == "error"
+    assert response["error"] == "invalid_lifecycle_state"
+    assert response["last_event"] == "rejected"

@@ -372,6 +372,15 @@ class ScrewConfig(BaseModel):
     legacy_unsigned_exclusions: Literal["reject", "warn", "allow"] = "reject"
     trusted_reviewers_file: str | None = None
 
+    # Phase 3b C1 staging lifecycle (T4 + T6). Consumed by
+    # ``engine._read_stale_staging_hours`` (T4's promote-path staleness
+    # check) and ``engine.sweep_stale_staging`` (T6's orphan GC). Adding
+    # them to the Pydantic model enforces validation at config-load time
+    # (invalid values raise on ``load_config(project_root)`` rather than
+    # silently degrading to defaults inside helpers).
+    stale_staging_hours: int = Field(default=24, ge=1, le=168)
+    staging_max_age_days: int = Field(default=14, ge=1, le=365)
+
 
 class Finding(BaseModel):
     """A single scan finding — the core output unit."""

@@ -162,6 +162,17 @@ def _dispatch_tool(
             target_gap=args.get("target_gap"),
         )
 
+    # --- Phase 3b T4: promote_staged_script (C1 fix — approve path) ---
+
+    if name == "promote_staged_script":
+        return engine.promote_staged_script(
+            project_root=Path(args["project_root"]),
+            script_name=args["script_name"],
+            session_id=args["session_id"],
+            confirm_sha_prefix=args.get("confirm_sha_prefix"),
+            confirm_stale=args.get("confirm_stale", False),
+        )
+
     # --- Phase 3b T18a: lint_adaptive_script (pre-approval review) ---
 
     if name == "lint_adaptive_script":
