@@ -32,12 +32,15 @@ SECURITY — script_name validation:
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 from screw_agents.adaptive.script_name import validate_script_name as _validate_script_name
+from screw_agents.adaptive.signing import compute_script_sha256  # noqa: F401 — re-exported for T3 engine
 
 __all__ = [
     "resolve_staging_dir",
@@ -46,6 +49,11 @@ __all__ = [
     "write_staged_files",
     "read_staged_files",
     "delete_staged_files",
+    # Phase 3b T3: registry append/query + I-opus-3 runtime validator.
+    "append_registry_entry",
+    "query_registry_most_recent",
+    "fallback_walk_for_script",
+    "validate_pending_approval",
 ]
 
 
@@ -238,3 +246,263 @@ def delete_staged_files(
                 f"failed to delete staged {target} "
                 f"({type(exc).__name__}: {exc})"
             ) from exc
+
+
+# =====================================================================
+# Phase 3b T3 — PendingApproval registry (append-only JSONL audit log)
+# =====================================================================
+#
+# The audit log at ``.screw/local/pending-approvals.jsonl`` is the
+# forensic-evidence chain for every adaptive-script lifecycle event
+# (stage, promote, reject, tamper, sweep). Downstream C1 tasks (T4
+# promote, T5 reject, T6 sweep) consume these entries via
+# ``query_registry_most_recent`` and rely on the per-event-type field
+# contract documented inline in ``PendingApproval`` at
+# ``models.py``. A silently-malformed entry would corrupt every
+# subsequent forensic-analysis query — hence the runtime validator
+# below (I-opus-3 absorbed into T3 as the first producer).
+#
+# POSIX-atomicity: each ``os.write(fd, line)`` of a <PIPE_BUF-sized
+# (4096 bytes on Linux) line is atomic under ``O_APPEND``. Registry
+# entries are <500 bytes; safe for single-process MCP.
+
+
+# I-opus-3: runtime enforcement of the per-event-type required-fields
+# contract. The ``PendingApproval(TypedDict, total=False)`` in
+# ``models.py`` documents these via inline comments but cannot
+# enforce them structurally (TypedDict.total=False disables the
+# TypedDict-level required check). Without this runtime guard, any
+# producer could emit ``{"event": "staged"}`` with no sha256 / no
+# staged_at and corrupt downstream consumers.
+#
+# New event types must opt in by adding an entry here — unknown events
+# raise. This prevents the drift where a new producer invents an event
+# name that older consumers do not know how to filter.
+_REQUIRED_FIELDS_BY_EVENT: dict[str, frozenset[str]] = {
+    "staged": frozenset({
+        "event", "script_name", "session_id", "script_sha256",
+        "target_gap", "staged_at", "schema_version",
+    }),
+    "promoted": frozenset({
+        "event", "script_name", "session_id", "script_sha256",
+        "signed_by", "promoted_at", "schema_version",
+    }),
+    "promoted_via_fallback": frozenset({
+        "event", "script_name", "session_id", "script_sha256",
+        "signed_by", "promoted_at", "schema_version",
+    }),
+    "promoted_confirm_stale": frozenset({
+        "event", "script_name", "session_id", "script_sha256",
+        "signed_by", "promoted_at", "schema_version",
+    }),
+    "rejected": frozenset({
+        "event", "script_name", "session_id", "reason",
+        "rejected_at", "schema_version",
+    }),
+    "tamper_detected": frozenset({
+        "event", "script_name", "session_id",
+        "expected_sha256", "actual_sha256", "evidence_path",
+        "tampered_at", "schema_version",
+    }),
+    "swept": frozenset({
+        "event", "script_name", "session_id",
+        "swept_at", "sweep_reason", "schema_version",
+    }),
+}
+
+
+def validate_pending_approval(entry: dict) -> None:
+    """Raise ValueError if entry lacks required fields for its event type.
+
+    Called from ``append_registry_entry`` BEFORE the JSONL write to
+    prevent silent forensic-audit corruption. Unknown event types raise
+    (new event types require an explicit opt-in via
+    ``_REQUIRED_FIELDS_BY_EVENT``).
+
+    Args:
+        entry: Registry entry dict (conforms to ``PendingApproval``
+            TypedDict in ``models.py``).
+
+    Raises:
+        ValueError: If ``event`` key is missing, event type is unknown,
+            or the entry lacks one of the event-type-specific required
+            fields. Error message names the concrete missing fields so
+            the caller can fix the producer.
+    """
+    event = entry.get("event")
+    if event is None:
+        raise ValueError("PendingApproval entry missing required 'event' field")
+    required = _REQUIRED_FIELDS_BY_EVENT.get(event)
+    if required is None:
+        raise ValueError(
+            f"PendingApproval entry has unknown event type: {event!r}"
+        )
+    missing = required - set(entry.keys())
+    if missing:
+        raise ValueError(
+            f"PendingApproval '{event}' entry missing required fields: "
+            f"{sorted(missing)}"
+        )
+
+
+def append_registry_entry(project_root: Path, entry: dict) -> None:
+    """Append one JSONL entry to pending-approvals.jsonl atomically.
+
+    POSIX-atomicity: a single ``os.write(fd, line)`` < PIPE_BUF bytes is
+    atomic on Linux under ``O_APPEND``. Entries are <500 bytes; safe
+    for single-process MCP.
+
+    Calls ``validate_pending_approval(entry)`` as the first line to
+    fail-fast before any I/O — this prevents partial-state registry
+    writes (PARTIAL-STATE SEMANTICS below only covers filesystem vs
+    registry, not corruption within the registry itself).
+
+    Creates parent dirs if needed. Raises ValueError on filesystem
+    errors per T13-C1 discipline.
+
+    PARTIAL-STATE SEMANTICS: If the engine has already written the
+    staged ``.py`` + ``.meta.yaml`` files and THIS registry append raises
+    ValueError, the staged files remain on disk without a registry
+    entry. This is deliberate — the filesystem is the source of truth;
+    the registry is the audit log. T6's ``sweep_stale_staging`` recovers
+    orphaned staging dirs by age. The engine does NOT roll back staged
+    files on registry-write failure.
+
+    Args:
+        project_root: Project root containing ``.screw/`` directory.
+        entry: Dict conforming to ``PendingApproval``. Must pass
+            ``validate_pending_approval`` (called as first line).
+
+    Raises:
+        ValueError: From ``validate_pending_approval`` on schema failure,
+            or wrapping (PermissionError, OSError) with
+            ``{type(exc).__name__}`` in the message on filesystem failure
+            (T13-C1 discipline).
+    """
+    validate_pending_approval(entry)  # I-opus-3: fail-fast before any I/O
+    registry_path = resolve_registry_path(project_root)
+    try:
+        registry_path.parent.mkdir(parents=True, exist_ok=True)
+        line = json.dumps(entry, separators=(",", ":"), sort_keys=True) + "\n"
+        # O_APPEND | O_WRONLY | O_CREAT; let OS handle the atomic append.
+        fd = os.open(
+            registry_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644
+        )
+        try:
+            os.write(fd, line.encode("utf-8"))
+        finally:
+            os.close(fd)
+    except (PermissionError, OSError) as exc:
+        raise ValueError(
+            f"failed to append registry entry to {registry_path} "
+            f"({type(exc).__name__}: {exc})"
+        ) from exc
+
+
+def query_registry_most_recent(
+    project_root: Path,
+    *,
+    script_name: str,
+    session_id: str,
+) -> dict | None:
+    """Return the most-recent registry entry matching (script_name, session_id).
+
+    Returns None if the registry file is missing, empty, or no entry
+    matches. Ignores corrupted JSONL lines (tolerate-and-skip); returns
+    whatever valid entries matched. The caller interprets "no matching
+    entry" as "fall back to filesystem walk" per Q3 in the design spec.
+
+    "Most recent" == last entry in file order (JSONL is append-only and
+    each event emits a timestamp; file order == chronological order).
+
+    Args:
+        project_root: Project root containing ``.screw/`` directory.
+        script_name: Script name to match on.
+        session_id: Session id to match on.
+
+    Returns:
+        The last entry in the registry with matching
+        (script_name, session_id), or None if no match / empty registry.
+
+    Raises:
+        ValueError: On (PermissionError, OSError) reading the registry.
+    """
+    registry_path = resolve_registry_path(project_root)
+    if not registry_path.exists():
+        return None
+    try:
+        lines = registry_path.read_text(encoding="utf-8").splitlines()
+    except (PermissionError, OSError) as exc:
+        raise ValueError(
+            f"failed to read registry {registry_path} "
+            f"({type(exc).__name__}: {exc})"
+        ) from exc
+
+    most_recent: dict | None = None
+    for raw in lines:
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            entry = json.loads(raw)
+        except json.JSONDecodeError:
+            continue  # corrupt line; tolerate
+        if (
+            entry.get("script_name") == script_name
+            and entry.get("session_id") == session_id
+        ):
+            most_recent = entry  # later entries overwrite earlier
+    return most_recent
+
+
+def fallback_walk_for_script(
+    project_root: Path,
+    *,
+    script_name: str,
+) -> list[tuple[str, Path]]:
+    """Walk ``.screw/staging/*/adaptive-scripts/`` for ``{script_name}.py``.
+
+    Returns ``[(session_id, py_path), ...]``. Used when registry lookup
+    fails (Q3 fallback path in the design spec). Empty list if nothing
+    is found.
+
+    Args:
+        project_root: Project root containing ``.screw/`` directory.
+        script_name: Bare script name (no ``.py`` extension).
+
+    Returns:
+        List of (session_id, py_path) pairs, sorted by session_id for
+        deterministic ordering. Empty list if staging dir is absent or
+        no matching files exist.
+
+    Raises:
+        ValueError: Wrapping (PermissionError, OSError) on filesystem
+            walk failure.
+    """
+    staging_root = project_root / ".screw" / "staging"
+    if not staging_root.exists():
+        return []
+    matches: list[tuple[str, Path]] = []
+    try:
+        for session_dir in sorted(staging_root.iterdir()):
+            if not session_dir.is_dir():
+                continue
+            py = session_dir / "adaptive-scripts" / f"{script_name}.py"
+            if py.exists():
+                matches.append((session_dir.name, py))
+    except (PermissionError, OSError) as exc:
+        raise ValueError(
+            f"failed to walk staging root {staging_root} "
+            f"({type(exc).__name__}: {exc})"
+        ) from exc
+    return matches
+
+
+def _utc_now_iso() -> str:
+    """Return UTC now as ISO8601 with Z suffix (seconds precision).
+
+    Example: ``"2026-04-21T14:03:27Z"``. Parsed downstream by
+    ``datetime.strptime(..., "%Y-%m-%dT%H:%M:%SZ")`` with ``tzinfo``
+    injected — keep the format stable across releases.
+    """
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")

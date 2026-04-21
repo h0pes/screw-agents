@@ -150,6 +150,18 @@ def _dispatch_tool(
             session_id=args["session_id"],
         )
 
+    # --- Phase 3b T3: stage_adaptive_script (C1 staging-path) ---
+
+    if name == "stage_adaptive_script":
+        return engine.stage_adaptive_script(
+            project_root=Path(args["project_root"]),
+            script_name=args["script_name"],
+            source=args["source"],
+            meta=args["meta"],
+            session_id=args["session_id"],
+            target_gap=args.get("target_gap"),
+        )
+
     # --- Phase 3b T18a: lint_adaptive_script (pre-approval review) ---
 
     if name == "lint_adaptive_script":

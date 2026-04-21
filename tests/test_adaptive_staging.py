@@ -7,6 +7,7 @@ The full stage→promote→execute integration is test_adaptive_workflow_staged.
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
@@ -452,3 +453,324 @@ def test_staging_imports_from_shared_script_name_module() -> None:
     from screw_agents.adaptive.script_name import validate_script_name
 
     assert callable(validate_script_name)
+
+
+# =====================================================================
+# Phase 3b T3: stage_adaptive_script MCP tool + I-opus-3 validator tests
+# =====================================================================
+
+
+# --- I-opus-3: PendingApproval runtime per-event-type validator -------
+
+
+def test_validate_pending_approval_accepts_valid_staged_entry() -> None:
+    """I-opus-3: a staged entry with all required fields should pass."""
+    from screw_agents.adaptive.staging import validate_pending_approval
+
+    entry = {
+        "event": "staged",
+        "script_name": "test-001",
+        "session_id": "sess-abc",
+        "script_sha256": "a" * 64,
+        "target_gap": {},
+        "staged_at": "2026-04-20T10:00:00Z",
+        "schema_version": 1,
+    }
+    # Should not raise.
+    validate_pending_approval(entry)
+
+
+def test_validate_pending_approval_rejects_staged_missing_sha256() -> None:
+    """I-opus-3: missing per-event required field must raise ValueError."""
+    from screw_agents.adaptive.staging import validate_pending_approval
+
+    with pytest.raises(ValueError, match="script_sha256"):
+        validate_pending_approval({"event": "staged"})
+
+
+def test_validate_pending_approval_rejects_unknown_event_type() -> None:
+    """I-opus-3: unknown event types must raise (new types require opt-in)."""
+    from screw_agents.adaptive.staging import validate_pending_approval
+
+    with pytest.raises(ValueError, match="unknown event type"):
+        validate_pending_approval({"event": "blorp"})
+
+
+def test_validate_pending_approval_rejects_tamper_missing_evidence_path() -> None:
+    """I-opus-3: per-event validation catches missing `evidence_path`
+    on tamper_detected, ensuring forensic-audit JSONL remains analyzable.
+    """
+    from screw_agents.adaptive.staging import validate_pending_approval
+
+    entry = {
+        "event": "tamper_detected",
+        "script_name": "test-001",
+        "session_id": "sess-abc",
+        "expected_sha256": "a" * 64,
+        "actual_sha256": "b" * 64,
+        "tampered_at": "2026-04-20T10:00:00Z",
+        "schema_version": 1,
+        # evidence_path intentionally missing
+    }
+    with pytest.raises(ValueError, match="evidence_path"):
+        validate_pending_approval(entry)
+
+
+# --- Stage-flow tests (plan §T3 Step 1) -------------------------------
+
+
+def test_stage_adaptive_script_writes_files_and_registry(tmp_path: Path) -> None:
+    from screw_agents.adaptive.staging import resolve_registry_path, resolve_staging_dir
+    from screw_agents.engine import ScanEngine
+
+    project = tmp_path / "project"
+    project.mkdir()
+    engine = ScanEngine.from_defaults()
+    source = (
+        "from screw_agents.adaptive import emit_finding, find_calls\n"
+        "\n"
+        "def analyze(project):\n"
+        "    for call in find_calls(project, 'foo.bar'):\n"
+        "        emit_finding(cwe='CWE-89', file=call.file, line=call.line,\n"
+        "                     message='stub', severity='high')\n"
+    )
+    meta = {
+        "name": "test-stage-001",
+        "created": "2026-04-20T10:00:00Z",
+        "created_by": "tester@example.com",
+        "domain": "injection-input-handling",
+        "description": "fixture for stage test",
+        "target_patterns": ["foo.bar"],
+    }
+
+    response = engine.stage_adaptive_script(
+        project_root=project,
+        script_name="test-stage-001",
+        source=source,
+        meta=meta,
+        session_id="sess-abc",
+        target_gap={"type": "unresolved_sink", "file": "dao.py", "line": 13, "agent": "sqli"},
+    )
+
+    assert response["status"] == "staged"
+    assert response["script_name"] == "test-stage-001"
+    assert response["session_id"] == "sess-abc"
+    assert len(response["script_sha256"]) == 64
+    assert response["script_sha256_prefix"] == response["script_sha256"][:8]
+    assert response["session_id_short"].startswith("sess-abc")
+
+    stage_dir = resolve_staging_dir(project, "sess-abc")
+    assert (stage_dir / "test-stage-001.py").read_text() == source
+
+    # Registry entry exists.
+    registry_path = resolve_registry_path(project)
+    assert registry_path.exists()
+    entries = [json.loads(line) for line in registry_path.read_text().splitlines() if line.strip()]
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry["event"] == "staged"
+    assert entry["script_name"] == "test-stage-001"
+    assert entry["session_id"] == "sess-abc"
+    assert entry["script_sha256"] == response["script_sha256"]
+    assert entry["target_gap"]["file"] == "dao.py"
+    assert entry["schema_version"] == 1
+
+
+def test_stage_adaptive_script_rejects_invalid_script_name(tmp_path: Path) -> None:
+    from screw_agents.engine import ScanEngine
+
+    project = tmp_path / "project"
+    project.mkdir()
+    engine = ScanEngine.from_defaults()
+
+    response = engine.stage_adaptive_script(
+        project_root=project,
+        script_name="AA",  # too short (regex requires len 3-63)
+        source="pass\n",
+        meta={"name": "AA", "created": "2026-04-20T10:00:00Z",
+              "created_by": "t@e.co", "domain": "injection-input-handling",
+              "description": "d", "target_patterns": ["x"]},
+        session_id="sess-abc",
+        target_gap=None,
+    )
+
+    assert response["status"] == "error"
+    assert response["error"] == "invalid_script_name"
+    assert "AA" in response["message"]
+
+
+def test_stage_adaptive_script_rejects_empty_session_id(tmp_path: Path) -> None:
+    from screw_agents.engine import ScanEngine
+
+    project = tmp_path / "project"
+    project.mkdir()
+    engine = ScanEngine.from_defaults()
+
+    response = engine.stage_adaptive_script(
+        project_root=project,
+        script_name="test-001",
+        source="pass\n",
+        meta={"name": "test-001", "created": "2026-04-20T10:00:00Z",
+              "created_by": "t@e.co", "domain": "injection-input-handling",
+              "description": "d", "target_patterns": ["x"]},
+        session_id="",
+        target_gap=None,
+    )
+
+    assert response["status"] == "error"
+    assert response["error"] == "invalid_session_id"
+
+
+@pytest.mark.parametrize(
+    "bad_session_id",
+    [
+        "foo\nbar",        # newline — I-opus-1 JSONL injection
+        "foo:bar",         # colon — NTFS ADS primitive
+        ".hidden",         # leading dot — hidden-dir bypass
+        "foo\xff",         # high-bit byte — homoglyph primitive
+        "foo bar",         # space
+        "foo\tbar",        # tab
+        "a" * 65,          # over-length
+        "../etc/passwd",   # path traversal
+        "foo/bar",         # slash
+        "foo\\bar",        # backslash
+        ".",               # bare dot
+        "..",              # bare dots
+    ],
+)
+def test_stage_adaptive_script_rejects_threat_session_ids(
+    tmp_path: Path, bad_session_id: str
+) -> None:
+    """P2 regression: the engine-layer error-dict conversion fires for
+    all session_id threat vectors closed by the T1-part-4 allowlist
+    (I-opus-1 + I-opus-2). Validates the ValueError → error-dict path
+    in `stage_adaptive_script` rather than just `resolve_staging_dir`.
+    """
+    from screw_agents.engine import ScanEngine
+
+    project = tmp_path / "project"
+    project.mkdir()
+    engine = ScanEngine.from_defaults()
+
+    response = engine.stage_adaptive_script(
+        project_root=project,
+        script_name="test-001",
+        source="pass\n",
+        meta={"name": "test-001", "created": "2026-04-20T10:00:00Z",
+              "created_by": "t@e.co", "domain": "injection-input-handling",
+              "description": "d", "target_patterns": ["x"]},
+        session_id=bad_session_id,
+        target_gap=None,
+    )
+
+    assert response["status"] == "error"
+    assert response["error"] == "invalid_session_id"
+
+
+def test_stage_adaptive_script_idempotent_on_same_content(tmp_path: Path) -> None:
+    from screw_agents.adaptive.staging import resolve_registry_path, resolve_staging_dir
+    from screw_agents.engine import ScanEngine
+
+    project = tmp_path / "project"
+    project.mkdir()
+    engine = ScanEngine.from_defaults()
+    common = dict(
+        project_root=project,
+        script_name="test-idem-001",
+        source="pass\n",
+        meta={"name": "test-idem-001", "created": "2026-04-20T10:00:00Z",
+              "created_by": "t@e.co", "domain": "injection-input-handling",
+              "description": "d", "target_patterns": ["x"]},
+        session_id="sess-abc",
+        target_gap=None,
+    )
+
+    r1 = engine.stage_adaptive_script(**common)
+    r2 = engine.stage_adaptive_script(**common)
+
+    assert r1["status"] == "staged"
+    assert r2["status"] == "staged"
+    # P4: `sha256(same source) == sha256(same source)` is tautological;
+    # assert FILESYSTEM + REGISTRY state to prove idempotency actually
+    # worked end-to-end.
+    stage_dir = resolve_staging_dir(project, "sess-abc")
+    assert (stage_dir / "test-idem-001.py").read_text(encoding="utf-8") == "pass\n"
+    assert (stage_dir / "test-idem-001.meta.yaml").exists()
+
+    # Registry gets TWO entries even on idempotent re-stage (each event is recorded).
+    # The LOOKUP path uses "most-recent" semantics so this is fine.
+    entries = [
+        json.loads(line)
+        for line in resolve_registry_path(project).read_text().splitlines()
+        if line.strip()
+    ]
+    assert len(entries) == 2
+    assert all(e["event"] == "staged" for e in entries)
+    assert all(e["script_sha256"] == r1["script_sha256"] for e in entries)
+    # Second entry's staged_at >= first entry's staged_at (monotonic).
+    assert entries[1]["staged_at"] >= entries[0]["staged_at"]
+
+
+def test_stage_adaptive_script_collision_on_same_name_different_content(
+    tmp_path: Path,
+) -> None:
+    from screw_agents.engine import ScanEngine
+
+    project = tmp_path / "project"
+    project.mkdir()
+    engine = ScanEngine.from_defaults()
+
+    r1 = engine.stage_adaptive_script(
+        project_root=project,
+        script_name="test-coll-001",
+        source="pass\n",
+        meta={"name": "test-coll-001", "created": "2026-04-20T10:00:00Z",
+              "created_by": "t@e.co", "domain": "injection-input-handling",
+              "description": "d", "target_patterns": ["x"]},
+        session_id="sess-abc",
+        target_gap=None,
+    )
+    assert r1["status"] == "staged"
+
+    r2 = engine.stage_adaptive_script(
+        project_root=project,
+        script_name="test-coll-001",
+        source="print('different')\n",  # different bytes, same name
+        meta={"name": "test-coll-001", "created": "2026-04-20T10:00:00Z",
+              "created_by": "t@e.co", "domain": "injection-input-handling",
+              "description": "d", "target_patterns": ["x"]},
+        session_id="sess-abc",
+        target_gap=None,
+    )
+
+    assert r2["status"] == "error"
+    assert r2["error"] == "stage_name_collision"
+    assert "existing_sha256_prefix" in r2
+    assert r2["existing_sha256_prefix"] == r1["script_sha256"][:8]
+
+
+def test_stage_adaptive_script_wraps_permission_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from screw_agents.engine import ScanEngine
+
+    project = tmp_path / "project"
+    project.mkdir()
+    engine = ScanEngine.from_defaults()
+
+    def boom(*args, **kwargs):
+        raise PermissionError("simulated")
+
+    monkeypatch.setattr(Path, "mkdir", boom)
+
+    with pytest.raises(ValueError, match="PermissionError"):
+        engine.stage_adaptive_script(
+            project_root=project,
+            script_name="test-perm-001",
+            source="pass\n",
+            meta={"name": "test-perm-001", "created": "2026-04-20T10:00:00Z",
+                  "created_by": "t@e.co", "domain": "injection-input-handling",
+                  "description": "d", "target_patterns": ["x"]},
+            session_id="sess-abc",
+            target_gap=None,
+        )

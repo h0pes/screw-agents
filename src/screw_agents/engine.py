@@ -230,6 +230,184 @@ class ScanEngine:
             ),
         }
 
+    def stage_adaptive_script(
+        self,
+        *,
+        project_root: Path,
+        script_name: str,
+        source: str,
+        meta: dict[str, Any],
+        session_id: str,
+        target_gap: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Atomically write an unsigned adaptive script to session-scoped staging.
+
+        The LLM-driven review path (Phase 3b C1 staging architecture):
+        subagent calls this BEFORE composing the 5-section human review.
+        The staged bytes are the source of truth for the subsequent
+        ``promote_staged_script`` call — the user reviews what is staged,
+        and promote signs what is staged, with sha256 verification
+        preventing tamper (C1 trust invariant).
+
+        Writes ``.py`` + ``.meta.yaml`` into
+        ``.screw/staging/{session_id}/adaptive-scripts/`` and appends a
+        ``staged`` event to ``.screw/local/pending-approvals.jsonl``.
+
+        Args:
+            project_root: Project root with ``.screw/`` directory.
+            script_name: Filesystem-safe name
+                (regex ``^[a-z0-9][a-z0-9-]{2,62}$``). Validated via the
+                shared ``adaptive.script_name.validate_script_name`` (T2
+                consolidation) before any filesystem op.
+            source: Python source for the adaptive script. Caller
+                SHOULD have run ``lint_adaptive_script`` before staging
+                (pre-review), though staging itself does not enforce
+                this.
+            meta: Partial meta dict that will eventually conform to
+                ``AdaptiveScriptMeta`` (minus signing fields). Must
+                include ``name``, ``created``, ``created_by``, ``domain``;
+                may include ``description``, ``target_patterns``.
+            session_id: Scan session id. Validated by
+                ``resolve_staging_dir`` against the
+                ``\\A[A-Za-z0-9_-]{1,64}\\Z`` allowlist (T1 part 4,
+                I-opus-1/2 fix). Scopes the staging directory —
+                different session_ids get different dirs.
+            target_gap: Optional coverage-gap metadata recorded in the
+                registry entry. Shape:
+                ``{type, file, line, agent}``. ``None`` for non-gap
+                stages.
+
+        Returns:
+            Dict with:
+              - ``status``: ``"staged"`` on success, ``"error"`` on
+                validation / collision failure.
+              - On ``"staged"``: ``script_name``, ``stage_path``,
+                ``script_sha256``, ``script_sha256_prefix``,
+                ``session_id``, ``session_id_short``.
+              - On ``"error"``: ``error``, ``message``, and (for
+                collision) ``existing_sha256_prefix``.
+
+        Spec §3.1. Raises ValueError wrapping filesystem errors per
+        T13-C1. Returns domain-error dict on name/session validation
+        failures (callers compose error-dicts into the MCP tool
+        response; distinct from Python raises which would propagate
+        and fail the whole tool call).
+
+        Idempotency contract:
+          - Same ``script_name`` + same ``sha256(source)``: proceeds
+            through re-write + re-appends a second ``staged`` registry
+            entry. Downstream ``query_registry_most_recent`` returns
+            the last entry.
+          - Same ``script_name`` + different ``sha256``: returns
+            ``{"status": "error", "error": "stage_name_collision"}``
+            WITHOUT touching the filesystem.
+
+        Partial-state contract (cross-reference
+        ``append_registry_entry``): if the filesystem writes succeed but
+        the registry append raises, the staged files remain on disk.
+        This is deliberate — the filesystem is the source of truth;
+        T6 sweep recovers orphans by age.
+        """
+        import yaml
+
+        from screw_agents.adaptive.script_name import validate_script_name
+        from screw_agents.adaptive.signing import compute_script_sha256
+        from screw_agents.adaptive.staging import (
+            _utc_now_iso,
+            append_registry_entry,
+            resolve_staging_dir,
+            write_staged_files,
+        )
+
+        # Name validation (delegates to shared `adaptive.script_name` per
+        # T2 consolidation). Raises ValueError on mismatch — catch and
+        # convert to the existing error-dict contract callers depend on.
+        try:
+            validate_script_name(script_name)
+        except ValueError as exc:
+            return {
+                "status": "error",
+                "error": "invalid_script_name",
+                "message": str(exc),
+            }
+
+        # Session_id validation is enforced by ``resolve_staging_dir``
+        # (uses the ``\\A[A-Za-z0-9_-]{1,64}\\Z`` allowlist regex added
+        # in T1 part 4 for I-opus-1/2). Catch the ValueError it raises
+        # and convert to the error-dict contract. Do NOT re-implement a
+        # denylist here — that would diverge from the allowlist and
+        # re-open I-opus-1.
+        try:
+            stage_dir = resolve_staging_dir(project_root, session_id)
+        except ValueError as exc:
+            return {
+                "status": "error",
+                "error": "invalid_session_id",
+                "message": str(exc),
+            }
+
+        # Compute sha256 via the shared helper (T2 consolidation — do
+        # NOT introduce a duplicate here).
+        script_sha256 = compute_script_sha256(source)
+
+        # Collision check: same script_name exists under this session?
+        py_path = stage_dir / f"{script_name}.py"
+        if py_path.exists():
+            existing = py_path.read_text(encoding="utf-8")
+            existing_sha = compute_script_sha256(existing)
+            if existing_sha != script_sha256:
+                return {
+                    "status": "error",
+                    "error": "stage_name_collision",
+                    "message": (
+                        f"{script_name} already staged in {session_id} "
+                        f"with different content"
+                    ),
+                    "existing_sha256_prefix": existing_sha[:8],
+                }
+            # Same content — idempotent; proceed to re-write + re-record.
+
+        # Serialize meta to YAML (simple sanitization: ensure round-trip).
+        meta_yaml = yaml.safe_dump(
+            meta, sort_keys=True, default_flow_style=False
+        )
+
+        # Atomic write (staging.py helper; raises ValueError on fs
+        # errors via T13-C1 discipline).
+        write_staged_files(
+            project_root=project_root,
+            script_name=script_name,
+            source=source,
+            meta_yaml=meta_yaml,
+            session_id=session_id,
+        )
+
+        # Append registry entry. Partial-state semantics: if this
+        # fails, the staged files remain on disk (T6 sweep recovers
+        # them by age). See ``append_registry_entry``'s docstring.
+        entry = {
+            "event": "staged",
+            "script_name": script_name,
+            "session_id": session_id,
+            "script_sha256": script_sha256,
+            "target_gap": target_gap or {},
+            "staged_at": _utc_now_iso(),
+            "schema_version": 1,
+        }
+        append_registry_entry(project_root, entry)
+
+        return {
+            "status": "staged",
+            "script_name": script_name,
+            "stage_path": str(py_path),
+            "script_sha256": script_sha256,
+            "script_sha256_prefix": script_sha256[:8],
+            "session_id": session_id,
+            "session_id_short": (
+                session_id[:12] if len(session_id) > 12 else session_id
+            ),
+        }
+
     def sign_adaptive_script(
         self,
         *,
@@ -1650,6 +1828,90 @@ class ScanEngine:
                             "the association in `.screw/local/` for audit "
                             "correlation — plumbing the id through now "
                             "avoids a follow-on API change."
+                        ),
+                    },
+                },
+                "required": [
+                    "project_root",
+                    "script_name",
+                    "source",
+                    "meta",
+                    "session_id",
+                ],
+            },
+        })
+
+        # Phase 3b T3: stage_adaptive_script — C1 staging-path MCP tool.
+        # Writes an UNSIGNED script to session-scoped staging so the
+        # user reviews what is staged and promote_staged_script signs
+        # what is staged (sha256-verified). Closes the C1 regeneration
+        # vulnerability where approve-path LLM re-sent the source.
+        tools.append({
+            "name": "stage_adaptive_script",
+            "description": (
+                "Atomically write an unsigned adaptive analysis script to "
+                "session-scoped staging (`.screw/staging/{session_id}/"
+                "adaptive-scripts/`). Called by the generating subagent BEFORE "
+                "composing the human review. The staged bytes persist on disk "
+                "and become the source of truth for the subsequent "
+                "promote_staged_script call — the user reviews what is staged, "
+                "and promote signs what is staged, with sha256 verification "
+                "preventing tamper (C1 trust invariant). Appends a `staged` "
+                "event to .screw/local/pending-approvals.jsonl for audit. "
+                "Idempotent on byte-identical re-stage; returns status=\"error\" "
+                "with error=\"stage_name_collision\" on same name + different "
+                "content. See design spec §3.1."
+            ),
+            "input_schema": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "project_root": {
+                        "type": "string",
+                        "description": "Absolute path to the project root.",
+                    },
+                    "script_name": {
+                        "type": "string",
+                        "description": (
+                            "Filesystem-safe name (regex "
+                            "`^[a-z0-9][a-z0-9-]{2,62}$`). Validated by the "
+                            "shared `adaptive.script_name.validate_script_name` "
+                            "(T2 consolidation) before any filesystem op."
+                        ),
+                    },
+                    "source": {
+                        "type": "string",
+                        "description": (
+                            "Python source code for the adaptive script. "
+                            "Caller should have run `lint_adaptive_script` "
+                            "BEFORE staging (pre-review), though staging itself "
+                            "does not enforce this."
+                        ),
+                    },
+                    "meta": {
+                        "type": "object",
+                        "description": (
+                            "Partial meta dict that will eventually conform to "
+                            "AdaptiveScriptMeta (minus signing fields). Must "
+                            "include name, created, created_by, domain; may "
+                            "include description, target_patterns."
+                        ),
+                    },
+                    "session_id": {
+                        "type": "string",
+                        "description": (
+                            "Scan session id. Validated against "
+                            "`^[A-Za-z0-9_-]{1,64}$` (T1 part 4 allowlist, "
+                            "I-opus-1/2 fix). Scopes the staging directory — "
+                            "different session_ids get different dirs."
+                        ),
+                    },
+                    "target_gap": {
+                        "type": "object",
+                        "description": (
+                            "Optional coverage-gap metadata recorded in the "
+                            "registry entry. Shape: "
+                            "{type, file, line, agent}. Null for non-gap stages."
                         ),
                     },
                 },
