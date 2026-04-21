@@ -78,20 +78,21 @@ def test_public_api_matches_expected_exactly():
     # T2 addition: script_name (shared SCRIPT_NAME_RE + validate_script_name).
     # Imported by signing.py and staging.py — surfaces as attribute once any
     # code in the session does `from screw_agents.adaptive.script_name import ...`.
-    allowed_extras = {"ast_walker", "dataflow", "executor", "findings", "lint", "project", "sandbox", "script_name", "signing"}
+    allowed_extras = {"ast_walker", "dataflow", "executor", "findings", "lint", "project", "sandbox", "script_name", "signing", "staging"}
     assert public_names - allowed_extras == EXPECTED_PUBLIC_API, (
         f"Public API drift: {public_names - EXPECTED_PUBLIC_API} added, "
         f"{EXPECTED_PUBLIC_API - public_names} removed"
     )
 
 
-def test_public_api_count_is_under_28():
-    """Curated library should stay small. Over 27 is a red flag for scope creep.
+def test_public_api_count_is_under_29():
+    """Curated library should stay small. Over 28 is a red flag for scope creep.
 
     Ceiling history:
     - 25 before T18a (original baseline).
     - 26 after T18a added `signing` (sign-side canonicalization helper).
     - 27 after T2 added `script_name` (shared SCRIPT_NAME_RE + validator).
+    - 28 after T1 (C1 staging) added `staging` (promote_staged_script + StagedScript).
     The EXPECTED_PUBLIC_API curated set is unchanged at 18 entries; the extra
     entries are all internal submodule attributes that Python binds automatically
     when any code does ``from screw_agents.adaptive.X import ...``.
@@ -109,7 +110,7 @@ def test_public_api_count_is_under_28():
     import screw_agents.adaptive as adaptive
 
     public_count = len([n for n in dir(adaptive) if not n.startswith("_")])
-    assert public_count <= 27, (
+    assert public_count <= 28, (
         f"adaptive public API has {public_count} entries; review for scope creep"
     )
 

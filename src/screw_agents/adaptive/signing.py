@@ -149,7 +149,7 @@ def _sign_script_bytes(
     script_name: str,
     source: str,
     meta_dict: dict[str, Any],
-    session_id: str,
+    session_id: str | None = None,
 ) -> dict[str, Any]:
     """Shared signing core — write + sign a fresh adaptive script to disk.
 
