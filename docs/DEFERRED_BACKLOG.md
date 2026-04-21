@@ -865,3 +865,74 @@ Ship Option A per the initial triage:
 2. Gate adaptive-mode with a loud experimental warning in the slash command body — see commit messages for suggested wording.
 3. Track C1 as the immediate next follow-up PR before promoting adaptive mode to production-ready. Staging architecture is the fix.
 4. I1-I6 can batch into the same C1-fix PR (most touch the same file set) or land as a standalone polish PR.
+
+---
+
+## Phase 3b PR #6 follow-ups (Opus re-review polish)
+
+> Items surfaced by the Opus 4.7 re-review of T1 + T2 on 2026-04-21. All are cosmetic polish or test-coverage gaps that don't block C1 trust-path correctness (which is proven by the 817-test suite + C1 regression test `test_sign_output_passes_executor_verification`). Scheduled for picking up during the next polish sweep, next test-hygiene sweep, or a dedicated cleanup commit.
+
+### BACKLOG-PR6-01 — Nested `TargetGap` TypedDict inside `PendingApproval.target_gap`
+**Source:** Phase 3b PR #6 T1 Opus re-review (I-opus-4), 2026-04-21
+**File:** `src/screw_agents/models.py` — `PendingApproval` TypedDict
+**Why deferred:** Cosmetic typing improvement; no runtime impact. `target_gap: dict` with an inline comment documenting shape (`{type, file, line, agent}`) works at runtime but skips static type checking. The rest of `models.py` uses nested TypedDicts/BaseModels consistently — this is one departure.
+**Trigger:** Next polish pass touching `models.py`, OR before Phase 4 autoresearch if it consumes `target_gap` programmatically and wants static guarantees.
+**Suggested approach:** Define `class TargetGap(TypedDict): type: str; file: str; line: int; agent: str` and change `target_gap: dict` to `target_gap: TargetGap`. Update test-fixture dicts to conform.
+**Estimated scope:** ~15 LOC + 1 test.
+
+### BACKLOG-PR6-02 — Nested TypedDicts for `StaleStagingReport.scripts_removed` and `.tampered_preserved`
+**Source:** Phase 3b PR #6 T1 Opus re-review (I-opus-5), 2026-04-21
+**File:** `src/screw_agents/models.py` — `StaleStagingReport` TypedDict
+**Why deferred:** Same as BACKLOG-PR6-01. `list[dict]` with a trailing shape comment compiles but doesn't enforce keys. These fields are the return shape for `sweep_stale_staging` landing in T6; typed shape matters when CLI or autoresearch consumes the report.
+**Trigger:** T6 implementation (`sweep_stale_staging` engine method) — natural point to tighten since the code producing these dicts is being written.
+**Suggested approach:** Define `class RemovedScriptEntry(TypedDict)` with `script_name, session_id, reason, age_days` and `class TamperedPreservedEntry(TypedDict)` with `script_name, session_id, evidence_path, age_days`. Change the two `list[dict]` fields to use these types.
+**Estimated scope:** ~25 LOC + 1 test.
+
+### BACKLOG-PR6-03 — Rollback test asserts meta_tmp cleanup
+**Source:** Phase 3b PR #6 T1 Opus re-review (M-opus-1), 2026-04-21
+**File:** `tests/test_adaptive_staging.py` — `test_write_staged_files_rolls_back_py_on_meta_failure`
+**Why deferred:** Test coverage gap. The rollback loop in `write_staged_files` iterates `(meta_tmp, py_path)`, but the test only asserts `.py` absence. `meta_tmp` cleanup is load-bearing for disk-state hygiene on restart. Currently verified empirically but not asserted in the test.
+**Trigger:** Next test-coverage sweep.
+**Suggested approach:** Add two assertions to the existing rollback test:
+```python
+assert not (stage_dir / "test-script.meta.yaml.tmp").exists()
+assert list(stage_dir.iterdir()) == []
+```
+**Estimated scope:** 2-3 LOC.
+
+### BACKLOG-PR6-04 — UTF-8 / CRLF / long-content round-trip test for staging.py
+**Source:** Phase 3b PR #6 T1 Opus re-review (M-opus-2), 2026-04-21
+**File:** `tests/test_adaptive_staging.py`
+**Why deferred:** Current `test_read_staged_files_returns_str_roundtrip` uses pure-ASCII content. A unicode / CRLF / long-content round-trip would guard against someone swapping `Path.write_text(encoding="utf-8")` for a lossy encoder or forgetting the explicit encoding argument.
+**Trigger:** Next test-coverage sweep.
+**Suggested approach:** Add a test that writes a source containing unicode (`"# café\nprint('ünîcôdé')\n"`), CRLF line endings, and content >PIPE_BUF (e.g., 8KB), then reads back and asserts byte-identical.
+**Estimated scope:** ~20 LOC.
+
+### BACKLOG-PR6-05 — Valid-edge-cases test writes into same dir across iterations
+**Source:** Phase 3b PR #6 T1 Opus re-review (M-opus-3), 2026-04-21
+**File:** `tests/test_adaptive_staging.py` — `test_write_staged_files_accepts_valid_script_name_edge_cases`
+**Why deferred:** Minor test quality — the test writes 4 names sequentially into the same `session_id` dir. `os.replace` is overwrite-atomic so the test passes, but it doesn't fully test iteration independence. Refactoring to parametrize or separate tmp_path per iteration would make the test cleaner.
+**Trigger:** Next test-coverage sweep.
+**Estimated scope:** ~5 LOC refactor.
+
+### BACKLOG-PR6-06 — `staging.py` module docstring event-type list scope clarification
+**Source:** Phase 3b PR #6 T1 Opus re-review (M-opus-4), 2026-04-21
+**File:** `src/screw_agents/adaptive/staging.py` — module-level docstring (lines 1-32)
+**Why deferred:** The docstring lists registry event types (`staged`, `promoted`, `rejected`, `tamper_detected`, `swept`, etc.) as if registry-write is part of this module. T1 only provides `resolve_registry_path`; append/query land in T3, sweep in T6. A one-line note ("Event-type catalog listed here for reference; append/read lands in T3, sweep in T6") would prevent reader confusion.
+**Trigger:** Next docstring polish pass OR after T3 lands (when the module actually implements registry write — the event-type list would then be authoritative).
+**Estimated scope:** 1-2 line docstring clarification.
+
+### BACKLOG-PR6-07 — `test_public_api_count_is_under_29` function-name / assertion inconsistency
+**Source:** Phase 3b PR #6 T2 Opus re-review (M-2), 2026-04-21
+**File:** `tests/test_adaptive_public_api.py`
+**Why deferred:** Function `test_public_api_count_is_under_29` asserts `public_count <= 28` (mathematically equivalent for integers but visually jarring). Docstring says "Over 28 is a red flag." Rename to `test_public_api_count_is_at_most_28` OR change assertion to `< 29` for consistency.
+**Trigger:** Next test-hygiene sweep.
+**Estimated scope:** 1-line rename or assertion style change.
+
+### BACKLOG-PR6-08 — `adaptive/__init__.py` stale "under 25 exports" docstring
+**Source:** Phase 3b PR #6 T2 Opus re-review (M-3), 2026-04-21
+**File:** `src/screw_agents/adaptive/__init__.py`
+**Why deferred:** Module docstring claims "under 25 exports" but `EXPECTED_PUBLIC_API` curated set has 18 entries; total `dir(adaptive)` after T1+T2 is 28 (18 curated + 10 internal submodule bindings). Docstring has been drifting since T18a added `signing`; T1 + T2 each added a submodule without refreshing the claim.
+**Trigger:** Next docstring polish pass OR whenever editing `adaptive/__init__.py`.
+**Suggested replacement:** "(18 curated exports in EXPECTED_PUBLIC_API; total `dir(adaptive)` includes ~10 internal submodule bindings)".
+**Estimated scope:** 2-3 line docstring update.

@@ -31,7 +31,7 @@
 - `src/screw_agents/server.py` — register 6 new MCP tools with `additionalProperties: false`
 - `plugins/screw/agents/screw-{sqli,cmdi,ssti,xss}.md` — byte-identical Step 3.5d section rewrite
 - `plugins/screw/commands/adaptive-cleanup.md` — add `stale` subcommand; switch backend from Bash to MCP tools
-- `docs/DEFERRED_BACKLOG.md` — move C1/I1-I6/absorbed items to Shipped section; add BACKLOG-01..05 under "Phase 3b PR #6 follow-ups"
+- `docs/DEFERRED_BACKLOG.md` — move C1/I1-I6/absorbed items to Shipped section; confirm `BACKLOG-PR6-01..08` (added 2026-04-21 from Opus re-review) and append `BACKLOG-PR6-09..13` (original-plan design items) under "Phase 3b PR #6 follow-ups"
 
 ---
 
@@ -86,7 +86,7 @@
 | `plugins/screw/commands/scan.md` | Minor: document staging conceptually (~10 lines). |
 | `plugins/screw/commands/adaptive-cleanup.md` | Rewrite Bash backends → MCP tool calls (I6); add `stale` subcommand with `--max-age-days` + `--preview`. |
 | `docs/PHASE_3B_PLAN.md` | Add new section "PR #6 — C1 Staging Architecture + I1-I6 Polish" at the end, matching existing structure. |
-| `docs/DEFERRED_BACKLOG.md` | Move C1/I1-I6/T-STAGING-ORPHAN-GC/T10-M1 partial/T11-N1/T11-N2/T3-M1 entries to a new "Shipped (PR #6)" block with post-merge commit SHA. Add 5 new entries BACKLOG-01..05 under "Phase 3b PR #6 follow-ups". |
+| `docs/DEFERRED_BACKLOG.md` | Move C1/I1-I6/T-STAGING-ORPHAN-GC/T10-M1 partial/T11-N1/T11-N2/T3-M1 entries to a new "Shipped (PR #6)" block with post-merge commit SHA. Confirm 8 existing entries `BACKLOG-PR6-01..08` (Opus re-review findings 2026-04-21); append 5 original-plan entries as `BACKLOG-PR6-09..13`. |
 
 ### Deleted (1 file)
 
@@ -684,6 +684,12 @@ Registry operations (`append_registry_entry`, `query_registry`, `fallback_walk`)
 
 **Post-review absorbed scope:** two T2-destined items were flagged during T1 re-review and are recorded under Task 2 (I-new-1 trailing-newline regex footgun + I-new-2 coverage gaps). They are within-plan deferrals; nothing escapes to `docs/DEFERRED_BACKLOG.md`.
 
+**T1 Opus 4.7 re-review findings (2026-04-21):** After the initial Sonnet review approved T1 parts 1-3, an Opus re-review caught three Important items Sonnet missed:
+- **I-opus-1 + I-opus-2 (session_id validator asymmetry, commit `d70c344` T1 part 4):** the original 5-char denylist (`.` / `..` / `/` / `\\` / `\x00`) let through newlines, colons, tabs, trailing periods, leading dots, and high-bit bytes — each a distinct threat (JSONL log-injection, NTFS alternate-data-stream, hidden-dir bypass, homoglyph attack). Fix: tightened to allowlist regex `\A[A-Za-z0-9_-]{1,64}\Z` symmetric with `script_name`'s allowlist discipline. Existing `test_resolve_staging_dir_accepts_dots_within_session_id` rewritten as `test_resolve_staging_dir_rejects_dots_within_session_id` (the previous regression-guard against substring-overmatch is obsolete under an allowlist). +5 new regression tests cover newline/CR, whitespace/colon, high-bit bytes, over-length, and valid-edge-cases.
+- **I-opus-3 (PendingApproval runtime per-event-type validator):** within-plan deferral to T3. See §T3's "Absorbed from T1 Opus re-review" block below.
+
+Minor items (I-opus-4 `target_gap: dict` nesting, I-opus-5 `StaleStagingReport` nested-dict typing, M-opus-1..4 test-coverage/docstring nits) deferred to `docs/DEFERRED_BACKLOG.md` as BACKLOG-PR6-01..06 under "Phase 3b PR #6 follow-ups".
+
 ---
 
 ### Task 2: Extract `_sign_script_bytes` Shared Helper (Option D Refactor) + Absorb I-new-1 / I-new-2
@@ -948,6 +954,11 @@ git commit -m "refactor(phase3b-c1): extract _sign_script_bytes + shared SCRIPT_
 
 **Cross-plan sync:** no deviation from spec §3.7 on the shared-helper refactor. The regex-extraction addition (I-new-1 / I-new-2) was deferred from T1 per `feedback_deferral_destination` (within-plan deferral, plan-sync committed before T2 dispatch). If the refactor requires changing `sign_adaptive_script`'s public signature (it should NOT), stop and update spec §3.7 + this task before continuing.
 
+**T2 Opus 4.7 re-review (2026-04-21):** APPROVED — nothing substantive missed by the earlier Sonnet spec review. Three minor items identified:
+- **M-1 (dead imports in `engine.py` after refactor):** fixed in T1 part 4 commit `d70c344` (bundled with the session_id tightening since both touched `engine.py`). Removed unused `build_signed_script_meta`, `compute_script_sha256`, `_get_or_create_local_private_key`, `_find_matching_reviewer`, `_fingerprint_public_key`, `_load_public_keys_with_reviewers` imports.
+- **M-2 (`test_public_api_count_is_under_29` function-name / assertion visual inconsistency):** deferred to DEFERRED_BACKLOG as BACKLOG-PR6-07.
+- **M-3 (`adaptive/__init__.py` stale "under 25 exports" docstring):** deferred to DEFERRED_BACKLOG as BACKLOG-PR6-08.
+
 ---
 
 ## Phase B — C1 Core MCP Tools (T3-T6)
@@ -963,7 +974,67 @@ git commit -m "refactor(phase3b-c1): extract _sign_script_bytes + shared SCRIPT_
 **Pre-audit checklist:**
 - Confirm atomic registry append semantics: JSONL append via `open(..., "a")` + single `write()` call is POSIX-atomic for writes under PIPE_BUF (4096 bytes). Registry entries are <500 bytes. Safe for single-process MCP.
 - Name-regex lives as a shared constant after T2 (`SCRIPT_NAME_RE`, anchored `\A…\Z`, extracted per T2's "Absorbed from T1 re-review" block). Both `adaptive/staging.py` (defense-in-depth, added in T1 part 3) and `_sign_script_bytes` call the shared validator. T3's `stage_adaptive_script` gets name validation for free by routing through both layers — do NOT duplicate the regex a third time. If T2 did NOT consolidate as planned, STOP and fix T2 first.
+- Session_id validator is the `\A[A-Za-z0-9_-]{1,64}\Z` allowlist added in T1 part 4 (commit `d70c344`). T3's `stage_adaptive_script` calls into `resolve_staging_dir` which enforces it — no additional session_id validation needed at the engine layer.
 - stage is idempotent on byte-identical re-stage (same sha256 → update timestamps, no error). Error on same script_name + different sha256.
+
+**Absorbed from T1 Opus re-review (2026-04-21):** One item requires T3's attention as the first producer of `PendingApproval` entries to the JSONL audit log:
+
+- **I-opus-3 (PendingApproval runtime per-event-type validator):** `PendingApproval(TypedDict, total=False)` in `models.py` has inline comments documenting which fields are required per event type (`staged`, `promoted`, `promoted_via_fallback`, `promoted_confirm_stale`, `rejected`, `tamper_detected`, `swept`) but no runtime enforcement. A producer could silently emit `{"event": "staged"}` without `script_sha256` / `target_gap` / `staged_at` — corrupting the forensic-audit JSONL stream. T3 is the first task that writes `PendingApproval` entries (`append_registry_entry`); validate the entry shape before the JSONL write.
+
+  **Suggested approach:** Add to `adaptive/staging.py`:
+  ```python
+  _REQUIRED_FIELDS_BY_EVENT: dict[str, frozenset[str]] = {
+      "staged": frozenset({"event", "script_name", "session_id", "script_sha256",
+                          "target_gap", "staged_at", "schema_version"}),
+      "promoted": frozenset({"event", "script_name", "session_id", "script_sha256",
+                            "signed_by", "promoted_at", "schema_version"}),
+      "promoted_via_fallback": frozenset({"event", "script_name", "session_id",
+                                         "script_sha256", "signed_by", "promoted_at",
+                                         "schema_version"}),
+      "promoted_confirm_stale": frozenset({"event", "script_name", "session_id",
+                                          "script_sha256", "signed_by", "promoted_at",
+                                          "schema_version"}),
+      "rejected": frozenset({"event", "script_name", "session_id", "reason",
+                            "rejected_at", "schema_version"}),
+      "tamper_detected": frozenset({"event", "script_name", "session_id",
+                                   "expected_sha256", "actual_sha256",
+                                   "evidence_path", "tampered_at", "schema_version"}),
+      "swept": frozenset({"event", "script_name", "session_id", "swept_at",
+                         "sweep_reason", "schema_version"}),
+  }
+
+  def validate_pending_approval(entry: PendingApproval) -> None:
+      """Raise ValueError if entry lacks required fields for its event type.
+
+      Called from `append_registry_entry` before the JSONL write to
+      prevent silent forensic-audit corruption. Unknown event types raise
+      (new event types require an explicit opt-in via this dict).
+      """
+      event = entry.get("event")
+      if event is None:
+          raise ValueError("PendingApproval entry missing required 'event' field")
+      required = _REQUIRED_FIELDS_BY_EVENT.get(event)
+      if required is None:
+          raise ValueError(f"PendingApproval entry has unknown event type: {event!r}")
+      missing = required - set(entry.keys())
+      if missing:
+          raise ValueError(
+              f"PendingApproval '{event}' entry missing required fields: "
+              f"{sorted(missing)}"
+          )
+  ```
+
+  Call site (at the top of `append_registry_entry`):
+  ```python
+  def append_registry_entry(project_root: Path, entry: PendingApproval) -> None:
+      validate_pending_approval(entry)  # fail fast before any I/O
+      registry_path = resolve_registry_path(project_root)
+      registry_path.parent.mkdir(parents=True, exist_ok=True)
+      with open(registry_path, "a", encoding="utf-8") as f:
+          f.write(json.dumps(entry, sort_keys=True) + "\n")
+  ```
+
+  **Tests to add in T3** (alongside the existing stage-flow tests): (a) valid `staged` entry writes successfully; (b) `{"event": "staged"}` without `script_sha256` raises `ValueError`; (c) unknown event type raises; (d) `tamper_detected` entry missing `evidence_path` raises.
 
 - [ ] **Step 1: Write failing tests — happy-path stage**
 
@@ -4467,7 +4538,7 @@ design and `docs/PHASE_3B_C1_PLAN.md` for the task breakdown.
 ### Task 21: New integration test — tests/test_adaptive_workflow_staged.py
 ### Task 22: additionalProperties: false on new PR #6 tools (T10-M1 partial)
 ### Task 23: Cross-plan sync (this file update)
-### Task 24: DEFERRED_BACKLOG updates (move Shipped, add BACKLOG-01..05)
+### Task 24: DEFERRED_BACKLOG updates (move Shipped, append BACKLOG-PR6-09..13 to existing 01..08)
 
 ## PR #6 Exit Checklist
 [mirrors the Exit Checklist in PHASE_3B_C1_PLAN.md]
@@ -4514,24 +4585,24 @@ Move `T3-M1` (from "Project-wide"), `T11-N1` + `T11-N2` (from their respective s
 
 Move `T10-M1 partial` to a new "Partially shipped (PR #6)" block (project-wide audit remains deferred to PR #9).
 
-- [ ] **Step 3: Add 5 new BACKLOG-01..05 entries**
+- [ ] **Step 3: Verify and augment the "Phase 3b PR #6 follow-ups" section**
 
-Under new section header `## Phase 3b PR #6 follow-ups`:
+As of 2026-04-21, `docs/DEFERRED_BACKLOG.md` already contains a `## Phase 3b PR #6 follow-ups (Opus re-review polish)` section with 8 entries (`BACKLOG-PR6-01..08`) captured when the Opus re-review of T1 + T2 completed. Verify those entries are still present and accurate.
+
+Then **append** the 5 original-plan entries to the same section, renumbered as `BACKLOG-PR6-09..13`:
 
 ```markdown
-## Phase 3b PR #6 follow-ups
-
-### BACKLOG-01 — Registry compaction when pending-approvals.jsonl exceeds 10MB or 1yr
+### BACKLOG-PR6-09 — Registry compaction when pending-approvals.jsonl exceeds 10MB or 1yr
 **Source:** Phase 3b PR #6 design, 2026-04-20
 **File:** `src/screw_agents/adaptive/staging.py` + new compaction CLI
-**Priority:** Low — appendto-only JSONL; size stays manageable at current scale.
+**Priority:** Low — append-only JSONL; size stays manageable at current scale.
 **Trigger:** registry exceeds 10 MB OR oldest entry exceeds 1 year OR
 audit performance becomes noticeable.
 **Suggested fix:** `screw-agents compact-registry` CLI that archives old
 entries to `.screw/local/pending-approvals-archive/YYYY-MM.jsonl`; keep
 signatures preserved.
 
-### BACKLOG-02 — Shared-prompt skill refactor via Claude Code `skills:` frontmatter
+### BACKLOG-PR6-10 — Shared-prompt skill refactor via Claude Code `skills:` frontmatter
 **Source:** Phase 3b PR #6 design; Claude Code guide confirmed feasible 2026-04-20
 **File:** new `plugins/screw/skills/adaptive-mode/SKILL.md`; per-agent
 frontmatter in `plugins/screw/agents/screw-{sqli,cmdi,ssti,xss}.md`
@@ -4546,7 +4617,7 @@ entry; list the skill in each per-agent `skills:` frontmatter. Prototype
 to verify the preload order preserves the prompt's intended position in
 the subagent's context.
 
-### BACKLOG-03 — Attribute-access lint for `import screw_agents.adaptive as X; X.unknown`
+### BACKLOG-PR6-11 — Attribute-access lint for `import screw_agents.adaptive as X; X.unknown`
 **Source:** I2 edge case (PR #6)
 **File:** `src/screw_agents/adaptive/lint.py`
 **Priority:** Low — requires attribute-access analysis; common case covered
@@ -4556,7 +4627,7 @@ non-existent attribute, OR a user reports lint-pass-then-execute-fail.
 **Suggested fix:** extend AST walker to track `import X as Y` bindings
 and validate `Y.attr` against `screw_agents.adaptive.__all__`.
 
-### BACKLOG-04 — Level 3 review-markdown hash binding (cryptographic)
+### BACKLOG-PR6-12 — Level 3 review-markdown hash binding (cryptographic)
 **Source:** Phase 3b PR #6 design Q6; rejected Level 3 during brainstorm
 **File:** TBD — would add `review_markdown_sha256` to registry entries
 **Priority:** Low — only if threat model escalates (e.g., future UI
@@ -4564,7 +4635,7 @@ auto-populates reviews). Current source-hash binding closes the realistic
 attacker path.
 **Trigger:** threat-model change making source-only binding insufficient.
 
-### BACKLOG-05 — Phase 4 autoresearch hook into sign_adaptive_script
+### BACKLOG-PR6-13 — Phase 4 autoresearch hook into sign_adaptive_script
 **Source:** Phase 3b PR #6 design Q4; Option D preserved the direct-sign
 wrapper for this consumer.
 **Priority:** Phase 4 work (not standalone)
@@ -4574,6 +4645,8 @@ script-signing path after automated review.
 the right API; Phase 4's autoresearch module uses it directly after its
 own review produces approved source + meta.
 ```
+
+Also review whether the ongoing implementation of T3-T22 surfaced additional follow-up items that belong in the same section (e.g., T4 `promote_staged_script` reviewer findings, T6 sweep edge cases, T21 integration-test findings). If so, append them as `BACKLOG-PR6-14..` etc.
 
 - [ ] **Step 4: Commit**
 
@@ -4766,7 +4839,7 @@ Before requesting PR review:
 - [ ] `grep -r "sign_adaptive_script" plugins/screw/agents/screw-*.md` → zero matches (LLM-flow isolation invariant)
 - [ ] `grep -rn "from screw_agents.cli.adaptive_cleanup" .` → only match is in deleted file (post-T9)
 - [ ] `docs/PHASE_3B_PLAN.md` has the new "PR #6" section
-- [ ] `docs/DEFERRED_BACKLOG.md` has C1 + I1-I6 + T-STAGING-ORPHAN-GC moved to Shipped; BACKLOG-01..05 added
+- [ ] `docs/DEFERRED_BACKLOG.md` has C1 + I1-I6 + T-STAGING-ORPHAN-GC moved to Shipped; `BACKLOG-PR6-01..08` confirmed (from Opus re-review, 2026-04-21); `BACKLOG-PR6-09..13` appended (original-plan design items)
 - [ ] Spec at `docs/specs/2026-04-20-phase-3b-c1-staging-design.md` remains unmodified (or deviations called out in PHASE_3B_PLAN plan-sync note)
 - [ ] No Claude Code / AI attribution in any commit message (`feedback_no_cc_commits`)
 
