@@ -1141,3 +1141,73 @@ assert list(stage_dir.iterdir()) == []
 **Trigger:** If a post-incident review shows the auto-sweep expired useful forensic evidence, OR during Phase 4+ forensic-tooling work.
 **Suggested fix:** add `force_sweep_tampered: bool = False` kwarg to `sweep_stale_staging`; default False means tampered files NEVER swept regardless of age.
 **Estimated scope:** ~15 LOC + 2 tests.
+
+### BACKLOG-PR6-40 — `_read_staging_max_age_days` exception breadth asymmetric with T4
+**Source:** Phase 3b PR #6 T6 Opus review (M-T6-1), 2026-04-21
+**File:** `src/screw_agents/engine.py` — `_read_staging_max_age_days`
+**Why deferred:** T6's helper catches `(PermissionError, OSError, ValueError)`. T4's sibling `_read_stale_staging_hours` catches `(ValueError, TypeError, OSError, yaml.YAMLError)`. Malformed YAML in T6's helper will crash sweep instead of falling back to 14.
+**Trigger:** Next config-read polish pass.
+**Suggested fix:** broaden to match T4's exception tuple; consolidate to a shared `_read_config_int(key, default, lo, hi)` helper.
+**Estimated scope:** ~5 LOC.
+
+### BACKLOG-PR6-41 — Orphaned TAMPERED marker when .py missing
+**Source:** Phase 3b PR #6 T6 Opus review (M-T6-2 / M-T6-9), 2026-04-21
+**File:** `src/screw_agents/adaptive/staging.py` — `sweep_stale`
+**Why deferred:** If `.py` is deleted but `.TAMPERED` marker remains (crash mid-sweep, manual user delete), sweep's `glob("*.py")` never iterates → marker never cleaned up → session dir pinned as non-empty forever.
+**Trigger:** Observed in production OR when session-dir cleanup becomes a reliability concern.
+**Suggested fix:** after the per-script loop, glob `"*.TAMPERED"` and unlink any orphans whose corresponding `.py` is absent.
+**Estimated scope:** ~10 LOC + 1 test.
+
+### BACKLOG-PR6-42 — `sessions_scanned` counter has no test coverage
+**Source:** Phase 3b PR #6 T6 Opus review (M-T6-3), 2026-04-21
+**File:** `tests/test_adaptive_staging.py` — sweep test suite
+**Why deferred:** The `sessions_scanned` field is returned in every sweep response but no test asserts it. Silent regression potential.
+**Trigger:** Next test-hygiene sweep.
+**Suggested fix:** extend an existing sweep test to stage in 3 sessions and assert `response["sessions_scanned"] == 3`.
+**Estimated scope:** ~5 LOC.
+
+### BACKLOG-PR6-43 — No positive test for `swept` event shape
+**Source:** Phase 3b PR #6 T6 Opus review (M-T6-4), 2026-04-21
+**File:** `tests/test_adaptive_staging.py`
+**Why deferred:** Dry-run test asserts registry UNCHANGED (negative case). No test verifies the real-path `swept` entry has all required fields per `_REQUIRED_FIELDS_BY_EVENT["swept"]`.
+**Trigger:** Next test-hygiene sweep.
+**Suggested fix:** add `test_sweep_appends_well_formed_swept_event` — reads JSONL tail after sweep, asserts event has {event, script_name, session_id, swept_at, sweep_reason, schema_version}.
+**Estimated scope:** ~15 LOC.
+
+### BACKLOG-PR6-44 — No test for tampered+expired→sweep transition
+**Source:** Phase 3b PR #6 T6 Opus review (M-T6-5), 2026-04-21
+**File:** `tests/test_adaptive_staging.py`
+**Why deferred:** `test_sweep_preserves_tampered_files` covers `age=10d, max=14d → preserve`. The spec path `tamper_detected + age >= max → swept (marker removed)` is implemented but unverified.
+**Trigger:** Next test-hygiene sweep.
+**Suggested fix:** stage → mark TAMPERED → age to 30d → sweep with max=14d → assert .py + marker both gone + `swept` event with reason `stale_orphan`.
+**Estimated scope:** ~25 LOC.
+
+### BACKLOG-PR6-45 — No test for `completed_orphan` path
+**Source:** Phase 3b PR #6 T6 Opus review (M-T6-6), 2026-04-21
+**File:** `tests/test_adaptive_staging.py`
+**Why deferred:** `_TERMINAL_EVENTS` classifier returns `completed_orphan` when registry has promoted/rejected/swept event but staging files are still present. Defensive-GC claim unverified by tests.
+**Trigger:** Next test-hygiene sweep.
+**Suggested fix:** construct the mocked partial state (promote, then replant staging files), run sweep with large max_age_days, assert files swept with reason `completed_orphan`.
+**Estimated scope:** ~25 LOC.
+
+### BACKLOG-PR6-46 — Outer `staging_root.iterdir()` not snapshotted
+**Source:** Phase 3b PR #6 T6 Opus review (M-T6-7), 2026-04-21
+**File:** `src/screw_agents/adaptive/staging.py` — `sweep_stale`
+**Why deferred:** Inner loop uses `list(adapt_dir.glob("*.py"))` defensively. Outer loop is a raw generator. Current code only mutates the CURRENT session_dir, which CPython os.scandir handles, but asymmetric defense is a readability smell.
+**Trigger:** Next readability polish pass.
+**Suggested fix:** wrap outer iteration in `list(staging_root.iterdir())` for symmetry.
+**Estimated scope:** 1 LOC + comment.
+
+### BACKLOG-PR6-47 — `sweep_stale` length (~120 LOC) refactor candidate
+**Source:** Phase 3b PR #6 T6 Opus review (M-T6-8), 2026-04-21
+**File:** `src/screw_agents/adaptive/staging.py` — `sweep_stale`
+**Why deferred:** Function is long. The per-script inner block could extract to `_process_staging_script(...)` returning `(removed | preserved | None)`. Simplifies unit-testing those branches in isolation.
+**Trigger:** Next readability polish pass, OR when a future task touches `sweep_stale` and the size becomes a merge-conflict risk.
+**Estimated scope:** ~30 LOC refactor.
+
+### BACKLOG-PR6-48 — Session with only TAMPERED marker (no .py) not cleaned
+**Source:** Phase 3b PR #6 T6 Opus review (M-T6-9), 2026-04-21
+**File:** `src/screw_agents/adaptive/staging.py` — `sweep_stale`
+**Why deferred:** Edge case where `.py` unlink succeeded but marker unlink failed (or user manually deleted `.py`). Marker never cleaned up, session dir never removed. Related to BACKLOG-PR6-41 but distinct scenario.
+**Trigger:** Post-incident review OR M-PR6-41 implementation (both fixed together).
+**Estimated scope:** bundled with BACKLOG-PR6-41.

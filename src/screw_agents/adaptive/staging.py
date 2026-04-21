@@ -675,6 +675,22 @@ def sweep_stale(
                 if reason is None:
                     continue  # keep
 
+                # I-T6-quality-1 fix: track the deletion BEFORE any
+                # registry I/O. If append_registry_entry raises
+                # ValueError (filesystem error), the outer
+                # except (PermissionError, OSError) does NOT catch it —
+                # the raw ValueError propagates. Ensure the in-memory
+                # sweep report at least reflects what was deleted before
+                # the audit-log failure. Consistent with staging.py's
+                # documented "filesystem is source of truth, registry is
+                # audit log" semantics (see append_registry_entry docs).
+                scripts_removed.append({
+                    "script_name": script_name,
+                    "session_id": session_id,
+                    "reason": reason,
+                    "age_days": age_days,
+                })
+
                 if not dry_run:
                     py_path.unlink(missing_ok=True)
                     (adapt_dir / f"{script_name}.meta.yaml").unlink(
@@ -690,12 +706,6 @@ def sweep_stale(
                         "schema_version": 1,
                     }
                     append_registry_entry(project_root, sweep_entry)
-                scripts_removed.append({
-                    "script_name": script_name,
-                    "session_id": session_id,
-                    "reason": reason,
-                    "age_days": age_days,
-                })
 
             # Remove empty adaptive-scripts + session dirs after the pass.
             if (

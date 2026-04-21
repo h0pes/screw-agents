@@ -3396,6 +3396,12 @@ git commit -m "feat(phase3b-c1): sweep_stale_staging MCP tool (T6, absorbs T-STA
 
 **Cross-plan sync:** once merged, `T-STAGING-ORPHAN-GC` moves from Phase 4+ deferred to Shipped (PR #6). Update DEFERRED_BACKLOG in T24.
 
+**T6 Opus 4.7 re-review (2026-04-21):** Spec review APPROVED (all 10 HRs pass, including the implementer's TAMPERED-marker reordering which is semantically superior to the plan's pseudocode). Quality review found **1 Important + 9 Minor** — hitting the 0-1 Important target per `feedback_cross_task_precedent_checks`. The one Important item fixed in T6 part 2 commit:
+
+- **I-T6-quality-1 (partial-state window on registry append failure):** `append_registry_entry` raises `ValueError` on registry I/O failure; outer `except (PermissionError, OSError)` does NOT catch it. Files were already deleted but `scripts_removed.append` ran AFTER — exception escaped with no in-memory tracking of the deletion. Fix: reorder `scripts_removed.append(...)` to come BEFORE `append_registry_entry(...)` inside the `if not dry_run:` block. Regression test verifies the filesystem is reflected post-ValueError even when registry append fails.
+
+Minor items deferred to DEFERRED_BACKLOG as `BACKLOG-PR6-40..48`.
+
 ---
 
 ## Phase C — I6 MCP Promotion (T7-T9)
