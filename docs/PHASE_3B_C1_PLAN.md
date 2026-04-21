@@ -680,23 +680,34 @@ git add src/screw_agents/adaptive/staging.py \
 git commit -m "feat(phase3b-c1): staging.py module with atomic file ops (T1 part 1)"
 ```
 
-Registry operations (`append_registry_entry`, `query_registry`, `fallback_walk`) are added in T3-T5. Sweep (`sweep_stale`) is added in T6. This first slice covers just the filesystem primitives.
+Registry operations (`append_registry_entry`, `query_registry`, `fallback_walk`) are added in T3-T5. Sweep (`sweep_stale`) is added in T6. This first slice covers the filesystem primitives **plus a defense-in-depth `script_name` regex validator** (`_SCRIPT_NAME_RE = r"^[a-z0-9][a-z0-9-]{2,62}$"`, byte-identical to the sibling regex in `engine.py`). Validation runs at the top of `write_staged_files`, `read_staged_files`, and `delete_staged_files` so that path-traversal primitives via `script_name` (e.g., `"../../etc/shadow"`) are rejected at the closest boundary, independent of whether the engine-layer caller validates (it will, per T3). Short-term regex duplication with `_sign_script_bytes` is absorbed by T2's shared-constant extraction — see T2's "Absorbed from T1 re-review" block below.
+
+**Post-review absorbed scope:** two T2-destined items were flagged during T1 re-review and are recorded under Task 2 (I-new-1 trailing-newline regex footgun + I-new-2 coverage gaps). They are within-plan deferrals; nothing escapes to `docs/DEFERRED_BACKLOG.md`.
 
 ---
 
-### Task 2: Extract `_sign_script_bytes` Shared Helper (Option D Refactor)
+### Task 2: Extract `_sign_script_bytes` Shared Helper (Option D Refactor) + Absorb I-new-1 / I-new-2
 
 **Files:**
-- Modify: `src/screw_agents/adaptive/signing.py` (add `_sign_script_bytes`)
-- Modify: `src/screw_agents/engine.py` (refactor `sign_adaptive_script` to delegate)
-- Modify: `tests/test_adaptive_signing.py` (+5 tests)
+- Modify: `src/screw_agents/adaptive/signing.py` (add `_sign_script_bytes`; also absorb the shared `SCRIPT_NAME_RE` constant + `validate_script_name()` helper per "Absorbed from T1 re-review" below — or create a new `src/screw_agents/adaptive/_script_name.py` if a dedicated module is cleaner; implementer's choice)
+- Modify: `src/screw_agents/adaptive/staging.py` (replace local `_SCRIPT_NAME_RE` + `_validate_script_name` with import from the shared location)
+- Modify: `src/screw_agents/engine.py` (refactor `sign_adaptive_script` to delegate; route its internal name validation through the shared constant)
+- Modify: `tests/test_adaptive_signing.py` (+5 original shared-helper tests + ~5 regression tests for I-new-1 / I-new-2)
+- Modify: `tests/test_adaptive_staging.py` (update imports to the shared location; keep `\A…\Z` regression coverage here since `staging.py` still calls the validator)
 
-**Rationale:** Per Q4 / spec §3.7, both `sign_adaptive_script` (direct path) and the upcoming `promote_staged_script` (staged path) must produce byte-identical signed output for the same (source, meta). A shared internal helper is the single canonical-bytes source, eliminating drift risk.
+**Rationale:** Per Q4 / spec §3.7, both `sign_adaptive_script` (direct path) and the upcoming `promote_staged_script` (staged path) must produce byte-identical signed output for the same (source, meta). A shared internal helper is the single canonical-bytes source, eliminating drift risk. T2 also becomes the architectural fix site for the two regex items the T1 re-review surfaced — both the shared-helper extraction and the regex-constant extraction land in one coherent refactor.
 
 **Pre-audit checklist (per `feedback_deeper_pre_audit`):**
 - Map every place in engine.py's current `sign_adaptive_script` that touches canonical bytes, signature bytes, or file bytes. Confirm each translates 1:1 to a call into `_sign_script_bytes`.
 - Verify `build_signed_script_meta` and `compute_script_sha256` already live in signing.py (they do, from T18a). `_sign_script_bytes` COMPOSES them; does not duplicate them.
 - T22's test calls `engine.sign_adaptive_script(...)`. After refactor, T22 MUST pass unchanged. If T22 changes behavior, refactor is wrong.
+- **Regex anchors:** Switch from `^…$` to `\A…\Z` (or use `.fullmatch()` consistently) when consolidating. Python's `$` anchor matches before a terminal `\n`, which lets `"abc\n"` through — not a traversal primitive but a registry/log-formatting footgun. Both `staging.py` and `engine.py:51`'s current regex inherit this; the single consolidation must close it for both.
+- **Audit existing call sites** of the current `engine.py` name regex and `staging.py`'s local validator. All should route through the new shared constant after T2. No more duplication.
+
+**Absorbed from T1 re-review (2026-04-21):** Two items the quality reviewer flagged at T1 re-review are in-scope for T2 because T2 is the architectural fix site (shared-constant extraction):
+
+- **I-new-1 (trailing-newline regex footgun):** `r"^[a-z0-9][a-z0-9-]{2,62}$"` matches `"abc\n"` because Python's `$` anchor matches before a terminal newline. Not a traversal primitive (no slash) but corrupts JSONL registry lines in T3+ that embed `script_name`, poisons error-message formatting, and breaks log parsing. **Fix at shared-constant extraction time** — use `r"\A[a-z0-9][a-z0-9-]{2,62}\Z"` (or `.fullmatch()` consistently) in ONE place. Both `adaptive/staging.py` and the extraction destination must use the anchored form.
+- **I-new-2 (regex test coverage gaps):** Add dedicated regression tests for: `""` (empty), `"---"` (dash-only — should match per regex, but document it), `"a\x00b"` (null byte), 64-char over-limit, `"abc\n"` (trailing newline — becomes rejection after I-new-1), `"abc\r\n"` (CRLF), `"ab cd"` (space). Place tests in `tests/test_adaptive_signing.py` if the shared validator lives in `signing.py`; also retain a short import-check test in `tests/test_adaptive_staging.py` to ensure `staging.py` is using the shared constant (not the deleted local one).
 
 - [ ] **Step 1: Read current engine.sign_adaptive_script carefully**
 
@@ -880,18 +891,22 @@ Expected: All pass. Both test files exercise the same `engine.sign_adaptive_scri
 - [ ] **Step 7: Run full test suite**
 
 Run: `uv run pytest -q`
-Expected: 785 passed, 8 skipped (780 post-T1 + 5 new signing-helper tests).
+Expected: **~800 passed, 8 skipped** (790 post-T1 part 3 + 5 new signing-helper tests + ~5 regression tests for I-new-1 / I-new-2; final count depends on how many boundary cases the implementer adds per I-new-2). The baseline bumped from 780 to 790 because T1 absorbed 10 additional tests (part-2 quality-fix regressions + part-3 defense-in-depth coverage).
 
 - [ ] **Step 8: Commit**
 
 ```bash
 git add src/screw_agents/adaptive/signing.py \
+        src/screw_agents/adaptive/staging.py \
         src/screw_agents/engine.py \
-        tests/test_adaptive_signing.py
-git commit -m "refactor(phase3b-c1): extract _sign_script_bytes shared helper (T2, Option D)"
+        tests/test_adaptive_signing.py \
+        tests/test_adaptive_staging.py
+# If the implementer chose a dedicated module for the shared regex, also:
+#   git add src/screw_agents/adaptive/_script_name.py
+git commit -m "refactor(phase3b-c1): extract _sign_script_bytes + shared SCRIPT_NAME_RE (T2, Option D + I-new-1/2)"
 ```
 
-**Cross-plan sync:** no deviation from spec §3.7. If the refactor required changing `sign_adaptive_script`'s public signature (it should NOT), stop and update spec §3.7 + this task before continuing.
+**Cross-plan sync:** no deviation from spec §3.7 on the shared-helper refactor. The regex-extraction addition (I-new-1 / I-new-2) was deferred from T1 per `feedback_deferral_destination` (within-plan deferral, plan-sync committed before T2 dispatch). If the refactor requires changing `sign_adaptive_script`'s public signature (it should NOT), stop and update spec §3.7 + this task before continuing.
 
 ---
 
@@ -907,7 +922,7 @@ git commit -m "refactor(phase3b-c1): extract _sign_script_bytes shared helper (T
 
 **Pre-audit checklist:**
 - Confirm atomic registry append semantics: JSONL append via `open(..., "a")` + single `write()` call is POSIX-atomic for writes under PIPE_BUF (4096 bytes). Registry entries are <500 bytes. Safe for single-process MCP.
-- Name-regex `^[a-z0-9][a-z0-9-]{2,62}$` lives in `_sign_script_bytes`'s validation today. For staging, we MUST pre-validate the name before filesystem ops — reusing the same regex. Extract to a module-level constant in signing.py if not already.
+- Name-regex lives as a shared constant after T2 (`SCRIPT_NAME_RE`, anchored `\A…\Z`, extracted per T2's "Absorbed from T1 re-review" block). Both `adaptive/staging.py` (defense-in-depth, added in T1 part 3) and `_sign_script_bytes` call the shared validator. T3's `stage_adaptive_script` gets name validation for free by routing through both layers — do NOT duplicate the regex a third time. If T2 did NOT consolidate as planned, STOP and fix T2 first.
 - stage is idempotent on byte-identical re-stage (same sha256 → update timestamps, no error). Error on same script_name + different sha256.
 
 - [ ] **Step 1: Write failing tests — happy-path stage**
