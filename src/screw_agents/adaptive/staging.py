@@ -53,6 +53,8 @@ __all__ = [
     "query_registry_most_recent",
     "fallback_walk_for_script",
     "validate_pending_approval",
+    # Phase 3b T6: orphan sweep (absorbs T-STAGING-ORPHAN-GC).
+    "sweep_stale",
 ]
 
 
@@ -505,3 +507,220 @@ def _utc_now_iso() -> str:
     injected — keep the format stable across releases.
     """
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+# =====================================================================
+# Phase 3b T6 — orphan sweep (absorbs T-STAGING-ORPHAN-GC)
+# =====================================================================
+#
+# Cleans up ``.screw/staging/*/adaptive-scripts/*.py`` left behind by
+# workflows that never reached promote/reject. Also defensively collects
+# staging files whose most-recent registry event is already terminal
+# (promoted / promoted_via_fallback / promoted_confirm_stale / rejected /
+# swept) — those files shouldn't exist post-lifecycle.
+#
+# TAMPERED markers preserve the staging pair (evidence) for forensic
+# review UNTIL ``age_days >= max_age_days``; only then are they
+# eligible for sweep. See ``_classify_sweep_reason`` for the decision
+# tree and the design spec §3.4.
+
+
+# Terminal/completed events — staging files shouldn't still exist if the
+# lifecycle reached any of these. A staged→promoted path deletes staging
+# files (per T4's flow) or logs the failure (per T5's I-T5-2 wrap). Any
+# staged files left behind = orphan to sweep. All 3 promote variants
+# (T4 emits them depending on fallback / confirm-stale) + reject + swept.
+_TERMINAL_EVENTS: frozenset[str] = frozenset({
+    "promoted",
+    "promoted_via_fallback",
+    "promoted_confirm_stale",
+    "rejected",
+    "swept",
+})
+
+
+def _compute_age_days(entry: dict | None, py_path: Path) -> int:
+    """Return age in days based on registry ``staged_at`` (or file mtime fallback).
+
+    Registry ``staged_at`` is the canonical signal — preserves the
+    lifecycle anchor across filesystem-level touches (e.g. ``touch`` on
+    the .py file would otherwise reset mtime and defeat the sweep).
+    Fallback to mtime only when no registry entry is available or the
+    registry timestamp is malformed.
+    """
+    if entry and "staged_at" in entry:
+        try:
+            t = datetime.strptime(
+                entry["staged_at"], "%Y-%m-%dT%H:%M:%SZ"
+            ).replace(tzinfo=timezone.utc)
+            return (datetime.now(timezone.utc) - t).days
+        except ValueError:
+            pass
+    mtime = datetime.fromtimestamp(py_path.stat().st_mtime, tz=timezone.utc)
+    return (datetime.now(timezone.utc) - mtime).days
+
+
+def _classify_sweep_reason(
+    entry: dict | None, age_days: int, max_age_days: int
+) -> str | None:
+    """Decide whether this staging entry should be swept.
+
+    Returns reason string or None (keep).
+
+    Rules:
+      - ``tamper_detected`` as most-recent event → preserve regardless of
+        age (forensic evidence; sweep after ``max_age_days`` expiration
+        via the age-based branch, but the TAMPERED marker check in
+        ``sweep_stale`` gets the first vote).
+      - Any terminal-lifecycle event → ``completed_orphan`` (sweep
+        regardless of age — the files shouldn't be there post-lifecycle).
+      - Age >= ``max_age_days`` → ``stale_orphan``.
+      - Otherwise keep.
+    """
+    if entry and entry.get("event") == "tamper_detected":
+        # Do NOT report tamper_detected as sweepable here; the marker-file
+        # check in sweep_stale owns the preserve-vs-expire decision. Once
+        # the tamper evidence has aged past max_age_days, the caller's
+        # tampered_preserved reporting still lists it.
+        if age_days >= max_age_days:
+            return "stale_orphan"
+        return None
+    if entry and entry.get("event") in _TERMINAL_EVENTS:
+        return "completed_orphan"
+    if age_days >= max_age_days:
+        return "stale_orphan"
+    return None
+
+
+def sweep_stale(
+    *,
+    project_root: Path,
+    max_age_days: int,
+    dry_run: bool,
+) -> dict:
+    """Scan ``.screw/staging/*/`` and delete entries older than ``max_age_days``.
+
+    Rules:
+      - TAMPERED marker preserves staging files until ``age_days >=
+        max_age_days`` (they get swept with the rest on final
+        expiration; the preserved report still enumerates them for
+        operator review while they live).
+      - Most-recent registry event in the terminal-event set
+        (``promoted``, ``promoted_via_fallback``, ``promoted_confirm_stale``,
+        ``rejected``, ``swept``): the staging file shouldn't be there —
+        delete unconditionally (defensive GC of post-lifecycle orphans).
+      - Empty ``adaptive-scripts`` + session dirs are removed and
+        counted in ``sessions_removed``.
+
+    Returns a ``StaleStagingReport``-shaped dict. On ``dry_run=True``,
+    the report is populated but NO filesystem changes happen and NO
+    ``swept`` audit events are appended.
+
+    Spec §3.4.
+    """
+    staging_root = project_root / ".screw" / "staging"
+    scripts_removed: list[dict] = []
+    tampered_preserved: list[dict] = []
+    sessions_scanned = 0
+    sessions_removed = 0
+
+    if not staging_root.exists():
+        return {
+            "status": "swept",
+            "max_age_days": max_age_days,
+            "dry_run": dry_run,
+            "sessions_scanned": 0,
+            "sessions_removed": 0,
+            "scripts_removed": [],
+            "tampered_preserved": [],
+        }
+
+    try:
+        for session_dir in staging_root.iterdir():
+            if not session_dir.is_dir():
+                continue
+            sessions_scanned += 1
+            adapt_dir = session_dir / "adaptive-scripts"
+            if not adapt_dir.exists():
+                continue
+
+            for py_path in list(adapt_dir.glob("*.py")):
+                script_name = py_path.stem
+                session_id = session_dir.name
+                entry = query_registry_most_recent(
+                    project_root,
+                    script_name=script_name,
+                    session_id=session_id,
+                )
+                tampered_marker = adapt_dir / f"{script_name}.TAMPERED"
+
+                age_days = _compute_age_days(entry, py_path)
+
+                # TAMPERED marker preserves evidence until max_age_days.
+                # Report to operator via tampered_preserved regardless of
+                # the registry-event's normal sweep classification. Once
+                # the evidence has aged past max_age_days, fall through
+                # to the normal sweep path (reason=stale_orphan).
+                if tampered_marker.exists() and age_days < max_age_days:
+                    tampered_preserved.append({
+                        "script_name": script_name,
+                        "session_id": session_id,
+                        "evidence_path": str(py_path),
+                        "age_days": age_days,
+                    })
+                    continue
+
+                reason = _classify_sweep_reason(entry, age_days, max_age_days)
+
+                if reason is None:
+                    continue  # keep
+
+                if not dry_run:
+                    py_path.unlink(missing_ok=True)
+                    (adapt_dir / f"{script_name}.meta.yaml").unlink(
+                        missing_ok=True
+                    )
+                    tampered_marker.unlink(missing_ok=True)
+                    sweep_entry = {
+                        "event": "swept",
+                        "script_name": script_name,
+                        "session_id": session_id,
+                        "sweep_reason": reason,
+                        "swept_at": _utc_now_iso(),
+                        "schema_version": 1,
+                    }
+                    append_registry_entry(project_root, sweep_entry)
+                scripts_removed.append({
+                    "script_name": script_name,
+                    "session_id": session_id,
+                    "reason": reason,
+                    "age_days": age_days,
+                })
+
+            # Remove empty adaptive-scripts + session dirs after the pass.
+            if (
+                not dry_run
+                and adapt_dir.exists()
+                and not any(adapt_dir.iterdir())
+            ):
+                try:
+                    adapt_dir.rmdir()
+                except OSError:
+                    pass
+                if session_dir.exists() and not any(session_dir.iterdir()):
+                    session_dir.rmdir()
+                    sessions_removed += 1
+    except (PermissionError, OSError) as exc:
+        raise ValueError(
+            f"sweep failed ({type(exc).__name__}: {exc})"
+        ) from exc
+
+    return {
+        "status": "swept",
+        "max_age_days": max_age_days,
+        "dry_run": dry_run,
+        "sessions_scanned": sessions_scanned,
+        "sessions_removed": sessions_removed,
+        "scripts_removed": scripts_removed,
+        "tampered_preserved": tampered_preserved,
+    }

@@ -1997,3 +1997,248 @@ def test_reject_staged_script_delete_failure_returns_error(
     assert response["status"] == "error"
     assert response["error"] == "delete_failed"
     assert "simulated" in response["message"]
+
+
+# =====================================================================
+# Phase 3b T6 — sweep_stale_staging (orphan GC, absorbs T-STAGING-ORPHAN-GC)
+# =====================================================================
+
+
+def test_sweep_removes_stale_orphans(tmp_path: Path) -> None:
+    """Fixture: 2 sessions, one 5d old, one 20d old. Threshold 14d → old one swept."""
+    from datetime import datetime, timedelta, timezone
+
+    from screw_agents.adaptive.staging import resolve_registry_path, resolve_staging_dir
+    from screw_agents.engine import ScanEngine
+
+    project = tmp_path / "project"
+    project.mkdir()
+    engine = ScanEngine.from_defaults()
+
+    # Stage two scripts in two sessions.
+    engine.stage_adaptive_script(
+        project_root=project, script_name="new-001", source="pass\n",
+        meta={"name": "new-001", "created": "2026-04-20T10:00:00Z",
+              "created_by": "t@e.co", "domain": "injection-input-handling",
+              "description": "d", "target_patterns": ["x"]},
+        session_id="sess-new", target_gap=None,
+    )
+    engine.stage_adaptive_script(
+        project_root=project, script_name="old-001", source="pass\n",
+        meta={"name": "old-001", "created": "2026-04-20T10:00:00Z",
+              "created_by": "t@e.co", "domain": "injection-input-handling",
+              "description": "d", "target_patterns": ["x"]},
+        session_id="sess-old", target_gap=None,
+    )
+
+    # Manually rewrite registry staged_at for sess-old to 20 days ago.
+    registry = resolve_registry_path(project)
+    old_time = (datetime.now(timezone.utc) - timedelta(days=20)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    new_time = (datetime.now(timezone.utc) - timedelta(days=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    lines = registry.read_text().splitlines()
+    rewritten = []
+    for line in lines:
+        entry = json.loads(line)
+        if entry.get("script_name") == "old-001":
+            entry["staged_at"] = old_time
+        elif entry.get("script_name") == "new-001":
+            entry["staged_at"] = new_time
+        rewritten.append(json.dumps(entry, separators=(",", ":"), sort_keys=True))
+    registry.write_text("\n".join(rewritten) + "\n")
+
+    response = engine.sweep_stale_staging(project_root=project, max_age_days=14)
+
+    assert response["status"] == "swept"
+    assert response["sessions_removed"] >= 1
+    removed_names = [r["script_name"] for r in response["scripts_removed"]]
+    assert "old-001" in removed_names
+    assert "new-001" not in removed_names
+
+    # Filesystem state matches.
+    assert not (resolve_staging_dir(project, "sess-old") / "old-001.py").exists()
+    assert (resolve_staging_dir(project, "sess-new") / "new-001.py").exists()
+
+
+def test_sweep_preserves_tampered_files(tmp_path: Path) -> None:
+    """TAMPERED marker preserves files for full max_age_days regardless
+    of the normal age-based sweep. The tampered_preserved report field
+    enumerates preserved entries for operator review."""
+    from datetime import datetime, timedelta, timezone
+
+    from screw_agents.adaptive.staging import resolve_registry_path, resolve_staging_dir
+    from screw_agents.engine import ScanEngine
+
+    project = tmp_path / "project"
+    project.mkdir()
+    engine = ScanEngine.from_defaults()
+
+    # Stage a script, then plant a TAMPERED marker next to it.
+    engine.stage_adaptive_script(
+        project_root=project, script_name="tampered-001", source="pass\n",
+        meta={"name": "tampered-001", "created": "2026-04-20T10:00:00Z",
+              "created_by": "t@e.co", "domain": "injection-input-handling",
+              "description": "d", "target_patterns": ["x"]},
+        session_id="sess-t", target_gap=None,
+    )
+    stage_dir = resolve_staging_dir(project, "sess-t")
+    (stage_dir / "tampered-001.TAMPERED").touch()
+
+    # Rewrite staged_at so file is 10d old; max_age_days=14 → not yet expired.
+    ten_days_ago = (datetime.now(timezone.utc) - timedelta(days=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    registry = resolve_registry_path(project)
+    import json as _json
+    lines = registry.read_text().splitlines()
+    rewritten = []
+    for line in lines:
+        entry = _json.loads(line)
+        if entry.get("script_name") == "tampered-001":
+            entry["staged_at"] = ten_days_ago
+        rewritten.append(_json.dumps(entry, separators=(",", ":"), sort_keys=True))
+    registry.write_text("\n".join(rewritten) + "\n")
+
+    response = engine.sweep_stale_staging(project_root=project, max_age_days=14)
+
+    # File preserved, reported in tampered_preserved.
+    assert response["status"] == "swept"
+    preserved_names = [t["script_name"] for t in response["tampered_preserved"]]
+    assert "tampered-001" in preserved_names
+    assert (stage_dir / "tampered-001.py").exists()
+    assert (stage_dir / "tampered-001.TAMPERED").exists()
+
+
+def test_sweep_dry_run_no_side_effects(tmp_path: Path) -> None:
+    """dry_run=True reports what WOULD be removed but touches no filesystem
+    and appends no swept audit events."""
+    from datetime import datetime, timedelta, timezone
+
+    from screw_agents.adaptive.staging import resolve_registry_path, resolve_staging_dir
+    from screw_agents.engine import ScanEngine
+
+    project = tmp_path / "project"
+    project.mkdir()
+    engine = ScanEngine.from_defaults()
+
+    # Stage an old script that would be swept in a real run.
+    engine.stage_adaptive_script(
+        project_root=project, script_name="dry-001", source="pass\n",
+        meta={"name": "dry-001", "created": "2026-04-20T10:00:00Z",
+              "created_by": "t@e.co", "domain": "injection-input-handling",
+              "description": "d", "target_patterns": ["x"]},
+        session_id="sess-dry", target_gap=None,
+    )
+    old = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    registry = resolve_registry_path(project)
+    import json as _json
+    lines = registry.read_text().splitlines()
+    rewritten = []
+    for line in lines:
+        entry = _json.loads(line)
+        if entry.get("script_name") == "dry-001":
+            entry["staged_at"] = old
+        rewritten.append(_json.dumps(entry, separators=(",", ":"), sort_keys=True))
+    registry.write_text("\n".join(rewritten) + "\n")
+
+    # Snapshot registry line count before dry-run.
+    lines_before = len(registry.read_text().splitlines())
+
+    response = engine.sweep_stale_staging(
+        project_root=project, max_age_days=14, dry_run=True,
+    )
+
+    assert response["status"] == "swept"
+    assert response["dry_run"] is True
+    # Report populated.
+    removed_names = [r["script_name"] for r in response["scripts_removed"]]
+    assert "dry-001" in removed_names
+    # Filesystem unchanged.
+    assert (resolve_staging_dir(project, "sess-dry") / "dry-001.py").exists()
+    # Registry unchanged — NO swept event appended.
+    lines_after = len(registry.read_text().splitlines())
+    assert lines_after == lines_before
+
+
+def test_sweep_removes_empty_session_dirs(tmp_path: Path) -> None:
+    """After removing the last script in a session's adaptive-scripts dir,
+    the empty session directory itself is also removed + counted in
+    sessions_removed."""
+    from datetime import datetime, timedelta, timezone
+
+    from screw_agents.adaptive.staging import resolve_registry_path
+    from screw_agents.engine import ScanEngine
+
+    project = tmp_path / "project"
+    project.mkdir()
+    engine = ScanEngine.from_defaults()
+
+    engine.stage_adaptive_script(
+        project_root=project, script_name="only-001", source="pass\n",
+        meta={"name": "only-001", "created": "2026-04-20T10:00:00Z",
+              "created_by": "t@e.co", "domain": "injection-input-handling",
+              "description": "d", "target_patterns": ["x"]},
+        session_id="sess-solo", target_gap=None,
+    )
+    old = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    registry = resolve_registry_path(project)
+    import json as _json
+    lines = registry.read_text().splitlines()
+    rewritten = [
+        _json.dumps({**_json.loads(line), "staged_at": old}
+                    if _json.loads(line).get("script_name") == "only-001"
+                    else _json.loads(line),
+                    separators=(",", ":"), sort_keys=True)
+        for line in lines
+    ]
+    registry.write_text("\n".join(rewritten) + "\n")
+
+    response = engine.sweep_stale_staging(project_root=project, max_age_days=14)
+
+    assert response["sessions_removed"] >= 1
+    # Session dir gone.
+    session_dir = project / ".screw" / "staging" / "sess-solo"
+    assert not session_dir.exists()
+
+
+def test_sweep_reads_config_yaml_threshold(tmp_path: Path) -> None:
+    """.screw/config.yaml staging_max_age_days overrides the default 14.
+    With threshold=7, a 10-day-old script is swept."""
+    from datetime import datetime, timedelta, timezone
+
+    from screw_agents.adaptive.staging import resolve_registry_path
+    from screw_agents.engine import ScanEngine
+
+    project = tmp_path / "project"
+    project.mkdir()
+    config_dir = project / ".screw"
+    config_dir.mkdir()
+    (config_dir / "config.yaml").write_text(
+        "version: 1\n"
+        "staging_max_age_days: 7\n",
+        encoding="utf-8",
+    )
+    engine = ScanEngine.from_defaults()
+
+    engine.stage_adaptive_script(
+        project_root=project, script_name="cfg-001", source="pass\n",
+        meta={"name": "cfg-001", "created": "2026-04-20T10:00:00Z",
+              "created_by": "t@e.co", "domain": "injection-input-handling",
+              "description": "d", "target_patterns": ["x"]},
+        session_id="sess-cfg", target_gap=None,
+    )
+    ten = (datetime.now(timezone.utc) - timedelta(days=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    registry = resolve_registry_path(project)
+    import json as _json
+    lines = registry.read_text().splitlines()
+    rewritten = []
+    for line in lines:
+        entry = _json.loads(line)
+        if entry.get("script_name") == "cfg-001":
+            entry["staged_at"] = ten
+        rewritten.append(_json.dumps(entry, separators=(",", ":"), sort_keys=True))
+    registry.write_text("\n".join(rewritten) + "\n")
+
+    # max_age_days=None → engine reads from config.yaml → 7.
+    response = engine.sweep_stale_staging(project_root=project)
+
+    assert response["max_age_days"] == 7
+    removed_names = [r["script_name"] for r in response["scripts_removed"]]
+    assert "cfg-001" in removed_names

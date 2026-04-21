@@ -68,6 +68,38 @@ def _read_stale_staging_hours(project_root: Path) -> int:
         return 24
 
 
+def _read_staging_max_age_days(project_root: Path) -> int:
+    """Return ``staging_max_age_days`` from ``.screw/config.yaml``.
+
+    Module-level helper symmetric with ``_read_stale_staging_hours``
+    above (T4 precedent). Used by ``sweep_stale_staging`` to decide the
+    orphan-age threshold when the caller passes ``max_age_days=None``.
+
+    Lightweight ad-hoc read (not through the ``ScrewConfig`` Pydantic
+    schema) because a fresh project may not have a config file yet; we
+    want a sane default (14d) rather than an error. The canonical
+    schema-level validator in ``ScrewConfig.staging_max_age_days``
+    (T4-part-2 I1) clamps to [1, 365] at config-load time; we still
+    clamp here as defense-in-depth against hand-edited YAML that
+    bypassed the Pydantic load path.
+
+    Returns:
+        Days threshold for staleness check. 14 by default; clamped to
+        [1, 365] (1 day to 1 year) on malformed values.
+    """
+    try:
+        import yaml as _yaml
+
+        config_path = project_root / ".screw" / "config.yaml"
+        if not config_path.exists():
+            return 14
+        with open(config_path, encoding="utf-8") as f:
+            cfg = _yaml.safe_load(f) or {}
+        return max(1, min(365, int(cfg.get("staging_max_age_days", 14))))
+    except (PermissionError, OSError, ValueError):
+        return 14
+
+
 class ScanEngine:
     """Orchestrates scan assembly across registry, resolver, and formatter."""
 
@@ -997,6 +1029,49 @@ class ScanEngine:
             "session_id": session_id,
             "reason": reason or "",
         }
+
+    def sweep_stale_staging(
+        self,
+        *,
+        project_root: Path,
+        max_age_days: int | None = None,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        """Clean up orphaned staging entries under ``.screw/staging/``.
+
+        User-invoked orphan GC. Absorbs ``T-STAGING-ORPHAN-GC`` from the
+        Phase 4+ backlog — covers both new C1 staging artifacts (T3-T5)
+        and legacy session-scoped finalize-never-called dirs.
+
+        Reads ``staging_max_age_days`` from ``.screw/config.yaml`` when
+        ``max_age_days`` is None (default 14, clamped [1, 365]).
+        ``dry_run=True`` reports what would be removed without touching
+        the filesystem or registry. See design spec §3.4.
+
+        Args:
+            project_root: Project root with ``.screw/`` directory.
+            max_age_days: Override the config threshold (days). None
+                falls back to ``_read_staging_max_age_days``.
+            dry_run: When True, populates the report but makes no
+                filesystem changes and appends no ``swept`` audit
+                events.
+
+        Returns:
+            ``StaleStagingReport`` dict: ``status``, ``max_age_days``,
+            ``dry_run``, ``sessions_scanned``, ``sessions_removed``,
+            ``scripts_removed``, ``tampered_preserved``.
+        """
+        from screw_agents.adaptive.staging import sweep_stale
+
+        if max_age_days is None:
+            max_age_days = _read_staging_max_age_days(project_root)
+        max_age_days = max(1, min(365, int(max_age_days)))
+
+        return sweep_stale(
+            project_root=project_root,
+            max_age_days=max_age_days,
+            dry_run=dry_run,
+        )
 
     def sign_adaptive_script(
         self,
@@ -2648,6 +2723,55 @@ class ScanEngine:
                     "project_root",
                     "script_name",
                     "session_id",
+                ],
+            },
+        })
+
+        # Phase 3b T6: sweep_stale_staging — orphan GC for .screw/staging/.
+        # Absorbs T-STAGING-ORPHAN-GC from the Phase 4+ backlog; covers both
+        # new C1 staging artifacts (T3-T5) and legacy session-scoped
+        # finalize-never-called dirs. See design spec §3.4.
+        tools.append({
+            "name": "sweep_stale_staging",
+            "description": (
+                "Clean up orphaned staging entries — session directories under "
+                "`.screw/staging/` that are stale (older than max_age_days) or "
+                "whose most-recent registry event is a terminal state "
+                "(promoted / rejected / swept) but whose files were left behind. "
+                "Absorbs the deferred T-STAGING-ORPHAN-GC backlog item: covers "
+                "both the new C1 staging artifacts and legacy session-scoped "
+                "finalize-never-called staging dirs. When dry_run=true, reports "
+                "what would be removed without deleting anything. See design "
+                "spec §3.4."
+            ),
+            "input_schema": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "project_root": {
+                        "type": "string",
+                        "description": "Absolute path to the project root.",
+                    },
+                    "max_age_days": {
+                        "type": ["integer", "null"],
+                        "description": (
+                            "Maximum age (in days) before a staging entry is "
+                            "considered stale. Null means read from config "
+                            "(`staging_max_age_days`, default 14). Clamped to "
+                            "[1, 365]."
+                        ),
+                    },
+                    "dry_run": {
+                        "type": "boolean",
+                        "description": (
+                            "When true, returns the list of entries that would "
+                            "be removed without actually deleting files. Useful "
+                            "for preview / CI assertions."
+                        ),
+                    },
+                },
+                "required": [
+                    "project_root",
                 ],
             },
         })

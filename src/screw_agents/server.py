@@ -183,6 +183,15 @@ def _dispatch_tool(
             reason=args.get("reason"),
         )
 
+    # --- Phase 3b T6: sweep_stale_staging (orphan GC — absorbs T-STAGING-ORPHAN-GC) ---
+
+    if name == "sweep_stale_staging":
+        return engine.sweep_stale_staging(
+            project_root=Path(args["project_root"]),
+            max_age_days=args.get("max_age_days"),
+            dry_run=args.get("dry_run", False),
+        )
+
     # --- Phase 3b T18a: lint_adaptive_script (pre-approval review) ---
 
     if name == "lint_adaptive_script":
