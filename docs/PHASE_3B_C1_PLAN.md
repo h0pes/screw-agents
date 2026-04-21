@@ -1984,11 +1984,10 @@ def promote_staged_script(
     """
     import yaml
     from datetime import datetime, timedelta, timezone
-    from screw_agents.adaptive.signing import _sign_script_bytes
+    from screw_agents.adaptive.signing import _sign_script_bytes, compute_script_sha256
     from screw_agents.adaptive.staging import (
         _utc_now_iso,
         append_registry_entry,
-        compute_script_sha256_str,
         delete_staged_files,
         fallback_walk_for_script,
         query_registry_most_recent,
@@ -2022,7 +2021,7 @@ def promote_staged_script(
             "error": "staging_not_found",
             "message": f"Staged files vanished between check and read for {script_name!r}",
         }
-    actual_sha256 = compute_script_sha256_str(source)
+    actual_sha256 = compute_script_sha256(source)
 
     # Step 4: registry lookup.
     registry_entry = query_registry_most_recent(
@@ -2209,33 +2208,97 @@ def _read_stale_staging_hours(project_root: Path) -> int:
         return 24
 ```
 
-- [ ] **Step 5: Register MCP tool in `server.py`**
+- [ ] **Step 5: Register MCP tool in `server.py` AND add schema to `engine.list_tool_definitions`**
+
+**5a. Dispatch branch in `src/screw_agents/server.py`** (add after the T3 `stage_adaptive_script` branch, following the same `_dispatch_tool` `if name == "...":` pattern used by `sign_adaptive_script` at `server.py:144-151`):
 
 ```python
-@mcp.tool()
-async def promote_staged_script(
-    project_root: str,
-    script_name: str,
-    session_id: str,
-    confirm_sha_prefix: str | None = None,
-    confirm_stale: bool = False,
-) -> dict:
-    """Sign + promote a staged script. THE C1 FIX.
+# --- Phase 3b T4: promote_staged_script (C1 fix — approve path) ---
 
-    Takes NO source/meta parameter — reads from staging directory on disk
-    by construction. Promoted artifacts land in .screw/custom-scripts/.
-    See design spec §3.2.
-    """
-    return _engine.promote_staged_script(
-        project_root=Path(project_root),
-        script_name=script_name,
-        session_id=session_id,
-        confirm_sha_prefix=confirm_sha_prefix,
-        confirm_stale=confirm_stale,
+if name == "promote_staged_script":
+    return engine.promote_staged_script(
+        project_root=Path(args["project_root"]),
+        script_name=args["script_name"],
+        session_id=args["session_id"],
+        confirm_sha_prefix=args.get("confirm_sha_prefix"),
+        confirm_stale=args.get("confirm_stale", False),
     )
 ```
 
-Apply `additionalProperties: false` to the tool schema.
+Required args (`project_root`, `script_name`, `session_id`) use `args["..."]`. Optional args (`confirm_sha_prefix`, `confirm_stale`) use `args.get(...)` with the same defaults as the engine method — avoids KeyError on absence. **There is no `source` or `meta` arg — the C1 architectural closure.**
+
+**5b. Tool schema in `src/screw_agents/engine.list_tool_definitions`** — append a new `tools.append({...})` block:
+
+```python
+tools.append({
+    "name": "promote_staged_script",
+    "description": (
+        "Sign and promote a staged adaptive script — THE C1 FIX. Reads "
+        "source and meta from the session-scoped staging directory on "
+        "disk (no source/meta parameter, by construction), verifies the "
+        "staging bytes match the registry-recorded sha256 (tamper-detect), "
+        "then delegates to the shared _sign_script_bytes helper and "
+        "appends a promoted/promoted_via_fallback/promoted_confirm_stale "
+        "audit event. Promoted artifacts land in `.screw/custom-scripts/`. "
+        "Returns status=\"error\" with error=\"tamper_detected\" on sha "
+        "mismatch (preserves bytes for forensics), error=\"stale_staging\" "
+        "when staged_at age exceeds the configured threshold unless "
+        "confirm_stale=true, and error=\"fallback_required\" when the "
+        "registry entry is missing (caller re-invokes with "
+        "confirm_sha_prefix). See design spec §3.2."
+    ),
+    "input_schema": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "project_root": {
+                "type": "string",
+                "description": "Absolute path to the project root.",
+            },
+            "script_name": {
+                "type": "string",
+                "description": (
+                    "Filesystem-safe name (regex "
+                    "`^[a-z0-9][a-z0-9-]{2,62}$`) of the staged script "
+                    "to promote."
+                ),
+            },
+            "session_id": {
+                "type": "string",
+                "description": (
+                    "Scan session id the script was staged under "
+                    "(allowlist `^[A-Za-z0-9_-]{1,64}$`)."
+                ),
+            },
+            "confirm_sha_prefix": {
+                "type": ["string", "null"],
+                "description": (
+                    "Short sha256 prefix (first 8 hex chars) re-supplied "
+                    "by the caller when the registry lookup failed and "
+                    "a filesystem fallback walk is used (Q3 fallback "
+                    "path). Null for the normal registry-hit path."
+                ),
+            },
+            "confirm_stale": {
+                "type": "boolean",
+                "description": (
+                    "When true, allows promotion even if the staging "
+                    "entry is older than `stale_staging_hours` (default "
+                    "24). Caller must re-type an explicit "
+                    "`approve {name} confirm-stale` phrase."
+                ),
+            },
+        },
+        "required": [
+            "project_root",
+            "script_name",
+            "session_id",
+        ],
+    },
+})
+```
+
+**`additionalProperties: false`** is set directly per T10-M1 partial — do NOT omit. The schema gate is trust-path defense in depth (stops schema-extension smuggling that would re-introduce a `source` parameter).
 
 - [ ] **Step 6: Run tests — verify they pass**
 
@@ -2433,26 +2496,76 @@ def reject_staged_script(
     }
 ```
 
-- [ ] **Step 4: Register MCP tool in `server.py`**
+- [ ] **Step 4: Register MCP tool in `server.py` AND add schema to `engine.list_tool_definitions`**
+
+**4a. Dispatch branch in `src/screw_agents/server.py`** (add after the T4 `promote_staged_script` branch, following the `_dispatch_tool` pattern):
 
 ```python
-@mcp.tool()
-async def reject_staged_script(
-    project_root: str,
-    script_name: str,
-    session_id: str,
-    reason: str | None = None,
-) -> dict:
-    """Delete staging files for a rejected script + record audit event. See §3.3."""
-    return _engine.reject_staged_script(
-        project_root=Path(project_root),
-        script_name=script_name,
-        session_id=session_id,
-        reason=reason,
+# --- Phase 3b T5: reject_staged_script (decline path) ---
+
+if name == "reject_staged_script":
+    return engine.reject_staged_script(
+        project_root=Path(args["project_root"]),
+        script_name=args["script_name"],
+        session_id=args["session_id"],
+        reason=args.get("reason"),
     )
 ```
 
-`additionalProperties: false` on schema.
+`reason` is optional via `args.get("reason")` — None when the caller supplies no rationale.
+
+**4b. Tool schema in `src/screw_agents/engine.list_tool_definitions`** — append a new `tools.append({...})` block:
+
+```python
+tools.append({
+    "name": "reject_staged_script",
+    "description": (
+        "Delete the staging files for a rejected adaptive script and "
+        "record a `rejected` audit event in the pending-approvals "
+        "registry. Idempotent: a second reject on already-deleted "
+        "staging returns status=\"already_rejected\" (success). Also "
+        "updates `.screw/local/adaptive_prompts.json` — the existing "
+        "T18b decline-tracking artifact — to add the target to the "
+        "`declined` list so it is not re-proposed. See design spec §3.3."
+    ),
+    "input_schema": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "project_root": {
+                "type": "string",
+                "description": "Absolute path to the project root.",
+            },
+            "script_name": {
+                "type": "string",
+                "description": (
+                    "Filesystem-safe name of the staged script to reject."
+                ),
+            },
+            "session_id": {
+                "type": "string",
+                "description": (
+                    "Scan session id the script was staged under."
+                ),
+            },
+            "reason": {
+                "type": ["string", "null"],
+                "description": (
+                    "Optional short rationale recorded in the audit "
+                    "event (why the reviewer declined this script)."
+                ),
+            },
+        },
+        "required": [
+            "project_root",
+            "script_name",
+            "session_id",
+        ],
+    },
+})
+```
+
+`additionalProperties: false` is set directly per T10-M1 partial.
 
 - [ ] **Step 5: Run tests + full suite**
 
@@ -2748,24 +2861,73 @@ def _read_staging_max_age_days(self, project_root: Path) -> int:
         return 14
 ```
 
-- [ ] **Step 5: Register MCP tool**
+- [ ] **Step 5: Register MCP tool in `server.py` AND add schema to `engine.list_tool_definitions`**
+
+**5a. Dispatch branch in `src/screw_agents/server.py`** (add after the T5 `reject_staged_script` branch, following the `_dispatch_tool` pattern):
 
 ```python
-@mcp.tool()
-async def sweep_stale_staging(
-    project_root: str,
-    max_age_days: int | None = None,
-    dry_run: bool = False,
-) -> dict:
-    """Clean up orphaned staging entries. Absorbs T-STAGING-ORPHAN-GC. §3.4."""
-    return _engine.sweep_stale_staging(
-        project_root=Path(project_root),
-        max_age_days=max_age_days,
-        dry_run=dry_run,
+# --- Phase 3b T6: sweep_stale_staging (orphan GC — absorbs T-STAGING-ORPHAN-GC) ---
+
+if name == "sweep_stale_staging":
+    return engine.sweep_stale_staging(
+        project_root=Path(args["project_root"]),
+        max_age_days=args.get("max_age_days"),
+        dry_run=args.get("dry_run", False),
     )
 ```
 
-`additionalProperties: false` on schema.
+Both `max_age_days` and `dry_run` are optional via `args.get(...)`. `max_age_days=None` makes the engine fall back to `staging_max_age_days` from config (default 14, clamped 1-365).
+
+**5b. Tool schema in `src/screw_agents/engine.list_tool_definitions`** — append a new `tools.append({...})` block:
+
+```python
+tools.append({
+    "name": "sweep_stale_staging",
+    "description": (
+        "Clean up orphaned staging entries — session directories under "
+        "`.screw/staging/` that are stale (older than max_age_days) or "
+        "whose most-recent registry event is a terminal state "
+        "(promoted / rejected / swept) but whose files were left behind. "
+        "Absorbs the deferred T-STAGING-ORPHAN-GC backlog item: covers "
+        "both the new C1 staging artifacts and legacy session-scoped "
+        "finalize-never-called staging dirs. When dry_run=true, reports "
+        "what would be removed without deleting anything. See design "
+        "spec §3.4."
+    ),
+    "input_schema": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "project_root": {
+                "type": "string",
+                "description": "Absolute path to the project root.",
+            },
+            "max_age_days": {
+                "type": ["integer", "null"],
+                "description": (
+                    "Maximum age (in days) before a staging entry is "
+                    "considered stale. Null means read from config "
+                    "(`staging_max_age_days`, default 14). Clamped to "
+                    "[1, 365]."
+                ),
+            },
+            "dry_run": {
+                "type": "boolean",
+                "description": (
+                    "When true, returns the list of entries that would "
+                    "be removed without actually deleting files. Useful "
+                    "for preview / CI assertions."
+                ),
+            },
+        },
+        "required": [
+            "project_root",
+        ],
+    },
+})
+```
+
+`additionalProperties: false` is set directly per T10-M1 partial.
 
 - [ ] **Step 6: Run tests + full suite**
 
@@ -2872,16 +3034,50 @@ def _inspect_adaptive_script(self, project_root, py_path, meta_path) -> dict:
     # ... verbatim lift of the per-script logic from cli/adaptive_cleanup.py ...
 ```
 
-- [ ] **Step 5: Register MCP tool**
+- [ ] **Step 5: Register MCP tool in `server.py` AND add schema to `engine.list_tool_definitions`**
+
+**5a. Dispatch branch in `src/screw_agents/server.py`** (add in the adaptive-handlers block, following the `_dispatch_tool` pattern):
 
 ```python
-@mcp.tool()
-async def list_adaptive_scripts(project_root: str) -> dict:
-    """List adaptive scripts with validation + staleness. See spec §3.5."""
-    return _engine.list_adaptive_scripts(project_root=Path(project_root))
+# --- Phase 3b T7: list_adaptive_scripts (I6 MCP promotion) ---
+
+if name == "list_adaptive_scripts":
+    return engine.list_adaptive_scripts(
+        project_root=Path(args["project_root"]),
+    )
 ```
 
-`additionalProperties: false` on schema.
+**5b. Tool schema in `src/screw_agents/engine.list_tool_definitions`** — append a new `tools.append({...})` block:
+
+```python
+tools.append({
+    "name": "list_adaptive_scripts",
+    "description": (
+        "List all adaptive scripts present at `.screw/custom-scripts/` "
+        "with their validation status and per-script staleness "
+        "information. Promoted from `cli/adaptive_cleanup.py` in PR #6 "
+        "per I6 — slash-command invocation was breaking on `cwd` "
+        "mismatch. Returns `{\"status\": \"ok\", \"scripts\": [{name, "
+        "validated, signed_by, stale, stale_reason, ...}]}`. Behavior "
+        "unchanged from T21. See design spec §3.5."
+    ),
+    "input_schema": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "project_root": {
+                "type": "string",
+                "description": "Absolute path to the project root.",
+            },
+        },
+        "required": [
+            "project_root",
+        ],
+    },
+})
+```
+
+`additionalProperties: false` is set directly per T10-M1 partial.
 
 - [ ] **Step 6: Run tests — verify pass**
 
@@ -2961,22 +3157,72 @@ def remove_adaptive_script(
     return {"status": "removed", "script_name": script_name}
 ```
 
-- [ ] **Step 2: Register MCP tool**
+- [ ] **Step 2: Register MCP tool in `server.py` AND add schema to `engine.list_tool_definitions`**
+
+**2a. Dispatch branch in `src/screw_agents/server.py`** (add after the T7 `list_adaptive_scripts` branch, following the `_dispatch_tool` pattern):
 
 ```python
-@mcp.tool()
-async def remove_adaptive_script(
-    project_root: str,
-    script_name: str,
-    confirmed: bool = False,
-) -> dict:
-    """Delete an adaptive script pair with confirmation gate. See §3.6."""
-    return _engine.remove_adaptive_script(
-        project_root=Path(project_root),
-        script_name=script_name,
-        confirmed=confirmed,
+# --- Phase 3b T8: remove_adaptive_script (I6 MCP promotion — confirmation-gated) ---
+
+if name == "remove_adaptive_script":
+    return engine.remove_adaptive_script(
+        project_root=Path(args["project_root"]),
+        script_name=args["script_name"],
+        confirmed=args.get("confirmed", False),
     )
 ```
+
+`confirmed` defaults to False via `args.get(...)`; the engine method returns `status="error"` / `error="confirmation_required"` when False. The caller (slash command) is expected to prompt the user for "yes" before passing `confirmed=True`.
+
+**2b. Tool schema in `src/screw_agents/engine.list_tool_definitions`** — append a new `tools.append({...})` block:
+
+```python
+tools.append({
+    "name": "remove_adaptive_script",
+    "description": (
+        "Delete an adaptive script pair (`{name}.py` + `{name}.meta.yaml`) "
+        "from `.screw/custom-scripts/`, gated by an explicit "
+        "`confirmed=true` flag (T21 confirmation-gate semantics "
+        "preserved). Returns status=\"error\" / "
+        "error=\"confirmation_required\" when confirmed is False or "
+        "omitted, status=\"error\" / error=\"not_found\" when the "
+        "script is missing, otherwise status=\"removed\". Promoted from "
+        "`cli/adaptive_cleanup.py` in PR #6 per I6. See design spec §3.6."
+    ),
+    "input_schema": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "project_root": {
+                "type": "string",
+                "description": "Absolute path to the project root.",
+            },
+            "script_name": {
+                "type": "string",
+                "description": (
+                    "Filesystem-safe name of the adaptive script to "
+                    "remove (without `.py` / `.meta.yaml` suffix)."
+                ),
+            },
+            "confirmed": {
+                "type": "boolean",
+                "description": (
+                    "Must be true to actually delete. False (or absent) "
+                    "returns error=\"confirmation_required\" — the "
+                    "caller is expected to prompt the user for \"yes\" "
+                    "before retrying with confirmed=true."
+                ),
+            },
+        },
+        "required": [
+            "project_root",
+            "script_name",
+        ],
+    },
+})
+```
+
+`additionalProperties: false` is set directly per T10-M1 partial.
 
 - [ ] **Step 3: Run tests + full suite**
 
@@ -4576,20 +4822,22 @@ git commit -m "test(phase3b-c1): E2E integration test for staged workflow — C1
 ### Task 22: Apply `additionalProperties: false` Uniformly to 6 New MCP Tool Schemas (T10-M1 Partial)
 
 **Files:**
-- Modify: `src/screw_agents/server.py` (verify all 6 new tool schemas have the flag)
+- Modify: `src/screw_agents/engine.py` (verify all 6 new tool schemas in `list_tool_definitions` have the flag)
 - Potentially: `tests/test_mcp_tool_schemas.py` or similar (if a schema-consistency test exists; add one if not)
 
 **Rationale:** T10-M1 partial. Applied as tools are registered, but this task audits + adds a regression lock test.
 
-- [ ] **Step 1: Find the MCP tool schema generation / decoration point**
+**Pre-audit note (2026-04-21):** Tool schemas are hand-written as `tools.append({...})` blocks inside `engine.list_tool_definitions()` (starts at `engine.py:1211`). The server layer (`src/screw_agents/server.py`) uses a `_dispatch_tool` function with `if name == "tool_name":` branches — there are NO FastMCP `@mcp.tool()` decorators in this codebase. Any task guidance referencing decorators is stale; use the `list_tool_definitions` schema pattern instead.
 
-Run: `grep -n "@mcp.tool" src/screw_agents/server.py`
+- [ ] **Step 1: Locate the 6 new tool schemas in `engine.list_tool_definitions`**
 
-If the MCP framework auto-generates JSON schemas from type hints, determine how to set `additionalProperties: false`. If it's decoration-based (e.g., FastMCP), set in decorator kwargs. If schemas are hand-written, locate and update.
+Run: `grep -n 'tools.append({' src/screw_agents/engine.py | head -20`
+
+This lists every hand-written tool schema block. For each of the 6 new-in-PR#6 tools (`stage_adaptive_script`, `promote_staged_script`, `reject_staged_script`, `sweep_stale_staging`, `list_adaptive_scripts`, `remove_adaptive_script`), confirm the schema block is present. Cross-check the corresponding `_dispatch_tool` branches in `server.py` (roughly `server.py:71-200`) — each dispatcher branch must have exactly one matching schema, and vice versa.
 
 - [ ] **Step 2: Verify all 6 new tools have the flag**
 
-For each of: `stage_adaptive_script`, `promote_staged_script`, `reject_staged_script`, `sweep_stale_staging`, `list_adaptive_scripts`, `remove_adaptive_script` — inspect the emitted schema.
+For each of: `stage_adaptive_script`, `promote_staged_script`, `reject_staged_script`, `sweep_stale_staging`, `list_adaptive_scripts`, `remove_adaptive_script` — inspect the emitted schema (`input_schema.additionalProperties` should be `False`).
 
 - [ ] **Step 3: Add a regression-lock test**
 
