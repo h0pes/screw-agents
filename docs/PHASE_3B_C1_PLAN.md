@@ -966,7 +966,7 @@ git commit -m "refactor(phase3b-c1): extract _sign_script_bytes + shared SCRIPT_
 ### Task 3: `stage_adaptive_script` MCP Tool
 
 **Files:**
-- Modify: `src/screw_agents/adaptive/staging.py` (add `append_registry_entry`, `query_registry`, `compute_script_sha256_str`)
+- Modify: `src/screw_agents/adaptive/staging.py` (add `append_registry_entry`, `query_registry_most_recent`, `fallback_walk_for_script`, `validate_pending_approval`, `_REQUIRED_FIELDS_BY_EVENT`, `_utc_now_iso`; import `compute_script_sha256` from `signing.py` — do NOT duplicate it)
 - Modify: `src/screw_agents/engine.py` (add `stage_adaptive_script` method)
 - Modify: `src/screw_agents/server.py` (register MCP tool)
 - Modify: `tests/test_adaptive_staging.py` (+6 tests for stage flow)
@@ -1143,6 +1143,52 @@ def test_stage_adaptive_script_rejects_empty_session_id(tmp_path: Path) -> None:
     assert response["error"] == "invalid_session_id"
 
 
+@pytest.mark.parametrize(
+    "bad_session_id",
+    [
+        "foo\nbar",        # newline — I-opus-1 JSONL injection
+        "foo:bar",         # colon — NTFS ADS primitive
+        ".hidden",         # leading dot — hidden-dir bypass
+        "foo\xff",         # high-bit byte — homoglyph primitive
+        "foo bar",         # space
+        "foo\tbar",        # tab
+        "a" * 65,          # over-length
+        "../etc/passwd",   # path traversal
+        "foo/bar",         # slash
+        "foo\\bar",        # backslash
+        ".",               # bare dot
+        "..",              # bare dots
+    ],
+)
+def test_stage_adaptive_script_rejects_threat_session_ids(
+    tmp_path: Path, bad_session_id: str
+) -> None:
+    """P2 regression: the engine-layer error-dict conversion fires for
+    all session_id threat vectors closed by the T1-part-4 allowlist
+    (I-opus-1 + I-opus-2). Validates the ValueError → error-dict path
+    in `stage_adaptive_script` rather than just `resolve_staging_dir`.
+    """
+    from screw_agents.engine import ScanEngine
+
+    project = tmp_path / "project"
+    project.mkdir()
+    engine = ScanEngine.from_defaults()
+
+    response = engine.stage_adaptive_script(
+        project_root=project,
+        script_name="test-001",
+        source="pass\n",
+        meta={"name": "test-001", "created": "2026-04-20T10:00:00Z",
+              "created_by": "t@e.co", "domain": "injection-input-handling",
+              "description": "d", "target_patterns": ["x"]},
+        session_id=bad_session_id,
+        target_gap=None,
+    )
+
+    assert response["status"] == "error"
+    assert response["error"] == "invalid_session_id"
+
+
 def test_stage_adaptive_script_idempotent_on_same_content(tmp_path: Path) -> None:
     from screw_agents.engine import ScanEngine
     from screw_agents.adaptive.staging import resolve_registry_path
@@ -1166,12 +1212,22 @@ def test_stage_adaptive_script_idempotent_on_same_content(tmp_path: Path) -> Non
 
     assert r1["status"] == "staged"
     assert r2["status"] == "staged"
-    assert r1["script_sha256"] == r2["script_sha256"]
+    # P4: `sha256(same source) == sha256(same source)` is tautological;
+    # assert FILESYSTEM + REGISTRY state to prove idempotency actually
+    # worked end-to-end:
+    from screw_agents.adaptive.staging import resolve_staging_dir
+    stage_dir = resolve_staging_dir(project, "sess-abc")
+    assert (stage_dir / "test-idem-001.py").read_text(encoding="utf-8") == "pass\n"
+    assert (stage_dir / "test-idem-001.meta.yaml").exists()
+
     # Registry gets TWO entries even on idempotent re-stage (each event is recorded).
     # The LOOKUP path uses "most-recent" semantics so this is fine.
     entries = [json.loads(line) for line in resolve_registry_path(project).read_text().splitlines() if line.strip()]
     assert len(entries) == 2
     assert all(e["event"] == "staged" for e in entries)
+    assert all(e["script_sha256"] == r1["script_sha256"] for e in entries)
+    # Second entry's staged_at >= first entry's staged_at (monotonic).
+    assert entries[1]["staged_at"] >= entries[0]["staged_at"]
 
 
 def test_stage_adaptive_script_collision_on_same_name_different_content(tmp_path: Path) -> None:
@@ -1245,13 +1301,19 @@ Expected: 6 FAILs with `AttributeError: 'ScanEngine' object has no attribute 'st
 Append to `src/screw_agents/adaptive/staging.py`:
 
 ```python
-import hashlib
+import json
 from datetime import datetime, timezone
 
 
-def compute_script_sha256_str(source: str) -> str:
-    """Return full 64-char hex sha256 of source UTF-8 bytes."""
-    return hashlib.sha256(source.encode("utf-8")).hexdigest()
+# NOTE: do NOT define a new `compute_script_sha256_str` here. T2 already
+# exports `compute_script_sha256` from `screw_agents.adaptive.signing`
+# (same encoding, same algorithm, same hex output). Re-use it. Add to
+# staging.py's imports block at the top of the module:
+#
+#     from screw_agents.adaptive.signing import compute_script_sha256
+#
+# A duplicate helper would re-introduce exactly the drift risk T2 worked
+# to eliminate when it consolidated SCRIPT_NAME_RE.
 
 
 def append_registry_entry(project_root: Path, entry: dict) -> None:
@@ -1261,7 +1323,21 @@ def append_registry_entry(project_root: Path, entry: dict) -> None:
     on Linux. Entries are <500 bytes; safe for single-process MCP.
     Creates parent dirs if needed. Raises ValueError on filesystem
     errors per T13-C1 discipline.
+
+    Call `validate_pending_approval(entry)` BEFORE this function in the
+    engine layer (or invoke it here as the first line) to ensure the
+    entry meets the per-event-type required-field contract. See
+    "Absorbed from T1 Opus re-review" above for the validator spec.
+
+    PARTIAL-STATE SEMANTICS: If the engine has already written the
+    staged `.py` + `.meta.yaml` files and THIS registry append raises
+    ValueError, the staged files remain on disk without a registry
+    entry. This is deliberate — the filesystem is the source of truth;
+    the registry is the audit log. T6's `sweep_stale_staging` recovers
+    orphaned staging dirs by age. The engine does NOT roll back staged
+    files on registry-write failure.
     """
+    validate_pending_approval(entry)  # I-opus-3: fail-fast before any I/O
     registry_path = resolve_registry_path(project_root)
     try:
         registry_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1351,7 +1427,9 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 ```
 
-Export all new functions from `__all__`.
+**Exports in `__all__`:** add the three public helpers — `append_registry_entry`, `query_registry_most_recent`, `fallback_walk_for_script`, and `validate_pending_approval` (the I-opus-3 validator). Keep underscore-prefixed helpers PRIVATE (do NOT add to `__all__`): `_utc_now_iso`, `_REQUIRED_FIELDS_BY_EVENT`, `_SESSION_ID_RE`. The existing `_validate_script_name` alias (imported from `script_name.py` in T2) also stays private.
+
+Also add `_REQUIRED_FIELDS_BY_EVENT` + `validate_pending_approval` per the "Absorbed from T1 Opus re-review" block above (same file, placed near `append_registry_entry` so the relationship is visible).
 
 - [ ] **Step 4: Implement `engine.stage_adaptive_script`**
 
@@ -1380,39 +1458,49 @@ def stage_adaptive_script(
     Returns domain-error dict on name/session validation failures.
     """
     import yaml
-    from screw_agents.adaptive.signing import SCRIPT_NAME_PATTERN
+    from screw_agents.adaptive.script_name import validate_script_name
+    from screw_agents.adaptive.signing import compute_script_sha256
     from screw_agents.adaptive.staging import (
         _utc_now_iso,
         append_registry_entry,
-        compute_script_sha256_str,
         resolve_staging_dir,
         write_staged_files,
     )
-    from screw_agents.models import AdaptiveScriptMeta
 
-    if not SCRIPT_NAME_PATTERN.match(script_name):
+    # Name validation (delegates to shared `adaptive.script_name` per T2
+    # consolidation). Raises ValueError on mismatch — catch and convert
+    # to the existing error-dict contract callers depend on.
+    try:
+        validate_script_name(script_name)
+    except ValueError as exc:
         return {
             "status": "error",
             "error": "invalid_script_name",
-            "message": f"script_name {script_name!r} does not match "
-                       f"{SCRIPT_NAME_PATTERN.pattern}",
+            "message": str(exc),
         }
-    if not session_id or "/" in session_id or "\\" in session_id or ".." in session_id:
+
+    # Session_id validation is enforced by `resolve_staging_dir` (uses
+    # the `\\A[A-Za-z0-9_-]{1,64}\\Z` allowlist regex added in T1 part 4
+    # for I-opus-1/2). Catch the ValueError it raises and convert to the
+    # error-dict contract. Do NOT re-implement a denylist here — that
+    # would diverge from the allowlist and re-open I-opus-1.
+    try:
+        stage_dir = resolve_staging_dir(project_root, session_id)
+    except ValueError as exc:
         return {
             "status": "error",
             "error": "invalid_session_id",
-            "message": f"session_id {session_id!r} is empty or contains path chars",
+            "message": str(exc),
         }
 
     # Compute sha.
-    script_sha256 = compute_script_sha256_str(source)
+    script_sha256 = compute_script_sha256(source)
 
     # Collision check: same script_name exists under this session?
-    stage_dir = resolve_staging_dir(project_root, session_id)
     py_path = stage_dir / f"{script_name}.py"
     if py_path.exists():
         existing = py_path.read_text(encoding="utf-8")
-        existing_sha = compute_script_sha256_str(existing)
+        existing_sha = compute_script_sha256(existing)
         if existing_sha != script_sha256:
             return {
                 "status": "error",
@@ -1435,7 +1523,9 @@ def stage_adaptive_script(
         session_id=session_id,
     )
 
-    # Append registry entry.
+    # Append registry entry. Partial-state semantics: if this fails,
+    # the staged files remain on disk (T6 sweep recovers them by age).
+    # See append_registry_entry's docstring for the rationale.
     entry = {
         "event": "staged",
         "script_name": script_name,
@@ -1458,45 +1548,118 @@ def stage_adaptive_script(
     }
 ```
 
-**Pre-audit note:** `SCRIPT_NAME_PATTERN` is referenced from signing.py. Confirm it's exported there (from T18a); if not, add:
+**Pre-audit note (2026-04-21):** The regex + validator were consolidated into `screw_agents.adaptive.script_name` in T2 (commit `7ba25bb`). Earlier drafts of this plan referenced `SCRIPT_NAME_PATTERN` in `signing.py` which does NOT exist — that guidance was incorrect and has been removed. `validate_script_name` is the canonical entry point. Similarly, `compute_script_sha256` already lives in `signing.py` from T18a — do NOT add a `compute_script_sha256_str` duplicate (see Step 3's NOTE).
+
+- [ ] **Step 5: Register MCP tool in `server.py` AND add schema to `engine.list_tool_definitions`**
+
+**5a. Dispatch branch in `src/screw_agents/server.py`**
+
+The actual pattern is `_dispatch_tool` with `if name == "...":` branches (NOT `@mcp.tool()` decorators). See the existing `sign_adaptive_script` handler at `server.py:144-151` for the canonical form. Add to the dispatcher (near the other adaptive handlers, after `sign_adaptive_script`):
 
 ```python
-# In signing.py near other constants:
-import re
-SCRIPT_NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{2,62}$")
-```
+# --- Phase 3b T3: stage_adaptive_script (C1 staging-path) ---
 
-- [ ] **Step 5: Register MCP tool in `server.py`**
-
-Add to the tool registration block:
-
-```python
-@mcp.tool()
-async def stage_adaptive_script(
-    project_root: str,
-    script_name: str,
-    source: str,
-    meta: dict,
-    session_id: str,
-    target_gap: dict | None = None,
-) -> dict:
-    """Atomically write an unsigned adaptive script to session-scoped staging.
-
-    Called by the generating subagent BEFORE composing the 5-section human
-    review. The staged bytes persist on disk; promote_staged_script later
-    reads them verbatim (no regeneration surface). See design spec §3.1.
-    """
-    return _engine.stage_adaptive_script(
-        project_root=Path(project_root),
-        script_name=script_name,
-        source=source,
-        meta=meta,
-        session_id=session_id,
-        target_gap=target_gap,
+if name == "stage_adaptive_script":
+    return engine.stage_adaptive_script(
+        project_root=Path(args["project_root"]),
+        script_name=args["script_name"],
+        source=args["source"],
+        meta=args["meta"],
+        session_id=args["session_id"],
+        target_gap=args.get("target_gap"),
     )
 ```
 
-**Tool schema MUST set `additionalProperties: false`** per T10-M1 partial (T22 ships this formally, but apply on registration to avoid two-step refactor). If the MCP framework generates schemas automatically from type hints, configure the decorator / generator accordingly. If schemas are hand-written elsewhere, locate the schema block and add the flag.
+Use `args.get("target_gap")` (optional kwarg with `None` default on the engine side), NOT `args["target_gap"]` (KeyError on absent).
+
+**5b. Tool schema in `src/screw_agents/engine.list_tool_definitions`**
+
+Tool schemas are defined in `engine.list_tool_definitions()` (starts at `engine.py:1211`). See the existing `sign_adaptive_script` schema at `engine.py:1593` for the canonical format. Append a new `tools.append({...})` block with:
+
+```python
+tools.append({
+    "name": "stage_adaptive_script",
+    "description": (
+        "Atomically write an unsigned adaptive analysis script to "
+        "session-scoped staging (`.screw/staging/{session_id}/"
+        "adaptive-scripts/`). Called by the generating subagent BEFORE "
+        "composing the human review. The staged bytes persist on disk "
+        "and become the source of truth for the subsequent "
+        "promote_staged_script call — the user reviews what is staged, "
+        "and promote signs what is staged, with sha256 verification "
+        "preventing tamper (C1 trust invariant). Appends a `staged` "
+        "event to .screw/local/pending-approvals.jsonl for audit. "
+        "Idempotent on byte-identical re-stage; returns status=\"error\" "
+        "with error=\"stage_name_collision\" on same name + different "
+        "content. See design spec §3.1."
+    ),
+    "input_schema": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "project_root": {
+                "type": "string",
+                "description": "Absolute path to the project root.",
+            },
+            "script_name": {
+                "type": "string",
+                "description": (
+                    "Filesystem-safe name (regex "
+                    "`^[a-z0-9][a-z0-9-]{2,62}$`). Validated by the "
+                    "shared `adaptive.script_name.validate_script_name` "
+                    "(T2 consolidation) before any filesystem op."
+                ),
+            },
+            "source": {
+                "type": "string",
+                "description": (
+                    "Python source code for the adaptive script. "
+                    "Caller should have run `lint_adaptive_script` "
+                    "BEFORE staging (pre-review), though staging itself "
+                    "does not enforce this."
+                ),
+            },
+            "meta": {
+                "type": "object",
+                "description": (
+                    "Partial meta dict that will eventually conform to "
+                    "AdaptiveScriptMeta (minus signing fields). Must "
+                    "include name, created, created_by, domain; may "
+                    "include description, target_patterns."
+                ),
+            },
+            "session_id": {
+                "type": "string",
+                "description": (
+                    "Scan session id. Validated against "
+                    "`^[A-Za-z0-9_-]{1,64}$` (T1 part 4 allowlist, "
+                    "I-opus-1/2 fix). Scopes the staging directory — "
+                    "different session_ids get different dirs."
+                ),
+            },
+            "target_gap": {
+                "type": "object",
+                "description": (
+                    "Optional coverage-gap metadata recorded in the "
+                    "registry entry. Shape: "
+                    "{type, file, line, agent}. Null for non-gap stages."
+                ),
+            },
+        },
+        "required": [
+            "project_root",
+            "script_name",
+            "source",
+            "meta",
+            "session_id",
+        ],
+    },
+})
+```
+
+**`additionalProperties: false`** is set directly in this schema per T10-M1 partial. T22 performs the project-wide uniform audit but we ship the new tool correctly from the start. Do NOT omit this — the schema gate is trust-path defense in depth (stops schema-extension smuggling).
+
+**Cross-check before commit:** run the dispatcher smoke test template (mirror `test_sign_via_dispatcher_smoke` at `test_sign_adaptive_script.py:481`) in the new stage-flow test block — call `_dispatch_tool(engine, "stage_adaptive_script", {...})` and verify it returns `status="staged"` and the tool appears in `engine.list_tool_definitions()`.
 
 - [ ] **Step 6: Run tests to verify they pass**
 
@@ -1506,7 +1669,7 @@ Expected: 6 PASS.
 - [ ] **Step 7: Run full suite**
 
 Run: `uv run pytest -q`
-Expected: 791 passed (785 post-T2 + 6 new stage tests).
+Expected: **~828 passed, 8 skipped** (817 post-T1-part-4 + 6 plan stage tests + 4 I-opus-3 validator tests + 1 engine-layer session_id parametrize test that exercises the full T1-part-4 threat surface through the engine's error-dict conversion path). Final count depends on exactly how many parametrize cases land; floor is 825, ceiling is 832.
 
 - [ ] **Step 8: Commit**
 
