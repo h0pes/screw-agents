@@ -353,7 +353,18 @@ class ScanEngine:
         # Collision check: same script_name exists under this session?
         py_path = stage_dir / f"{script_name}.py"
         if py_path.exists():
-            existing = py_path.read_text(encoding="utf-8")
+            try:
+                existing = py_path.read_text(encoding="utf-8")
+            except UnicodeDecodeError as exc:
+                return {
+                    "status": "error",
+                    "error": "stage_corrupted",
+                    "message": (
+                        f"staged file {py_path} is not valid UTF-8 "
+                        f"({type(exc).__name__}: {exc}). Run sweep_stale_staging "
+                        f"to clean up, or delete the file manually."
+                    ),
+                }
             existing_sha = compute_script_sha256(existing)
             if existing_sha != script_sha256:
                 return {

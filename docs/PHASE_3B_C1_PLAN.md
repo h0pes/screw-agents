@@ -1684,6 +1684,15 @@ git commit -m "feat(phase3b-c1): stage_adaptive_script MCP tool (T3)"
 
 **Cross-plan sync:** confirm spec §3.1 matches the shipped signature + behavior. Deviation flag: did `additionalProperties: false` actually get applied at server registration? If not, move to T22 and document.
 
+**T3 Opus 4.7 re-review (2026-04-21):** Spec review APPROVED (all 24 checks pass). Quality review found 4 Important + 5 Minor items. Important items fixed in T3 part 2 commit (add SHA after you commit the fix-up below):
+
+- **I1 (dead re-export):** removed the unused `compute_script_sha256` re-export at `staging.py:43`. `engine.py:314` imports directly from `adaptive.signing`; staging.py did not need the alias.
+- **I2 (helper test coverage gap):** added 5 direct unit tests for the three new registry helpers (corrupted-JSONL tolerance, most-recent-wins, fallback-walk non-directory skip, fallback-walk missing-staging-root, append_registry_entry error wrapping). T4/T6 depend on these helpers; transitive coverage through `stage_adaptive_script` was insufficient.
+- **I4 (UnicodeDecodeError leak):** wrapped the collision-check `read_text(encoding="utf-8")` in try/except UnicodeDecodeError → error-dict with `"error": "stage_corrupted"`. Future attacker with fs-write can't crash the tool via corrupted bytes.
+- **I5 (fail-fast contract untested):** added test that asserts `append_registry_entry` raises ValueError BEFORE creating the registry file when the entry is malformed. Locks the I-opus-3 validator's fail-fast-before-I/O contract.
+
+Minor items (M1-M5) deferred to `docs/DEFERRED_BACKLOG.md` as `BACKLOG-PR6-14..18`.
+
 ---
 
 ### Task 4: `promote_staged_script` MCP Tool — The C1 Fix

@@ -40,7 +40,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from screw_agents.adaptive.script_name import validate_script_name as _validate_script_name
-from screw_agents.adaptive.signing import compute_script_sha256  # noqa: F401 — re-exported for T3 engine
 
 __all__ = [
     "resolve_staging_dir",

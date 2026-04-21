@@ -936,3 +936,42 @@ assert list(stage_dir.iterdir()) == []
 **Trigger:** Next docstring polish pass OR whenever editing `adaptive/__init__.py`.
 **Suggested replacement:** "(18 curated exports in EXPECTED_PUBLIC_API; total `dir(adaptive)` includes ~10 internal submodule bindings)".
 **Estimated scope:** 2-3 line docstring update.
+
+### BACKLOG-PR6-14 — `append_registry_entry` `fsync` omission rationale
+**Source:** Phase 3b PR #6 T3 Opus re-review (M1), 2026-04-21
+**File:** `src/screw_agents/adaptive/staging.py` — `append_registry_entry`
+**Why deferred:** Current `os.write` is followed by `os.close` with no `os.fsync`. On a power-loss between write and kernel flush, the registry entry is lost. The staged `.py` + `.meta.yaml` remain, so T6 sweep reconciles — but the contract isn't documented in the function docstring. Either add `os.fsync(fd)` before close (perf cost, correct for forensic audit log) OR document the sweep-reconciles rationale.
+**Trigger:** When deployment moves beyond single-process dev workflow, OR when a forensic incident requires stronger durability.
+**Suggested fix:** Add a one-line comment and optionally `os.fsync(fd)` before `os.close(fd)`. If adding fsync, mirror the same call pattern in any future registry writers (promote, reject, sweep).
+**Estimated scope:** 2 LOC + 1 comment + 1 optional test.
+
+### BACKLOG-PR6-15 — `session_id_short = session_id[:12]` magic number
+**Source:** Phase 3b PR #6 T3 Opus re-review (M2), 2026-04-21
+**File:** `src/screw_agents/engine.py` — `stage_adaptive_script`
+**Why deferred:** The 12-char prefix is chosen to match the review header display format (plan spec §3.1). Code has no comment explaining the choice. Future reader wonders "why 12".
+**Trigger:** Next docstring polish pass OR when the review header format changes.
+**Suggested fix:** Add a one-line comment: `# 12 chars = display-friendly session prefix for the T18b review header`.
+**Estimated scope:** 1 LOC comment.
+
+### BACKLOG-PR6-16 — Collision check ignores meta content
+**Source:** Phase 3b PR #6 T3 Opus re-review (M3), 2026-04-21
+**File:** `src/screw_agents/engine.py` — `stage_adaptive_script` collision-check
+**Why deferred:** Idempotency check compares source `sha256` only. If source matches but meta differs, the existing meta file is silently overwritten. Defensible (only source bytes get signed and executed) but a caller expecting meta-divergence to be an error may be surprised.
+**Trigger:** If a user reports surprising re-stage behavior when they changed meta but kept source, OR a security reviewer flags this as a tamper channel.
+**Suggested fix:** Either (a) document the behavior explicitly in the docstring: "Meta differences are silently overwritten on re-stage; only source bytes participate in the collision check." — OR (b) hash `(source, meta_yaml)` together for the collision check (stricter, but breaks idempotency when callers legitimately update meta).
+**Estimated scope:** 3-5 LOC docstring OR ~15 LOC behavioral change + test.
+
+### BACKLOG-PR6-17 — `staging.py` module docstring event-type list is forward-looking
+**Source:** Phase 3b PR #6 T3 Opus re-review (M4), 2026-04-21
+**File:** `src/screw_agents/adaptive/staging.py` — module docstring
+**Why deferred:** The docstring enumerates 7 event types (`staged`, `promoted`, `promoted_via_fallback`, `promoted_confirm_stale`, `rejected`, `tamper_detected`, `swept`). At commit `a568f56`, only `staged` has a producer. T4 adds `promoted` variants + `tamper_detected`; T5 adds `rejected`; T6 adds `swept`. A reader confused by the gap would be helped by "(T3 produces: staged; T4-T6 produce the rest)".
+**Trigger:** After T6 ships (when all producers exist) OR next docstring polish pass.
+**Suggested fix:** Either add the scope-clarifying comment, or wait until T6 when the comment becomes authoritative.
+**Estimated scope:** 1-2 line docstring update.
+
+### BACKLOG-PR6-18 — Parametrize redundant slash cases
+**Source:** Phase 3b PR #6 T3 Opus re-review (M5), 2026-04-21
+**File:** `tests/test_adaptive_staging.py` — `test_stage_adaptive_script_rejects_threat_session_ids`
+**Why deferred:** Parametrize includes both `"../etc/passwd"` and `"foo/bar"` — both exercise the slash character-class rejection. Harmless duplication (each would catch a regression independently). Could be consolidated to one slash test OR kept as both (each represents a distinct threat model: traversal attempt vs generic path separator).
+**Trigger:** Next test-hygiene sweep.
+**Estimated scope:** 1-line parametrize removal OR 2-line rationale comment clarifying why both.

@@ -774,3 +774,201 @@ def test_stage_adaptive_script_wraps_permission_error(
             session_id="sess-abc",
             target_gap=None,
         )
+
+
+# --- I2: direct unit tests for registry helpers (Opus re-review) ------
+
+
+def test_query_registry_most_recent_tolerates_corrupt_lines(tmp_path: Path) -> None:
+    """query_registry_most_recent must skip corrupt JSONL lines silently
+    and still return valid matches. A crash mid-write or a stray edit
+    should not lose preceding valid entries."""
+    import json
+    from screw_agents.adaptive.staging import (
+        query_registry_most_recent,
+        resolve_registry_path,
+    )
+
+    project = tmp_path / "project"
+    project.mkdir()
+    registry = resolve_registry_path(project)
+    registry.parent.mkdir(parents=True, exist_ok=True)
+
+    valid_entry = {
+        "event": "staged",
+        "script_name": "test-script",
+        "session_id": "sess-abc",
+        "script_sha256": "a" * 64,
+    }
+    # Line 1: corrupt (missing closing brace)
+    # Line 2: valid matching entry
+    # Line 3: empty
+    # Line 4: another corrupt line (invalid JSON)
+    registry.write_text(
+        '{"event": "staged", "script_name": "truncated"\n'
+        + json.dumps(valid_entry) + "\n"
+        + "\n"
+        + "not-json-at-all garbage{}\n",
+        encoding="utf-8",
+    )
+
+    result = query_registry_most_recent(
+        project, script_name="test-script", session_id="sess-abc"
+    )
+    assert result is not None
+    assert result["script_name"] == "test-script"
+    assert result["script_sha256"] == "a" * 64
+
+
+def test_query_registry_most_recent_returns_last_matching(tmp_path: Path) -> None:
+    """When multiple entries match (script_name, session_id), return the
+    LAST one in the file. Locks the position-based most-recent contract."""
+    import json
+    from screw_agents.adaptive.staging import (
+        query_registry_most_recent,
+        resolve_registry_path,
+    )
+
+    project = tmp_path / "project"
+    project.mkdir()
+    registry = resolve_registry_path(project)
+    registry.parent.mkdir(parents=True, exist_ok=True)
+
+    e1 = {"event": "staged", "script_name": "foo", "session_id": "s",
+          "script_sha256": "1" * 64, "staged_at": "2026-04-21T10:00:00Z"}
+    e2 = {"event": "staged", "script_name": "foo", "session_id": "s",
+          "script_sha256": "2" * 64, "staged_at": "2026-04-21T10:00:05Z"}
+    registry.write_text(json.dumps(e1) + "\n" + json.dumps(e2) + "\n",
+                        encoding="utf-8")
+
+    result = query_registry_most_recent(project, script_name="foo", session_id="s")
+    assert result is not None
+    assert result["script_sha256"] == "2" * 64  # second entry wins
+
+
+def test_fallback_walk_skips_non_directory_entries(tmp_path: Path) -> None:
+    """fallback_walk_for_script must tolerate stray files in the staging
+    root (e.g., accidental user writes) and skip them without error."""
+    from screw_agents.adaptive.staging import fallback_walk_for_script
+
+    project = tmp_path / "project"
+    project.mkdir()
+    staging_root = project / ".screw" / "staging"
+    staging_root.mkdir(parents=True)
+    # Plant a stray file (not a directory) at the staging root.
+    (staging_root / "stray.txt").write_text("garbage", encoding="utf-8")
+    # And a legitimate session dir with the target script.
+    legit = staging_root / "sess-abc" / "adaptive-scripts"
+    legit.mkdir(parents=True)
+    (legit / "my-script.py").write_text("pass\n", encoding="utf-8")
+
+    matches = fallback_walk_for_script(project, script_name="my-script")
+    assert len(matches) == 1
+    session_id, py_path = matches[0]
+    assert session_id == "sess-abc"
+
+
+def test_fallback_walk_returns_empty_on_missing_staging_root(tmp_path: Path) -> None:
+    """Empty list when .screw/staging/ doesn't exist (fresh project)."""
+    from screw_agents.adaptive.staging import fallback_walk_for_script
+
+    project = tmp_path / "project"
+    project.mkdir()
+    # Do NOT create .screw/staging/
+
+    matches = fallback_walk_for_script(project, script_name="anything")
+    assert matches == []
+
+
+def test_append_registry_entry_wraps_permission_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """T13-C1 discipline: filesystem errors during append must wrap to
+    ValueError with the exception type in the message."""
+    from screw_agents.adaptive import staging
+
+    project = tmp_path / "project"
+    project.mkdir()
+
+    original_open = os.open
+
+    def boom(path, flags, mode=0o777):
+        if "pending-approvals.jsonl" in str(path):
+            raise PermissionError("simulated EACCES on registry")
+        return original_open(path, flags, mode)
+
+    monkeypatch.setattr(os, "open", boom)
+
+    valid_entry = {
+        "event": "staged",
+        "script_name": "test-script",
+        "session_id": "sess-abc",
+        "script_sha256": "a" * 64,
+        "target_gap": {},
+        "staged_at": "2026-04-21T10:00:00Z",
+        "schema_version": 1,
+    }
+    with pytest.raises(ValueError, match="PermissionError"):
+        staging.append_registry_entry(project, valid_entry)
+
+
+# --- I4: UnicodeDecodeError wrap in stage_adaptive_script collision check ---
+
+
+def test_stage_adaptive_script_rejects_corrupted_utf8_existing(tmp_path: Path) -> None:
+    """I4 regression: if the staged .py file on disk contains non-UTF-8
+    bytes (filesystem corruption or attacker plant), the engine returns
+    an error-dict rather than an uncaught UnicodeDecodeError."""
+    from screw_agents.engine import ScanEngine
+    from screw_agents.adaptive.staging import resolve_staging_dir
+
+    project = tmp_path / "project"
+    project.mkdir()
+    engine = ScanEngine.from_defaults()
+
+    # Pre-plant a staged .py with non-UTF-8 bytes.
+    stage_dir = resolve_staging_dir(project, "sess-abc")
+    stage_dir.mkdir(parents=True)
+    (stage_dir / "test-corrupt.py").write_bytes(b"\xff\xfe\xfd\x00corrupted")
+
+    response = engine.stage_adaptive_script(
+        project_root=project,
+        script_name="test-corrupt",
+        source="pass\n",
+        meta={"name": "test-corrupt", "created": "2026-04-21T10:00:00Z",
+              "created_by": "t@e.co", "domain": "injection-input-handling",
+              "description": "d", "target_patterns": ["x"]},
+        session_id="sess-abc",
+        target_gap=None,
+    )
+
+    assert response["status"] == "error"
+    assert response["error"] == "stage_corrupted"
+    assert "UnicodeDecodeError" in response["message"]
+
+
+# --- I5: fail-fast contract lockdown for append_registry_entry --------
+
+
+def test_append_registry_entry_rejects_missing_required_field(tmp_path: Path) -> None:
+    """I5 contract lockdown: append_registry_entry calls
+    validate_pending_approval as its FIRST line (fail-fast before I/O).
+    A malformed entry must raise before any file is touched."""
+    from screw_agents.adaptive.staging import (
+        append_registry_entry,
+        resolve_registry_path,
+    )
+
+    project = tmp_path / "project"
+    project.mkdir()
+
+    # staged event missing script_sha256, target_gap, staged_at, schema_version
+    bad_entry = {"event": "staged", "script_name": "x", "session_id": "s"}
+
+    with pytest.raises(ValueError, match="missing required"):
+        append_registry_entry(project, bad_entry)
+
+    # Verify registry file was NEVER created — fail-fast ran before I/O.
+    assert not resolve_registry_path(project).exists()
+    # And the parent dir wasn't touched either.
+    assert not (project / ".screw" / "local").exists()
