@@ -1698,15 +1698,38 @@ Minor items (M1-M5) deferred to `docs/DEFERRED_BACKLOG.md` as `BACKLOG-PR6-14..1
 ### Task 4: `promote_staged_script` MCP Tool — The C1 Fix
 
 **Files:**
+- Modify: `src/screw_agents/models.py` — add `stale_staging_hours: int = 24` and `staging_max_age_days: int = 14` to `ScrewConfig` with range validators (1-168 and 1-365 respectively)
 - Modify: `src/screw_agents/engine.py` (add `promote_staged_script`)
 - Modify: `src/screw_agents/server.py` (register MCP tool; `additionalProperties: false`)
-- Modify: `tests/test_adaptive_staging.py` (+12 tests — the bulk of C1 regression locks)
+- Modify: `tests/test_adaptive_staging.py` (+13 tests — the bulk of C1 regression locks, now including I5 promoted_confirm_stale event assertion)
 
 **Pre-audit (critical — trust-path):**
 - Trace sign/verify symmetry: `promote_staged_script` reads staging bytes → calls `_sign_script_bytes`. `_sign_script_bytes` must route meta through `AdaptiveScriptMeta().model_dump()` BEFORE `canonicalize_script`. Verify the meta loaded from staging's `.meta.yaml` goes through THIS path. A bypass would reopen T13-C1 drift.
 - `promote_staged_script` MUST NOT accept a `source` parameter. This is the C1 architectural closure. A format-smoke regression lock (`test_promote_staged_script_signature_rejects_source_param`) is mandatory.
 - Staleness check uses `datetime.fromisoformat(entry["staged_at"].replace("Z", "+00:00"))` or equivalent. ISO8601 `Z` suffix parsing varies by Python version; use `datetime.strptime(..., "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)` for consistency.
 - Tamper case leaves staging files in place + touches `.TAMPERED` marker. The marker + audit entry together = forensic evidence.
+
+- [ ] **Step 0: Add `ScrewConfig` fields (I1 pre-audit fix)**
+
+In `src/screw_agents/models.py`, the `ScrewConfig` Pydantic model currently defines `version`, `exclusion_reviewers`, `script_reviewers`, `adaptive`, `legacy_unsigned_exclusions`, `trusted_reviewers_file`. Add two new fields for the staging lifecycle:
+
+```python
+from pydantic import BaseModel, ConfigDict, Field  # Field may already be imported
+
+class ScrewConfig(BaseModel):
+    ...existing fields...
+    stale_staging_hours: int = Field(default=24, ge=1, le=168)
+    staging_max_age_days: int = Field(default=14, ge=1, le=365)
+```
+
+Rationale: T4's `_read_stale_staging_hours` and T6's `sweep_stale_staging` both consume these fields. Adding them to the Pydantic model enforces validation at config-load time (invalid values raise on `load_config(project_root)` instead of silently degrading to defaults inside helpers). Keeps the ad-hoc `yaml.safe_load` read in `_read_stale_staging_hours` as a lightweight fallback (config file may be absent on fresh projects), but the canonical path now goes through the schema.
+
+**Tests for the schema update:** `tests/test_models.py` (or wherever `ScrewConfig` is tested today) should add:
+- Valid config with custom `stale_staging_hours` value → loads correctly
+- `stale_staging_hours: 0` or `169` → raises `ValidationError`
+- Missing field → defaults to 24
+
+If `tests/test_models.py` doesn't exist yet, inline these 2-3 tests into `tests/test_adaptive_staging.py` next to the other T4 tests. This counts toward the +13 tests total.
 
 - [ ] **Step 1: Write failing test — C1 REGRESSION LOCK (signature rejects source)**
 
@@ -1940,6 +1963,66 @@ def test_promote_stale_staging_requires_confirm_stale(tmp_path, monkeypatch) -> 
         confirm_stale=True,
     )
     assert response2["status"] == "signed"
+
+    # I5 regression: confirm-stale retry must emit `promoted_confirm_stale`
+    # audit event (not plain `promoted`). Locks the audit-event taxonomy
+    # so downstream forensics can distinguish routine promotes from
+    # staleness-override promotes.
+    import json as _json
+    entries = [
+        _json.loads(line) for line in
+        resolve_registry_path(project).read_text().splitlines() if line.strip()
+    ]
+    promoted_events = [e for e in entries if e.get("event", "").startswith("promoted")]
+    assert len(promoted_events) == 1
+    assert promoted_events[0]["event"] == "promoted_confirm_stale", (
+        f"Expected `promoted_confirm_stale` audit event; got {promoted_events[0]['event']!r}"
+    )
+
+
+def test_promote_rejects_malformed_staged_at(tmp_path) -> None:
+    """I3 hardening: staleness check must NOT silently bypass on a
+    malformed timestamp. Force ops to investigate corrupted registry."""
+    from screw_agents.cli.init_trust import run_init_trust
+    from screw_agents.engine import ScanEngine
+    from screw_agents.adaptive.staging import resolve_registry_path
+
+    project = tmp_path / "project"
+    project.mkdir()
+    run_init_trust(project_root=project, name="T", email="t@e.co")
+    engine = ScanEngine.from_defaults()
+    engine.stage_adaptive_script(
+        project_root=project,
+        script_name="test-bad-ts",
+        source="pass\n",
+        meta={"name": "test-bad-ts", "created": "2026-04-21T10:00:00Z",
+              "created_by": "t@e.co", "domain": "injection-input-handling",
+              "description": "d", "target_patterns": ["x"]},
+        session_id="sess-abc",
+        target_gap=None,
+    )
+
+    # Corrupt the staged_at timestamp in the registry.
+    registry = resolve_registry_path(project)
+    import json as _json
+    lines = registry.read_text().splitlines()
+    rewritten = []
+    for line in lines:
+        entry = _json.loads(line)
+        if entry.get("script_name") == "test-bad-ts":
+            entry["staged_at"] = "not-a-timestamp"
+        rewritten.append(_json.dumps(entry, separators=(",", ":"), sort_keys=True))
+    registry.write_text("\n".join(rewritten) + "\n")
+
+    response = engine.promote_staged_script(
+        project_root=project,
+        script_name="test-bad-ts",
+        session_id="sess-abc",
+    )
+
+    assert response["status"] == "error"
+    assert response["error"] == "invalid_registry_entry"
+    assert "malformed" in response["message"].lower() or "parse error" in response["message"].lower()
 ```
 
 Add 6 more tests covering:
@@ -2040,26 +2123,52 @@ def promote_staged_script(
     # Staleness check when we have a staged_at timestamp.
     stale_threshold_hours = _read_stale_staging_hours(project_root)  # helper below
     if registry_entry and registry_entry.get("event") == "staged":
+        staged_at_str = registry_entry.get("staged_at")
+        if staged_at_str is None:
+            # I3 hardening: registry entry missing staged_at is a schema
+            # violation (validate_pending_approval should have caught this
+            # on write; if we see it at read time, the registry has been
+            # tampered or a legacy entry predates the validator). Force
+            # ops to investigate rather than silently bypass staleness.
+            return {
+                "status": "error",
+                "error": "invalid_registry_entry",
+                "message": (
+                    f"Registry entry for {script_name!r}/{session_id!r} is missing "
+                    f"the 'staged_at' field required for staleness check. "
+                    f"Registry may be corrupted or written by an older schema version. "
+                    f"Inspect `.screw/local/pending-approvals.jsonl` and run "
+                    f"`sweep_stale_staging` to recover orphans."
+                ),
+            }
         try:
             staged_at = datetime.strptime(
-                registry_entry["staged_at"], "%Y-%m-%dT%H:%M:%SZ"
+                staged_at_str, "%Y-%m-%dT%H:%M:%SZ"
             ).replace(tzinfo=timezone.utc)
-            age = datetime.now(timezone.utc) - staged_at
-            if age > timedelta(hours=stale_threshold_hours) and not confirm_stale:
-                return {
-                    "status": "error",
-                    "error": "stale_staging",
-                    "message": (
-                        f"Staged {script_name!r} is {age.total_seconds()/3600:.1f}h old "
-                        f"(staged_at: {registry_entry['staged_at']}); "
-                        f"threshold is {stale_threshold_hours}h. "
-                        f"Re-type `approve {script_name} confirm-stale` to proceed anyway."
-                    ),
-                    "hours_old": round(age.total_seconds() / 3600, 1),
-                    "threshold_hours": stale_threshold_hours,
-                }
-        except (ValueError, KeyError):
-            pass  # malformed timestamp: skip staleness check (defensive)
+        except ValueError as exc:
+            return {
+                "status": "error",
+                "error": "invalid_registry_entry",
+                "message": (
+                    f"Registry entry for {script_name!r}/{session_id!r} has malformed "
+                    f"staged_at ({staged_at_str!r}; expected ISO8601 with Z suffix). "
+                    f"Parse error: {exc}. Inspect `.screw/local/pending-approvals.jsonl`."
+                ),
+            }
+        age = datetime.now(timezone.utc) - staged_at
+        if age > timedelta(hours=stale_threshold_hours) and not confirm_stale:
+            return {
+                "status": "error",
+                "error": "stale_staging",
+                "message": (
+                    f"Staged {script_name!r} is {age.total_seconds()/3600:.1f}h old "
+                    f"(staged_at: {staged_at_str}); "
+                    f"threshold is {stale_threshold_hours}h. "
+                    f"Re-type `approve {script_name} confirm-stale` to proceed anyway."
+                ),
+                "hours_old": round(age.total_seconds() / 3600, 1),
+                "threshold_hours": stale_threshold_hours,
+            }
 
     # Step 4b-5: lifecycle + primary/tamper.
     audit_event = "promoted"
@@ -2164,7 +2273,18 @@ def promote_staged_script(
         session_id=session_id,
     )
     if sign_result.get("status") != "signed":
-        return sign_result  # propagate error as-is (no_matching_reviewer, etc.)
+        # I2 taxonomy-normalization: _sign_script_bytes returns
+        # {"status": "error", "message": "..."} without an "error" key
+        # (no_matching_reviewer, custom_scripts_collision, meta_schema, etc.).
+        # Inject a stable error-key so callers pattern-matching on
+        # response["error"] don't KeyError. Preserve the original message in
+        # "detail" for operators.
+        return {
+            "status": "error",
+            "error": "sign_failed",
+            "message": sign_result.get("message", "Signing failed with no message"),
+            "detail": sign_result,
+        }
 
     # Step 8: delete staging.
     try:
@@ -2317,7 +2437,7 @@ Expected: all 12 promote tests PASS.
 - [ ] **Step 7: Run full suite**
 
 Run: `uv run pytest -q`
-Expected: 803 passed (791 post-T3 + 12 new promote tests).
+Expected: **~859 passed, 8 skipped** (846 post-T3 + ~13 new promote tests + ScrewConfig schema tests). Floor is 856, ceiling is ~862 depending on how parametrize + schema-validator tests count.
 
 - [ ] **Step 8: Commit**
 

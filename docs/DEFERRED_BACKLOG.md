@@ -975,3 +975,19 @@ assert list(stage_dir.iterdir()) == []
 **Why deferred:** Parametrize includes both `"../etc/passwd"` and `"foo/bar"` — both exercise the slash character-class rejection. Harmless duplication (each would catch a regression independently). Could be consolidated to one slash test OR kept as both (each represents a distinct threat model: traversal attempt vs generic path separator).
 **Trigger:** Next test-hygiene sweep.
 **Estimated scope:** 1-line parametrize removal OR 2-line rationale comment clarifying why both.
+
+### BACKLOG-PR6-19 — `confirm_sha_prefix` entropy (8 hex chars = 32 bits)
+**Source:** Phase 3b PR #6 T4 pre-audit (C2), 2026-04-21
+**File:** `src/screw_agents/engine.py` — `promote_staged_script` fallback path
+**Why deferred:** The fallback-path confirmation phrase uses `script_sha256[:8]` (8 hex chars = 32 bits of entropy). Birthday-collision attack threshold is ~65,536 attempts. Not exploitable in practice — the UX is "user already typed approve {name} once; now re-typing a modified phrase" and the attacker must also overwrite the staging .py with matching source. But 32-bit entropy on a security-relevant confirmation is light.
+**Trigger:** Next security-review sweep of the approve flow, OR if a real-world incident suggests the fallback path needs stronger confirmation.
+**Suggested fix:** raise to 12 hex chars (48 bits, ~17M attempts for birthday) OR use a longer prefix (16 chars = 64 bits). Test + prompt text + docstring update + ~5 LOC.
+**Estimated scope:** 10 LOC + 1-2 tests + prompt text updates in `plugins/screw/agents/screw-*.md`.
+
+### BACKLOG-PR6-20 — `invalid_staged_meta` does not write TAMPERED marker
+**Source:** Phase 3b PR #6 T4 pre-audit (C5), 2026-04-21
+**File:** `src/screw_agents/engine.py` — `promote_staged_script` invalid-meta branch
+**Why deferred:** When `yaml.safe_load(meta_yaml)` fails (line ~2151-2157), promote returns `invalid_staged_meta` but does NOT touch the filesystem — no TAMPERED marker, no audit event. A tampered meta is arguably the same class of threat as a tampered .py (both invalidate the staging contract), so asymmetric treatment is defensible but not obviously correct.
+**Trigger:** If an attacker is observed targeting .meta.yaml specifically (rather than .py), OR next trust-path threat-model refresh.
+**Suggested fix:** on `yaml.YAMLError`, touch a `.METATAMPERED` marker + append a `meta_tampered` (or reuse `tamper_detected` with an evidence_type field) audit event. Same forensic-preservation pattern as the sha-mismatch tamper path.
+**Estimated scope:** 15 LOC + 1 test.
