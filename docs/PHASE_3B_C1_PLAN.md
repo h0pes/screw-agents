@@ -689,11 +689,17 @@ Registry operations (`append_registry_entry`, `query_registry`, `fallback_walk`)
 ### Task 2: Extract `_sign_script_bytes` Shared Helper (Option D Refactor) + Absorb I-new-1 / I-new-2
 
 **Files:**
-- Modify: `src/screw_agents/adaptive/signing.py` (add `_sign_script_bytes`; also absorb the shared `SCRIPT_NAME_RE` constant + `validate_script_name()` helper per "Absorbed from T1 re-review" below — or create a new `src/screw_agents/adaptive/_script_name.py` if a dedicated module is cleaner; implementer's choice)
-- Modify: `src/screw_agents/adaptive/staging.py` (replace local `_SCRIPT_NAME_RE` + `_validate_script_name` with import from the shared location)
-- Modify: `src/screw_agents/engine.py` (refactor `sign_adaptive_script` to delegate; route its internal name validation through the shared constant)
-- Modify: `tests/test_adaptive_signing.py` (+5 original shared-helper tests + ~5 regression tests for I-new-1 / I-new-2)
-- Modify: `tests/test_adaptive_staging.py` (update imports to the shared location; keep `\A…\Z` regression coverage here since `staging.py` still calls the validator)
+- **Create:** `src/screw_agents/adaptive/script_name.py` — dedicated 20-line module owning the shared regex + validator. Contents:
+  - `SCRIPT_NAME_RE = re.compile(r"\A[a-z0-9][a-z0-9-]{2,62}\Z")` — anchored with `\A…\Z` (not `^…$`) so terminal newlines are rejected (see I-new-1).
+  - `USER_FACING_NAME_REGEX = "^[a-z0-9][a-z0-9-]{2,62}$"` — string constant for error messages shown to users (keeps the familiar `^…$` notation users see in docs; internal match uses the precise `\A…\Z` form).
+  - `validate_script_name(script_name: str) -> None` — raises `ValueError` with `f"script_name {script_name!r} does not match {USER_FACING_NAME_REGEX} (...)"` on mismatch.
+  - `__all__ = ["SCRIPT_NAME_RE", "USER_FACING_NAME_REGEX", "validate_script_name"]`.
+  - This module is a pure leaf — no imports from other `screw_agents` submodules. Both `staging.py` and `signing.py` import from here; `engine.py` imports from here too (for the error-message constants; the validation itself runs inside `_sign_script_bytes`).
+- Modify: `src/screw_agents/adaptive/signing.py` (add `_sign_script_bytes`; import `SCRIPT_NAME_RE` / `USER_FACING_NAME_REGEX` / `validate_script_name` from `script_name.py`)
+- Modify: `src/screw_agents/adaptive/staging.py` — **DELETE** lines 46-48 (local `_SCRIPT_NAME_RE` constant), DELETE `_validate_script_name` helper body, replace with `from screw_agents.adaptive.script_name import validate_script_name` and a one-liner wrapper (or directly call `validate_script_name(script_name)` at the 3 public FS-op entry points). Existing `staging.py` test coverage remains valid because the public FS-op behavior is unchanged — only the error message wording may shift (see test-assertion audit in Step 9).
+- Modify: `src/screw_agents/engine.py` — **DELETE** line 51 (`_SCRIPT_NAME_RE = re.compile(...)` module constant) since it's no longer used (the current 2 in-method references at lines 324 + 329 both move into `_sign_script_bytes`). The `import re` may also be removable from engine.py if no other usage remains — implementer to verify and clean. Refactor `sign_adaptive_script` to delegate to `_sign_script_bytes` (Step 5).
+- Modify: `tests/test_adaptive_signing.py` (+5 original shared-helper tests + 5-7 regression tests for I-new-1 / I-new-2)
+- Modify: `tests/test_adaptive_staging.py` — update the existing `_validate_script_name` import to route via `script_name.py` (or via staging.py's re-export). Keep existing staging regex-validation tests unchanged — they exercise the public staging FS-op API which still enforces validation. Add ONE locking test: `test_staging_imports_from_shared_script_name_module` asserting `staging.py` no longer has a local `_SCRIPT_NAME_RE`.
 
 **Rationale:** Per Q4 / spec §3.7, both `sign_adaptive_script` (direct path) and the upcoming `promote_staged_script` (staged path) must produce byte-identical signed output for the same (source, meta). A shared internal helper is the single canonical-bytes source, eliminating drift risk. T2 also becomes the architectural fix site for the two regex items the T1 re-review surfaced — both the shared-helper extraction and the regex-constant extraction land in one coherent refactor.
 
@@ -706,8 +712,17 @@ Registry operations (`append_registry_entry`, `query_registry`, `fallback_walk`)
 
 **Absorbed from T1 re-review (2026-04-21):** Two items the quality reviewer flagged at T1 re-review are in-scope for T2 because T2 is the architectural fix site (shared-constant extraction):
 
-- **I-new-1 (trailing-newline regex footgun):** `r"^[a-z0-9][a-z0-9-]{2,62}$"` matches `"abc\n"` because Python's `$` anchor matches before a terminal newline. Not a traversal primitive (no slash) but corrupts JSONL registry lines in T3+ that embed `script_name`, poisons error-message formatting, and breaks log parsing. **Fix at shared-constant extraction time** — use `r"\A[a-z0-9][a-z0-9-]{2,62}\Z"` (or `.fullmatch()` consistently) in ONE place. Both `adaptive/staging.py` and the extraction destination must use the anchored form.
-- **I-new-2 (regex test coverage gaps):** Add dedicated regression tests for: `""` (empty), `"---"` (dash-only — should match per regex, but document it), `"a\x00b"` (null byte), 64-char over-limit, `"abc\n"` (trailing newline — becomes rejection after I-new-1), `"abc\r\n"` (CRLF), `"ab cd"` (space). Place tests in `tests/test_adaptive_signing.py` if the shared validator lives in `signing.py`; also retain a short import-check test in `tests/test_adaptive_staging.py` to ensure `staging.py` is using the shared constant (not the deleted local one).
+- **I-new-1 (trailing-newline regex footgun):** `r"^[a-z0-9][a-z0-9-]{2,62}$"` matches `"abc\n"` because Python's `$` anchor matches before a terminal newline. Not a traversal primitive (no slash) but corrupts JSONL registry lines in T3+ that embed `script_name`, poisons error-message formatting, and breaks log parsing. **Fix at shared-constant extraction time** — use `r"\A[a-z0-9][a-z0-9-]{2,62}\Z"` in ONE place (the new `script_name.py` module). `\A` and `\Z` are true start/end-of-string anchors with no newline-special-casing. Pre-audit note: `"abc\r\n"` is already rejected today (the `\r` fails the `[a-z0-9-]` character class check before the anchor is reached), so the only newline-case the anchor switch actually changes is `"abc\n"`. The CRLF case is preserved as a regression test to lock behavior.
+- **I-new-2 (regex test coverage gaps):** Add dedicated regression tests for these named cases. Note which ones the anchor switch changes vs which were already covered by the character class:
+  - `""` (empty) — reject (length < 3); currently rejected; lock with explicit test.
+  - `"---"` (dash-only) — **reject** (first char `-` is not in `[a-z0-9]`; regex requires first-char alnum). Clarification: the reviewer's note said "should match per regex" which was incorrect on my part — the first-char class is `[a-z0-9]` (no dash). Already rejected today; lock with explicit test.
+  - `"a\x00b"` (null byte) — reject (null not in `[a-z0-9-]`); currently rejected; lock.
+  - `"a" * 64` (over-limit) — reject (length > 63); currently rejected; lock.
+  - `"abc\n"` (trailing LF) — **currently passes; becomes rejection after I-new-1**. The primary fix.
+  - `"abc\r\n"` (trailing CRLF) — reject (`\r` fails char class); currently rejected; lock for regression coverage.
+  - `"ab cd"` (space) — reject (space not in char class); currently rejected; lock.
+
+  Place tests in `tests/test_adaptive_signing.py` (alongside the new `_sign_script_bytes` tests). Also add ONE locking test in `tests/test_adaptive_staging.py`: `test_staging_imports_from_shared_script_name_module` asserting the local `_SCRIPT_NAME_RE` constant was removed and `staging.py` imports from `adaptive.script_name`.
 
 - [ ] **Step 1: Read current engine.sign_adaptive_script carefully**
 
@@ -743,8 +758,17 @@ def test_sign_adaptive_script_delegates_to_sign_script_bytes(
 
     Mocks _sign_script_bytes, asserts engine.sign_adaptive_script calls it
     with the same inputs and returns its result.
+
+    PYTHON SEMANTICS NOTE: engine.py uses `from screw_agents.adaptive.signing
+    import _sign_script_bytes` which binds the name in engine.py's namespace
+    at import time. Monkey-patching `signing._sign_script_bytes` does NOT
+    redirect engine's already-captured reference — engine would still call
+    the real function, call_log["called"] would stay False, and the test
+    would fail confusingly. The correct patch target is engine's own
+    reference (`engine_module._sign_script_bytes`). Pre-audit caught this
+    pattern on 2026-04-21; do not "simplify" back to patching `signing`.
     """
-    from screw_agents.adaptive import signing
+    import screw_agents.engine as engine_module
     from screw_agents.engine import ScanEngine
 
     call_log = {"called": False, "kwargs": None}
@@ -754,6 +778,7 @@ def test_sign_adaptive_script_delegates_to_sign_script_bytes(
         call_log["kwargs"] = kwargs
         return {
             "status": "signed",
+            "message": f"Signed adaptive script {kwargs['script_name']} (mock).",
             "script_path": str(kwargs["project_root"] / ".screw" / "custom-scripts" / f"{kwargs['script_name']}.py"),
             "meta_path": str(kwargs["project_root"] / ".screw" / "custom-scripts" / f"{kwargs['script_name']}.meta.yaml"),
             "signed_by": "mock@example.com",
@@ -761,7 +786,8 @@ def test_sign_adaptive_script_delegates_to_sign_script_bytes(
             "session_id": kwargs.get("session_id"),
         }
 
-    monkeypatch.setattr(signing, "_sign_script_bytes", fake_helper)
+    # Patch engine's captured reference, NOT signing's module attribute.
+    monkeypatch.setattr(engine_module, "_sign_script_bytes", fake_helper)
 
     project = tmp_path / "project"
     project.mkdir()
@@ -838,12 +864,27 @@ def _sign_script_bytes(
     ...
 ```
 
-**Implementation note:** The body that currently lives in `engine.sign_adaptive_script` is ~80 LOC. LIFT IT VERBATIM into `_sign_script_bytes`, adjusting only:
-1. Argument signatures to match the helper's
-2. Any references to `self` (engine method) → remove (helper is module-level)
-3. Any `self._config` reads → reload via `load_config(project_root)` at helper entry
+**Implementation note:** The body that currently lives in `engine.sign_adaptive_script` is ~80 LOC (engine.py lines ~320-545). LIFT IT VERBATIM into `_sign_script_bytes`, adjusting only these concrete items:
 
-Pre-audit: diff the moved code against the original. Should be IDENTICAL behavior. Adding `# type: ignore` or function-signature changes during the move is PROHIBITED — those introduce drift risk.
+1. **Remove `self,` from the signature** — helper is module-level. Rename `meta: dict` → `meta_dict: dict` (parameter name matches plan's `_sign_script_bytes` signature).
+2. **Name validation** — replace the 2 current call sites (engine.py:324 and :329) with a single call to `validate_script_name(script_name)` from the new `script_name.py` module. The validator raises `ValueError`; catch it and convert to the `{"status": "error", "message": ...}` dict shape to preserve the current error-return contract. Keep `"Invalid script name"` as the substring in the error message — the existing `test_sign_rejects_invalid_names` parametrize test asserts this at test_sign_adaptive_script.py:177.
+3. **Imports** — add to `signing.py`'s import block: `os`, `yaml`, `Path`, `_get_or_create_local_private_key` from `screw_agents.learning`, `load_config` + `_find_matching_reviewer` + `_fingerprint_public_key` + `_load_public_keys_with_reviewers` from `screw_agents.trust`, and the new `SCRIPT_NAME_RE` / `USER_FACING_NAME_REGEX` / `validate_script_name` from `screw_agents.adaptive.script_name`.
+4. **No `self._config` reads to adjust** — pre-audit (2026-04-21) confirmed the current method does NOT read `self._config`; it already calls `load_config(project_root)` locally at engine.py:373. An earlier draft of this plan warned about `self._config` migration — that note was incorrect and has been removed.
+
+**PROHIBITED during the move:**
+- Adding `# type: ignore` annotations
+- Changing the method's return-dict shape (keys must remain: `status`, `message`, `script_path`, `meta_path`, `signed_by`, `sha256`, `session_id`)
+- Changing error-message substrings that existing tests assert on:
+  - `"Invalid script name"` (test_sign_adaptive_script.py:177)
+  - `"already exists"` + `"validate-script"` (:113, :140)
+  - `"script_reviewers"` + `"init-trust"` (:197)
+  - `"does not match any registered reviewer"` + `"init-trust"` (:251)
+  - `"AdaptiveScriptMeta schema"` (:401)
+  - `"rolled back"` (:368) — from the `ValueError` raised on meta-write failure
+  - `"script source"` (:446) — from the `ValueError` raised on source-write failure
+- Changing the atomic-write filename pattern (`{script_name}.py.tmp`, `{script_name}.meta.yaml.tmp`) — `test_sign_atomic_write_rollback_on_meta_failure` asserts on `rollback-test.meta.yaml.tmp` at :372.
+
+Pre-audit discipline: before committing, run `diff <(git show 1d07d6b:src/screw_agents/engine.py | sed -n '320,545p') <(grep -n ... _sign_script_bytes body)` and visually confirm the moved body is behaviorally identical (allowing for the name-validation-via-validator refactor at point 2 above).
 
 - [ ] **Step 5: Refactor `engine.sign_adaptive_script` to delegate**
 
@@ -896,13 +937,12 @@ Expected: **~800 passed, 8 skipped** (790 post-T1 part 3 + 5 new signing-helper 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add src/screw_agents/adaptive/signing.py \
+git add src/screw_agents/adaptive/script_name.py \
+        src/screw_agents/adaptive/signing.py \
         src/screw_agents/adaptive/staging.py \
         src/screw_agents/engine.py \
         tests/test_adaptive_signing.py \
         tests/test_adaptive_staging.py
-# If the implementer chose a dedicated module for the shared regex, also:
-#   git add src/screw_agents/adaptive/_script_name.py
 git commit -m "refactor(phase3b-c1): extract _sign_script_bytes + shared SCRIPT_NAME_RE (T2, Option D + I-new-1/2)"
 ```
 
