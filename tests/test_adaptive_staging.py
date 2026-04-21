@@ -1744,6 +1744,20 @@ def test_reject_staged_script_idempotent_on_second_reject(tmp_path: Path) -> Non
     assert r1["status"] == "rejected"
     assert r2["status"] == "already_rejected"  # idempotent
 
+    # I-T5-3: audit-correctness invariant — idempotent reject must NOT
+    # duplicate the `rejected` event in the registry.
+    import json as _json
+    from screw_agents.adaptive.staging import resolve_registry_path
+    entries = [
+        _json.loads(line)
+        for line in resolve_registry_path(project).read_text().splitlines()
+        if line.strip()
+    ]
+    rejected_events = [e for e in entries if e["event"] == "rejected"]
+    assert len(rejected_events) == 1, (
+        f"idempotent reject must not duplicate audit events; got {len(rejected_events)}"
+    )
+
 
 def test_reject_staged_script_rejects_invalid_session_id(tmp_path: Path) -> None:
     """I1 regression: invalid session_id (rejected by T1-part-4 allowlist)
@@ -1875,3 +1889,111 @@ def test_reject_staged_script_no_staging_returns_already_rejected(
     )
 
     assert response["status"] == "already_rejected"
+
+
+def test_reject_staged_script_tolerates_corrupted_prompts_json(tmp_path: Path) -> None:
+    """I-T5-1 regression: reject must swallow corrupted adaptive_prompts.json
+    (invalid JSON, wrong shape) and self-heal the file — never leak
+    JSONDecodeError / AttributeError to the caller."""
+    from screw_agents.engine import ScanEngine
+
+    project = tmp_path / "project"
+    project.mkdir()
+    engine = ScanEngine.from_defaults()
+
+    # Plant a corrupted prompts file.
+    prompts_path = project / ".screw" / "local" / "adaptive_prompts.json"
+    prompts_path.parent.mkdir(parents=True, exist_ok=True)
+    prompts_path.write_text("{not valid json at all", encoding="utf-8")
+
+    # Stage + reject. Must NOT raise.
+    engine.stage_adaptive_script(
+        project_root=project, script_name="test-rej-heal", source="pass\n",
+        meta={"name": "test-rej-heal", "created": "2026-04-20T10:00:00Z",
+              "created_by": "t@e.co", "domain": "injection-input-handling",
+              "description": "d", "target_patterns": ["x"]},
+        session_id="sess-abc", target_gap=None,
+    )
+    response = engine.reject_staged_script(
+        project_root=project, script_name="test-rej-heal",
+        session_id="sess-abc", reason=None,
+    )
+
+    assert response["status"] == "rejected"
+    # Self-heal: after reject, the corrupted file should now be valid JSON
+    # with the declined entry.
+    import json as _json
+    state = _json.loads(prompts_path.read_text(encoding="utf-8"))
+    assert "test-rej-heal" in state.get("declined", [])
+
+
+def test_reject_staged_script_tolerates_wrong_shape_prompts_json(tmp_path: Path) -> None:
+    """I-T5-1 regression: valid JSON but wrong shape (list instead of dict,
+    or declined is not a list) must also self-heal without exception."""
+    from screw_agents.engine import ScanEngine
+
+    project = tmp_path / "project"
+    project.mkdir()
+    engine = ScanEngine.from_defaults()
+
+    # Plant a shape-corrupted prompts file: valid JSON, wrong type.
+    prompts_path = project / ".screw" / "local" / "adaptive_prompts.json"
+    prompts_path.parent.mkdir(parents=True, exist_ok=True)
+    prompts_path.write_text('["this", "is", "a", "list"]', encoding="utf-8")
+
+    engine.stage_adaptive_script(
+        project_root=project, script_name="test-rej-shape", source="pass\n",
+        meta={"name": "test-rej-shape", "created": "2026-04-20T10:00:00Z",
+              "created_by": "t@e.co", "domain": "injection-input-handling",
+              "description": "d", "target_patterns": ["x"]},
+        session_id="sess-abc", target_gap=None,
+    )
+    response = engine.reject_staged_script(
+        project_root=project, script_name="test-rej-shape",
+        session_id="sess-abc", reason=None,
+    )
+
+    assert response["status"] == "rejected"
+    import json as _json
+    state = _json.loads(prompts_path.read_text(encoding="utf-8"))
+    assert isinstance(state, dict)
+    assert "test-rej-shape" in state.get("declined", [])
+
+
+def test_reject_staged_script_delete_failure_returns_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """I-T5-2 regression: delete_staged_files ValueError must become an
+    error-dict (error=delete_failed), not an uncaught exception. Symmetric
+    with T4's wrap of the same staging helper."""
+    from screw_agents.engine import ScanEngine
+    from screw_agents.adaptive import staging as staging_module
+
+    project = tmp_path / "project"
+    project.mkdir()
+    engine = ScanEngine.from_defaults()
+    engine.stage_adaptive_script(
+        project_root=project, script_name="test-rej-del-fail", source="pass\n",
+        meta={"name": "test-rej-del-fail", "created": "2026-04-20T10:00:00Z",
+              "created_by": "t@e.co", "domain": "injection-input-handling",
+              "description": "d", "target_patterns": ["x"]},
+        session_id="sess-abc", target_gap=None,
+    )
+
+    def boom(**kwargs):
+        raise ValueError("simulated delete failure (EBUSY)")
+
+    monkeypatch.setattr(staging_module, "delete_staged_files", boom)
+    # engine imported delete_staged_files locally; patch via the local ref too.
+    import screw_agents.engine as engine_module
+    if hasattr(engine_module, "delete_staged_files"):
+        monkeypatch.setattr(engine_module, "delete_staged_files", boom)
+
+    response = engine.reject_staged_script(
+        project_root=project, script_name="test-rej-del-fail",
+        session_id="sess-abc", reason=None,
+    )
+
+    assert response["status"] == "error"
+    assert response["error"] == "delete_failed"
+    assert "simulated" in response["message"]

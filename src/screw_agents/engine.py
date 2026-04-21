@@ -932,11 +932,23 @@ class ScanEngine:
                 "reason": reason or "",
             }
 
-        delete_staged_files(
-            project_root=project_root,
-            script_name=script_name,
-            session_id=session_id,
-        )
+        try:
+            delete_staged_files(
+                project_root=project_root,
+                script_name=script_name,
+                session_id=session_id,
+            )
+        except ValueError as exc:
+            # Reject semantics require delete to succeed. If it fails (EBUSY,
+            # permission, etc.), return error-dict; do NOT append audit event
+            # or update decline-tracking for a half-deleted state.
+            return {
+                "status": "error",
+                "error": "delete_failed",
+                "message": str(exc),
+                "script_name": script_name,
+                "session_id": session_id,
+            }
 
         reject_entry = {
             "event": "rejected",
@@ -953,20 +965,31 @@ class ScanEngine:
         # event appended) does NOT depend on this file; a flaky prompts file
         # must not break the reject.
         prompts_path = project_root / ".screw" / "local" / "adaptive_prompts.json"
+        # T18b decline-tracking update — best-effort per docstring. Must self-heal
+        # corrupted files (JSONDecodeError, shape drift) so flaky prompts state
+        # never breaks reject correctness.
         try:
             if prompts_path.exists():
-                state = json.loads(prompts_path.read_text(encoding="utf-8"))
+                try:
+                    state = json.loads(prompts_path.read_text(encoding="utf-8"))
+                except ValueError:
+                    state = {"declined": []}  # self-heal: invalid JSON
+                if not isinstance(state, dict):
+                    state = {"declined": []}
             else:
                 state = {"declined": []}
             declined = state.setdefault("declined", [])
+            if not isinstance(declined, list):
+                declined = []
+                state["declined"] = declined
             if script_name not in declined:
                 declined.append(script_name)
             prompts_path.parent.mkdir(parents=True, exist_ok=True)
             tmp = prompts_path.with_suffix(".json.tmp")
             tmp.write_text(json.dumps(state, indent=2), encoding="utf-8")
             os.replace(tmp, prompts_path)
-        except (PermissionError, OSError):
-            pass  # best-effort; not critical to the reject flow's correctness
+        except (PermissionError, OSError, ValueError):
+            pass  # best-effort: file corruption or fs failure does not fail reject
 
         return {
             "status": "rejected",

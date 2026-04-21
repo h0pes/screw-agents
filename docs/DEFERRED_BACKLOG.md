@@ -1079,3 +1079,41 @@ assert list(stage_dir.iterdir()) == []
 **Trigger:** Next test-hygiene sweep OR if an incident surfaces unexpected post-promote reject behavior.
 **Suggested fix:** add `test_reject_after_promote_is_noop_on_custom_scripts` — promote a script, manually re-plant staging files, reject, assert staging is deleted AND custom-scripts artifact is untouched.
 **Estimated scope:** ~25 LOC test.
+
+### BACKLOG-PR6-32 — Local `import json` shadows module-level `_json` alias
+**Source:** Phase 3b PR #6 T5 Opus re-review (B-T5-1), 2026-04-21
+**File:** `src/screw_agents/engine.py` — `reject_staged_script` (and possibly `promote_staged_script`)
+**Why deferred:** engine.py imports `json as _json` at module top (line 13) to avoid shadowing. `reject_staged_script` does a local `import json` inside the method body. Functionally correct (Python resolves local binding), but inconsistent with module style.
+**Trigger:** Next engine.py style consistency pass.
+**Suggested fix:** drop the local `import json`; rely on module-level `_json`; rename uses.
+**Estimated scope:** ~3 LOC.
+
+### BACKLOG-PR6-33 — Happy-path reject test missing full schema assertion
+**Source:** Phase 3b PR #6 T5 Opus re-review (B-T5-3), 2026-04-21
+**File:** `tests/test_adaptive_staging.py` — `test_reject_staged_script_deletes_files_and_audits`
+**Why deferred:** Test asserts `rej["reason"]` but not `rejected_at`, `schema_version`, `script_name`, `session_id`. `validate_pending_approval` catches absence at write-time, so absence would fail elsewhere — but explicit schema assertions are cheap regression insurance.
+**Trigger:** Next test-hygiene sweep.
+**Estimated scope:** ~5 LOC.
+
+### BACKLOG-PR6-34 — Extract decline-tracking update into private helper
+**Source:** Phase 3b PR #6 T5 Opus re-review (B-T5-4), 2026-04-21
+**File:** `src/screw_agents/engine.py` — `reject_staged_script`
+**Why deferred:** The ~20-line block that updates `adaptive_prompts.json` is a self-contained concern ("remember this script was declined so it's not re-proposed"). Extracting to `_record_decline_in_prompts_file(project_root, script_name)` would shorten the main method and co-locate the best-effort policy.
+**Trigger:** Next readability polish pass OR when T18b gets its own module.
+**Estimated scope:** ~25 LOC refactor.
+
+### BACKLOG-PR6-35 — No test for fresh-stage-between-rejects corner case
+**Source:** Phase 3b PR #6 T5 Opus re-review (B-T5-5), 2026-04-21
+**File:** `tests/test_adaptive_staging.py`
+**Why deferred:** If between first and second reject, a fresh stage happens with same `(script_name, session_id)`, second reject would delete the FRESH stage. Semantically correct ("reject acts on whatever is currently staged for that name+session") but not tested.
+**Trigger:** Next test-hygiene sweep.
+**Suggested fix:** add `test_reject_after_fresh_restage_deletes_fresh_stage` — stage, reject, stage again, reject again, assert the second fresh stage is deleted and two `rejected` audit events appear.
+**Estimated scope:** ~25 LOC test.
+
+### BACKLOG-PR6-36 — `invalid_session_id` error-dict omits helper-readable `session_id` field
+**Source:** Phase 3b PR #6 T5 Opus re-review (minor observation), 2026-04-21
+**File:** `src/screw_agents/engine.py` — `reject_staged_script`, `stage_adaptive_script`, `promote_staged_script`
+**Why deferred:** Error dicts for invalid session_id include the rejected value in `message` but not as a dedicated `session_id` field. Callers pattern-matching on `response["session_id"]` get KeyError on error paths. Minor UX.
+**Trigger:** Next error-taxonomy polish pass.
+**Suggested fix:** include `session_id` (or `rejected_session_id` if the raw one is ugly) as a dedicated field on the error dict. Apply uniformly across T3/T4/T5 error paths.
+**Estimated scope:** ~10 LOC + test updates.

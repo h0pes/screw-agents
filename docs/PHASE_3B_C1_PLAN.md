@@ -2830,6 +2830,14 @@ git add src/screw_agents/engine.py \
 git commit -m "feat(phase3b-c1): reject_staged_script MCP tool (T5)"
 ```
 
+**T5 Opus 4.7 re-review (2026-04-21):** Spec review APPROVED (all 10 HRs pass). Quality review found 3 Important + 5 Minor items. All 3 Important fixed in T5 part 2 commit:
+
+- **I-T5-1 (prompts-file exception breadth):** `adaptive_prompts.json` update now catches `(PermissionError, OSError, ValueError)` and self-heals corrupted files (wrong shape, invalid JSON). +2 regression tests.
+- **I-T5-2 (delete_staged_files wrap):** symmetric to T4's wrap; ValueError → `{"error": "delete_failed", ...}` error-dict. +1 regression test.
+- **I-T5-3 (audit-count invariant):** idempotent test now asserts exactly one `rejected` event in registry after two rejects.
+
+Minor items deferred to DEFERRED_BACKLOG as `BACKLOG-PR6-32..36`.
+
 ---
 
 ### Task 6: `sweep_stale_staging` MCP Tool (Absorbs T-STAGING-ORPHAN-GC)
