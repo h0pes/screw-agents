@@ -2464,7 +2464,7 @@ Minor items (I-opus-3 through I-opus-10) deferred to `docs/DEFERRED_BACKLOG.md` 
 **Files:**
 - Modify: `src/screw_agents/engine.py` (add `reject_staged_script`)
 - Modify: `src/screw_agents/server.py` (register MCP tool)
-- Modify: `tests/test_adaptive_staging.py` (+4 tests)
+- Modify: `tests/test_adaptive_staging.py` (+6 tests)
 
 - [ ] **Step 1: Write failing tests**
 
@@ -2530,10 +2530,99 @@ def test_reject_staged_script_idempotent_on_second_reject(tmp_path: Path) -> Non
     assert r2["status"] == "already_rejected"  # idempotent
 
 
+def test_reject_staged_script_rejects_invalid_session_id(tmp_path: Path) -> None:
+    """I1 regression: invalid session_id (rejected by T1-part-4 allowlist)
+    must become an error-dict, not an uncaught ValueError."""
+    from screw_agents.engine import ScanEngine
+
+    project = tmp_path / "project"
+    project.mkdir()
+    engine = ScanEngine.from_defaults()
+
+    response = engine.reject_staged_script(
+        project_root=project,
+        script_name="test-001",
+        session_id="foo\nbar",  # newline rejected by allowlist
+        reason=None,
+    )
+
+    assert response["status"] == "error"
+    assert response["error"] == "invalid_session_id"
+
+
+def test_reject_staged_script_rejects_invalid_script_name(tmp_path: Path) -> None:
+    """I1 regression: invalid script_name must become error-dict."""
+    from screw_agents.engine import ScanEngine
+
+    project = tmp_path / "project"
+    project.mkdir()
+    engine = ScanEngine.from_defaults()
+
+    response = engine.reject_staged_script(
+        project_root=project,
+        script_name="UPPERCASE",  # allowlist rejects uppercase
+        session_id="sess-abc",
+        reason=None,
+    )
+
+    assert response["status"] == "error"
+    assert response["error"] == "invalid_script_name"
+
+
 def test_reject_staged_script_updates_adaptive_prompts_json(tmp_path: Path) -> None:
     """T18b's decline tracking lives in .screw/local/adaptive_prompts.json —
-    reject MUST update it."""
-    # ...implementation similar to above; assert the file has the target entry.
+    reject MUST update it so the same target isn't re-proposed on the next scan."""
+    import json as _json
+    from screw_agents.engine import ScanEngine
+
+    project = tmp_path / "project"
+    project.mkdir()
+    engine = ScanEngine.from_defaults()
+
+    engine.stage_adaptive_script(
+        project_root=project, script_name="test-rej-003", source="pass\n",
+        meta={"name": "test-rej-003", "created": "2026-04-20T10:00:00Z",
+              "created_by": "t@e.co", "domain": "injection-input-handling",
+              "description": "d", "target_patterns": ["x"]},
+        session_id="sess-abc", target_gap=None,
+    )
+
+    response = engine.reject_staged_script(
+        project_root=project,
+        script_name="test-rej-003",
+        session_id="sess-abc",
+        reason="too speculative",
+    )
+
+    assert response["status"] == "rejected"
+
+    # The decline-tracking artifact must include the rejected script_name.
+    prompts_path = project / ".screw" / "local" / "adaptive_prompts.json"
+    assert prompts_path.exists(), (
+        "reject_staged_script must create adaptive_prompts.json if absent"
+    )
+    state = _json.loads(prompts_path.read_text(encoding="utf-8"))
+    assert "declined" in state
+    assert "test-rej-003" in state["declined"]
+
+    # Second reject on same target MUST NOT produce duplicate declined entries.
+    engine.stage_adaptive_script(
+        project_root=project, script_name="test-rej-003", source="pass\n",
+        meta={"name": "test-rej-003", "created": "2026-04-20T10:00:00Z",
+              "created_by": "t@e.co", "domain": "injection-input-handling",
+              "description": "d", "target_patterns": ["x"]},
+        session_id="sess-xyz", target_gap=None,  # different session
+    )
+    engine.reject_staged_script(
+        project_root=project,
+        script_name="test-rej-003",
+        session_id="sess-xyz",
+        reason=None,
+    )
+    state2 = _json.loads(prompts_path.read_text(encoding="utf-8"))
+    assert state2["declined"].count("test-rej-003") == 1, (
+        "declined list must deduplicate by script_name"
+    )
 
 
 def test_reject_staged_script_no_staging_returns_already_rejected(tmp_path: Path) -> None:
@@ -2582,7 +2671,28 @@ def reject_staged_script(
         resolve_staging_dir,
     )
 
-    stage_dir = resolve_staging_dir(project_root, session_id)
+    # Symmetric script_name validation (T3/T4 pattern).
+    from screw_agents.adaptive.script_name import validate_script_name
+    try:
+        validate_script_name(script_name)
+    except ValueError as exc:
+        return {
+            "status": "error",
+            "error": "invalid_script_name",
+            "message": str(exc),
+        }
+
+    # I1 defense-in-depth: resolve_staging_dir raises ValueError on invalid
+    # session_id (T1-part-4 allowlist). Catch + convert to error-dict for
+    # consistency with T3/T4's engine-layer contract — no ValueError leak.
+    try:
+        stage_dir = resolve_staging_dir(project_root, session_id)
+    except ValueError as exc:
+        return {
+            "status": "error",
+            "error": "invalid_session_id",
+            "message": str(exc),
+        }
     py_path = stage_dir / f"{script_name}.py"
     if not py_path.exists():
         return {
@@ -2709,7 +2819,7 @@ Run: `uv run pytest tests/test_adaptive_staging.py -v -k "reject"`
 Expected: 4 PASS.
 
 Run: `uv run pytest -q`
-Expected: 807 passed.
+Expected: **868 passed, 8 skipped** (862 post-T4 + 6 new reject tests). Floor 866, ceiling ~870.
 
 - [ ] **Step 6: Commit**
 

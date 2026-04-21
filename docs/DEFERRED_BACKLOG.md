@@ -1055,3 +1055,27 @@ assert list(stage_dir.iterdir()) == []
 **Trigger:** Next readability polish pass, OR if a future T5/T6/T7 task touches the same method and the size becomes a merge-conflict risk.
 **Suggested fix:** extract three private helpers; update tests to exercise them directly where helpful; preserve public signature.
 **Estimated scope:** ~100 LOC refactor + test reorganization.
+
+### BACKLOG-PR6-29 — `adaptive_prompts.json` tmp-file naming uses `with_suffix`
+**Source:** Phase 3b PR #6 T5 pre-audit (N1), 2026-04-21
+**File:** `src/screw_agents/engine.py` — `reject_staged_script`
+**Why deferred:** The tmp file for atomic JSON write uses `prompts_path.with_suffix(".json.tmp")`. Works correctly for `.json` (single-suffix), but inconsistent with T1's string-concat tmp-naming discipline (locked in to avoid the `.meta.yaml` double-suffix bug). Defensive consistency would prefer `prompts_path.parent / f"{prompts_path.name}.tmp"`.
+**Trigger:** Next consistency-polish pass touching engine.py tmp-write sites.
+**Suggested fix:** replace `with_suffix` with string-concat form.
+**Estimated scope:** 1-line change + possibly a code comment.
+
+### BACKLOG-PR6-30 — Silent swallow of `adaptive_prompts.json` write failures lacks impact comment
+**Source:** Phase 3b PR #6 T5 pre-audit (N2), 2026-04-21
+**File:** `src/screw_agents/engine.py` — `reject_staged_script`
+**Why deferred:** The `try/except (PermissionError, OSError): pass` around the `adaptive_prompts.json` update is documented as "best-effort; not critical to the reject flow's correctness". True, but what IS lost: T18b decline-tracking for this specific target — the scan may re-propose the same script next run. Comment should spell out the user-visible impact so an operator reading the code understands what gets skipped on filesystem failure.
+**Trigger:** Next readability polish pass.
+**Suggested fix:** expand the comment to "best-effort; on failure, T18b decline-tracking for this target is lost — the target may be re-proposed on next scan. Reject succeeds regardless since the audit entry in pending-approvals.jsonl already recorded the decision."
+**Estimated scope:** 2-3 line comment.
+
+### BACKLOG-PR6-31 — No test for rejecting a script already in promoted lifecycle state
+**Source:** Phase 3b PR #6 T5 pre-audit (N4), 2026-04-21
+**File:** `tests/test_adaptive_staging.py`
+**Why deferred:** `reject_staged_script` operates only on staging files — it doesn't check registry lifecycle. If a script was already promoted but staging files somehow exist (shouldn't happen in practice per T4's `delete_staged_files` cleanup, but possible after sweep race or hand-edit), reject would still delete staging and emit a `rejected` event. This is semantically ambiguous ("you promoted AND rejected?") but benign — reject acts on stage state, not on custom-scripts. Worth a test documenting the behavior.
+**Trigger:** Next test-hygiene sweep OR if an incident surfaces unexpected post-promote reject behavior.
+**Suggested fix:** add `test_reject_after_promote_is_noop_on_custom_scripts` — promote a script, manually re-plant staging files, reject, assert staging is deleted AND custom-scripts artifact is untouched.
+**Estimated scope:** ~25 LOC test.
