@@ -352,3 +352,24 @@ def test_write_staged_files_accepts_valid_script_name_edge_cases(tmp_path: Path)
             **common,
         )
         assert paths.py_path.exists()
+
+
+def test_staging_imports_from_shared_script_name_module() -> None:
+    """Locking: after T2, staging.py must NOT have a local _SCRIPT_NAME_RE.
+
+    The regex lives in adaptive.script_name; staging.py imports the
+    validator from there. If this test breaks, the T2 consolidation
+    regressed.
+    """
+    import screw_agents.adaptive.staging as staging_module
+
+    # Local constant must be gone (moved to script_name.py).
+    assert not hasattr(staging_module, "_SCRIPT_NAME_RE"), (
+        "staging.py still has a local _SCRIPT_NAME_RE — T2 consolidation "
+        "failed. The regex must live only in adaptive.script_name."
+    )
+    # The shared validator must be reachable (either as a re-export or
+    # via direct import at call sites — both are acceptable).
+    from screw_agents.adaptive.script_name import validate_script_name
+
+    assert callable(validate_script_name)

@@ -21,55 +21,22 @@ Registry event types (one entry per event, append-only):
 SECURITY — script_name validation:
     This module enforces ``script_name`` against
     ``^[a-z0-9][a-z0-9-]{2,62}$`` as defense-in-depth. The canonical
-    validator lives in ``_sign_script_bytes`` (T2); every engine-layer
-    caller runs that validation before reaching this module. Defense here
-    ensures that:
+    validator lives in ``adaptive.script_name.validate_script_name``
+    (T2); every engine-layer caller runs that validation before reaching
+    this module. Defense here ensures that:
     - Bypass bugs in upstream callers surface as ``ValueError`` from
       the closest boundary, not as path-traversal filesystem ops.
     - Direct callers of this public module (tests, future tooling)
       cannot construct a traversal primitive via ``script_name``.
-    Short-term regex duplication with ``_sign_script_bytes`` is
-    deliberate; extract to a shared constant if T2 chooses.
 """
 
 from __future__ import annotations
 
 import os
-import re
 from dataclasses import dataclass
 from pathlib import Path
 
-# Matches `_sign_script_bytes`'s name regex exactly (both will be extracted
-# to a shared constant when T2 lands; until then, keep byte-identical).
-# Lowercase alpha-num first char, then 2-62 chars of lowercase alpha-num +
-# dash. Total length 3-63.
-_SCRIPT_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{2,62}$")
-
-
-def _validate_script_name(script_name: str) -> None:
-    """Raise ValueError if ``script_name`` doesn't match the allowlist regex.
-
-    Called from every public FS op that derives a path from ``script_name``.
-    This is DEFENSE IN DEPTH — the canonical validator lives in
-    ``_sign_script_bytes`` (T2), which runs before these FS ops in the
-    normal C1 flow. We validate here too so that:
-
-    - Direct callers of this module (e.g., tests, future tooling) cannot
-      bypass the name check.
-    - Any bypass bug in the engine-layer caller surfaces as a ValueError
-      from the closest boundary (staging.py), not as a path-traversal
-      filesystem operation.
-
-    Threat: ``script_name="../../etc/shadow"`` (or any path-separator-bearing
-    string) would otherwise be interpolated into ``stage_dir / f"{script_name}.py"``
-    and write outside the staging dir.
-    """
-    if not _SCRIPT_NAME_RE.match(script_name):
-        raise ValueError(
-            f"script_name {script_name!r} does not match "
-            f"^[a-z0-9][a-z0-9-]{{2,62}}$ (3-63 chars, lowercase alnum + dash, "
-            f"must start with alnum)"
-        )
+from screw_agents.adaptive.script_name import validate_script_name as _validate_script_name
 
 __all__ = [
     "resolve_staging_dir",

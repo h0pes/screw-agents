@@ -12,7 +12,6 @@ import base64
 import hashlib
 import json as _json
 import os
-import re
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +19,7 @@ import yaml
 
 from screw_agents.adaptive.executor import execute_script
 from screw_agents.adaptive.signing import (
+    _sign_script_bytes,
     build_signed_script_meta,
     compute_script_sha256,
 )
@@ -43,12 +43,6 @@ from screw_agents.trust import (
     load_config,
     verify_script,
 )
-
-# Filesystem-safe script name regex: lowercase alphanum + dash, 3-63 chars,
-# must start with alphanumeric. Mirrors the safety envelope used elsewhere
-# in adaptive scripts — conservative to avoid path traversal / shell
-# metacharacters / Windows reserved names when these land on disk.
-_SCRIPT_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{2,62}$")
 
 _DEFAULT_DOMAINS_DIR = Path(__file__).resolve().parent.parent.parent / "domains"
 
@@ -317,232 +311,20 @@ class ScanEngine:
         Layer 3 verification would fail on the next executor call. The
         reverse failure mode (source write fails) leaves no partial
         state because the tmp file is deleted before any commit.
+
+        Implementation note (T2): all filesystem + key + signing work is
+        delegated to ``_sign_script_bytes`` (``adaptive/signing.py``).
+        This method is a thin wrapper that forwards all arguments and
+        returns the helper's result unchanged, preserving the public
+        API and return-dict shape.
         """
-        # Name validation — reject anything that could turn into path
-        # traversal, shell metacharacters, or Windows reserved names
-        # when these land on disk.
-        if not _SCRIPT_NAME_RE.match(script_name):
-            return {
-                "status": "error",
-                "message": (
-                    f"Invalid script name {script_name!r}. Must match "
-                    f"regex {_SCRIPT_NAME_RE.pattern!r} "
-                    f"(lowercase alphanumeric + dashes, 3-63 chars, "
-                    f"starts with alphanumeric)."
-                ),
-            }
-
-        script_dir = project_root / ".screw" / "custom-scripts"
-        script_path = script_dir / f"{script_name}.py"
-        meta_path = script_dir / f"{script_name}.meta.yaml"
-
-        # Fresh-script semantics: if EITHER file already exists, refuse.
-        # Idempotent re-sign is the validate-script CLI's job, not this
-        # tool's — bailing cleanly prevents the subagent accidentally
-        # overwriting a user's hand-edited custom script.
-        if script_path.exists() or meta_path.exists():
-            return {
-                "status": "error",
-                "message": (
-                    f"Script {script_name} already exists at "
-                    f"{script_path} or {meta_path}. Refusing to overwrite; "
-                    f"use `screw-agents validate-script {script_name}` to "
-                    f"re-sign an existing script."
-                ),
-            }
-
-        # Ensure the target directory exists — a fresh project may not
-        # have .screw/custom-scripts/ yet.
-        try:
-            script_dir.mkdir(parents=True, exist_ok=True)
-        except PermissionError as exc:
-            raise ValueError(
-                f"Cannot create adaptive script directory at {script_dir}: "
-                f"permission denied. Original error: {exc}"
-            ) from exc
-        except OSError as exc:
-            raise ValueError(
-                f"Cannot create adaptive script directory at {script_dir}: "
-                f"filesystem shape error ({type(exc).__name__}). "
-                f"Original error: {exc}"
-            ) from exc
-
-        # T13 I1 discipline — friendly error wrapping around load_config.
-        # Mirrors validate_script.py:229-247.
-        try:
-            config = load_config(project_root)
-        except PermissionError as exc:
-            raise ValueError(
-                f"Cannot access `.screw/config.yaml` at "
-                f"{project_root / '.screw' / 'config.yaml'}: "
-                f"permission denied. Check directory permissions or run "
-                f"with appropriate user. Original error: {exc}"
-            ) from exc
-        except OSError as exc:
-            raise ValueError(
-                f"Cannot access `.screw/config.yaml` at "
-                f"{project_root / '.screw' / 'config.yaml'}: filesystem "
-                f"shape error ({type(exc).__name__}). The `.screw` path "
-                f"or config.yaml may be the wrong type (file vs. "
-                f"directory). Original error: {exc}"
-            ) from exc
-
-        if not config.script_reviewers:
-            return {
-                "status": "error",
-                "message": (
-                    "No script_reviewers configured in .screw/config.yaml. "
-                    "Run `screw-agents init-trust --name <name> "
-                    "--email <email>` first to register your local "
-                    "signing key."
-                ),
-            }
-
-        # T13 I1 discipline — friendly error wrapping around
-        # _get_or_create_local_private_key.
-        try:
-            priv, _pub_line = _get_or_create_local_private_key(project_root)
-        except PermissionError as exc:
-            raise RuntimeError(
-                f"Cannot create local signing key at "
-                f"{project_root / '.screw' / 'local' / 'keys'}: permission "
-                f"denied. Check directory permissions. Original: {exc}"
-            ) from exc
-        except OSError as exc:
-            raise RuntimeError(
-                f"Failed to create local signing key at "
-                f"{project_root / '.screw' / 'local' / 'keys'}: {exc}. "
-                f"Check disk space and filesystem state."
-            ) from exc
-
-        # Model A fingerprint-based signer identity selection.
-        # Matching against config.script_reviewers[0].email is WRONG on
-        # multi-reviewer projects (the local key may not be [0]).
-        keys_with_reviewers, _dropped = _load_public_keys_with_reviewers(
-            config.script_reviewers
+        return _sign_script_bytes(
+            project_root=project_root,
+            script_name=script_name,
+            source=source,
+            meta_dict=meta,
+            session_id=session_id,
         )
-        local_fingerprint = _fingerprint_public_key(priv.public_key())
-        matching_reviewer = _find_matching_reviewer(
-            local_fingerprint, keys_with_reviewers
-        )
-
-        if matching_reviewer is None:
-            return {
-                "status": "error",
-                "message": (
-                    "Local signing key does not match any registered "
-                    "reviewer in script_reviewers. Run "
-                    "`screw-agents init-trust` to register this machine's "
-                    "key before signing scripts."
-                ),
-            }
-
-        signer_email = matching_reviewer.email
-        current_sha256 = compute_script_sha256(source)
-
-        # Delegate canonicalization + signing to the shared helper so the
-        # approve-path and the validate-script CLI produce byte-identical
-        # canonical input to the executor's Layer 3 verification.
-        try:
-            meta_for_persist = build_signed_script_meta(
-                meta_raw=meta,
-                source=source,
-                current_sha256=current_sha256,
-                signer_email=signer_email,
-                private_key=priv,
-            )
-        except ValueError as exc:
-            return {
-                "status": "error",
-                "message": (
-                    f"Meta dict failed AdaptiveScriptMeta schema: {exc}"
-                ),
-            }
-
-        # Atomic write, ORDER-SENSITIVE: source file first, then meta.
-        # Rationale: if the meta landed first but source failed, the
-        # executor's Layer 2 hash pin would never be checked (no source
-        # file to hash). If the source lands but meta fails, Layer 2
-        # would fail on next executor run — same partial-state bug class.
-        # Writing source first + best-effort rollback on meta failure
-        # ensures either BOTH files are present and consistent, or
-        # NEITHER is (modulo the best-effort rollback itself racing).
-        #
-        # Single-writer assumption: between the two `os.replace` calls
-        # below, a concurrent reader of `.screw/custom-scripts/` sees the
-        # source file without its meta (brief window). Tolerable today
-        # because approve-path is human-gated — only one reviewer typing
-        # `approve <name>` at a time. If Phase 4 autoresearch automates
-        # the approve path, revisit: consider lock-file serialization or
-        # landing both `.tmp` files before either `os.replace`.
-        script_tmp = script_dir / f"{script_name}.py.tmp"
-        meta_tmp = script_dir / f"{script_name}.meta.yaml.tmp"
-        try:
-            script_tmp.write_text(source, encoding="utf-8")
-            os.replace(script_tmp, script_path)
-        except (PermissionError, OSError) as exc:
-            # T13 I1 discipline — narrow `PermissionError` would leak
-            # bare tracebacks for `IsADirectoryError`, `NotADirectoryError`,
-            # `FileExistsError`, ENOSPC, EROFS (read-only mount), quota
-            # exceeded. All are `OSError` subclasses but NOT
-            # `PermissionError` subclasses. Catch the superset and surface
-            # the concrete type in the message so the user knows whether
-            # to chmod, free disk space, or fix a filesystem shape error.
-            if script_tmp.exists():
-                try:
-                    script_tmp.unlink()
-                except OSError:
-                    pass
-            raise ValueError(
-                f"Cannot write script source at {script_path}: "
-                f"{type(exc).__name__}. Check directory permissions and "
-                f"disk space. Original error: {exc}"
-            ) from exc
-
-        try:
-            meta_tmp.write_text(
-                yaml.dump(
-                    meta_for_persist,
-                    default_flow_style=False,
-                    sort_keys=False,
-                ),
-                encoding="utf-8",
-            )
-            os.replace(meta_tmp, meta_path)
-        except (PermissionError, OSError) as exc:
-            # Best-effort rollback: we succeeded writing the script but
-            # failed on the meta. Leaving the orphaned .py creates a
-            # partial-state bug (Layer 2 would fail on next executor
-            # call). Unlink the orphan; if the unlink itself fails,
-            # swallow — the user will see both the script and our
-            # error message and can clean up manually.
-            if meta_tmp.exists():
-                try:
-                    meta_tmp.unlink()
-                except OSError:
-                    pass
-            try:
-                script_path.unlink()
-            except OSError:
-                pass
-            raise ValueError(
-                f"Cannot write script metadata at {meta_path}: "
-                f"{type(exc).__name__}. Script file at {script_path} was "
-                f"rolled back best-effort. Original error: {exc}"
-            ) from exc
-
-        return {
-            "status": "signed",
-            "message": (
-                f"Signed adaptive script {script_name} with {signer_email} "
-                f"(sha256={current_sha256[:12]}...)."
-            ),
-            "script_path": str(script_path),
-            "meta_path": str(meta_path),
-            "signed_by": signer_email,
-            "sha256": current_sha256,
-            "session_id": session_id,
-        }
 
     def lint_adaptive_script(self, *, source: str) -> dict[str, Any]:
         """Run Layer 1 AST allowlist lint on a script source WITHOUT executing it.
