@@ -20,8 +20,6 @@ import yaml
 from screw_agents.adaptive.executor import execute_script
 from screw_agents.adaptive.signing import (
     _sign_script_bytes,
-    build_signed_script_meta,
-    compute_script_sha256,
 )
 from screw_agents.aggregation import (
     aggregate_directory_suggestions,
@@ -30,16 +28,12 @@ from screw_agents.aggregation import (
 )
 from screw_agents.formatter import format_findings
 from screw_agents.learning import (
-    _get_or_create_local_private_key,
     load_exclusions,
 )
 from screw_agents.models import AgentDefinition, Exclusion, Finding, HeuristicEntry
 from screw_agents.registry import AgentRegistry
 from screw_agents.resolver import ResolvedCode, filter_by_relevance, resolve_target
 from screw_agents.trust import (
-    _find_matching_reviewer,
-    _fingerprint_public_key,
-    _load_public_keys_with_reviewers,
     load_config,
     verify_script,
 )

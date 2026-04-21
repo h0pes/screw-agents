@@ -33,6 +33,7 @@ SECURITY — script_name validation:
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -48,20 +49,43 @@ __all__ = [
 ]
 
 
+# Symmetric-allowlist session_id validator (I-opus-1 fix). The pre-Opus
+# validator was a 5-char denylist which let `"foo\nbar"`, `"foo:bar"`,
+# `".hidden"`, `"\xff"` through — each a distinct threat:
+#   - `\n`: JSONL audit-log line-injection when session_id is embedded
+#           into pending-approvals.jsonl (T3+).
+#   - `:` on NTFS: alternate-data-stream primitive.
+#   - leading-`.`: hidden-dir bypass of operator `ls` and sweep walks.
+#   - high-bit bytes: unicode homoglyphs and terminal-control injection.
+# This regex mirrors script_name's allowlist discipline: \A...\Z anchors
+# (no newline slip), strict character allowlist (alnum + underscore +
+# dash), bounded length 1-64.
+_SESSION_ID_RE = re.compile(r"\A[A-Za-z0-9_\-]{1,64}\Z")
+
+
 def resolve_staging_dir(project_root: Path, session_id: str) -> Path:
     """Return the absolute path to the session-scoped staging dir.
 
     Does NOT create the directory. Caller decides when to mkdir (so read-only
     lookups don't pollute the filesystem).
 
-    Raises ValueError if session_id is empty or contains path separators.
+    Raises:
+        ValueError: If session_id is empty OR does not match
+            ``\\A[A-Za-z0-9_-]{1,64}\\Z`` (alphanumeric + underscore + dash,
+            1-64 chars). Rejects newlines (JSONL-injection primitive),
+            colons (NTFS alternate-data-stream primitive), leading dots
+            (hidden-dir bypass), and high-bit bytes (homoglyph /
+            terminal-control primitive).
     """
     if not session_id:
         raise ValueError("session_id must be non-empty")
-    if session_id in (".", ".."):
-        raise ValueError(f"session_id cannot be {session_id!r} (would collapse session isolation)")
-    if "/" in session_id or "\\" in session_id or "\x00" in session_id:
-        raise ValueError(f"session_id contains invalid path chars: {session_id!r}")
+    if not _SESSION_ID_RE.match(session_id):
+        raise ValueError(
+            f"session_id {session_id!r} does not match "
+            f"^[A-Za-z0-9_-]{{1,64}}$ (alphanumeric + underscore + dash, "
+            f"1-64 chars). Rejects newlines, colons, leading dots, and "
+            f"high-bit bytes."
+        )
     return project_root / ".screw" / "staging" / session_id / "adaptive-scripts"
 
 
@@ -97,8 +121,8 @@ def write_staged_files(
 
     SECURITY: ``script_name`` is validated against
     ``^[a-z0-9][a-z0-9-]{2,62}$`` at entry (defense-in-depth; the canonical
-    validator lives in ``_sign_script_bytes``). Invalid names raise
-    ``ValueError`` before any filesystem access.
+    validator lives in ``adaptive.script_name.validate_script_name``).
+    Invalid names raise ``ValueError`` before any filesystem access.
     """
     _validate_script_name(script_name)
     stage_dir = resolve_staging_dir(project_root, session_id)
@@ -165,8 +189,8 @@ def read_staged_files(
 
     SECURITY: ``script_name`` is validated against
     ``^[a-z0-9][a-z0-9-]{2,62}$`` at entry (defense-in-depth; the canonical
-    validator lives in ``_sign_script_bytes``). Invalid names raise
-    ``ValueError`` before any filesystem access.
+    validator lives in ``adaptive.script_name.validate_script_name``).
+    Invalid names raise ``ValueError`` before any filesystem access.
     """
     _validate_script_name(script_name)
     stage_dir = resolve_staging_dir(project_root, session_id)
@@ -200,8 +224,8 @@ def delete_staged_files(
 
     SECURITY: ``script_name`` is validated against
     ``^[a-z0-9][a-z0-9-]{2,62}$`` at entry (defense-in-depth; the canonical
-    validator lives in ``_sign_script_bytes``). Invalid names raise
-    ``ValueError`` before any filesystem access.
+    validator lives in ``adaptive.script_name.validate_script_name``).
+    Invalid names raise ``ValueError`` before any filesystem access.
     """
     _validate_script_name(script_name)
     stage_dir = resolve_staging_dir(project_root, session_id)

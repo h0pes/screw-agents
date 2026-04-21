@@ -44,7 +44,7 @@ def test_resolve_staging_dir_rejects_dot_session_ids(tmp_path: Path) -> None:
     project.mkdir()
 
     for bad in (".", ".."):
-        with pytest.raises(ValueError, match="collapse"):
+        with pytest.raises(ValueError, match="does not match"):
             resolve_staging_dir(project, bad)
 
 
@@ -55,19 +55,98 @@ def test_resolve_staging_dir_rejects_path_traversal_chars(tmp_path: Path) -> Non
     project.mkdir()
 
     for bad in ("a/b", "a\\b", "a\x00b"):
-        with pytest.raises(ValueError, match="invalid path chars"):
+        with pytest.raises(ValueError, match="does not match"):
             resolve_staging_dir(project, bad)
 
 
-def test_resolve_staging_dir_accepts_dots_within_session_id(tmp_path: Path) -> None:
-    """Regression for I-2: `a..b` is a legitimate name, not a traversal."""
+def test_resolve_staging_dir_rejects_dots_within_session_id(tmp_path: Path) -> None:
+    """I-opus-1/2 regression: dots in session_id (except the previously-
+    rejected bare `"."` / `".."`) are now also rejected by the tightened
+    allowlist. `"a..b"` was accepted pre-Opus as a regression guard against
+    substring over-matching of `".."`; that guard is obsolete under an
+    allowlist-not-denylist validator.
+    """
     from screw_agents.adaptive.staging import resolve_staging_dir
 
     project = tmp_path / "project"
     project.mkdir()
 
-    staging_dir = resolve_staging_dir(project, "a..b")
-    assert staging_dir == project / ".screw" / "staging" / "a..b" / "adaptive-scripts"
+    for bad in ("a..b", ".hidden", "trailing.", "has.dots"):
+        with pytest.raises(ValueError, match="does not match"):
+            resolve_staging_dir(project, bad)
+
+
+def test_resolve_staging_dir_rejects_newline_and_cr_in_session_id(tmp_path: Path) -> None:
+    """I-opus-1 regression: newlines in session_id are a JSONL-injection
+    primitive. Under the tightened regex, they are rejected."""
+    from screw_agents.adaptive.staging import resolve_staging_dir
+
+    project = tmp_path / "project"
+    project.mkdir()
+
+    for bad in ("foo\nbar", "foo\rbar", "foo\r\nbar", "trailing\n", "\nleading"):
+        with pytest.raises(ValueError, match="does not match"):
+            resolve_staging_dir(project, bad)
+
+
+def test_resolve_staging_dir_rejects_whitespace_and_colon_in_session_id(tmp_path: Path) -> None:
+    """I-opus-1 regression: whitespace, tab, colon (NTFS ADS primitive),
+    and other control characters are rejected."""
+    from screw_agents.adaptive.staging import resolve_staging_dir
+
+    project = tmp_path / "project"
+    project.mkdir()
+
+    for bad in ("foo bar", "foo\tbar", "foo:bar", "foo ", " foo", "foo;bar"):
+        with pytest.raises(ValueError, match="does not match"):
+            resolve_staging_dir(project, bad)
+
+
+def test_resolve_staging_dir_rejects_high_bit_bytes_in_session_id(tmp_path: Path) -> None:
+    """I-opus-1 regression: high-bit bytes (unicode homoglyphs, terminal
+    control) are rejected."""
+    from screw_agents.adaptive.staging import resolve_staging_dir
+
+    project = tmp_path / "project"
+    project.mkdir()
+
+    for bad in ("\xff", "foo\xffbar", "café", "foo​bar"):  # includes zero-width space
+        with pytest.raises(ValueError, match="does not match"):
+            resolve_staging_dir(project, bad)
+
+
+def test_resolve_staging_dir_rejects_over_length_session_id(tmp_path: Path) -> None:
+    """I-opus-1 regression: session_id >64 chars is rejected (bounds check
+    was absent pre-Opus; added for defense-in-depth)."""
+    from screw_agents.adaptive.staging import resolve_staging_dir
+
+    project = tmp_path / "project"
+    project.mkdir()
+
+    with pytest.raises(ValueError, match="does not match"):
+        resolve_staging_dir(project, "a" * 65)
+
+
+def test_resolve_staging_dir_accepts_valid_session_id_edge_cases(tmp_path: Path) -> None:
+    """Regression coverage for valid session_ids: boundary lengths + all
+    allowed character classes."""
+    from screw_agents.adaptive.staging import resolve_staging_dir
+
+    project = tmp_path / "project"
+    project.mkdir()
+
+    for good in (
+        "a",                       # min length
+        "a" * 64,                  # max length
+        "sess-abc",                # dash
+        "sess_abc",                # underscore
+        "SESS-ABC-123",            # uppercase + dash + digit
+        "0123456789",              # digits only
+        "mixed-Case_123",          # combined
+    ):
+        # Should not raise.
+        result = resolve_staging_dir(project, good)
+        assert good in str(result)
 
 
 def test_resolve_registry_path(tmp_path: Path) -> None:
