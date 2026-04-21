@@ -838,6 +838,143 @@ class ScanEngine:
             "promoted_via_fallback": audit_event == "promoted_via_fallback",
         }
 
+    def reject_staged_script(
+        self,
+        *,
+        project_root: Path,
+        script_name: str,
+        session_id: str,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        """Delete staging files and record a rejection audit event.
+
+        Idempotent: a second reject on already-deleted staging returns
+        ``status=already_rejected`` (success). Also updates the existing T18b
+        decline-tracking file ``.screw/local/adaptive_prompts.json`` to mark
+        this target as declined so the same target isn't re-proposed on the
+        next scan.
+
+        Flow (design spec §3.3):
+          1. Validate ``script_name`` via the shared validator; ValueError →
+             ``invalid_script_name`` error-dict (I1 defense-in-depth, symmetric
+             to T3/T4).
+          2. Resolve staging dir; ValueError (invalid ``session_id``) →
+             ``invalid_session_id`` error-dict.
+          3. If staging .py does not exist → ``already_rejected`` (idempotent
+             success — a second reject after first reject, or reject before
+             any stage, is not an error).
+          4. Delete staged files + append ``rejected`` audit event to the
+             pending-approvals registry.
+          5. Best-effort update of ``.screw/local/adaptive_prompts.json``
+             (T18b decline tracking) — swallow filesystem errors so a flaky
+             prompts file never breaks the reject flow's correctness.
+
+        Args:
+            project_root: Project root with ``.screw/`` directory.
+            script_name: Filesystem-safe name (regex
+                ``^[a-z0-9][a-z0-9-]{2,62}$``). Validated via the shared
+                ``adaptive.script_name.validate_script_name``.
+            session_id: Scan session id the script was staged under.
+                Validated by ``resolve_staging_dir`` against the
+                ``\\A[A-Za-z0-9_-]{1,64}\\Z`` allowlist.
+            reason: Optional short rationale recorded in the audit event.
+
+        Returns:
+            On success: ``status="rejected"`` with ``script_name``,
+            ``session_id``, ``reason``.
+            On idempotent re-reject: ``status="already_rejected"`` with same
+            fields.
+            On error: ``status="error"`` plus ``error`` (``invalid_script_name``
+            or ``invalid_session_id``) + ``message``.
+
+        Spec §3.3.
+        """
+        import json
+
+        from screw_agents.adaptive.script_name import validate_script_name
+        from screw_agents.adaptive.staging import (
+            _utc_now_iso,
+            append_registry_entry,
+            delete_staged_files,
+            resolve_staging_dir,
+        )
+
+        # I1 defense-in-depth: symmetric script_name validation (T3/T4 pattern).
+        # Catch ValueError + convert to error-dict so callers pattern-matching
+        # on response["error"] don't see a leaked ValueError.
+        try:
+            validate_script_name(script_name)
+        except ValueError as exc:
+            return {
+                "status": "error",
+                "error": "invalid_script_name",
+                "message": str(exc),
+            }
+
+        # I1 defense-in-depth: resolve_staging_dir raises ValueError on invalid
+        # session_id (T1-part-4 allowlist). Catch + convert to error-dict for
+        # consistency with T3/T4's engine-layer contract — no ValueError leak.
+        try:
+            stage_dir = resolve_staging_dir(project_root, session_id)
+        except ValueError as exc:
+            return {
+                "status": "error",
+                "error": "invalid_session_id",
+                "message": str(exc),
+            }
+
+        py_path = stage_dir / f"{script_name}.py"
+        if not py_path.exists():
+            return {
+                "status": "already_rejected",
+                "script_name": script_name,
+                "session_id": session_id,
+                "reason": reason or "",
+            }
+
+        delete_staged_files(
+            project_root=project_root,
+            script_name=script_name,
+            session_id=session_id,
+        )
+
+        reject_entry = {
+            "event": "rejected",
+            "script_name": script_name,
+            "session_id": session_id,
+            "reason": reason or "",
+            "rejected_at": _utc_now_iso(),
+            "schema_version": 1,
+        }
+        append_registry_entry(project_root, reject_entry)
+
+        # Update adaptive_prompts.json — existing T18b decline-tracking artifact.
+        # Best-effort: the reject flow's correctness (files deleted + audit
+        # event appended) does NOT depend on this file; a flaky prompts file
+        # must not break the reject.
+        prompts_path = project_root / ".screw" / "local" / "adaptive_prompts.json"
+        try:
+            if prompts_path.exists():
+                state = json.loads(prompts_path.read_text(encoding="utf-8"))
+            else:
+                state = {"declined": []}
+            declined = state.setdefault("declined", [])
+            if script_name not in declined:
+                declined.append(script_name)
+            prompts_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = prompts_path.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(state, indent=2), encoding="utf-8")
+            os.replace(tmp, prompts_path)
+        except (PermissionError, OSError):
+            pass  # best-effort; not critical to the reject flow's correctness
+
+        return {
+            "status": "rejected",
+            "script_name": script_name,
+            "session_id": session_id,
+            "reason": reason or "",
+        }
+
     def sign_adaptive_script(
         self,
         *,
@@ -2428,6 +2565,59 @@ class ScanEngine:
                             "`stale_staging_hours` (default 24). Caller "
                             "must re-type an explicit "
                             "`approve {name} confirm-stale` phrase."
+                        ),
+                    },
+                },
+                "required": [
+                    "project_root",
+                    "script_name",
+                    "session_id",
+                ],
+            },
+        })
+
+        # Phase 3b T5: reject_staged_script — C1 staging-path decline tool.
+        # Symmetric to promote_staged_script on the reject branch: deletes
+        # staging files, appends a `rejected` audit event, and updates the
+        # T18b decline tracking (.screw/local/adaptive_prompts.json) so the
+        # same target is not re-proposed on the next scan. Idempotent:
+        # re-rejecting after files are gone returns already_rejected.
+        tools.append({
+            "name": "reject_staged_script",
+            "description": (
+                "Delete the staging files for a rejected adaptive script and "
+                "record a `rejected` audit event in the pending-approvals "
+                "registry. Idempotent: a second reject on already-deleted "
+                "staging returns status=\"already_rejected\" (success). Also "
+                "updates `.screw/local/adaptive_prompts.json` — the existing "
+                "T18b decline-tracking artifact — to add the target to the "
+                "`declined` list so it is not re-proposed. See design spec §3.3."
+            ),
+            "input_schema": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "project_root": {
+                        "type": "string",
+                        "description": "Absolute path to the project root.",
+                    },
+                    "script_name": {
+                        "type": "string",
+                        "description": (
+                            "Filesystem-safe name of the staged script to reject."
+                        ),
+                    },
+                    "session_id": {
+                        "type": "string",
+                        "description": (
+                            "Scan session id the script was staged under."
+                        ),
+                    },
+                    "reason": {
+                        "type": ["string", "null"],
+                        "description": (
+                            "Optional short rationale recorded in the audit "
+                            "event (why the reviewer declined this script)."
                         ),
                     },
                 },

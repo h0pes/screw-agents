@@ -173,6 +173,16 @@ def _dispatch_tool(
             confirm_stale=args.get("confirm_stale", False),
         )
 
+    # --- Phase 3b T5: reject_staged_script (decline path) ---
+
+    if name == "reject_staged_script":
+        return engine.reject_staged_script(
+            project_root=Path(args["project_root"]),
+            script_name=args["script_name"],
+            session_id=args["session_id"],
+            reason=args.get("reason"),
+        )
+
     # --- Phase 3b T18a: lint_adaptive_script (pre-approval review) ---
 
     if name == "lint_adaptive_script":
