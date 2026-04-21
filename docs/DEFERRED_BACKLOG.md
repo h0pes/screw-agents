@@ -1117,3 +1117,27 @@ assert list(stage_dir.iterdir()) == []
 **Trigger:** Next error-taxonomy polish pass.
 **Suggested fix:** include `session_id` (or `rejected_session_id` if the raw one is ugly) as a dedicated field on the error dict. Apply uniformly across T3/T4/T5 error paths.
 **Estimated scope:** ~10 LOC + test updates.
+
+### BACKLOG-PR6-37 — `sweep_stale` inline walk vs `fallback_walk_for_script` helper
+**Source:** Phase 3b PR #6 T6 pre-audit (N1), 2026-04-21
+**File:** `src/screw_agents/adaptive/staging.py` — `sweep_stale` + `fallback_walk_for_script`
+**Why deferred:** `sweep_stale` uses inline `staging_root.iterdir()` + per-session `adapt_dir.glob("*.py")` walk. T3 added `fallback_walk_for_script(project_root, *, script_name)` for promote's fallback path. Different semantics (per-script lookup vs all-scripts scan), so direct reuse doesn't fit, but a shared `walk_all_staging` helper could consolidate the iteration pattern if a third consumer appears.
+**Trigger:** If a T25+ task introduces a third iterator over `.screw/staging/**`.
+**Suggested fix:** extract `walk_all_staging(project_root) -> Iterator[tuple[session_id, py_path]]`; use from sweep_stale; leave fallback_walk_for_script's per-script optimization intact.
+**Estimated scope:** ~15 LOC extraction.
+
+### BACKLOG-PR6-38 — Use `ScrewConfig.staging_max_age_days` field instead of raw YAML read
+**Source:** Phase 3b PR #6 T6 pre-audit (N2), 2026-04-21
+**File:** `src/screw_agents/engine.py` — `_read_staging_max_age_days`
+**Why deferred:** T4-part-2 (I1) added `ScrewConfig.staging_max_age_days: int = Field(default=14, ge=1, le=365)` to the Pydantic schema. T6's `_read_staging_max_age_days` reads raw YAML via `yaml.safe_load` + `.get()` as fallback (symmetric with T4's `_read_stale_staging_hours`). Could route through `load_config(project_root)` → Pydantic validation → then fall back to raw YAML only if Pydantic fails. Gives schema-validated default path.
+**Trigger:** Next config-read polish pass; or when T6 behavior surprises a user due to silent schema bypass.
+**Suggested fix:** attempt `load_config(project_root).staging_max_age_days`; on ValidationError or config absence, fall back to current raw-YAML path.
+**Estimated scope:** ~10 LOC + 1 test.
+
+### BACKLOG-PR6-39 — `sweep_stale` does not preserve TAMPERED files past max_age_days explicitly
+**Source:** Phase 3b PR #6 T6 pre-audit follow-up, 2026-04-21
+**File:** `src/screw_agents/adaptive/staging.py` — `sweep_stale` + `_classify_sweep_reason`
+**Why deferred:** Current logic: if TAMPERED marker exists AND age < max_age_days, preserve (report in tampered_preserved). If age >= max_age_days, fall through and sweep. This treats tamper evidence as "expires eventually". A stronger stance: tamper files NEVER auto-sweep; require explicit operator action (e.g., `screw-agents forensics-acknowledge <session> <script>`).
+**Trigger:** If a post-incident review shows the auto-sweep expired useful forensic evidence, OR during Phase 4+ forensic-tooling work.
+**Suggested fix:** add `force_sweep_tampered: bool = False` kwarg to `sweep_stale_staging`; default False means tampered files NEVER swept regardless of age.
+**Estimated scope:** ~15 LOC + 2 tests.

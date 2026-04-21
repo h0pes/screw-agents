@@ -2908,26 +2908,185 @@ def test_sweep_removes_stale_orphans(tmp_path: Path) -> None:
 
 
 def test_sweep_preserves_tampered_files(tmp_path: Path) -> None:
-    """TAMPERED marker preserves files for full max_age_days regardless."""
-    # ...stage; inject tamper; sweep with small max_age_days; assert preserved + reported.
+    """TAMPERED marker preserves files for full max_age_days regardless
+    of the normal age-based sweep. The tampered_preserved report field
+    enumerates preserved entries for operator review."""
+    from datetime import datetime, timedelta, timezone
+    from screw_agents.engine import ScanEngine
+    from screw_agents.adaptive.staging import resolve_registry_path, resolve_staging_dir
+
+    project = tmp_path / "project"
+    project.mkdir()
+    engine = ScanEngine.from_defaults()
+
+    # Stage a script, then plant a TAMPERED marker next to it.
+    engine.stage_adaptive_script(
+        project_root=project, script_name="tampered-001", source="pass\n",
+        meta={"name": "tampered-001", "created": "2026-04-20T10:00:00Z",
+              "created_by": "t@e.co", "domain": "injection-input-handling",
+              "description": "d", "target_patterns": ["x"]},
+        session_id="sess-t", target_gap=None,
+    )
+    stage_dir = resolve_staging_dir(project, "sess-t")
+    (stage_dir / "tampered-001.TAMPERED").touch()
+
+    # Rewrite staged_at so file is 10d old; max_age_days=14 → not yet expired.
+    ten_days_ago = (datetime.now(timezone.utc) - timedelta(days=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    registry = resolve_registry_path(project)
+    import json as _json
+    lines = registry.read_text().splitlines()
+    rewritten = []
+    for line in lines:
+        entry = _json.loads(line)
+        if entry.get("script_name") == "tampered-001":
+            entry["staged_at"] = ten_days_ago
+        rewritten.append(_json.dumps(entry, separators=(",", ":"), sort_keys=True))
+    registry.write_text("\n".join(rewritten) + "\n")
+
+    response = engine.sweep_stale_staging(project_root=project, max_age_days=14)
+
+    # File preserved, reported in tampered_preserved.
+    assert response["status"] == "swept"
+    preserved_names = [t["script_name"] for t in response["tampered_preserved"]]
+    assert "tampered-001" in preserved_names
+    assert (stage_dir / "tampered-001.py").exists()
+    assert (stage_dir / "tampered-001.TAMPERED").exists()
 
 
 def test_sweep_dry_run_no_side_effects(tmp_path: Path) -> None:
-    """dry_run=True reports what would be removed but touches no filesystem."""
-    # ...
+    """dry_run=True reports what WOULD be removed but touches no filesystem
+    and appends no swept audit events."""
+    from datetime import datetime, timedelta, timezone
+    from screw_agents.engine import ScanEngine
+    from screw_agents.adaptive.staging import resolve_registry_path, resolve_staging_dir
+
+    project = tmp_path / "project"
+    project.mkdir()
+    engine = ScanEngine.from_defaults()
+
+    # Stage an old script that would be swept in a real run.
+    engine.stage_adaptive_script(
+        project_root=project, script_name="dry-001", source="pass\n",
+        meta={"name": "dry-001", "created": "2026-04-20T10:00:00Z",
+              "created_by": "t@e.co", "domain": "injection-input-handling",
+              "description": "d", "target_patterns": ["x"]},
+        session_id="sess-dry", target_gap=None,
+    )
+    old = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    registry = resolve_registry_path(project)
+    import json as _json
+    lines = registry.read_text().splitlines()
+    rewritten = []
+    for line in lines:
+        entry = _json.loads(line)
+        if entry.get("script_name") == "dry-001":
+            entry["staged_at"] = old
+        rewritten.append(_json.dumps(entry, separators=(",", ":"), sort_keys=True))
+    registry.write_text("\n".join(rewritten) + "\n")
+
+    # Snapshot registry line count before dry-run.
+    lines_before = len(registry.read_text().splitlines())
+
+    response = engine.sweep_stale_staging(
+        project_root=project, max_age_days=14, dry_run=True,
+    )
+
+    assert response["status"] == "swept"
+    assert response["dry_run"] is True
+    # Report populated.
+    removed_names = [r["script_name"] for r in response["scripts_removed"]]
+    assert "dry-001" in removed_names
+    # Filesystem unchanged.
+    assert (resolve_staging_dir(project, "sess-dry") / "dry-001.py").exists()
+    # Registry unchanged — NO swept event appended.
+    lines_after = len(registry.read_text().splitlines())
+    assert lines_after == lines_before
 
 
 def test_sweep_removes_empty_session_dirs(tmp_path: Path) -> None:
-    """After removing the last script in a session, the session dir is gone."""
-    # ...
+    """After removing the last script in a session's adaptive-scripts dir,
+    the empty session directory itself is also removed + counted in
+    sessions_removed."""
+    from datetime import datetime, timedelta, timezone
+    from screw_agents.engine import ScanEngine
+    from screw_agents.adaptive.staging import resolve_registry_path, resolve_staging_dir
+
+    project = tmp_path / "project"
+    project.mkdir()
+    engine = ScanEngine.from_defaults()
+
+    engine.stage_adaptive_script(
+        project_root=project, script_name="only-001", source="pass\n",
+        meta={"name": "only-001", "created": "2026-04-20T10:00:00Z",
+              "created_by": "t@e.co", "domain": "injection-input-handling",
+              "description": "d", "target_patterns": ["x"]},
+        session_id="sess-solo", target_gap=None,
+    )
+    old = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    registry = resolve_registry_path(project)
+    import json as _json
+    lines = registry.read_text().splitlines()
+    rewritten = [
+        _json.dumps({**_json.loads(line), "staged_at": old}
+                    if _json.loads(line).get("script_name") == "only-001"
+                    else _json.loads(line),
+                    separators=(",", ":"), sort_keys=True)
+        for line in lines
+    ]
+    registry.write_text("\n".join(rewritten) + "\n")
+
+    response = engine.sweep_stale_staging(project_root=project, max_age_days=14)
+
+    assert response["sessions_removed"] >= 1
+    # Session dir gone.
+    session_dir = project / ".screw" / "staging" / "sess-solo"
+    assert not session_dir.exists()
 
 
 def test_sweep_reads_config_yaml_threshold(tmp_path: Path) -> None:
-    """.screw/config.yaml staging_max_age_days overrides the default."""
-    # ...
-```
+    """.screw/config.yaml staging_max_age_days overrides the default 14.
+    With threshold=7, a 10-day-old script is swept."""
+    from datetime import datetime, timedelta, timezone
+    from screw_agents.engine import ScanEngine
+    from screw_agents.adaptive.staging import resolve_registry_path, resolve_staging_dir
 
-(Expand the 4 `...` stubs to full tests following the pattern of the first.)
+    project = tmp_path / "project"
+    project.mkdir()
+    config_dir = project / ".screw"
+    config_dir.mkdir()
+    (config_dir / "config.yaml").write_text(
+        "version: 1\n"
+        "staging_max_age_days: 7\n",
+        encoding="utf-8",
+    )
+    engine = ScanEngine.from_defaults()
+
+    engine.stage_adaptive_script(
+        project_root=project, script_name="cfg-001", source="pass\n",
+        meta={"name": "cfg-001", "created": "2026-04-20T10:00:00Z",
+              "created_by": "t@e.co", "domain": "injection-input-handling",
+              "description": "d", "target_patterns": ["x"]},
+        session_id="sess-cfg", target_gap=None,
+    )
+    ten = (datetime.now(timezone.utc) - timedelta(days=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    registry = resolve_registry_path(project)
+    import json as _json
+    lines = registry.read_text().splitlines()
+    rewritten = []
+    for line in lines:
+        entry = _json.loads(line)
+        if entry.get("script_name") == "cfg-001":
+            entry["staged_at"] = ten
+        rewritten.append(_json.dumps(entry, separators=(",", ":"), sort_keys=True))
+    registry.write_text("\n".join(rewritten) + "\n")
+
+    # max_age_days=None → engine reads from config.yaml → 7.
+    response = engine.sweep_stale_staging(project_root=project)
+
+    assert response["max_age_days"] == 7
+    removed_names = [r["script_name"] for r in response["scripts_removed"]]
+    assert "cfg-001" in removed_names
+```
 
 - [ ] **Step 2: Run tests — verify they fail**
 
@@ -2956,7 +3115,6 @@ def sweep_stale(
     """
     from datetime import datetime, timedelta, timezone
 
-    cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
     staging_root = project_root / ".screw" / "staging"
     scripts_removed: list[dict] = []
     tampered_preserved: list[dict] = []
@@ -2992,7 +3150,7 @@ def sweep_stale(
                 tampered_marker = adapt_dir / f"{script_name}.TAMPERED"
 
                 # Compute file age from staged_at (or mtime as fallback).
-                age_days = _compute_age_days(entry, py_path, cutoff)
+                age_days = _compute_age_days(entry, py_path)
                 reason = _classify_sweep_reason(entry, age_days, max_age_days)
 
                 if reason is None:
@@ -3052,7 +3210,7 @@ def sweep_stale(
     }
 
 
-def _compute_age_days(entry: dict | None, py_path: Path, cutoff) -> int:
+def _compute_age_days(entry: dict | None, py_path: Path) -> int:
     """Return age in days based on registry staged_at or file mtime fallback."""
     from datetime import datetime, timezone
     if entry and "staged_at" in entry:
@@ -3065,12 +3223,45 @@ def _compute_age_days(entry: dict | None, py_path: Path, cutoff) -> int:
     return (datetime.now(timezone.utc) - mtime).days
 
 
-def _classify_sweep_reason(entry: dict | None, age_days: int, max_age_days: int) -> str | None:
+# Terminal/completed events — staging files shouldn't still exist if the
+# lifecycle reached any of these. A staged→promoted path deletes staging
+# files (per T4's flow) or logs the failure (per T5's I-T5-2 wrap). Any
+# staged files left behind = orphan to sweep. All 3 promote variants
+# (T4 emits them depending on fallback / confirm-stale) + reject + swept.
+_TERMINAL_EVENTS: frozenset[str] = frozenset({
+    "promoted",
+    "promoted_via_fallback",
+    "promoted_confirm_stale",
+    "rejected",
+    "swept",
+})
+
+
+def _classify_sweep_reason(
+    entry: dict | None, age_days: int, max_age_days: int
+) -> str | None:
     """Decide whether this staging entry should be swept.
 
     Returns reason string or None (keep).
+
+    Rules:
+      - `tamper_detected` as most-recent event → preserve regardless of age
+        (forensic evidence; sweep after max_age_days expiration via the
+        age-based branch, but the TAMPERED marker check in sweep_stale
+        gets the first vote).
+      - Any terminal-lifecycle event → completed_orphan (sweep regardless
+        of age — the files shouldn't be there post-lifecycle).
+      - Age >= max_age_days → stale_orphan.
+      - Otherwise keep.
     """
-    if entry and entry.get("event") in ("promoted", "rejected", "swept"):
+    if entry and entry.get("event") == "tamper_detected":
+        # Do NOT report tamper_detected as sweepable here; the marker-file
+        # check in sweep_stale owns the preserve-vs-expire decision.
+        if age_days >= max_age_days:
+            return "stale_orphan"  # tamper evidence expired; sweep caller
+                                    # still has tampered_preserved reporting
+        return None
+    if entry and entry.get("event") in _TERMINAL_EVENTS:
         return "completed_orphan"
     if age_days >= max_age_days:
         return "stale_orphan"
@@ -3091,7 +3282,7 @@ def sweep_stale_staging(
     from screw_agents.adaptive.staging import sweep_stale
 
     if max_age_days is None:
-        max_age_days = self._read_staging_max_age_days(project_root)
+        max_age_days = _read_staging_max_age_days(project_root)
     max_age_days = max(1, min(365, int(max_age_days)))
 
     return sweep_stale(
@@ -3101,8 +3292,14 @@ def sweep_stale_staging(
     )
 
 
-def _read_staging_max_age_days(self, project_root: Path) -> int:
-    """Return staging_max_age_days from config (default 14, clamped 1-365)."""
+def _read_staging_max_age_days(project_root: Path) -> int:
+    """Return staging_max_age_days from config (default 14, clamped 1-365).
+
+    Module-level helper symmetric with `_read_stale_staging_hours` (T4 /
+    engine.py:63). Raw YAML fallback handles missing/corrupt config; the
+    canonical validation path is `ScrewConfig.staging_max_age_days`
+    (T4-part-2 I1 schema addition).
+    """
     try:
         import yaml
         config_path = project_root / ".screw" / "config.yaml"
@@ -3111,7 +3308,7 @@ def _read_staging_max_age_days(self, project_root: Path) -> int:
         with open(config_path, encoding="utf-8") as f:
             cfg = yaml.safe_load(f) or {}
         return max(1, min(365, int(cfg.get("staging_max_age_days", 14))))
-    except Exception:
+    except (PermissionError, OSError, ValueError):
         return 14
 ```
 
@@ -3185,7 +3382,7 @@ tools.append({
 
 - [ ] **Step 6: Run tests + full suite**
 
-Expected: 5 PASS, full suite 812 passed.
+Expected: 5 PASS, full suite **~876 passed, 8 skipped** (871 post-T5 + 5 new sweep tests).
 
 - [ ] **Step 7: Commit**
 
