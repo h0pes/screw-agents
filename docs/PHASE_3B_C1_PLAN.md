@@ -3781,10 +3781,13 @@ T8 commit: `42c8665`. Plan-fix commit: `277034f`.
 - [ ] **Step 1: Verify nothing outside tests imports from cli.adaptive_cleanup**
 
 Run: `grep -rn "from screw_agents.cli.adaptive_cleanup" --include="*.py" --include="*.md"`
-Expected ONLY:
-- `tests/test_adaptive_cleanup.py` (already migrated in T7)
-- `tests/test_adaptive_workflow.py` (needs migration in this task)
-- `plugins/screw/commands/adaptive-cleanup.md` (will be rewritten in T19)
+
+**Plan-fix #1 (T9)**: After T8, `tests/test_adaptive_cleanup.py` has ZERO `cli.adaptive_cleanup` imports (T8 migrated the `TestRemoveAdaptiveScript` group that T7 deferred). The one reference at `tests/test_adaptive_cleanup.py:367` is a historical docstring mention ("Migrated from the former `cli.adaptive_cleanup.remove_adaptive_script`"), not an `from ... import ...` line, so it does NOT match the grep pattern.
+
+Expected ONLY (3 matches total):
+- `tests/test_adaptive_workflow.py:66` (needs migration in this task — the T22 test imports `list_adaptive_scripts`)
+- `plugins/screw/commands/adaptive-cleanup.md:42` (slash command — rewritten in T19)
+- `plugins/screw/commands/adaptive-cleanup.md:85` (slash command — rewritten in T19)
 
 If any OTHER file imports — stop. Revise plan before deleting.
 
@@ -3818,16 +3821,21 @@ git rm src/screw_agents/cli/adaptive_cleanup.py
 - [ ] **Step 5: Run full suite**
 
 Run: `uv run pytest -q`
-Expected: 812 passed (T22 migrated, behavior preserved).
+**Plan-fix #2 (T9)**: Expected count is **880 passed, 8 skipped** (carried forward from T8 baseline at HEAD `99024ae`). The stale "812" previously in this plan was a draft-era estimate. T9 is a pure migration (no tests added or removed); the count stays 880.
 
-Run: `grep -rn "from screw_agents.cli.adaptive_cleanup"` (Python files only)
+Run: `grep -rn "from screw_agents.cli.adaptive_cleanup" --include="*.py"` (Python files only)
 Expected: 0 matches (file deleted; imports all migrated).
+
+Run: `grep -rn "from screw_agents.cli.adaptive_cleanup" --include="*.md"`
+Expected: 2 matches in `plugins/screw/commands/adaptive-cleanup.md` (at `:42` and `:85`) — these are dead imports in the slash command's `uv run python -c "..."` invocations; they break user-facing behavior NOW (T19 rewrites the slash command to use MCP tools instead). The slash command is acceptable-broken during the T9→T19 window because the MCP surface is the canonical path and the engine methods have been live since T7/T8.
 
 - [ ] **Step 6: Commit**
 
+**Plan-fix #3 (T9)**: `git rm` already stages the deletion; the previous plan's extra `git add -u` line was redundant and misleading.
+
 ```bash
-git add tests/test_adaptive_workflow.py
-git add -u src/screw_agents/cli/adaptive_cleanup.py  # -u records the deletion
+git rm src/screw_agents/cli/adaptive_cleanup.py    # from Step 4 — stages deletion
+git add tests/test_adaptive_workflow.py             # T22 migration
 git commit -m "refactor(phase3b-c1): delete cli/adaptive_cleanup.py, migrate T22 import (T9, I6 part 3)"
 ```
 
