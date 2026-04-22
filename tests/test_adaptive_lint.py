@@ -303,3 +303,75 @@ def test_lint_rejects_exception_group_construction():
     report = lint_script(script)
     assert report.passed is False
     assert any("ExceptionGroup" in v.message for v in report.violations)
+
+
+def test_lint_rejects_import_of_read_source() -> None:
+    """Round-trip regression: script v1 imported `read_source` (not in __all__).
+    Lint MUST reject with rule=unknown_symbol."""
+    from screw_agents.adaptive.lint import lint_script
+
+    source = (
+        "from screw_agents.adaptive import emit_finding, read_source\n"
+        "\n"
+        "def analyze(project):\n"
+        "    read_source(project, 'foo.py')\n"
+    )
+
+    report = lint_script(source)
+    assert not report.passed
+    violations = [v for v in report.violations if v.rule == "unknown_symbol"]
+    assert len(violations) == 1
+    assert "read_source" in violations[0].message
+
+
+def test_lint_rejects_import_of_parse_module() -> None:
+    from screw_agents.adaptive.lint import lint_script
+
+    source = (
+        "from screw_agents.adaptive import parse_module\n"
+        "\n"
+        "def analyze(project):\n"
+        "    pass\n"
+    )
+
+    report = lint_script(source)
+    assert not report.passed
+    assert any(v.rule == "unknown_symbol" and "parse_module" in v.message for v in report.violations)
+
+
+def test_lint_accepts_all_exported_names() -> None:
+    """Parametrized sanity: every name in screw_agents.adaptive.__all__ must
+    lint clean when imported alone."""
+    from screw_agents import adaptive as adaptive_pkg
+    from screw_agents.adaptive.lint import lint_script
+
+    for name in adaptive_pkg.__all__:
+        source = (
+            f"from screw_agents.adaptive import {name}\n"
+            f"\n"
+            f"def analyze(project):\n"
+            f"    pass\n"
+        )
+        report = lint_script(source)
+        # Some names are classes/constants and may not be directly callable
+        # at analyze; we only care that they pass SYMBOL check (no unknown_symbol
+        # violation). Other violations (unused import, etc.) are tolerated here.
+        symbol_violations = [v for v in report.violations if v.rule == "unknown_symbol"]
+        assert symbol_violations == [], (
+            f"{name} from adaptive.__all__ wrongly flagged as unknown_symbol"
+        )
+
+
+def test_lint_violation_message_lists_allowlist() -> None:
+    """UX: when a symbol is rejected, the message should enumerate valid
+    names so the caller can fix the import."""
+    from screw_agents.adaptive.lint import lint_script
+    from screw_agents import adaptive as adaptive_pkg
+
+    source = "from screw_agents.adaptive import nonexistent\n"
+    report = lint_script(source)
+    violations = [v for v in report.violations if v.rule == "unknown_symbol"]
+    assert len(violations) == 1
+    # Every __all__ entry should appear somewhere in the message.
+    for name in adaptive_pkg.__all__:
+        assert name in violations[0].message
