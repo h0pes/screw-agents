@@ -5273,6 +5273,22 @@ git add plugins/screw/commands/scan.md
 git commit -m "docs(phase3b-c1): scan.md documents adaptive staging flow (T18)"
 ```
 
+**T18 Opus 4.7 re-review (2026-04-22):** Spec review APPROVED 6/6 HRs. Quality review APPROVE-with-Important — **1 Important + 2 Minor (Category B)**. Marco accepted the Important as transient-by-design with explicit T19 commitment; see I-T18-quality-1 below and the T19 pre-audit scope which now carries the fix.
+
+- **I-T18-quality-1 (forward-reference to `/screw:adaptive-cleanup stale` subcommand)**: T18's new subsection in scan.md line 71 references `/screw:adaptive-cleanup stale` — but that subcommand doesn't exist in `plugins/screw/commands/adaptive-cleanup.md` yet. `adaptive-cleanup.md` currently documents only `list` and `remove`. T19 (next task) rewrites that file to ADD the `stale` subcommand per Q5c / spec §3.4.
+
+  **Resolution path**: accepted transient-by-design. At T18 HEAD (`d91e834`), the reference is aspirational. At T19 HEAD (forthcoming), the reference becomes valid because T19 adds the `stale` subcommand to adaptive-cleanup.md. Both commits ship in the same PR — at merge time the docs are internally consistent.
+
+  **Hard commitment locked in T19 scope**: T19's pre-audit MUST verify that scan.md line 71's `/screw:adaptive-cleanup stale` reference resolves to a documented subcommand after T19's rewrite. If T19 renames the subcommand (e.g., to `sweep` or `cleanup-stale`), T19 must ALSO update scan.md's reference in the same commit. This is now T19's responsibility, explicitly noted in the T19 pre-audit block below.
+
+- **Spec Minors M1-M2, Quality Minors M1-M2**: all Category B (reviewer explicitly "no action"). M1 spec = parenthetical enhancement beyond minimal plan-fix prescription (factually correct, enhancement not deviation). M2 spec = subsection ordering (implementer followed plan). M1 quality = "exact bytes you reviewed" phrasing (effectively true; reviewer "not worth rewording"). M2 quality = subsection heading level (acceptable as-is). No backlog entries per the Category A/B/C triage framework from the T17 correction.
+
+Score since T7: **10 tasks 0-Important / 1 task 1-Important (T14) / 1 task 1-Important transient-to-T19 (T18)**.
+
+All facts in the new subsection verified against source: staging path via `staging.py:98`, 24h threshold via `models.py:381`, 14-day threshold via `models.py:382`, `confirm-stale` / `confirm-<8hex>` via `engine.py:562, 709`, registry path via `staging.py:103`, `promote_staged_script` signs + writes to `.screw/custom-scripts/` per `engine.py:320-590`. Quality reviewer called out precision: "every path, default, and phrase checks against source."
+
+T18 commit: `d91e834`. No plan-fix commit (implementer applied plan-fixes directly per dispatch instructions, given small scope).
+
 ---
 
 ## Phase F — Slash Command + Format-Smoke (T19-T20)
@@ -5283,6 +5299,13 @@ git commit -m "docs(phase3b-c1): scan.md documents adaptive staging flow (T18)"
 - Modify: `plugins/screw/commands/adaptive-cleanup.md`
 
 **Rationale:** I6 fix. Replace `uv run python -c` Bash blocks with MCP tool invocations. Add `stale` subcommand per Q5c / spec §3.4.
+
+**T19 pre-audit must address I-T18-quality-1 (2026-04-22, carried forward from T18)**: scan.md line 71 contains a forward-reference to `/screw:adaptive-cleanup stale` that is aspirational at T18 HEAD (`d91e834`). T19 MUST:
+1. Add the `stale` subcommand to `adaptive-cleanup.md` (already in this task's rationale — confirming scope).
+2. Verify the subcommand name matches scan.md's reference: `/screw:adaptive-cleanup stale` (the literal phrase). If T19's design renames the subcommand (e.g., to `sweep` or `cleanup-stale`), T19 MUST also update `plugins/screw/commands/scan.md` line 71 in the same commit — the two references must be coherent at merge time.
+3. Verify the 14-day default threshold claim in scan.md: "at the default 14-day threshold". T19's `stale` subcommand must either use this default OR T19 updates scan.md to match whatever default it chooses.
+
+If T19's implementation changes either of these, the fix is a 1-2 LOC scan.md edit in the same commit. The commitment is that scan.md's references are valid at T19 HEAD.
 
 - [ ] **Step 1: Rewrite file with three actions: list, remove, stale**
 
