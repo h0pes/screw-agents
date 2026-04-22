@@ -35,7 +35,7 @@ Parse the arguments and dispatch to the appropriate screw-agents subagent.
 
 1. Record `context_required` heuristic matches it couldn't resolve (D1 signal via `record_context_required_match`).
 2. Detect coverage gaps via `detect_coverage_gaps` (D1 + D2).
-3. For each gap (up to 3 per scan session, per the Layer 0f quota): generate a targeted Python analysis script, lint it (Layer 1), send through Layer 0d semantic review, present a 5-section review to the user for **approve/reject**, sign on approve, execute in sandbox (Layer 5), and merge findings with the YAML findings.
+3. For each gap (up to 3 per scan session, per the Layer 0f quota): generate a targeted Python analysis script, lint it (Layer 1), send through Layer 0d semantic review, **stage** it, present a 5-section review to the user for **approve/reject**, **promote** on approve (signs + writes to `.screw/custom-scripts/`), execute in sandbox (Layer 5), and merge findings with the YAML findings.
 
 **Requirements for `--adaptive`:**
 
@@ -50,6 +50,25 @@ Parse the arguments and dispatch to the appropriate screw-agents subagent.
 ```
 
 See `docs/specs/2026-04-13-phase-3-adaptive-analysis-learning-design.md` §5 for the full 15-layer defense-in-depth model.
+
+### Adaptive mode: staging and approval
+
+When `--adaptive` is passed, each generated analysis script is first
+*staged* to `.screw/staging/{session_id}/adaptive-scripts/` before the
+human-review step. Your approval phrase is matched against the staged
+file on disk — so the exact bytes you reviewed are the exact bytes that
+get signed and executed. The approval flow never re-generates the script
+after you've seen it.
+
+If you walk away from a review for more than 24h, you'll be prompted to
+re-confirm with `approve <name> confirm-stale`. If the local approval
+registry at `.screw/local/pending-approvals.jsonl` has been lost, you'll
+be prompted to re-confirm the sha256 prefix with
+`approve <name> confirm-<8hex>`. Both flows produce audit events in the
+registry for post-hoc inspection.
+
+Orphaned stagings (scans you never approved/rejected) are collected by
+`/screw:adaptive-cleanup stale` at the default 14-day threshold.
 
 ## Dispatch
 
