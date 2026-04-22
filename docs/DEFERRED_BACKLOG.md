@@ -1282,3 +1282,17 @@ assert list(stage_dir.iterdir()) == []
 **Why deferred:** The failure-path test (`test_execute_surfaces_stderr_on_nonzero_return`) asserts `result["stderr"] == result["sandbox_result"]["stderr"]` — the alias-consistency check that protects against a future dual-decode bug. The success-path test asserts `result["stderr"] == ""` AND `result["sandbox_result"]["returncode"] == 0` but NOT the symmetric alias equality. Because both positions are emitted from the same `stderr_str` local (`engine.py:311, 316`), drift cannot occur without a code change; the gap is immaterial. The ripple-fix in `test_execute_adaptive_script_tool.py:80` already asserts `result["sandbox_result"]["stderr"] == ""` on success, so coverage exists — it's just not co-located with the dedicated success test.
 **Trigger:** Next test-polish pass; negligible priority.
 **Estimated scope:** 1 LOC (add `assert result["stderr"] == result["sandbox_result"]["stderr"]` alongside the existing `""` check).
+
+### BACKLOG-PR6-59 — Inaccurate required-fields comment in `test_executor_wraps_validation_error_as_metadata_error`
+**Source:** Phase 3b PR #6 T12 Opus spec + quality reviews (both flagged), 2026-04-22
+**File:** `tests/test_adaptive_executor.py` — `test_executor_wraps_validation_error_as_metadata_error` (around line 838)
+**Why deferred:** Inline comment says required fields include `description` and `target_patterns`, but those have defaults in `AdaptiveScriptMeta` (`description: str = ""`, `target_patterns: list[str] = []` at `models.py:497-498`). Actual required-and-missing set is `created, created_by, domain, sha256`. Comment inaccuracy only — test behavior is unaffected (ValidationError fires on whichever required field is missing first). Test actually provides only `name: test-yaml-002`, so missing-required list is larger than comment suggests but the validation error is guaranteed either way.
+**Trigger:** Next test-comment polish pass, OR if `AdaptiveScriptMeta` schema changes (e.g., `description` becomes required) and the comment's accidentally-right prediction breaks.
+**Estimated scope:** 1 LOC (rewrite the comment to name only `created, created_by, domain, sha256`).
+
+### BACKLOG-PR6-60 — Missing inline comment explaining `meta_raw or {}` fallback in `_load_meta`
+**Source:** Phase 3b PR #6 T12 Opus code-review (Minor 2), 2026-04-22
+**File:** `src/screw_agents/adaptive/executor.py:94` — `_load_meta` helper
+**Why deferred:** `AdaptiveScriptMeta(**(meta_raw or {}))` defensively handles the `None` return from `yaml.safe_load("")` (empty file or only-comments YAML). Without the `or {}` fallback, `AdaptiveScriptMeta(**None)` would raise `TypeError` instead of the expected `ValidationError` — bypassing the `MetadataError` wrapper and emitting a bare stack trace. A one-line comment would make the defensive intent explicit for future maintainers: `# empty / only-comments YAML → None → {} → ValidationError on required fields`.
+**Trigger:** Next executor-docstring polish pass.
+**Estimated scope:** 1 LOC (inline comment at the `or {}` site).

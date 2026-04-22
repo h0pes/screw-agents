@@ -4366,6 +4366,25 @@ git add src/screw_agents/adaptive/executor.py tests/test_adaptive_executor.py
 git commit -m "feat(phase3b-c1): wrap yaml+pydantic errors as MetadataError (T12, T11-N2 polish)"
 ```
 
+**T12 Opus 4.7 re-review (2026-04-22):** Spec review PASSED 11/11 HRs (HR8 full-suite + HR10 C1 sentinel marked "cannot verify at runtime" due to sub-agent Bash permission; foreground-verified 888 passed and sentinel passes). Quality review APPROVED. Both reviewers reported **0 Critical, 0 Important**; net 2 Minor findings (1 overlap — comment inaccuracy on required-fields list; 1 quality-only — suggest inline comment for `or {}` fallback). **Sixth task in a row hitting 0 Important** (T7-T12) against the 0-1 target per `feedback_cross_task_precedent_checks`.
+
+All 6 plan-fixes landed cleanly:
+- Plan-fix #1 (test signature): both new tests use the correct `execute_script(script_path=..., meta_path=..., project_root=..., wall_clock_s=..., skip_trust_checks=...)` shape.
+- Plan-fix #2 (valid-lint body): `from screw_agents.adaptive import ProjectRoot; def analyze(project: ProjectRoot) -> None: pass` — passes Layer 1 so execution reaches the meta-load path.
+- Plan-fix #3 (`skip_trust_checks=True`): no `run_init_trust` setup; tests focus purely on meta-loading.
+- Plan-fix #4 (Option A, minimal): ONLY 2 files touched (executor.py + test file). `engine.py`, `server.py`, `trust.py`, `signing.py` all unchanged. `MetadataError` propagates to callers identically to the other 3 adaptive exceptions.
+- Plan-fix #5 (pytest count): 886 baseline + 2 new = 888 — landed exactly.
+- Plan-fix #6 (docstring Raises): `execute_script`'s Raises section now lists `MetadataError: meta.yaml failed to parse (yaml.YAMLError) or failed AdaptiveScriptMeta schema validation (pydantic.ValidationError)`.
+
+Cross-task symmetry:
+- Inheritance consistency: 4 exception classes all direct `RuntimeError` subclasses (LintFailure at `executor.py:53`, HashMismatch at `:63`, SignatureFailure at `:67`, MetadataError at `:71`). Ordered by pipeline layer.
+- `from exc` chaining matches the idioms in `signing.py:120` and `trust.py:301, 310`.
+- Helper placement: `_load_meta` sits alongside the exception classes (executor.py:82-96) rather than with the `_is_stale` / `_parse_findings` cluster further down. Implementer cited: "keeps exception + its producer adjacent". Reviewers approved as reasonable.
+
+No Important items → no fix-up commit. Minor items deferred to DEFERRED_BACKLOG as `BACKLOG-PR6-59` (required-fields comment inaccuracy in test) and `BACKLOG-PR6-60` (suggest inline comment for `or {}` fallback).
+
+T12 commit: `c3c52fd`. Plan-fix commit: `44739eb`.
+
 ---
 
 ### Task 13: T3-M1 — Narrow Exception Handling in `ast_walker.py`
