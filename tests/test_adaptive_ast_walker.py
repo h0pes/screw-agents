@@ -157,3 +157,24 @@ def test_find_calls_handles_non_ascii_source(tmp_path: Path):
     calls = list(find_calls(project, "db.execute"))
     assert len(calls) == 1
     assert calls[0].file == "a.py"
+
+
+def test_find_calls_raises_on_non_utf8_source(tmp_path: Path) -> None:
+    """Non-UTF-8 source file → UnicodeDecodeError propagates cleanly.
+
+    Previously (T3-M1 deferred item): `except Exception: continue` silently
+    swallowed this, so adaptive scripts couldn't distinguish "no findings"
+    from "couldn't read this file". Post-fix: the exception surfaces to
+    the caller (executor), which can log / surface to subagent.
+    """
+    project = tmp_path / "project"
+    project.mkdir()
+    # Write Latin-1-encoded bytes that aren't valid UTF-8.
+    (project / "weird.py").write_bytes(b"# Latin-1: caf\xe9\n")
+    root = ProjectRoot(project)
+
+    # Post-T13: find_calls surfaces UnicodeDecodeError rather than
+    # silently skipping the unreadable file. `list(...)` forces the
+    # generator to walk the file, triggering the decode attempt.
+    with pytest.raises(UnicodeDecodeError):
+        list(find_calls(root, "foo.bar"))
