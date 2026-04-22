@@ -1240,3 +1240,38 @@ assert list(stage_dir.iterdir()) == []
 **Why deferred:** Py-only variant asserts only `not (script_dir / "lonely.py").exists()`. The sibling meta-only variant asserts both "not meta.exists()" and no-other-side-present. Adding `assert not (script_dir / "lonely.meta.yaml").exists()` to the py-only test would make the sibling pair diff-grep-comparable. Currently vacuous (meta never existed), so not a correctness concern.
 **Trigger:** Next test-polish pass, OR if a future change introduces leftover-meta risk in the py-only path.
 **Estimated scope:** 1 LOC (add the symmetric negative assertion).
+
+### BACKLOG-PR6-53 — `_load_adaptive_all()` no-spec / no-origin failure paths are untested
+**Source:** Phase 3b PR #6 T10 Opus spec review (Minor 1), 2026-04-22
+**File:** `src/screw_agents/adaptive/lint.py:96-120` — `_load_adaptive_all` helper
+**Why deferred:** The defensive `frozenset()` return paths at `lint.py:107-108` (no spec) and `lint.py:120` (no `__all__` assign found) are not exercised by any test. A corrupted `screw_agents/adaptive/__init__.py` or a transient import-system failure would cause `_load_adaptive_all()` to return empty, and every adaptive import would then fail `unknown_symbol`. Existing `test_lint_accepts_valid_script` acts as a downstream canary (it would fail if the helper returns empty unexpectedly), so this is low-risk. A dedicated test (monkeypatch `importlib.util.find_spec` to return None, verify `frozenset()`) would pin the failure-closed contract explicitly.
+**Trigger:** Next lint-polish pass OR if a future change touches `_load_adaptive_all()`.
+**Estimated scope:** ~10 LOC (1 test function with monkeypatch + cache_clear + assertion).
+
+### BACKLOG-PR6-54 — Star-import UX via `unknown_symbol` rule is slightly misleading
+**Source:** Phase 3b PR #6 T10 Opus reviews (spec Minor 2, quality edge-cases item 5), 2026-04-22
+**File:** `src/screw_agents/adaptive/lint.py:226-242` — `unknown_symbol` rule
+**Why deferred:** `from screw_agents.adaptive import *` produces `alias.name == "*"`, which is not in `__all__`, so the rule emits `"'*' is not exported from screw_agents.adaptive. Valid names: ..."`. The rejection is correct (star imports are not a legitimate idiom in adaptive scripts), but the error message phrasing is minor-awkward — a user seeing it might expect a dedicated `disallowed_star` rule. Behavioral correctness is not affected.
+**Trigger:** Next lint-message-UX pass OR if a user surfaces confusion about the `'*'` message.
+**Estimated scope:** ~5 LOC (add a guard before the symbol loop: if `alias.name == "*"`, emit a dedicated `disallowed_star` rule instead).
+
+### BACKLOG-PR6-55 — `@lru_cache(maxsize=1)` on `_load_adaptive_all` may surprise future monkeypatch tests
+**Source:** Phase 3b PR #6 T10 Opus reviews (spec Minor 3, quality focus-2), 2026-04-22
+**File:** `src/screw_agents/adaptive/lint.py:96` — `@lru_cache(maxsize=1)` decorator
+**Why deferred:** Cache-for-process means a future test that monkeypatches `screw_agents.adaptive.__all__` (or mocks `importlib.util.find_spec`) after `_load_adaptive_all()` has already been called will see stale data. No current test does this, so no live issue. Tests that need fresh state must call `_load_adaptive_all.cache_clear()` explicitly. Worth documenting in the helper's docstring.
+**Trigger:** When a future test needs dynamic `__all__` manipulation, OR on next lint-helper docstring pass.
+**Estimated scope:** ~2 LOC (add a comment in the helper docstring noting the cache-clear requirement for mutation tests).
+
+### BACKLOG-PR6-56 — Module docstring doesn't list the new `unknown_symbol` rule
+**Source:** Phase 3b PR #6 T10 Opus code-review (Minor 1), 2026-04-22
+**File:** `src/screw_agents/adaptive/lint.py:7-38` — "Forbidden constructs" section of the module docstring
+**Why deferred:** The docstring enumerates forbidden constructs inline (e.g., `forbidden_name`, `forbidden_dunder_*`, etc.), but does NOT explicitly call out the new `unknown_symbol` rule. The existing parenthetical at `lint.py:10` "(with only allowlist-approved names)" became enforced rather than aspirational after T10. A future auditor has to read `_check_node` to discover the `unknown_symbol` rule. A one-line addition under "Forbidden constructs" (e.g. `- Importing any name from screw_agents.adaptive that is not in __all__ (rule=unknown_symbol)`) would close the gap.
+**Trigger:** Next lint-docstring pass.
+**Estimated scope:** 2 LOC (one bullet in the docstring).
+
+### BACKLOG-PR6-57 — `_load_adaptive_all()` handles only `ast.Assign`, not `ast.AugAssign`
+**Source:** Phase 3b PR #6 T10 Opus code-review (Minor 2), 2026-04-22
+**File:** `src/screw_agents/adaptive/lint.py:112` — `_load_adaptive_all()` helper AST walk
+**Why deferred:** If a future maintainer appends to `__all__` via `__all__ += [...]` or `__all__.append(...)` instead of a single `__all__ = [...]` assignment, those names are silently ignored by the helper → every such appended import would fail `unknown_symbol` (failure-closed — safe, but surprising). Current `adaptive/__init__.py:65` uses a single assignment; this is a latent constraint, not a live bug. Fix options: (a) walk `ast.AugAssign` as well; (b) add a comment in `adaptive/__init__.py` warning future editors to keep `__all__` as a single assignment.
+**Trigger:** Next lint-helper-polish pass OR if `adaptive/__init__.py` grows enough that multi-statement `__all__` assembly becomes tempting.
+**Estimated scope:** ~5 LOC for option (a); 1 LOC for option (b).

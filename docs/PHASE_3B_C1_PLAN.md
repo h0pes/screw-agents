@@ -4028,6 +4028,26 @@ git add src/screw_agents/adaptive/lint.py tests/test_adaptive_lint.py
 git commit -m "feat(phase3b-c1): lint validates imported symbols against adaptive.__all__ (T10, I2)"
 ```
 
+**T10 Opus 4.7 re-review (2026-04-22):** Spec review PASSED 12/12 HRs. Quality review APPROVED. Both reviewers reported **0 Critical, 0 Important, 2 Minor each** (with 2 items overlapping — star-import UX and `@lru_cache` test isolation), for **5 unique Minor findings** total. Fourth task in a row hitting 0 Important against the 0-1 target per `feedback_cross_task_precedent_checks`.
+
+Behavioral correctness validated:
+- **Hermeticity**: `_load_adaptive_all()` uses `importlib.util.find_spec` (imports parent `screw_agents` only, not `adaptive`) + `Path.read_text` + `ast.parse`. Never executes adaptive/__init__.py; no fallback to `import_module`.
+- **Double-violation avoidance**: `elif node.module == "screw_agents.adaptive"` guarantees mutual exclusion with the existing `disallowed_import` rule. A non-adaptive import emits ONE violation; an adaptive import with a hallucinated name emits ONE `unknown_symbol` violation. Neither case emits both.
+- **Star imports**: rejected with `unknown_symbol` (correct outcome; message phrasing is slightly awkward but not behaviorally wrong — see BACKLOG-PR6-54).
+- **Aliased imports**: `alias.name` (source name) is checked, not `alias.asname`. Correct.
+- **Failure-closed**: `_load_adaptive_all()` returns `frozenset()` on any failure path, so a corrupted `__all__` rejects every import rather than allowing everything. `test_lint_accepts_valid_script` acts as a downstream canary.
+
+Plan-fix #1 (pytest count 816 → 884) confirmed: implementer chose the for-loop shape, count landed at exactly 884.
+
+No Important items → no fix-up commit. Minor items deferred to DEFERRED_BACKLOG as `BACKLOG-PR6-53..57`:
+- PR6-53: `_load_adaptive_all()` no-spec/no-origin failure paths untested (low risk — downstream canary exists).
+- PR6-54: star-import UX — `'*' is not exported` message slightly awkward; a dedicated `disallowed_star` rule would read better.
+- PR6-55: `@lru_cache(maxsize=1)` may surprise future monkeypatch tests (document the cache-clear requirement).
+- PR6-56: module docstring doesn't list the new `unknown_symbol` rule explicitly.
+- PR6-57: `_load_adaptive_all()` handles only `ast.Assign`, not `ast.AugAssign` — latent constraint; `adaptive/__init__.py` currently uses a single assignment.
+
+T10 commit: `f900aca`. Plan-fix commit: `4b5df2d`.
+
 ---
 
 ### Task 11: I3 — Sandbox Execution stderr Surfacing
