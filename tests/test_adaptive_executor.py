@@ -909,6 +909,11 @@ def test_execute_adaptive_script_verifies_layer3_signature_happy_path(
     per plan-fix #1 — not the internal execute_script which takes
     script_path/meta_path, not script_name.
     """
+    import shutil
+
+    if shutil.which("bwrap") is None and shutil.which("sandbox-exec") is None:
+        pytest.skip("requires sandbox backend")
+
     from screw_agents.engine import ScanEngine
 
     project, script_name, _, _ = signed_script_setup
