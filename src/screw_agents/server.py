@@ -192,6 +192,13 @@ def _dispatch_tool(
             dry_run=args.get("dry_run", False),
         )
 
+    # --- Phase 3b T7: list_adaptive_scripts (I6 MCP promotion) ---
+
+    if name == "list_adaptive_scripts":
+        return engine.list_adaptive_scripts(
+            project_root=Path(args["project_root"]),
+        )
+
     # --- Phase 3b T18a: lint_adaptive_script (pre-approval review) ---
 
     if name == "lint_adaptive_script":

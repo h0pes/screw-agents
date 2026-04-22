@@ -26,8 +26,7 @@ from typing import Any
 
 import yaml
 
-from screw_agents.adaptive.ast_walker import find_calls
-from screw_agents.adaptive.project import ProjectPathError, ProjectRoot
+from screw_agents.adaptive.executor import _check_stale
 
 
 def list_adaptive_scripts(project_root: Path) -> list[dict[str, Any]]:
@@ -205,54 +204,3 @@ def remove_adaptive_script(
         ),
         "removed_files": removed,
     }
-
-
-def _check_stale(
-    project_root: Path, target_patterns: list[str]
-) -> tuple[bool, str | None]:
-    """Compute whether a script is stale based on its ``target_patterns``.
-
-    Returns ``(stale, stale_reason)``:
-
-    - ``(False, "no target_patterns declared")`` if ``target_patterns`` is
-      empty. We can't gauge staleness without patterns, so don't falsely
-      flag such scripts (the signal is kept as a human-readable reason so
-      the UI can communicate the ambiguity).
-    - ``(False, None)`` if any pattern has matching call sites.
-    - ``(True, "0 of N target_patterns match call sites: pat1, pat2, ...")``
-      if ALL patterns have zero matches.
-    - ``(False, "cannot compute: project_root unreadable")`` if the
-      ``ProjectRoot`` cannot be constructed (e.g., path doesn't exist).
-      Don't false-positive ``stale`` when the check itself failed.
-
-    Uses ``screw_agents.adaptive.ast_walker.find_calls`` for each pattern
-    — the same helper the executor's ``_is_stale`` uses, so staleness here
-    and at-execution time are semantically identical.
-    """
-    if not target_patterns:
-        return (False, "no target_patterns declared")
-
-    try:
-        project = ProjectRoot(project_root)
-    except (ProjectPathError, ValueError, OSError):
-        return (False, "cannot compute: project_root unreadable")
-
-    for pattern in target_patterns:
-        # find_calls is a generator; `next(..., None)` short-circuits on
-        # the first call site without walking the whole project.
-        try:
-            first = next(find_calls(project, pattern), None)
-        except Exception:
-            # Defensive: if the AST walk itself errors on a single
-            # pattern (e.g., tree-sitter parse failure on one file),
-            # skip the pattern and keep checking the others. This
-            # mirrors find_calls's own per-file try/except.
-            continue
-        if first is not None:
-            return (False, None)
-
-    return (
-        True,
-        f"0 of {len(target_patterns)} target_patterns match call sites: "
-        f"{', '.join(target_patterns)}",
-    )

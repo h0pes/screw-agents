@@ -58,14 +58,16 @@ class TestListAdaptiveScripts:
 
     def test_list_empty_project_returns_empty_list(self, tmp_path: Path):
         """No .screw/custom-scripts/ directory → return []."""
-        from screw_agents.cli.adaptive_cleanup import list_adaptive_scripts
+        from screw_agents.engine import ScanEngine
 
-        assert list_adaptive_scripts(tmp_path) == []
+        engine = ScanEngine.from_defaults()
+        scripts = engine.list_adaptive_scripts(project_root=tmp_path)["scripts"]
+        assert scripts == []
 
     def test_list_two_scripts_returns_metadata(self, tmp_path: Path):
         """Two scripts with meta; output has 2 entries with correct
         names/metadata and is sorted alphabetically."""
-        from screw_agents.cli.adaptive_cleanup import list_adaptive_scripts
+        from screw_agents.engine import ScanEngine
 
         script_dir = tmp_path / ".screw" / "custom-scripts"
         script_dir.mkdir(parents=True)
@@ -81,7 +83,8 @@ class TestListAdaptiveScripts:
             signed_by="marco@example.com",
         )
 
-        scripts = list_adaptive_scripts(tmp_path)
+        engine = ScanEngine.from_defaults()
+        scripts = engine.list_adaptive_scripts(project_root=tmp_path)["scripts"]
         assert len(scripts) == 2
         # alphabetical sort
         assert [s["name"] for s in scripts] == ["a-first", "b-second"]
@@ -106,7 +109,7 @@ class TestListAdaptiveScripts:
         empty output would false-pass against an unconditional-empty bug;
         this test pins the exact exclusion by using set equality against a
         valid ``good`` neighbor."""
-        from screw_agents.cli.adaptive_cleanup import list_adaptive_scripts
+        from screw_agents.engine import ScanEngine
 
         script_dir = tmp_path / ".screw" / "custom-scripts"
         script_dir.mkdir(parents=True)
@@ -125,7 +128,8 @@ class TestListAdaptiveScripts:
         # mis-filtered" regressions.
         _write_script_pair(script_dir, "good", target_patterns=[])
 
-        scripts = list_adaptive_scripts(tmp_path)
+        engine = ScanEngine.from_defaults()
+        scripts = engine.list_adaptive_scripts(project_root=tmp_path)["scripts"]
         names = {s["name"] for s in scripts}
         assert names == {"good"}, (
             f"Expected only 'good' script; got {names}. Orphan was not "
@@ -134,7 +138,7 @@ class TestListAdaptiveScripts:
 
     def test_list_script_malformed_yaml_is_skipped(self, tmp_path: Path):
         """Unparseable YAML → skip silently."""
-        from screw_agents.cli.adaptive_cleanup import list_adaptive_scripts
+        from screw_agents.engine import ScanEngine
 
         script_dir = tmp_path / ".screw" / "custom-scripts"
         script_dir.mkdir(parents=True)
@@ -148,7 +152,8 @@ class TestListAdaptiveScripts:
         # And a good script that should still show up
         _write_script_pair(script_dir, "good", target_patterns=[])
 
-        scripts = list_adaptive_scripts(tmp_path)
+        engine = ScanEngine.from_defaults()
+        scripts = engine.list_adaptive_scripts(project_root=tmp_path)["scripts"]
         assert [s["name"] for s in scripts] == ["good"]
 
 
@@ -157,13 +162,14 @@ class TestCheckStale:
 
     def test_stale_empty_target_patterns_not_stale(self, tmp_path: Path):
         """Script with target_patterns: [] → stale=False, reason explains."""
-        from screw_agents.cli.adaptive_cleanup import list_adaptive_scripts
+        from screw_agents.engine import ScanEngine
 
         script_dir = tmp_path / ".screw" / "custom-scripts"
         script_dir.mkdir(parents=True)
         _write_script_pair(script_dir, "no-patterns", target_patterns=[])
 
-        scripts = list_adaptive_scripts(tmp_path)
+        engine = ScanEngine.from_defaults()
+        scripts = engine.list_adaptive_scripts(project_root=tmp_path)["scripts"]
         assert len(scripts) == 1
         entry = scripts[0]
         assert entry["stale"] is False
@@ -173,7 +179,7 @@ class TestCheckStale:
         """Script declares target_patterns with no matching call sites.
         Project has no such calls → stale=True, reason names the
         pattern."""
-        from screw_agents.cli.adaptive_cleanup import list_adaptive_scripts
+        from screw_agents.engine import ScanEngine
 
         # Project contains a Python file with unrelated calls only
         (tmp_path / "src.py").write_text(
@@ -187,7 +193,8 @@ class TestCheckStale:
             target_patterns=["DoesNotExistClass.method"],
         )
 
-        scripts = list_adaptive_scripts(tmp_path)
+        engine = ScanEngine.from_defaults()
+        scripts = engine.list_adaptive_scripts(project_root=tmp_path)["scripts"]
         assert len(scripts) == 1
         entry = scripts[0]
         assert entry["stale"] is True
@@ -198,7 +205,7 @@ class TestCheckStale:
     def test_stale_any_pattern_live_not_stale(self, tmp_path: Path):
         """Script declares 2 patterns; project has a call site for ONE.
         Script is NOT stale."""
-        from screw_agents.cli.adaptive_cleanup import list_adaptive_scripts
+        from screw_agents.engine import ScanEngine
 
         # Project file contains a db.execute call — matches one of the
         # declared patterns; NonExistent.method has no call site.
@@ -215,7 +222,8 @@ class TestCheckStale:
             target_patterns=["db.execute", "NonExistent.method"],
         )
 
-        scripts = list_adaptive_scripts(tmp_path)
+        engine = ScanEngine.from_defaults()
+        scripts = engine.list_adaptive_scripts(project_root=tmp_path)["scripts"]
         assert len(scripts) == 1
         entry = scripts[0]
         assert entry["stale"] is False
@@ -230,7 +238,7 @@ class TestCheckStale:
         at an unreadable path by calling it directly. This keeps the
         graceful-failure contract testable without disturbing the rest
         of the list path."""
-        from screw_agents.cli.adaptive_cleanup import _check_stale
+        from screw_agents.adaptive.executor import _check_stale
 
         nonexistent = tmp_path / "does-not-exist"
         # Should NOT raise; returns (False, reason string)
@@ -250,7 +258,7 @@ class TestCheckStale:
         Python files but no matching patterns; this test has patterns but
         no Python files.
         """
-        from screw_agents.cli.adaptive_cleanup import _check_stale
+        from screw_agents.adaptive.executor import _check_stale
 
         # Write a non-Python file to prove the project_root is valid and
         # readable — ProjectRoot accepts it, find_calls just finds no .py
@@ -311,8 +319,7 @@ class TestStaleSemanticAlignment:
         if the drift is intentional (and update the
         ``adaptive_cleanup.py:1-20`` docstring accordingly).
         """
-        from screw_agents.adaptive.executor import _is_stale
-        from screw_agents.cli.adaptive_cleanup import _check_stale
+        from screw_agents.adaptive.executor import _check_stale, _is_stale
         from screw_agents.models import AdaptiveScriptMeta
 
         # Fixture project with known live patterns (db.execute,

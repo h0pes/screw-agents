@@ -1234,6 +1234,106 @@ class ScanEngine:
             ],
         }
 
+    def list_adaptive_scripts(
+        self,
+        *,
+        project_root: Path,
+    ) -> dict[str, Any]:
+        """List every adaptive script in ``.screw/custom-scripts/`` with
+        metadata AND per-script stale status.
+
+        Promoted from ``cli/adaptive_cleanup.py`` in PR #6 per I6 — the
+        slash-command ``uv run python -c "from screw_agents.cli..."``
+        invocation was breaking when ``cwd != worktree``. Promoting to an
+        MCP tool resolves that: ``.mcp.json`` already carries the correct
+        ``--project`` argument, so the engine-level entry point is
+        cwd-independent.
+
+        Behavior unchanged from T21. The per-script stale detection goes
+        through ``adaptive.executor._check_stale`` (co-located with
+        ``_is_stale`` as of T7 plan-fix #1).
+
+        Args:
+            project_root: Absolute path to the project root.
+
+        Returns:
+            ``{"status": "ok", "scripts": [...]}`` per spec §3.5. Each
+            entry carries the 12 fields: ``name``, ``created``,
+            ``created_by``, ``domain``, ``description``,
+            ``target_patterns``, ``findings_produced``, ``last_used``,
+            ``validated``, ``signed_by``, ``stale``, ``stale_reason``.
+
+            ``scripts`` is empty when ``.screw/custom-scripts/`` does not
+            exist. Entries with missing companion ``.py``, malformed YAML,
+            or non-dict meta are skipped silently (the user can surface
+            those via ``verify_trust``).
+
+            Sort order: alphabetical by ``name`` for deterministic output.
+            None-named entries (malformed-but-parsed YAML) are sorted to
+            the end so ordering stays total.
+        """
+        custom_scripts_dir = project_root / ".screw" / "custom-scripts"
+        if not custom_scripts_dir.exists():
+            return {"status": "ok", "scripts": []}
+
+        scripts: list[dict[str, Any]] = []
+        for meta_file in sorted(custom_scripts_dir.glob("*.meta.yaml")):
+            # meta_file has two suffixes (".meta.yaml"); stripping both
+            # yields the bare script name. Explicit string handling avoids
+            # path-suffix ambiguity across Python versions.
+            stem = meta_file.name[: -len(".meta.yaml")]
+            source_file = custom_scripts_dir / f"{stem}.py"
+            if not source_file.exists():
+                continue
+            entry = self._inspect_adaptive_script(
+                project_root, source_file, meta_file
+            )
+            if entry is None:
+                continue
+            scripts.append(entry)
+
+        scripts.sort(key=lambda s: (s["name"] is None, s["name"] or ""))
+        return {"status": "ok", "scripts": scripts}
+
+    def _inspect_adaptive_script(
+        self,
+        project_root: Path,
+        source_file: Path,
+        meta_file: Path,
+    ) -> dict[str, Any] | None:
+        """Build one per-script entry for ``list_adaptive_scripts``.
+
+        Returns ``None`` for orphans that should be skipped (malformed YAML,
+        non-dict meta). Verbatim lift from the former CLI helper — every
+        one of the 12 fields survives unchanged.
+        """
+        from screw_agents.adaptive.executor import _check_stale
+
+        try:
+            meta = yaml.safe_load(meta_file.read_text(encoding="utf-8"))
+        except (yaml.YAMLError, OSError):
+            return None
+        if not isinstance(meta, dict):
+            return None
+
+        target_patterns = meta.get("target_patterns", []) or []
+        stale, stale_reason = _check_stale(project_root, target_patterns)
+
+        return {
+            "name": meta.get("name"),
+            "created": meta.get("created"),
+            "created_by": meta.get("created_by"),
+            "domain": meta.get("domain"),
+            "description": meta.get("description", ""),
+            "target_patterns": target_patterns,
+            "findings_produced": meta.get("findings_produced", 0),
+            "last_used": meta.get("last_used"),
+            "validated": meta.get("validated", False),
+            "signed_by": meta.get("signed_by"),
+            "stale": stale,
+            "stale_reason": stale_reason,
+        }
+
     def aggregate_learning(
         self,
         *,
@@ -2768,6 +2868,36 @@ class ScanEngine:
                             "be removed without actually deleting files. Useful "
                             "for preview / CI assertions."
                         ),
+                    },
+                },
+                "required": [
+                    "project_root",
+                ],
+            },
+        })
+
+        # Phase 3b T7: list_adaptive_scripts — I6 MCP promotion of the
+        # former cli/adaptive_cleanup entry point. Slash command was breaking
+        # on cwd mismatch; the MCP tool resolves that because .mcp.json
+        # already carries the correct --project argument.
+        tools.append({
+            "name": "list_adaptive_scripts",
+            "description": (
+                "List all adaptive scripts present at `.screw/custom-scripts/` "
+                "with their validation status and per-script staleness "
+                "information. Promoted from `cli/adaptive_cleanup.py` in PR #6 "
+                "per I6 — slash-command invocation was breaking on `cwd` "
+                "mismatch. Returns `{\"status\": \"ok\", \"scripts\": [{name, "
+                "validated, signed_by, stale, stale_reason, ...}]}`. Behavior "
+                "unchanged from T21. See design spec §3.5."
+            ),
+            "input_schema": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "project_root": {
+                        "type": "string",
+                        "description": "Absolute path to the project root.",
                     },
                 },
                 "required": [
