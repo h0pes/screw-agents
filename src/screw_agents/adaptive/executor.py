@@ -29,6 +29,7 @@ from pathlib import Path
 from time import monotonic
 
 import yaml
+from pydantic import ValidationError
 
 from screw_agents.adaptive.ast_walker import find_calls
 from screw_agents.adaptive.lint import LintReport, lint_script
@@ -65,6 +66,34 @@ class HashMismatch(RuntimeError):
 
 class SignatureFailure(RuntimeError):
     """Raised when a script's signature verification fails (Layer 3)."""
+
+
+class MetadataError(RuntimeError):
+    """Raised when an adaptive script's .meta.yaml cannot be loaded.
+
+    Wraps the underlying yaml.YAMLError or pydantic.ValidationError so
+    callers have a single exception-family to catch alongside
+    LintFailure / HashMismatch / SignatureFailure.
+
+    T11-N2 (bundled polish in Phase 3b PR #6).
+    """
+
+
+def _load_meta(meta_path: Path) -> AdaptiveScriptMeta:
+    """Load and validate a script's .meta.yaml, wrapping errors as MetadataError.
+
+    yaml.YAMLError -> MetadataError("invalid YAML ...").
+    pydantic.ValidationError -> MetadataError("malformed metadata ...").
+    `from exc` chaining preserves the traceback root cause.
+    """
+    try:
+        meta_raw = yaml.safe_load(meta_path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        raise MetadataError(f"invalid YAML in {meta_path}: {exc}") from exc
+    try:
+        return AdaptiveScriptMeta(**(meta_raw or {}))
+    except ValidationError as exc:
+        raise MetadataError(f"malformed metadata in {meta_path}: {exc}") from exc
 
 
 # Entry-point template appended to the user's script inside the sandbox.
@@ -120,6 +149,8 @@ def execute_script(
         LintFailure: Layer 1 rejected the user's script.
         HashMismatch: Layer 2 computed SHA-256 != meta.sha256.
         SignatureFailure: Layer 3 signature verification failed.
+        MetadataError: meta.yaml failed to parse (yaml.YAMLError) or failed
+            AdaptiveScriptMeta schema validation (pydantic.ValidationError).
     """
     start = monotonic()
 
@@ -130,8 +161,7 @@ def execute_script(
     if not lint_report.passed:
         raise LintFailure(lint_report)
 
-    meta_raw = yaml.safe_load(meta_path.read_text(encoding="utf-8"))
-    meta = AdaptiveScriptMeta(**meta_raw)
+    meta = _load_meta(meta_path)
 
     # Layer 2: hash pin (skipped by tests)
     if not skip_trust_checks:

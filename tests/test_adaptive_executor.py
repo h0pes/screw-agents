@@ -778,3 +778,71 @@ def test_execute_stderr_empty_on_success(tmp_path: Path) -> None:
     assert result["status"] == "ok"
     assert result["stderr"] == ""
     assert result["sandbox_result"]["returncode"] == 0
+
+
+# -------------------------------------------------------------------------
+# Task 12 — T11-N2 MetadataError wrapper
+# -------------------------------------------------------------------------
+
+
+def test_executor_wraps_yaml_error_as_metadata_error(tmp_path: Path) -> None:
+    """Invalid YAML in .meta.yaml -> MetadataError (not bare yaml.YAMLError).
+    Plan-fix #1 + #2 + #3: uses correct execute_script signature,
+    valid-lint script body (so Layer 1 doesn't short-circuit to
+    LintFailure), and skip_trust_checks=True to bypass Layer 2+3."""
+    from screw_agents.adaptive.executor import MetadataError, execute_script
+
+    script_dir = tmp_path / ".screw" / "custom-scripts"
+    script_dir.mkdir(parents=True)
+    script_path = script_dir / "test-yaml-001.py"
+    meta_path = script_dir / "test-yaml-001.meta.yaml"
+
+    # Valid-lint body so Layer 1 passes and execution reaches the meta load.
+    script_path.write_text(
+        "from screw_agents.adaptive import ProjectRoot\n"
+        "def analyze(project: ProjectRoot) -> None:\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+    # Malformed YAML — unclosed quote is a guaranteed yaml.YAMLError.
+    meta_path.write_text("name: test\ncreated: \"unclosed\n", encoding="utf-8")
+
+    with pytest.raises(MetadataError, match="invalid YAML"):
+        execute_script(
+            script_path=script_path,
+            meta_path=meta_path,
+            project_root=tmp_path,
+            wall_clock_s=5,
+            skip_trust_checks=True,
+        )
+
+
+def test_executor_wraps_validation_error_as_metadata_error(tmp_path: Path) -> None:
+    """Malformed meta dict (missing required fields) -> MetadataError.
+    Plan-fix #1 + #2 + #3: same shape as the YAMLError test but with a
+    parseable YAML that fails Pydantic schema validation."""
+    from screw_agents.adaptive.executor import MetadataError, execute_script
+
+    script_dir = tmp_path / ".screw" / "custom-scripts"
+    script_dir.mkdir(parents=True)
+    script_path = script_dir / "test-yaml-002.py"
+    meta_path = script_dir / "test-yaml-002.meta.yaml"
+
+    script_path.write_text(
+        "from screw_agents.adaptive import ProjectRoot\n"
+        "def analyze(project: ProjectRoot) -> None:\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+    # Parseable YAML, but missing required AdaptiveScriptMeta fields
+    # (created_by, domain, description, target_patterns, sha256).
+    meta_path.write_text("name: test-yaml-002\n", encoding="utf-8")
+
+    with pytest.raises(MetadataError, match="malformed metadata"):
+        execute_script(
+            script_path=script_path,
+            meta_path=meta_path,
+            project_root=tmp_path,
+            wall_clock_s=5,
+            skip_trust_checks=True,
+        )
