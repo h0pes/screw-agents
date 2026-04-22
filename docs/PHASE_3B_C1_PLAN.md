@@ -4497,31 +4497,38 @@ T13 commit: `91bcbd9`. Plan-fix commit: `6559cdf`.
 **Files:**
 - Modify: `tests/test_adaptive_executor.py` (+60 LOC fixture + 2 tests)
 
-**Rationale:** The most valuable bundled test. Locks the Option D invariant: `execute_script(skip_trust_checks=False)` MUST round-trip through Layer 3 signature verification for any script signed by `_sign_script_bytes` (direct or via promote).
+**Rationale:** The most valuable bundled test. Locks the Option D invariant: the production execute path (`skip_trust_checks=False`) MUST round-trip through Layer 3 signature verification for any script signed by `_sign_script_bytes` (direct or via promote).
 
-- [ ] **Step 1: Add Ed25519 signing helper fixture**
+**Plan-fixes #1-8 (2026-04-22)** — plan was drafted with multiple conflated API references (same pattern as T12 plan); the following adjustments ground T14 in current code:
+
+- **Plan-fix #1 (use engine method)**: plan's tests call `execute_script(project_root=..., script_name=..., ...)` but `execute_script`'s signature is `(*, script_path, meta_path, project_root, wall_clock_s, skip_trust_checks)` — no `script_name`. Plan author conflated `execute_script` (internal) with `engine.execute_adaptive_script` (engine wrapper). Switch to `engine.execute_adaptive_script(project_root=..., script_name=..., ...)` which returns a dict (matches plan's `result["status"]` assertion shape) AND represents the real caller path through the MCP tool.
+- **Plan-fix #2 (session_id is required)**: plan passes `session_id=None` to `sign_adaptive_script`. The actual signature at `engine.py:1111` is `session_id: str` (required). Use a valid string like `"t14-sess"`. Note: post-C1, `promote_staged_script` is the preferred path, but `sign_adaptive_script` is explicitly retained for tests + legacy consumers (see `engine.py:1122-1128` C1 STATUS NOTE).
+- **Plan-fix #3 (simplify happy-path assertion)**: plan's `assert result["status"] in ("ok", "success") or result.get("returncode") == 0` is confused — "success" is not a valid status value, and the triple-fallback suggests the author wasn't sure which API was being called. Post-T11 (I3), `engine.execute_adaptive_script` returns `{"status": "ok" | "sandbox_failure", ...}`. Simplify to `assert result["status"] == "ok"`.
+- **Plan-fix #4 (tamper stays lint-valid)**: plan's tamper replaces the script with `"# tampered\npass\n"`. Layer 1 lint runs FIRST (before Layer 3) and rejects `pass\n` for missing `def analyze` → `LintFailure`. Test's `pytest.raises(SignatureFailure)` fails. Tamper MUST preserve the lint-valid prefix (`from screw_agents.adaptive import ProjectRoot` + `def analyze(project: ProjectRoot) -> None:`) and flip a byte elsewhere — e.g., add a `# TAMPERED` comment line OR change the body statement. Ensures Layer 1 passes and Layer 3 does the rejecting.
+- **Plan-fix #5 (drop unused cryptography imports)**: plan imports `Ed25519PrivateKey`, `Ed25519PublicKey`, `Encoding`, `PrivateFormat`, `PublicFormat`, `NoEncryption` — but the fixture doesn't use them directly. Signing goes through `engine.sign_adaptive_script` which owns all the Ed25519 work internally. Drop the unused imports entirely.
+- **Plan-fix #6 (pytest count)**: plan said "821 passed". Stale. Current post-T13 baseline at HEAD `5340561` is **889**. T14 adds +2 → **891 passed, 8 skipped**.
+- **Plan-fix #7 (`target_patterns=[]` for full round-trip)**: plan uses `target_patterns=["nothing.at.all"]` — causes `_is_stale` to return True → sandbox never runs (stale sentinel path short-circuits at `executor.py:191`). Layer 3 still runs before the stale check, so the test IS meaningful for Layer 3 coverage. But to genuinely exercise the full round-trip (the plan rationale says "round-trip through Layer 3"), use `target_patterns=[]` (empty → `_is_stale` returns False at `executor.py:246-247` → sandbox runs → Layer 3 + Layer 5+6 all exercised).
+- **Plan-fix #8 (document layer precedence)**: test docstrings should note that Layer 1 (lint) runs BEFORE Layer 3. This documents the plan-fix #4 discipline for future maintainers: "if you simplify the tampered content, keep the lint-valid prefix or you'll get LintFailure instead of SignatureFailure".
+
+- [ ] **Step 1: Add signing helper fixture + 2 E2E tests**
 
 Append to `tests/test_adaptive_executor.py`:
 
 ```python
-import pytest
-from cryptography.hazmat.primitives.asymmetric.ed25519 import (
-    Ed25519PrivateKey, Ed25519PublicKey,
-)
-from cryptography.hazmat.primitives.serialization import (
-    Encoding, PrivateFormat, PublicFormat, NoEncryption,
-)
-
-
 @pytest.fixture
 def signed_script_setup(tmp_path: Path):
-    """Yields a (project_root, script_name, source, meta_dict, cleanup) tuple
-    where the script + meta are fully signed and verifiable via Layer 3.
+    """Yields a (project_root, script_name, source, meta_dict) tuple where
+    the script + meta are fully signed and verifiable via Layer 3.
 
     Used by T11-N1's end-to-end signature-path tests to exercise the real
-    sign → verify round-trip, not just skip_trust_checks=True shortcuts.
+    sign → verify round-trip (`skip_trust_checks=False`), not just the
+    skip_trust_checks=True shortcuts other tests use.
+
+    Plan-fix #2 + #7: session_id is a real string ("t14-sess");
+    target_patterns=[] so _is_stale returns False (`executor.py:246-247`)
+    and the sandbox actually runs, exercising the full round-trip rather
+    than short-circuiting at the stale sentinel.
     """
-    from screw_agents.adaptive.signing import _sign_script_bytes
     from screw_agents.cli.init_trust import run_init_trust
     from screw_agents.engine import ScanEngine
 
@@ -4531,8 +4538,9 @@ def signed_script_setup(tmp_path: Path):
     engine = ScanEngine.from_defaults()
 
     source = (
-        "from screw_agents.adaptive import emit_finding\n\n"
-        "def analyze(project):\n"
+        "from screw_agents.adaptive import ProjectRoot\n"
+        "\n"
+        "def analyze(project: ProjectRoot) -> None:\n"
         "    pass\n"
     )
     meta = {
@@ -4541,7 +4549,7 @@ def signed_script_setup(tmp_path: Path):
         "created_by": "sig@example.com",
         "domain": "injection-input-handling",
         "description": "T11-N1 fixture",
-        "target_patterns": ["nothing.at.all"],
+        "target_patterns": [],  # plan-fix #7: full round-trip, not stale sentinel
     }
 
     r = engine.sign_adaptive_script(
@@ -4549,47 +4557,80 @@ def signed_script_setup(tmp_path: Path):
         script_name="test-sig-e2e",
         source=source,
         meta=meta,
-        session_id=None,
+        session_id="t14-sess",  # plan-fix #2: required string
     )
     assert r["status"] == "signed"
 
     yield (project, "test-sig-e2e", source, meta)
 
 
-def test_execute_script_verifies_layer3_signature_happy_path(signed_script_setup) -> None:
-    """Full sign → verify round-trip. skip_trust_checks=False.
+def test_execute_adaptive_script_verifies_layer3_signature_happy_path(
+    signed_script_setup,
+) -> None:
+    """Full sign → verify round-trip with skip_trust_checks=False.
 
     T11-N1: end-to-end Layer 3 coverage that was not exercised before.
+    Uses engine.execute_adaptive_script (the MCP-boundary entry point)
+    per plan-fix #1 — not the internal execute_script which takes
+    script_path/meta_path, not script_name.
     """
-    from screw_agents.adaptive.executor import execute_script
+    from screw_agents.engine import ScanEngine
 
     project, script_name, _, _ = signed_script_setup
 
-    result = execute_script(
+    engine = ScanEngine.from_defaults()
+    result = engine.execute_adaptive_script(
         project_root=project,
         script_name=script_name,
         wall_clock_s=5,
         skip_trust_checks=False,
     )
-    assert result["status"] in ("ok", "success") or result.get("returncode") == 0
+
+    # Plan-fix #3: simplified assertion. Post-T11 (I3), engine returns
+    # status="ok" on returncode==0, "sandbox_failure" otherwise.
+    assert result["status"] == "ok"
 
 
-def test_execute_script_rejects_tampered_signature(signed_script_setup) -> None:
-    """Tamper the .py source after signing. Layer 3 verification MUST fail."""
-    from screw_agents.adaptive.executor import execute_script, SignatureFailure
+def test_execute_adaptive_script_rejects_tampered_signature(
+    signed_script_setup,
+) -> None:
+    """Tamper the .py source after signing. Layer 3 verification MUST fail.
+
+    Plan-fix #4 + #8: tampered content must stay lint-valid (preserve
+    `from screw_agents.adaptive import ProjectRoot` + `def analyze(...)`)
+    so Layer 1 passes and Layer 3 is the rejecting layer. Layer 1 runs
+    BEFORE Layer 3 in executor.execute_script; if the tamper broke lint,
+    we'd get LintFailure instead of the expected SignatureFailure.
+    """
+    from screw_agents.adaptive.executor import SignatureFailure
+    from screw_agents.engine import ScanEngine
 
     project, script_name, _, _ = signed_script_setup
     py_path = project / ".screw" / "custom-scripts" / f"{script_name}.py"
-    py_path.write_text("# tampered\npass\n", encoding="utf-8")
 
+    # Tamper while preserving lint-validity — add a comment line BEFORE
+    # the analyze def so Layer 1 sees valid structure but the SHA-256
+    # changes (and so Layer 3 signature verification fails).
+    py_path.write_text(
+        "from screw_agents.adaptive import ProjectRoot\n"
+        "\n"
+        "# TAMPERED — this line changes the sha256 but keeps the lint\n"
+        "def analyze(project: ProjectRoot) -> None:\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+
+    engine = ScanEngine.from_defaults()
     with pytest.raises(SignatureFailure):
-        execute_script(
+        engine.execute_adaptive_script(
             project_root=project,
             script_name=script_name,
             wall_clock_s=5,
             skip_trust_checks=False,
         )
 ```
+
+Plan-fix #5: note that the plan's scaffolded `cryptography.hazmat.primitives` imports are NOT in the fixture above — they were unused. All Ed25519 work happens inside `engine.sign_adaptive_script`.
 
 - [ ] **Step 2: Run tests — should PASS (trust infrastructure already works; these just exercise it)**
 
@@ -4599,16 +4640,14 @@ Expected: 2 PASS.
 - [ ] **Step 3: Full suite**
 
 Run: `uv run pytest -q`
-Expected: 821 passed (819 + 2 T11-N1 tests).
+Expected (plan-fix #6): **891 passed, 8 skipped** (889 baseline + 2 new).
 
 - [ ] **Step 4: Commit**
 
 ```bash
 git add tests/test_adaptive_executor.py
-git commit -m "test(phase3b-c1): end-to-end signature-path regression for execute_script (T14, T11-N1)"
+git commit -m "test(phase3b-c1): end-to-end signature-path regression for execute_adaptive_script (T14, T11-N1)"
 ```
-
-Note: the test count is now 821, not 820 as projected. Acceptable — we added one more test than the spec's projection. Update expected-count in Exit Checklist (§below) if needed.
 
 ---
 
