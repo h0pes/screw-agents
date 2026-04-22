@@ -4017,7 +4017,9 @@ Expected: all previously-passing tests still pass + 4 new tests PASS.
 - [ ] **Step 5: Full suite**
 
 Run: `uv run pytest -q`
-Expected: 816 passed.
+**Plan-fix #1 (T10)**: Expected **884 passed, 8 skipped** (pre-T10 baseline 880 at HEAD `1eda141` + 4 new tests from Step 1). The stale "816" was a draft-era number from before T1-T9 added tests.
+
+**Note on parametrization choice**: `test_lint_accepts_all_exported_names` in Step 1 uses a for-loop over `adaptive.__all__` inside a single test function. If the implementer prefers `@pytest.mark.parametrize` for better isolation (each symbol → its own test result), the count goes up by N-1 where N = `len(__all__) = 18` → 884 + 17 = 901. Either shape is acceptable; report the actual count in the closeout commit.
 
 - [ ] **Step 6: Commit**
 
