@@ -3443,18 +3443,38 @@ scripts = result["scripts"]  # engine returns dict wrapper, not bare list
 
 (Existing tests return `list`; new engine method returns `dict` with `scripts` key and `status` key per spec §3.5.)
 
-Similarly `remove_adaptive_script(project_root, script_name, confirmed)` becomes `engine.remove_adaptive_script(...)`.
+**Scope — what migrates in T7 vs. T8/T9:**
 
-**Critical:** keep ALL existing test assertions. The behavior must not regress — this is purely a re-homing of the function.
+| Test group | Migrates in | How |
+|------------|-------------|-----|
+| `TestListAdaptiveScripts` (7 tests, lines 56-152) | T7 | `list_adaptive_scripts(tmp_path)` → `engine.list_adaptive_scripts(project_root=tmp_path)["scripts"]` |
+| `TestCheckStale` (5 tests, lines 155-268) | T7 | `from screw_agents.cli.adaptive_cleanup import _check_stale` → `from screw_agents.adaptive.executor import _check_stale` (lines 233, 253 in test file). See plan-fix #1 below. |
+| `TestStaleSemanticAlignment` (1 test, lines 271-353) | T7 | `from screw_agents.cli.adaptive_cleanup import _check_stale` → `from screw_agents.adaptive.executor import _check_stale` (line 315). Merge with the existing `from screw_agents.adaptive.executor import _is_stale` import. |
+| `TestRemoveAdaptiveScript` (3 tests, lines 356-403) | **T8 — DO NOT migrate in T7** | `engine.remove_adaptive_script` does not exist until T8. Leave these tests pointing at `from screw_agents.cli.adaptive_cleanup import remove_adaptive_script`; they continue to pass because the CLI function survives until T9. |
+
+**Critical:** keep ALL existing test assertions for the migrated groups. The behavior must not regress — this is purely a re-homing of the function.
 
 - [ ] **Step 3: Run migrated tests — they MUST fail**
 
 Run: `uv run pytest tests/test_adaptive_cleanup.py -v`
 Expected: FAIL with `AttributeError: 'ScanEngine' object has no attribute 'list_adaptive_scripts'`.
 
-- [ ] **Step 4: Implement `engine.list_adaptive_scripts`**
+- [ ] **Step 4: Implement `engine.list_adaptive_scripts` and relocate `_check_stale`**
 
-LIFT the logic from `cli/adaptive_cleanup.py::list_adaptive_scripts` into `engine.py` as a method. The CLI helper functions (`_check_stale`, etc.) move alongside. Preserve every behavioral detail: stale flag computation, signed_by extraction, target_patterns check.
+LIFT the logic from `cli/adaptive_cleanup.py::list_adaptive_scripts` into `engine.py` as a method. Preserve every behavioral detail: alphabetical sort by `name` (CLI `:108`), all 12 per-script fields (name/created/created_by/domain/description/target_patterns/findings_produced/last_used/validated/signed_by/stale/stale_reason), orphan skips (meta without .py, malformed YAML, non-dict meta), empty-dir → `{"status": "ok", "scripts": []}`.
+
+**Plan-fix #1 — `_check_stale` moves to `adaptive/executor.py`, NOT into `engine.py`:**
+
+The `_check_stale` helper is semantically twinned with `adaptive/executor.py::_is_stale` — the `cli/adaptive_cleanup.py:1-19` module docstring already asserts this alignment as load-bearing and warns that drift "would confuse users who see 'stale' in one surface but not the other." Co-locating the two functions in `adaptive/executor.py` closes the drift risk AND survives T9's deletion of the CLI module cleanly (the 3 test imports at `test_adaptive_cleanup.py:233, 253, 315` re-target to the new home as part of T7's migration, not left dangling for T9).
+
+Concrete steps:
+
+1. Move `_check_stale` (~50 lines, currently at `cli/adaptive_cleanup.py:210-258`) **verbatim** into `src/screw_agents/adaptive/executor.py`, placed immediately after `_is_stale` (currently at `executor.py:209`).
+2. Add `ProjectPathError` to the existing `from screw_agents.adaptive.project import ProjectRoot` import at `executor.py:35` (i.e. `from screw_agents.adaptive.project import ProjectPathError, ProjectRoot`).
+3. **CLI file stays functional until T9 deletes it** — so `cli/adaptive_cleanup.py::list_adaptive_scripts` must keep working for the T22 test (`test_adaptive_workflow.py:483`) which won't migrate until T9. Replace the local `_check_stale` definition in `cli/adaptive_cleanup.py` with a re-import: `from screw_agents.adaptive.executor import _check_stale` (module-top). The `find_calls` and `ProjectRoot` imports at `cli/adaptive_cleanup.py:29-30` become unused in that file once `_check_stale`'s definition moves — delete them (ruff would flag). The public interface of `cli.adaptive_cleanup` is preserved: `_check_stale` remains importable from the CLI module (re-export) for test-import back-compat during the T7→T9 window.
+4. The engine method's `_inspect_adaptive_script` helper (still an instance method on `ScanEngine` per the code block below) imports `_check_stale` from its new home: `from screw_agents.adaptive.executor import _check_stale`.
+
+Rationale summary: `find_calls` and `ProjectRoot` are already in `adaptive/`, so `_check_stale` has zero new dependencies in its new home. `_is_stale` (boolean) and `_check_stale` (boolean + reason string) use the same decision tree; co-location is the natural outcome. Engine.py stays focused on MCP-level orchestration rather than growing an adaptive-script staleness helper. The CLI module's `_check_stale` re-export survives the T7→T9 window so T22's non-migrated test path keeps working.
 
 ```python
 def list_adaptive_scripts(
