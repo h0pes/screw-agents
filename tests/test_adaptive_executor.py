@@ -846,3 +846,179 @@ def test_executor_wraps_validation_error_as_metadata_error(tmp_path: Path) -> No
             wall_clock_s=5,
             skip_trust_checks=True,
         )
+
+
+# --- Task 14 — T11-N1 E2E signature-path regression ---
+
+@pytest.fixture
+def signed_script_setup(tmp_path: Path):
+    """Yields a (project_root, script_name, source, meta_dict) tuple where
+    the script + meta are fully signed and verifiable via Layer 3.
+
+    Used by T11-N1's end-to-end signature-path tests to exercise the real
+    sign -> verify round-trip (`skip_trust_checks=False`), not just the
+    skip_trust_checks=True shortcuts other tests use.
+
+    Plan-fix #2 + #7: session_id is a real string ("t14-sess");
+    target_patterns=[] so _is_stale returns False (`executor.py:246-247`)
+    and the sandbox actually runs, exercising the full round-trip rather
+    than short-circuiting at the stale sentinel.
+    """
+    from screw_agents.cli.init_trust import run_init_trust
+    from screw_agents.engine import ScanEngine
+
+    project = tmp_path / "project"
+    project.mkdir()
+    run_init_trust(project_root=project, name="T11N1", email="sig@example.com")
+    engine = ScanEngine.from_defaults()
+
+    source = (
+        "from screw_agents.adaptive import ProjectRoot\n"
+        "\n"
+        "def analyze(project: ProjectRoot) -> None:\n"
+        "    pass\n"
+    )
+    meta = {
+        "name": "test-sig-e2e",
+        "created": "2026-04-20T10:00:00Z",
+        "created_by": "sig@example.com",
+        "domain": "injection-input-handling",
+        "description": "T11-N1 fixture",
+        "target_patterns": [],  # plan-fix #7: full round-trip, not stale sentinel
+    }
+
+    r = engine.sign_adaptive_script(
+        project_root=project,
+        script_name="test-sig-e2e",
+        source=source,
+        meta=meta,
+        session_id="t14-sess",  # plan-fix #2: required string
+    )
+    assert r["status"] == "signed"
+
+    yield (project, "test-sig-e2e", source, meta)
+
+
+def test_execute_adaptive_script_verifies_layer3_signature_happy_path(
+    signed_script_setup,
+) -> None:
+    """Full sign -> verify round-trip with skip_trust_checks=False.
+
+    T11-N1: end-to-end Layer 3 coverage that was not exercised before.
+    Uses engine.execute_adaptive_script (the MCP-boundary entry point)
+    per plan-fix #1 — not the internal execute_script which takes
+    script_path/meta_path, not script_name.
+    """
+    from screw_agents.engine import ScanEngine
+
+    project, script_name, _, _ = signed_script_setup
+
+    engine = ScanEngine.from_defaults()
+    result = engine.execute_adaptive_script(
+        project_root=project,
+        script_name=script_name,
+        wall_clock_s=5,
+        skip_trust_checks=False,
+    )
+
+    # Plan-fix #3: simplified assertion. Post-T11 (I3), engine returns
+    # status="ok" on returncode==0, "sandbox_failure" otherwise.
+    assert result["status"] == "ok"
+
+
+def test_execute_adaptive_script_rejects_tampered_source(
+    signed_script_setup,
+) -> None:
+    """Tamper the .py source after signing. Layer 2 hash pin MUST fail.
+
+    Plan-fix #4 + #8 + #9 (Option C): Layer 1 (lint) and Layer 2 (hash
+    pin) BOTH run before Layer 3 (signature) in executor.execute_script.
+    A source-byte tamper is caught by Layer 2 via HashMismatch — Layer 3
+    never runs. This test locks the Layer-2 rejection path specifically.
+    The companion test_execute_adaptive_script_rejects_tampered_signature
+    exercises Layer 3 by flipping the signature field instead.
+
+    Tampered content stays lint-valid (preserves import + def analyze)
+    to prove the rejection comes from Layer 2's SHA-256 check, NOT Layer
+    1's lint. If this test ever starts raising LintFailure, the tamper
+    somehow broke the lint — investigate before assuming the hash check
+    is broken.
+    """
+    from screw_agents.adaptive.executor import HashMismatch
+    from screw_agents.engine import ScanEngine
+
+    project, script_name, _, _ = signed_script_setup
+    py_path = project / ".screw" / "custom-scripts" / f"{script_name}.py"
+
+    # Tamper while preserving lint-validity — add a comment line BEFORE
+    # the analyze def so Layer 1 sees valid structure but the SHA-256
+    # changes (and so Layer 2 hash pin fails).
+    py_path.write_text(
+        "from screw_agents.adaptive import ProjectRoot\n"
+        "\n"
+        "# TAMPERED — this line changes the sha256\n"
+        "def analyze(project: ProjectRoot) -> None:\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+
+    engine = ScanEngine.from_defaults()
+    with pytest.raises(HashMismatch):
+        engine.execute_adaptive_script(
+            project_root=project,
+            script_name=script_name,
+            wall_clock_s=5,
+            skip_trust_checks=False,
+        )
+
+
+def test_execute_adaptive_script_rejects_tampered_signature(
+    signed_script_setup,
+) -> None:
+    """Tamper .meta.yaml's signature field after signing. Layer 3 MUST fail.
+
+    Plan-fix #9 (Option C): Layer 2 hash pin passes because we leave the
+    .py source untouched (and its sha256 stays in meta.sha256). But we
+    flip a byte in the base64 signature field, so Ed25519 verification
+    at Layer 3 fails with SignatureFailure. This is the T11-N1 flagship
+    test that locks Layer 3 coverage — the rationale for bundling T11-N1
+    in PR #6 in the first place.
+
+    If meta_path's signature field shape ever changes (e.g., moved under
+    a nested key, renamed), this test will break — find the new path
+    and update. The invariant being tested is: ANY byte-change in the
+    on-disk signature post-sign must be rejected at Layer 3.
+    """
+    import base64
+
+    import yaml
+
+    from screw_agents.adaptive.executor import SignatureFailure
+    from screw_agents.engine import ScanEngine
+
+    project, script_name, _, _ = signed_script_setup
+    meta_path = project / ".screw" / "custom-scripts" / f"{script_name}.meta.yaml"
+
+    meta_dict = yaml.safe_load(meta_path.read_text(encoding="utf-8"))
+    assert "signature" in meta_dict, (
+        f"meta at {meta_path} is missing 'signature' field — "
+        f"shape changed? keys present: {sorted(meta_dict.keys())}"
+    )
+
+    # Decode, flip one byte in the middle (avoid padding), re-encode.
+    sig_bytes = bytearray(base64.b64decode(meta_dict["signature"]))
+    assert len(sig_bytes) >= 16, f"Ed25519 signature too short: {len(sig_bytes)} bytes"
+    # Flip a byte at a safe offset — Ed25519 signatures are 64 bytes;
+    # offset 10 is well clear of padding and structural bits.
+    sig_bytes[10] ^= 0xFF
+    meta_dict["signature"] = base64.b64encode(bytes(sig_bytes)).decode("ascii")
+    meta_path.write_text(yaml.safe_dump(meta_dict), encoding="utf-8")
+
+    engine = ScanEngine.from_defaults()
+    with pytest.raises(SignatureFailure):
+        engine.execute_adaptive_script(
+            project_root=project,
+            script_name=script_name,
+            wall_clock_s=5,
+            skip_trust_checks=False,
+        )
