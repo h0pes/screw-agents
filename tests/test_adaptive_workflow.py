@@ -63,7 +63,6 @@ def test_full_adaptive_workflow_composition(tmp_path: Path) -> None:
     across T13-T21 unit-test baselines.
     """
     from screw_agents.adaptive.signing import compute_script_sha256
-    from screw_agents.cli.adaptive_cleanup import list_adaptive_scripts
     from screw_agents.cli.init_trust import run_init_trust
     from screw_agents.engine import ScanEngine
 
@@ -480,7 +479,8 @@ def test_full_adaptive_workflow_composition(tmp_path: Path) -> None:
     # After find_calls's paren-strip, callee tokens are
     # ["QueryBuilder", "execute_raw"], which match the pattern exactly
     # → find_calls yields ≥1 hit → _check_stale returns (False, None).
-    scripts = list_adaptive_scripts(project)
+    scripts_response = engine.list_adaptive_scripts(project_root=project)
+    scripts = scripts_response["scripts"]  # unwrap the dict wrapper
     assert len(scripts) == 1, (
         f"expected 1 script in list; got {len(scripts)}: {scripts}"
     )
