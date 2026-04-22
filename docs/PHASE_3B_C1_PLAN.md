@@ -4053,79 +4053,148 @@ T10 commit: `f900aca`. Plan-fix commit: `4b5df2d`.
 ### Task 11: I3 — Sandbox Execution stderr Surfacing
 
 **Files:**
-- Modify: `src/screw_agents/adaptive/sandbox/linux.py` (verify/tighten stderr capture)
-- Modify: `src/screw_agents/adaptive/executor.py` (propagate stderr to tool return on failure)
+- Modify: `src/screw_agents/engine.py` (remove stderr from MCP-boundary exclude set, decode bytes→str, add top-level status field)
 - Modify: `tests/test_adaptive_executor.py` (+2 tests)
 
-- [ ] **Step 1: Trace current stderr path**
+**Plan-fixes #1-7 (2026-04-22)** — plan was drafted before key details were finalized; the following adjustments ground the task in current code:
 
-Read `sandbox/linux.py::run_in_sandbox`:
-- Confirm `subprocess.run(..., capture_output=True)` is present. If using `stdout=subprocess.PIPE` + `stderr=subprocess.PIPE`, that's equivalent.
-- Confirm `SandboxResult.stderr` is populated from `proc.stderr.decode("utf-8", errors="replace")`.
-
-Read `executor.py::execute_script`:
-- Confirm on `sandbox_result.returncode != 0`, the return payload includes `stderr`.
-
-Where gaps exist — add them.
-
-- [ ] **Step 2: Write failing test**
+**Plan-fix #1 — Implementation location**: the stderr-surfacing gap is at `engine.execute_adaptive_script` (`engine.py:282-290`), not `executor.execute_script`. The MCP-boundary return dict currently has:
 
 ```python
-# tests/test_adaptive_executor.py
+"sandbox_result": result.sandbox_result.model_dump(
+    mode="json", exclude={"stdout", "stderr"}
+),
+```
 
-@pytest.mark.skipif(
-    shutil.which("bwrap") is None and shutil.which("sandbox-exec") is None,
-    reason="requires sandbox backend",
-)
+The `exclude={"stdout", "stderr"}` is the I3 defect — callers never see why the sandbox failed. `executor.execute_script` already surfaces the full `SandboxResult` (with stderr) through `AdaptiveScriptResult`; no change needed there.
+
+**Plan-fix #2 — Bytes vs str**: keep `SandboxResult.stderr: bytes` (unchanged schema → no ripple to other callers). Decode inline in `engine.execute_adaptive_script` via `.decode("utf-8", errors="replace")`. Avoids touching `sandbox/linux.py` (~550 LOC security-critical file) for a pure serialization concern.
+
+**Plan-fix #3 — Top-level `status` field**: add `"status": "ok"` on `sandbox_result.returncode == 0`, otherwise `"sandbox_failure"`. This matches the plan's Step 2 test assertion (`result["status"] in (...)`). `killed_by_timeout=True` always pairs with `returncode=-1`, so it's subsumed by the `!= 0` check.
+
+**Plan-fix #4 — stderr placement**: include decoded `stderr` inside the `sandbox_result` dict (drop from the `exclude` set). Also expose it as a top-level `"stderr"` alias to match the plan's test expectation that uses `result["stderr"]`. stdout stays excluded — adaptive scripts communicate via `findings.json`, not stdout; surfacing stdout would add noise without value.
+
+**Plan-fix #5 — Test seed-script updated**: plan's example `from screw_agents.adaptive import nonexistent` would now fail at Layer 1 lint (T10's new `unknown_symbol` rule) BEFORE reaching the sandbox, raising `LintFailure` rather than producing a sandbox result. Use a different failure mode: a script that imports valid names but raises at runtime inside `analyze()`. Example: `raise RuntimeError("intentional T11 test failure")`. That reaches the sandbox, emits a stack trace to stderr, and the sandbox returncode is non-zero.
+
+**Plan-fix #6 — Expected pytest count**: baseline 884 at HEAD `1102493` + 2 new tests = **886 passed, 8 skipped**.
+
+**Plan-fix #7 — Use `skip_trust_checks=True` in tests**: existing test pattern in `test_adaptive_executor.py` avoids init-trust/sign dance by passing `skip_trust_checks=True` to `execute_script` (or the equivalent parameter on the engine method). Follow the existing pattern — T11's new tests focus on the sandbox-stderr surfacing, not the trust path.
+
+- [ ] **Step 1: Trace current stderr path (verification — should already match the post-fix notes above)**
+
+Verify in `src/screw_agents/adaptive/sandbox/linux.py`:
+- subprocess.run uses bounded tempfile capture (`linux.py:320-340`) — NOT `capture_output=True`, but functionally equivalent and bounded at 1 MB per stream.
+- `SandboxResult.stderr` populated as `bytes` from the tempfile read (`linux.py:340, 362`). No decoding at this layer — bytes are preserved through to the MCP boundary, where Plan-fix #2 does the decode.
+
+Verify in `src/screw_agents/adaptive/executor.py::execute_script`:
+- Returns `AdaptiveScriptResult` with full `sandbox_result: SandboxResult`. No filtering.
+
+Verify the I3 gap in `src/screw_agents/engine.py`:
+- `execute_adaptive_script` at `engine.py:287-289` does `model_dump(exclude={"stdout", "stderr"})`. THIS is what changes in Step 4.
+
+- [ ] **Step 2: Write failing tests**
+
+```python
+# tests/test_adaptive_executor.py — append at end of file
+
 def test_execute_surfaces_stderr_on_nonzero_return(tmp_path: Path) -> None:
-    """A script with bad import raises ImportError → sandbox returncode=1.
-    Executor MUST surface stderr in the returned result so the subagent's
-    failure-render path has something to show the user."""
-    # ... Arrange: write a script with `from screw_agents.adaptive import nonexistent`
-    # into .screw/custom-scripts/ (sign with a local key via init-trust).
-    # Act: execute_adaptive_script
-    # Assert: result["status"] in ("error", "failed") AND
-    #         "ImportError" in result["stderr"] OR equivalent
+    """A script raising RuntimeError inside analyze() yields sandbox
+    returncode=1. engine.execute_adaptive_script MUST surface stderr AND
+    set status='sandbox_failure' so the T18b failure-render path has
+    something to show the user. Plan-fix #5 (T11): use a runtime raise
+    rather than a hallucinated import — T10's unknown_symbol rule now
+    rejects hallucinated imports at Layer 1 before the sandbox runs."""
+    import shutil
+
+    if shutil.which("bwrap") is None and shutil.which("sandbox-exec") is None:
+        pytest.skip("requires sandbox backend")
+
+    # ... Arrange: write a valid-linting script that raises at runtime
+    # into .screw/custom-scripts/ with dummy .meta.yaml. skip_trust_checks=True
+    # so we don't need an init-trust signature (plan-fix #7).
+    # Example script body:
+    #     from screw_agents.adaptive import ProjectRoot
+    #     def analyze(project: ProjectRoot) -> None:
+    #         raise RuntimeError("intentional T11 test failure")
+    # Act: engine.execute_adaptive_script(..., skip_trust_checks=True)
+    # Assert:
+    #   result["status"] == "sandbox_failure"
+    #   "RuntimeError" in result["stderr"]
+    #   "intentional T11 test failure" in result["stderr"]
+    #   result["sandbox_result"]["returncode"] != 0
+    #   result["sandbox_result"]["stderr"] == result["stderr"]  # alias
     ...
 
 
-def test_execute_stderr_absent_on_success(tmp_path: Path) -> None:
-    """Happy path: no stderr field or empty string. Don't clutter success payloads."""
+def test_execute_stderr_empty_on_success(tmp_path: Path) -> None:
+    """Happy path: status='ok' and stderr is empty string. Well-behaved
+    scripts don't write to stderr; don't clutter success payloads. Plan-fix
+    #4: empty string rather than omitted field — keeps the dict shape
+    stable so the subagent's failure-render branch can always test
+    `result["stderr"]` without a .get() dance."""
+    import shutil
+
+    if shutil.which("bwrap") is None and shutil.which("sandbox-exec") is None:
+        pytest.skip("requires sandbox backend")
+
+    # ... Arrange: write a valid, passing script (no raise, emits no findings OR
+    # one benign finding). skip_trust_checks=True.
+    # Act: engine.execute_adaptive_script(...)
+    # Assert:
+    #   result["status"] == "ok"
+    #   result["stderr"] == ""
+    #   result["sandbox_result"]["returncode"] == 0
     ...
 ```
 
 - [ ] **Step 3: Run — verify failure**
 
-- [ ] **Step 4: Implement — ensure `executor.py` returns stderr on failure**
+Run: `uv run pytest tests/test_adaptive_executor.py::test_execute_surfaces_stderr_on_nonzero_return tests/test_adaptive_executor.py::test_execute_stderr_empty_on_success -v`
+Expected: both FAIL (status field / stderr field doesn't exist yet).
 
-Modify the relevant branch in `executor.py::execute_script`:
+- [ ] **Step 4: Implement in `engine.execute_adaptive_script`**
+
+Modify `src/screw_agents/engine.py` — locate `execute_adaptive_script`'s return-dict construction (currently lines 282-290). Replace with:
 
 ```python
-# Existing (conceptually):
-sandbox_result = run_in_sandbox(...)
-if sandbox_result.returncode != 0:
-    return {
-        "status": "sandbox_failure",
-        "returncode": sandbox_result.returncode,
-        "wall_clock_s": sandbox_result.wall_clock_s,
-        "killed_by_timeout": sandbox_result.killed_by_timeout,
-        # ADD:
-        "stderr": sandbox_result.stderr or "",
-    }
+# Decode stderr bytes → str for JSON payload (plan-fix #2).
+# errors="replace" so a binary-writing malicious script can't raise
+# UnicodeDecodeError and break the response.
+stderr_str = result.sandbox_result.stderr.decode("utf-8", errors="replace")
+
+# Top-level status: "ok" on clean returncode, "sandbox_failure" otherwise
+# (plan-fix #3). killed_by_timeout yields returncode=-1, so it's already
+# covered by the != 0 check — no need for a separate "timeout" status.
+status = "ok" if result.sandbox_result.returncode == 0 else "sandbox_failure"
+
+return {
+    "status": status,                              # plan-fix #3: top-level
+    "script_name": result.script_name,
+    "findings": [f.model_dump(mode="json") for f in result.findings],
+    "stale": result.stale,
+    "execution_time_ms": result.execution_time_ms,
+    "stderr": stderr_str,                          # plan-fix #4: top-level alias
+    "sandbox_result": {
+        **result.sandbox_result.model_dump(
+            mode="json", exclude={"stdout", "stderr"}  # stdout stays excluded
+        ),
+        "stderr": stderr_str,                      # plan-fix #4: also inside
+    },
+}
 ```
 
-If `stderr` is missing from `SandboxResult`, add it to the dataclass and populate in `sandbox/linux.py::run_in_sandbox` via `proc.stderr.decode("utf-8", errors="replace")`.
+No changes to `sandbox/linux.py` (plan-fix #2) or `executor.py` (plan-fix #1). The `SandboxResult` Pydantic model's field types remain unchanged.
 
 - [ ] **Step 5: Run tests — verify pass**
 
 Run: `uv run pytest tests/test_adaptive_executor.py -v`
+Run: `uv run pytest -q`
+Expected (plan-fix #6): **886 passed, 8 skipped** (baseline 884 + 2 new tests).
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/screw_agents/adaptive/sandbox/linux.py \
-        src/screw_agents/adaptive/executor.py \
-        tests/test_adaptive_executor.py
+git add src/screw_agents/engine.py tests/test_adaptive_executor.py
 git commit -m "feat(phase3b-c1): surface sandbox stderr on execution failure (T11, I3)"
 ```
 
