@@ -3591,11 +3591,15 @@ T7 commit: `93f04bc`. Plan-fix commit: `32bc93f`.
 **Files:**
 - Modify: `src/screw_agents/engine.py` (add `remove_adaptive_script`)
 - Modify: `src/screw_agents/server.py` (register MCP tool)
-- Modify: `tests/test_adaptive_cleanup.py` (migration already done in T7)
+- Modify: `tests/test_adaptive_cleanup.py` (migrate `TestRemoveAdaptiveScript` — deferred from T7 per T7 plan-fix #2; rewrites + new tests per T8 plan-fix #3 below)
 
-Follow the T7 pattern exactly. Existing T21 confirmation-gate semantics preserved.
+Follow the T7 pattern exactly. Existing T21 confirmation-gate semantics preserved AND promoted from slash-command level into the engine method.
 
 - [ ] **Step 1: Implement `engine.remove_adaptive_script`**
+
+**Plan-fix #1 (OSError)**: return an error-dict instead of `raise ValueError(...)`, matching T5 `reject_staged_script` at `engine.py:977-983` (`delete_failed` error-dict) and the existing CLI `remove_adaptive_script` at `cli/adaptive_cleanup.py:177-185` (OSError returns error-dict, never raises). This preserves the "all error paths return dicts" invariant shared by T3-T7 and protects callers pattern-matching on `response["status"] == "error"`.
+
+**Plan-fix #2 (existence check)**: check BOTH `py_path` and `meta_path` when deciding `not_found`. If either exists, proceed with delete (both unlinks use `missing_ok=True`). This restores T21's orphan-meta cleanup: if the prior state was "py gone, meta orphaned" from a crash between the two unlinks, the plan's original one-sided check would leave the orphan meta forever. The `"partial"` status from T21 CLI is intentionally dropped (spec §3.6 consolidates into `"removed"`), but the underlying cleanup capability must survive.
 
 ```python
 def remove_adaptive_script(
@@ -3604,7 +3608,7 @@ def remove_adaptive_script(
     project_root: Path,
     script_name: str,
     confirmed: bool = False,
-) -> dict:
+) -> dict[str, Any]:
     """Delete an adaptive script pair from .screw/custom-scripts/.
 
     T21 confirmation gate preserved: confirmed=False returns
@@ -3624,20 +3628,28 @@ def remove_adaptive_script(
     py_path = custom_scripts_dir / f"{script_name}.py"
     meta_path = custom_scripts_dir / f"{script_name}.meta.yaml"
 
-    if not py_path.exists():
+    # Plan-fix #2: check BOTH — either-present means there is still state
+    # to clean up. Only both-absent is a genuine not_found.
+    if not py_path.exists() and not meta_path.exists():
         return {
             "status": "error",
             "error": "not_found",
-            "message": f"{script_name}.py not found in custom-scripts/",
+            "message": f"{script_name} not found in custom-scripts/",
         }
 
     try:
         py_path.unlink(missing_ok=True)
         meta_path.unlink(missing_ok=True)
     except (PermissionError, OSError) as exc:
-        raise ValueError(
-            f"failed to remove {script_name} ({type(exc).__name__}: {exc})"
-        ) from exc
+        # Plan-fix #1: error-dict per T5 delete_failed precedent
+        # (engine.py:977-983). NOT a raise — callers pattern-match on
+        # response["status"].
+        return {
+            "status": "error",
+            "error": "delete_failed",
+            "message": str(exc),
+            "script_name": script_name,
+        }
 
     return {"status": "removed", "script_name": script_name}
 ```
@@ -3709,21 +3721,40 @@ tools.append({
 
 `additionalProperties: false` is set directly per T10-M1 partial.
 
-- [ ] **Step 3: Run tests + full suite**
+- [ ] **Step 3: Migrate and extend `TestRemoveAdaptiveScript` test group**
+
+**Plan-fix #3**: Contrary to the `**Files:**` block's "migration already done in T7" line, T7 plan-fix #2 EXPLICITLY deferred `TestRemoveAdaptiveScript` (test file lines 356-403) to T8. Those 3 tests still import `from screw_agents.cli.adaptive_cleanup import remove_adaptive_script` and must be migrated now.
+
+Concrete migration:
+
+1. **`test_remove_deletes_both_files`**: change call to `engine.remove_adaptive_script(project_root=tmp_path, script_name="bad", confirmed=True)`. Drop `assert "bad" in result["message"]` (no `message` on success). Drop `assert len(result["removed_files"]) == 2` (field removed per spec §3.6). Keep `assert result["status"] == "removed"` and the filesystem assertions.
+2. **`test_remove_not_found_returns_status`**: add `confirmed=True` to the call. Change `assert result["status"] == "not_found"` to `assert result["status"] == "error"` + `assert result["error"] == "not_found"`. Drop `assert "ghost" in result["message"]` and `assert result["removed_files"] == []`.
+3. **`test_remove_partial_state_is_handled`** (T21's orphan-cleanup test): rewrite as `test_remove_cleans_up_partial_state`. Seeds only `.py` (no meta); call with `confirmed=True`; assert `result["status"] == "removed"` and that `.py` is gone (meta was already missing — `missing_ok=True` handles that path). This now exercises plan-fix #2 (either-exists triggers delete) rather than the old `"partial"` status signal. Add a second case in the same test or a sibling test seeding only `.meta.yaml` (orphan-meta cleanup) and assert same `status="removed"` outcome — this is the scenario plan-fix #2 specifically protects.
+
+4. **ADD new test `test_remove_requires_confirmation_gate`**: call `engine.remove_adaptive_script(project_root=tmp_path, script_name="any")` (no `confirmed`, or `confirmed=False`). Assert `result["status"] == "error"` + `result["error"] == "confirmation_required"` + `"confirmed=True"` appears in `result["message"]`. Also verify no files were deleted when the gate fires. This is the headline new behavior — every other test would false-pass if the gate silently let writes through.
+
+5. **ADD new test `test_remove_delete_failed_returns_error_dict`** (optional but recommended — plan-fix #1 regression guard): patch `Path.unlink` to raise `PermissionError`; assert `result["status"] == "error"` + `result["error"] == "delete_failed"` + `result["message"]` contains the OS error string + `result["script_name"]` is echoed. Pins the T5-precedent error-dict contract so a future refactor doesn't silently re-introduce a raise.
+
+Test count after T8 (per plan-fix #4): pre-T8 baseline 877 + 1 (either-exists orphan cleanup, if you split into two tests) + 1 (confirmation gate) + 1 (delete_failed) = **880 passed, 8 skipped**. If you fold the orphan-meta scenario into the rewritten `test_remove_cleans_up_partial_state` as a second subcase (not a separate test), the count becomes 879. Either shape is acceptable; pick what reads cleanest and update the expected count in the closeout to match.
+
+- [ ] **Step 4: Run tests + full suite**
 
 Run: `uv run pytest tests/test_adaptive_cleanup.py -v`
-Expected: all migrated tests PASS.
+Expected: all migrated + new tests PASS. No CLI-import lingering in `TestRemoveAdaptiveScript`.
 
 Run: `uv run pytest -q`
-Expected: 812 passed.
+Expected: **879 or 880 passed, 8 skipped** (plan-fix #4 — 812 was the stale pre-T1 estimate). Report the actual count in your closeout for the cross-plan-sync commit.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add src/screw_agents/engine.py \
-        src/screw_agents/server.py
+        src/screw_agents/server.py \
+        tests/test_adaptive_cleanup.py
 git commit -m "feat(phase3b-c1): promote remove_adaptive_script to engine + MCP tool (T8, I6 part 2)"
 ```
+
+(Test file now included in the commit per plan-fix #3 — `TestRemoveAdaptiveScript` migrates in this task, not T7.)
 
 ---
 
