@@ -1296,3 +1296,17 @@ assert list(stage_dir.iterdir()) == []
 **Why deferred:** `AdaptiveScriptMeta(**(meta_raw or {}))` defensively handles the `None` return from `yaml.safe_load("")` (empty file or only-comments YAML). Without the `or {}` fallback, `AdaptiveScriptMeta(**None)` would raise `TypeError` instead of the expected `ValidationError` — bypassing the `MetadataError` wrapper and emitting a bare stack trace. A one-line comment would make the defensive intent explicit for future maintainers: `# empty / only-comments YAML → None → {} → ValidationError on required fields`.
 **Trigger:** Next executor-docstring polish pass.
 **Estimated scope:** 1 LOC (inline comment at the `or {}` site).
+
+### BACKLOG-PR6-61 — Coverage parity: add non-UTF-8 tests for `find_imports` and `find_class_definitions`
+**Source:** Phase 3b PR #6 T13 Opus code-review (Minor 1), 2026-04-22
+**File:** `tests/test_adaptive_ast_walker.py`
+**Why deferred:** T13 narrowed `except Exception` to `except FileNotFoundError` in all 3 ast_walker helpers (`find_calls`, `find_imports`, `find_class_definitions`), but only `find_calls` has a dedicated non-UTF-8 regression test (`test_find_calls_raises_on_non_utf8_source`). A future regression that restores `except Exception` in `find_imports` or `find_class_definitions` would go undetected by the automated suite — though it'd be textually obvious in code review. The 3 sites share byte-for-byte identical try/except shape, so mechanical parity via 2 more tests (or parametrization over all 3 helpers) would close the gap cleanly.
+**Trigger:** Next test-hardening pass on adaptive/. Low priority — the 3-way textual identity provides strong implicit coverage.
+**Estimated scope:** ~20 LOC (2 sibling tests, or 1 parametrize wrapper).
+
+### BACKLOG-PR6-62 — `execute_script` Raises docstring doesn't mention `UnicodeDecodeError` post-T13
+**Source:** Phase 3b PR #6 T13 Opus code-review (Minor 2), 2026-04-22
+**File:** `src/screw_agents/adaptive/executor.py:148-154` — `execute_script` docstring
+**Why deferred:** Post-T13, `_is_stale` (which `execute_script` calls at `:191`) propagates UnicodeDecodeError from `find_calls` when the target project contains a non-UTF-8 `.py` file. The `execute_script` Raises clause currently lists LintFailure / HashMismatch / SignatureFailure / MetadataError but NOT UnicodeDecodeError. This is a documentation gap: the behavior (surfacing the error) is intended per T13's "surface, don't swallow" philosophy; only the docstring is stale. A real-world concern would be a Python-2 codebase with `# -*- coding: latin-1 -*-` declarations — scanning that project would now hard-fail rather than silently skip. Speculative concern until reported; no change to behavior proposed here.
+**Trigger:** Next executor-docstring polish pass, OR if a user reports unexpected UnicodeDecodeError from `execute_adaptive_script`.
+**Estimated scope:** 1 LOC docstring line (`UnicodeDecodeError: project contains a file that fails UTF-8 decoding`). If behavior change is later wanted (graceful degradation via `errors="replace"` in `project.read_file`), that's a larger task — not in this entry's scope.

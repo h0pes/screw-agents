@@ -4469,6 +4469,27 @@ git add src/screw_agents/adaptive/ast_walker.py tests/test_adaptive_ast_walker.p
 git commit -m "refactor(phase3b-c1): narrow exception handling in ast_walker helpers (T13, T3-M1 polish)"
 ```
 
+**T13 Opus 4.7 re-review (2026-04-22):** Spec review PASSED 11/11 HRs; quality review APPROVED. Both reviewers reported **0 Critical, 0 Important**. **Seventh task in a row hitting 0 Important** (T7-T13) against the 0-1 target per `feedback_cross_task_precedent_checks`. Spec reviewer: "textbook plan-conformant fix"; quality reviewer: "scope-faithful, well-documented".
+
+Net Minor findings: 4 (2 per reviewer; some overlap in spirit, distinct in detail):
+- Spec M1 (comment duplication across 3 sites): accepted as-is — plan-fix #3 explicitly prescribed the verbatim comment text; duplication makes each helper self-documenting.
+- Spec M2 (test docstring forward-looking about "caller can log/surface"): will self-resolve when BACKLOG-PR6-50 lands (the `_check_stale` swallow removal that makes the docstring's claim accurate end-to-end).
+- Quality M1 (regression test only covers `find_calls`): deferred as `BACKLOG-PR6-61` — 3-way textual identity provides strong implicit coverage; adding 2 sibling tests or parametrizing is a follow-up polish.
+- Quality M2 (`execute_script` Raises docstring missing UnicodeDecodeError): deferred as `BACKLOG-PR6-62`. Behavioral note: post-T13, `_is_stale` propagates UnicodeDecodeError from `find_calls` when the target project contains a non-UTF-8 `.py` file. The behavior is INTENDED per T13 "surface, don't swallow" philosophy (aligns with `_is_stale`'s pre-existing no-try/except shape); only the docstring is stale. Speculative real-world concern: Python-2 codebases with encoding declarations would hard-fail rather than silently skip — no reports yet.
+
+All 5 plan-fixes landed cleanly:
+- Plan-fix #1 (drop tree_sitter ref): no `tree_sitter.TreeSitterError` branch added — class doesn't exist, and `parse_ast` runs outside the try.
+- Plan-fix #2 (3-function scope): all 3 helpers (`find_calls`, `find_imports`, `find_class_definitions`) identically narrowed at `ast_walker.py:93, 137, 187`.
+- Plan-fix #3 (FileNotFoundError-only swallow): cleanest narrow — TOCTOU race tolerance only, everything else propagates.
+- Plan-fix #4 (pytest count): 888 baseline + 1 new = 889 — exact match.
+- Plan-fix #5 (`_check_stale` out-of-scope): `executor._check_stale:290` untouched — BACKLOG-PR6-50 owns that fix.
+
+Cross-task symmetry: narrower than T5/T6/T7/T11/T12 precedents (single-exception `FileNotFoundError`); let-it-bubble pattern matches T12 Option A; T5-style defense-in-depth comments at all 3 sites.
+
+No Important items → no fix-up commit. Two new Minors deferred: `BACKLOG-PR6-61` (test coverage parity) and `BACKLOG-PR6-62` (docstring drift on `execute_script`).
+
+T13 commit: `91bcbd9`. Plan-fix commit: `6559cdf`.
+
 ---
 
 ### Task 14: T11-N1 — Signature-Path E2E Regression Test
