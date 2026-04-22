@@ -3576,6 +3576,14 @@ git add src/screw_agents/engine.py \
 git commit -m "feat(phase3b-c1): promote list_adaptive_scripts to engine + MCP tool (T7, I6 part 1)"
 ```
 
+**T7 Opus 4.7 re-review (2026-04-22):** Spec review PASSED 14/14 HRs (HR13 test-count unverified by sub-agent due to a Bash permission edge; verified 877 passed / 8 skipped in the foreground session). Quality review APPROVED with 0 Critical, 0 Important, 1 Minor — comfortably under the 0-1 Important target per `feedback_cross_task_precedent_checks`. T7's narrow read-only scope made that outcome the expected shape rather than the lucky one.
+
+Cross-task symmetry vs. T3-T6 held: keyword-only method signature (`engine.py:1237-1241`), in-body imports (`:1310`), narrow `except (yaml.YAMLError, OSError)` (`:1314`), `status`-carrying return dict, tool-schema format with `additionalProperties: false` and spec-§ citation. `_check_stale` co-location per plan-fix #1 landed cleanly; `cli/adaptive_cleanup.py` retained the re-export so T22's non-migrated test path (`tests/test_adaptive_workflow.py:483`) keeps working through the T7→T9 window. The implementer chose to place the new engine method after `lint_adaptive_script` (rather than after `sweep_stale_staging`) for logical grouping with the other adaptive-script methods; plan left both options open.
+
+No Important items → no fix-up commit. Minor items deferred to DEFERRED_BACKLOG as `BACKLOG-PR6-49` (stale docstring in `cli/adaptive_cleanup.py:16-19`, auto-resolves when T9 deletes the file) and `BACKLOG-PR6-50` (verbatim-lifted `except Exception` in `_check_stale` — narrowing is out of T7's scope and belongs with the broader T3-M1 sweep).
+
+T7 commit: `93f04bc`. Plan-fix commit: `32bc93f`.
+
 ---
 
 ### Task 8: Promote `remove_adaptive_script` to Engine Method + MCP Tool

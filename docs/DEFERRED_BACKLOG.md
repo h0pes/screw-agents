@@ -1211,3 +1211,17 @@ assert list(stage_dir.iterdir()) == []
 **Why deferred:** Edge case where `.py` unlink succeeded but marker unlink failed (or user manually deleted `.py`). Marker never cleaned up, session dir never removed. Related to BACKLOG-PR6-41 but distinct scenario.
 **Trigger:** Post-incident review OR M-PR6-41 implementation (both fixed together).
 **Estimated scope:** bundled with BACKLOG-PR6-41.
+
+### BACKLOG-PR6-49 — Stale docstring in `cli/adaptive_cleanup.py:16-19` after `_check_stale` relocation
+**Source:** Phase 3b PR #6 T7 Opus code-review (M-T7-1), 2026-04-22
+**File:** `src/screw_agents/cli/adaptive_cleanup.py:16-19`
+**Why deferred:** The module-level docstring still says "If the executor's `_is_stale` semantic ever changes, update `_check_stale` here to match", but after T7's plan-fix #1 the `_check_stale` definition lives in `adaptive/executor.py` and this file only re-exports it. A reader grepping the file for a `def _check_stale` body finds nothing — contradicts the docstring. Not a correctness bug (re-export works). T9 deletes this file entirely, so the drift is short-lived.
+**Trigger:** Naturally resolved when T9 deletes `cli/adaptive_cleanup.py`.
+**Estimated scope:** 0 LOC (auto-resolves). If fixed earlier: ~4 LOC docstring rewrite.
+
+### BACKLOG-PR6-50 — `except Exception` inside `_check_stale` (verbatim-lift of pre-T7 code)
+**Source:** Phase 3b PR #6 T7 Opus spec review (M2), 2026-04-22
+**File:** `src/screw_agents/adaptive/executor.py:260` (relocated from `cli/adaptive_cleanup.py:249` in T7)
+**Why deferred:** The per-pattern `find_calls` call is wrapped in `except Exception:` to tolerate tree-sitter parse failures on any single file without failing the whole stale-check. Plan §T7 mandated verbatim lift (no behavioral changes during the move). Narrowing to a specific tree-sitter exception class is a follow-up concern that belongs with the broader T3-M1 narrow-exception work, not the move itself.
+**Trigger:** Next adaptive-exception sweep OR when `find_calls` grows richer error types worth distinguishing.
+**Estimated scope:** ~3 LOC (narrow the except; add a test that a single tree-sitter failure doesn't derail siblings).
