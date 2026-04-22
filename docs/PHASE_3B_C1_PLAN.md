@@ -4225,56 +4225,108 @@ T11 commit: `60104a6`. Plan-fix commit: `d0feeb6`.
 - Modify: `src/screw_agents/adaptive/executor.py` (add `MetadataError`; wrap yaml + Pydantic errors)
 - Modify: `tests/test_adaptive_executor.py` (+2 tests)
 
+**Plan-fixes #1-6 (2026-04-22)** — plan was drafted with a conflated API reference and pre-T10 assumptions; the following adjustments ground T12 in current code:
+
+- **Plan-fix #1 (test signature)**: plan's test call `execute_script(project_root=..., script_name=..., wall_clock_s=5)` is wrong — the actual signature is `execute_script(*, script_path: Path, meta_path: Path, project_root: Path, wall_clock_s: int = 30, skip_trust_checks: bool = False)`. The plan author conflated the internal `execute_script` with the engine method `execute_adaptive_script`. Tests must use the correct `script_path` + `meta_path` shape.
+- **Plan-fix #2 (valid-lint script body)**: plan writes `"pass\n"` into the script `.py` file. A bare `pass` has no `def analyze` → Layer 1 lint raises `missing_analyze` violation → `LintFailure` raised BEFORE the yaml load runs. Tests must use a valid-lint script body: `"from screw_agents.adaptive import ProjectRoot\ndef analyze(project: ProjectRoot) -> None:\n    pass\n"`.
+- **Plan-fix #3 (`skip_trust_checks=True`)**: plan imports and calls `run_init_trust` but tests should simply pass `skip_trust_checks=True` to bypass Layer 2+3 and focus purely on meta-loading. Matches the T11 plan-fix #7 pattern.
+- **Plan-fix #4 (engine wrapper scope — Option A, minimal)**: plan Step 3's second paragraph ("Update the executor dispatch / engine wrapper for `execute_adaptive_script` to catch `MetadataError` and return `{"status":"error","error":"invalid_metadata",...}`") is dropped from T12 scope. Current engine wrapper does NOT catch any of the existing `LintFailure` / `HashMismatch` / `SignatureFailure` exceptions — they all propagate to the caller. Making ONLY `MetadataError` convert to an error-dict would be architecturally asymmetric. T12's primary intent per the class docstring ("so the MCP tool layer has a single exception-family to catch") is about **providing the exception class** so callers can catch it, not about changing the engine wrapper. If error-dict conversion is ever desired, it should cover all 4 exception types in a separate task — out of T12 scope.
+- **Plan-fix #5 (pytest count)**: plan says "818 passed (816 post-T10 + 2)". Stale. Current post-T11 baseline at HEAD `bf4d9c7` is **886 passed, 8 skipped**. T12 adds +2 tests → **888 passed, 8 skipped**.
+- **Plan-fix #6 (docstring Raises)**: update `execute_script`'s docstring Raises section (currently `executor.py:119-122`) to list `MetadataError: meta.yaml failed to parse or failed Pydantic schema validation`.
+
 - [ ] **Step 1: Write failing tests**
 
 ```python
 def test_executor_wraps_yaml_error_as_metadata_error(tmp_path: Path) -> None:
-    """Invalid YAML in .meta.yaml → MetadataError (not bare yaml.YAMLError)."""
+    """Invalid YAML in .meta.yaml → MetadataError (not bare yaml.YAMLError).
+    Plan-fix #1 + #2 + #3: uses correct execute_script signature,
+    valid-lint script body (so Layer 1 doesn't short-circuit to
+    LintFailure), and skip_trust_checks=True to bypass Layer 2+3."""
     from screw_agents.adaptive.executor import MetadataError, execute_script
-    from screw_agents.cli.init_trust import run_init_trust
 
-    project = tmp_path / "project"
-    project.mkdir()
-    run_init_trust(project_root=project, name="T", email="t@e.co")
-    custom_dir = project / ".screw" / "custom-scripts"
-    custom_dir.mkdir(parents=True)
-    (custom_dir / "test-yaml-001.py").write_text("pass\n")
-    (custom_dir / "test-yaml-001.meta.yaml").write_text("not: valid: yaml: {\n")  # malformed
+    script_dir = tmp_path / ".screw" / "custom-scripts"
+    script_dir.mkdir(parents=True)
+    script_path = script_dir / "test-yaml-001.py"
+    meta_path = script_dir / "test-yaml-001.meta.yaml"
+
+    # Valid-lint body so Layer 1 passes and execution reaches the meta load.
+    script_path.write_text(
+        "from screw_agents.adaptive import ProjectRoot\n"
+        "def analyze(project: ProjectRoot) -> None:\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+    # Malformed YAML — unclosed quote is a guaranteed yaml.YAMLError.
+    meta_path.write_text("name: test\ncreated: \"unclosed\n", encoding="utf-8")
 
     with pytest.raises(MetadataError, match="invalid YAML"):
-        execute_script(project_root=project, script_name="test-yaml-001", wall_clock_s=5)
+        execute_script(
+            script_path=script_path,
+            meta_path=meta_path,
+            project_root=tmp_path,
+            wall_clock_s=5,
+            skip_trust_checks=True,
+        )
 
 
 def test_executor_wraps_validation_error_as_metadata_error(tmp_path: Path) -> None:
-    """Malformed meta dict (missing required fields) → MetadataError."""
-    # ... similar setup with a meta.yaml that parses but fails
-    # AdaptiveScriptMeta validation ...
+    """Malformed meta dict (missing required fields) → MetadataError.
+    Plan-fix #1 + #2 + #3: same shape as the YAMLError test but with a
+    parseable YAML that fails Pydantic schema validation."""
+    from screw_agents.adaptive.executor import MetadataError, execute_script
+
+    script_dir = tmp_path / ".screw" / "custom-scripts"
+    script_dir.mkdir(parents=True)
+    script_path = script_dir / "test-yaml-002.py"
+    meta_path = script_dir / "test-yaml-002.meta.yaml"
+
+    script_path.write_text(
+        "from screw_agents.adaptive import ProjectRoot\n"
+        "def analyze(project: ProjectRoot) -> None:\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+    # Parseable YAML, but missing required AdaptiveScriptMeta fields
+    # (created_by, domain, description, target_patterns, sha256).
+    meta_path.write_text("name: test-yaml-002\n", encoding="utf-8")
+
+    with pytest.raises(MetadataError, match="malformed metadata"):
+        execute_script(
+            script_path=script_path,
+            meta_path=meta_path,
+            project_root=tmp_path,
+            wall_clock_s=5,
+            skip_trust_checks=True,
+        )
 ```
 
 - [ ] **Step 2: Run — verify failure**
+
+Run: `uv run pytest tests/test_adaptive_executor.py::test_executor_wraps_yaml_error_as_metadata_error tests/test_adaptive_executor.py::test_executor_wraps_validation_error_as_metadata_error -v`
+Expected: both FAIL (`MetadataError` class doesn't exist yet; yaml.YAMLError / ValidationError propagate bare).
 
 - [ ] **Step 3: Implement `MetadataError`**
 
 In `src/screw_agents/adaptive/executor.py`:
 
 ```python
+# Add the new exception class alongside LintFailure/HashMismatch/
+# SignatureFailure (around executor.py:67). Same inheritance shape.
 class MetadataError(RuntimeError):
     """Raised when an adaptive script's .meta.yaml cannot be loaded.
 
     Wraps the underlying yaml.YAMLError or pydantic.ValidationError so
-    the MCP tool layer (execute_adaptive_script dispatch) has a single
-    exception-family to catch alongside LintFailure / HashMismatch /
-    SignatureFailure.
+    callers have a single exception-family to catch alongside
+    LintFailure / HashMismatch / SignatureFailure.
 
     T11-N2 (bundled polish in Phase 3b PR #6).
     """
 
 
-# In execute_script, replace:
-#     meta_raw = yaml.safe_load(meta_path.read_text(encoding="utf-8"))
-#     meta = AdaptiveScriptMeta(**meta_raw)
-# with:
-def _load_meta(meta_path: Path) -> "AdaptiveScriptMeta":
+# Add a module-level _load_meta helper near the other private helpers.
+# Imports needed: `from pydantic import ValidationError` at the top.
+def _load_meta(meta_path: Path) -> AdaptiveScriptMeta:
+    """Load and validate a script's .meta.yaml, wrapping errors as MetadataError."""
     try:
         meta_raw = yaml.safe_load(meta_path.read_text(encoding="utf-8"))
     except yaml.YAMLError as exc:
@@ -4283,14 +4335,29 @@ def _load_meta(meta_path: Path) -> "AdaptiveScriptMeta":
         return AdaptiveScriptMeta(**(meta_raw or {}))
     except ValidationError as exc:
         raise MetadataError(f"malformed metadata in {meta_path}: {exc}") from exc
+
+
+# In execute_script at executor.py:133-134, replace:
+#     meta_raw = yaml.safe_load(meta_path.read_text(encoding="utf-8"))
+#     meta = AdaptiveScriptMeta(**meta_raw)
+# with:
+#     meta = _load_meta(meta_path)
 ```
 
-Update the executor dispatch / engine wrapper for `execute_adaptive_script` to catch `MetadataError` and return `{"status":"error","error":"invalid_metadata",...}` (preserving existing UX for bad meta).
+Per plan-fix #4: DO NOT modify `engine.execute_adaptive_script` or `server.py`. `MetadataError` propagates to callers the same way `LintFailure` / `HashMismatch` / `SignatureFailure` do today. If engine-wrapper error-dict conversion becomes desirable, it should cover all 4 exceptions in a separate task.
+
+Per plan-fix #6: update `execute_script`'s docstring Raises section (currently `executor.py:119-122`) to add:
+
+```
+    MetadataError: meta.yaml failed to parse (yaml.YAMLError) or failed
+        AdaptiveScriptMeta schema validation (pydantic.ValidationError).
+```
 
 - [ ] **Step 4: Run tests + suite**
 
+Run: `uv run pytest tests/test_adaptive_executor.py -v`
 Run: `uv run pytest -q`
-Expected: 818 passed (816 post-T10 + 2 new T11-N2 tests).
+Expected (plan-fix #5): **888 passed, 8 skipped** (baseline 886 + 2 new).
 
 - [ ] **Step 5: Commit**
 
