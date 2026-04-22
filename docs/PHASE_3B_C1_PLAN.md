@@ -5098,6 +5098,28 @@ git commit -m "feat(phase3b-c1): rewrite screw-sqli.md Step 3.5d with staging fl
 
 **Cross-plan sync:** spec §3.1-§3.3 prompt-side expectations verified. Note any deviation (e.g., if the approval-phrase parser ends up more permissive than specified) and update spec or this plan accordingly.
 
+**T15+T16 Opus 4.7 re-review (2026-04-22):** Spec review APPROVED 14/14 HRs ("clean execution… plan-conformant across all 14 hard requirements"). Quality review APPROVED ("merge-ready… zero Critical, zero Important, zero Minor findings"). Both reviewers reported **0 Critical, 0 Important**; net 2 Minor total (both from spec-review, both observational/forward-looking). 8-task 0-Important count since T7 with only T14 interrupting (7 tasks 0-Important out of 8).
+
+All 6 plan-fixes landed cleanly in the single combined commit:
+- Plan-fix #1 (mcp__screw-agents__ tool format): 0 bare `"tool":` JSON wrappers; all invocations use code blocks.
+- Plan-fix #2 (`sandbox_failure` status): K failure branch updated from stale `"error"`.
+- Plan-fix #3 (drop stdlib misdirection): 0 "Python standard library" occurrences in the 4 injection subagents.
+- Plan-fix #4 (18-name allowlist): all 18 names from `adaptive/__init__.py:65-88` enumerated in Layer 0b + generation-prompt.
+- Plan-fix #5 (drop review_log.jsonl): 0 occurrences; reject flow now via reject_staged_script → pending-approvals.jsonl.
+- Plan-fix #6 (pytest count): 892 passed, 8 skipped — stable.
+
+I1/I3/I4/I5 hardenings all present: `screw:screw-script-reviewer` (namespaced subagent_type), stderr fenced rendering on failure, retention notice + cleanup command, 18-name enumeration + negative-examples for hallucinated names (`read_source`, `parse_module`, `walk_module`).
+
+Byte-identity across 4 files validated via `test_adaptive_section_identical_modulo_agent_name` — passes. Unique cross-file diff is agent-name substitution plus out-of-adaptive-section per-vulnerability prose (CWE IDs, Confidence Calibration bullets).
+
+Scope deviation justified: implementer modified `tests/test_adaptive_subagent_prompts.py` to split `_ADAPTIVE_MCP_TOOLS` into `_PER_AGENT_ADAPTIVE_MCP_TOOLS` (post-C1 surface, no sign) and `_ORCHESTRATOR_ADAPTIVE_MCP_TOOLS` (retains sign until T17 updates orchestrator). Legitimate downstream ripple — same pattern as T11's fix to `test_execute_adaptive_script_tool.py`. New negative assertions (sign_adaptive_script MUST be absent in per-agent frontmatter + section body) reference "Option D isolation regressed (spec §3.2)" as high-signal error message. Back-compat alias `_ADAPTIVE_MCP_TOOLS = _ORCHESTRATOR_ADAPTIVE_MCP_TOOLS` preserves external references.
+
+No Important items → no fix-up commit. One Minor item deferred to DEFERRED_BACKLOG as `BACKLOG-PR6-65` (subagent session-id lookup could use a server-side tool instead of LLM-driven `Read`-then-JSONL-parse; currently server-side fallback codes guard-rail the approach).
+
+**Absorbed T16**: the per-agent substitution work originally scoped in §T16 is complete as part of this single commit. Byte-identity test passes. §T16 header marked ABSORBED; no separate T16 commit.
+
+T15+T16 commit: `1b99247`. Plan-fix commit: `1501517`.
+
 ---
 
 ### Task 16: Byte-Identical Copy to cmdi/ssti/xss Subagents — ABSORBED INTO T15
