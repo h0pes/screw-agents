@@ -4390,8 +4390,27 @@ T12 commit: `c3c52fd`. Plan-fix commit: `44739eb`.
 ### Task 13: T3-M1 — Narrow Exception Handling in `ast_walker.py`
 
 **Files:**
-- Modify: `src/screw_agents/adaptive/ast_walker.py`
+- Modify: `src/screw_agents/adaptive/ast_walker.py` — narrow `except Exception` in all 3 helpers
 - Modify: `tests/test_adaptive_ast_walker.py` (+1 test for non-UTF-8)
+
+**Plan-fixes #1-5 (2026-04-22)** — plan was drafted before key details were finalized; these adjustments ground T13 in current code:
+
+- **Plan-fix #1 (drop tree_sitter reference)**: plan's suggested `except tree_sitter.TreeSitterError: continue` branch is speculative — tree_sitter Python binding does NOT expose such a class (`grep -rn "tree_sitter.TreeSitterError" src/` returns zero matches), AND the existing try block at `ast_walker.py:91-94, 130-133, 175-178` covers `project.read_file` ONLY. `parse_ast` runs OUTSIDE the try (at `:96, 135, 180`). There is no parse-error branch to narrow. Drop the tree_sitter reference entirely.
+- **Plan-fix #2 (scope: 3 functions)**: plan's code block shows only `find_calls` and its test only covers `find_calls`, but all 3 helpers (`find_calls`, `find_imports`, `find_class_definitions`) have the identical bug pattern. The fix applies to ALL THREE for consistency — otherwise a non-UTF-8 file surfaces in `find_calls` but silently skips in `find_imports`.
+- **Plan-fix #3 (narrower except: FileNotFoundError only)**: plan's `except (UnicodeDecodeError, OSError): raise` is syntactically awkward — catching then re-raising is equivalent to not catching. Cleaner pattern: catch ONLY the race case we want to swallow (file disappeared mid-walk between `list_files` enumeration and `read_file` call). Everything else propagates naturally. Concrete shape:
+  ```python
+  try:
+      source = project.read_file(rel_path)
+  except FileNotFoundError:
+      # TOCTOU race: file listed by list_files but deleted before read.
+      # Unavoidable; silently skip. All other exceptions propagate:
+      # UnicodeDecodeError (non-UTF-8), PermissionError, IsADirectoryError,
+      # ProjectPathError, etc. This is the T3-M1 narrowing fix — callers
+      # can now distinguish "no findings" from "couldn't read this file".
+      continue
+  ```
+- **Plan-fix #4 (pytest count)**: plan said "819 passed" — stale. Current post-T12 baseline at HEAD `b9aa821` is **888**. T13 adds +1 test → **889 passed, 8 skipped**.
+- **Plan-fix #5 (out-of-scope: `_check_stale`)**: `executor._check_stale:290` has its own `except Exception: continue` wrapping `find_calls`. Post-T13, even though `find_calls` surfaces UnicodeDecodeError, `_check_stale` will still silently swallow it. This is NOT a T13 bug — it is BACKLOG-PR6-50 ("`except Exception` inside `_check_stale` — verbatim-lift of pre-T7 code"). T13 deliberately does NOT touch `_check_stale`; that fix is scheduled separately.
 
 - [ ] **Step 1: Write failing test**
 
@@ -4404,7 +4423,8 @@ def test_find_calls_raises_on_non_utf8_source(tmp_path: Path) -> None:
     from "couldn't read this file". Post-fix: the exception surfaces to
     the caller (executor), which can log / surface to subagent.
     """
-    from screw_agents.adaptive.ast_walker import ProjectRoot, find_calls
+    from screw_agents.adaptive.ast_walker import find_calls
+    from screw_agents.adaptive.project import ProjectRoot
 
     project = tmp_path / "project"
     project.mkdir()
@@ -4412,51 +4432,35 @@ def test_find_calls_raises_on_non_utf8_source(tmp_path: Path) -> None:
     (project / "weird.py").write_bytes(b"# Latin-1: caf\xe9\n")
     root = ProjectRoot(project)
 
-    # find_calls should NOT silently skip this; it should either raise
-    # (preferred for this fix) OR emit a diagnostic that the caller can surface.
+    # Post-T13: find_calls surfaces UnicodeDecodeError rather than
+    # silently skipping the unreadable file. `list(...)` forces the
+    # generator to walk the file, triggering the decode attempt.
     with pytest.raises(UnicodeDecodeError):
         list(find_calls(root, "foo.bar"))
 ```
 
 - [ ] **Step 2: Run — verify failure**
 
-Expected: test FAILS because current code silently swallows the exception.
+Expected: test FAILS because current code silently swallows the exception (bare `except Exception: continue` at `ast_walker.py:93`).
 
-- [ ] **Step 3: Implement narrowing**
+- [ ] **Step 3: Implement narrowing in all 3 helpers**
 
-In `ast_walker.py`, locate the helpers (`find_calls`, `find_imports`, `find_class_definitions`). Each currently has a pattern like:
+In `ast_walker.py`, replace the identical `try/except Exception` pattern in each of these 3 functions:
+- `find_calls` (currently `ast_walker.py:91-94`)
+- `find_imports` (currently `ast_walker.py:130-133`)
+- `find_class_definitions` (currently `ast_walker.py:175-178`)
 
-```python
-try:
-    source = project.read_file(rel_path)
-    # ... parse + match ...
-except Exception:
-    continue
-```
+Each `except Exception: continue` becomes `except FileNotFoundError: continue` with a comment explaining the TOCTOU race as the only swallowed case. See plan-fix #3 above for the exact shape.
 
-Change to:
+Per plan-fix #2: all three functions get the same change. Per plan-fix #1: do NOT add a `tree_sitter.TreeSitterError` branch — it does not exist in this codebase.
 
-```python
-try:
-    source = project.read_file(rel_path)
-    # ... parse + match ...
-except (UnicodeDecodeError, OSError):
-    # Deliberately narrow: raise these so adaptive scripts can distinguish
-    # "no findings" from "couldn't read this file". Catching bare Exception
-    # silently swallowed both T3-M1 category errors (pre-PR #6).
-    raise
-except tree_sitter.TreeSitterError:
-    # Parse errors are still swallowed — the file is not usefully analyzable;
-    # other files in the project may be. Log via logger if one exists.
-    continue
-```
-
-(Adjust the `tree_sitter.TreeSitterError` branch to match the actual exception class the project raises.)
+Per plan-fix #5: do NOT touch `executor._check_stale`. Its `except Exception: continue` (at `executor.py:290`) stays as-is for this task; BACKLOG-PR6-50 owns that fix.
 
 - [ ] **Step 4: Run tests + suite**
 
+Run: `uv run pytest tests/test_adaptive_ast_walker.py -v`
 Run: `uv run pytest -q`
-Expected: 819 passed.
+Expected (plan-fix #4): **889 passed, 8 skipped** (888 baseline + 1 new).
 
 - [ ] **Step 5: Commit**
 
