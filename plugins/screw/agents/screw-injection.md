@@ -10,7 +10,9 @@ tools:
   - mcp__screw-agents__record_context_required_match
   - mcp__screw-agents__detect_coverage_gaps
   - mcp__screw-agents__lint_adaptive_script
-  - mcp__screw-agents__sign_adaptive_script
+  - mcp__screw-agents__stage_adaptive_script
+  - mcp__screw-agents__promote_staged_script
+  - mcp__screw-agents__reject_staged_script
   - mcp__screw-agents__execute_adaptive_script
   - Task
   - Read
@@ -162,11 +164,11 @@ unprocessed tail is reported to the user as: "Adaptive quota exhausted
 ({processed}/3 scripts generated). {tail_count} gap(s) not addressed,
 ordered: [list of skipped gaps with agent + file:line]."
 
-For each gap that passes the quota gate: apply the per-gap pipeline documented in `screw-<gap.agent_name>.md` Step 3.5d (sub-steps A through I), substituting `{AGENT}` with the gap's `agent_name` (so Layer 0e blocklist, Layer 0a fence, Layer 0b/0c prompt invariants, Layer 1 lint, Layer 0d semantic review, human 5-section review, and approve/reject handling all proceed exactly as in the per-agent subagent). The `domain` field in `sign_adaptive_script.meta` is `"injection-input-handling"` regardless of the gap's agent.
+For each gap that passes the quota gate: apply the per-gap pipeline documented in `screw-<gap.agent_name>.md` Step 3.5d (sub-steps A through K), substituting `{AGENT}` with the gap's `agent_name` (so Layer 0e blocklist, Layer 0a fence, Layer 0b/0c prompt invariants, Layer 1 lint, Layer 0d semantic review, human 5-section review, and approve/reject handling all proceed exactly as in the per-agent subagent). The `domain` field in `stage_adaptive_script.meta` is `"injection-input-handling"` regardless of the gap's agent.
 
 **Script naming:** use the per-agent convention — `<gap.agent_name>-<file_slug>-<line>-<hash6>` matching regex `^[a-z0-9][a-z0-9-]{2,62}$`. Computed AFTER generation; see `screw-sqli.md` Step 3.5d-B and Step 3.5d-D for the full algorithm (file_slug sanitization, 20-char truncation, consecutive-dash collapse, and post-generation `hash6` appendix).
 
-**Session ID reuse:** pass the SAME `session_id` (originated by Step 2.5a's FIRST `record_context_required_match` call, then carried forward to Step 3a's `accumulate_findings` per that code block's comments) to every Step 2.5 MCP tool call (`record_context_required_match`, `detect_coverage_gaps`, `sign_adaptive_script`, and the final `accumulate_findings` for adaptive findings). This ties all adaptive artifacts to the same staging directory.
+**Session ID reuse:** pass the SAME `session_id` (originated by Step 2.5a's FIRST `record_context_required_match` call, then carried forward to Step 3a's `accumulate_findings` per that code block's comments) to every Step 2.5 MCP tool call (`record_context_required_match`, `detect_coverage_gaps`, `stage_adaptive_script`, and the final `accumulate_findings` for adaptive findings). This ties all adaptive artifacts to the same staging directory.
 
 After all gaps are processed (or quota hit), fall through to Step 3 (Persist Results).
 

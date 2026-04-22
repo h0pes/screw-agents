@@ -41,13 +41,15 @@ _PER_AGENT_FILES = {
 _ORCHESTRATOR_FILE = _AGENTS_DIR / "screw-injection.md"
 _SCAN_COMMAND_FILE = _COMMANDS_DIR / "scan.md"
 
-# Tools required in the per-agent LLM-flow subagents (sqli/cmdi/ssti/xss).
-# Post-C1 (PR #6 T15+T16): LLM-flow uses the staging tools (stage → promote →
-# reject) instead of sign_adaptive_script directly. The direct signing tool
-# is retained on the server for non-LLM callers but MUST NOT appear in
-# per-agent subagent tools/frontmatter or Step 3.5d section prose
-# (spec §3.2, Option D isolation).
-_PER_AGENT_ADAPTIVE_MCP_TOOLS = [
+# Tools required in all 5 adaptive-mode subagent files (4 per-agent +
+# orchestrator). Post-C1 (PR #6 T15+T16+T17): every LLM-flow file uses the
+# staging tools (stage → promote → reject) instead of sign_adaptive_script
+# directly. The direct signing tool is retained on the server for non-LLM
+# callers (engine.py / adaptive/) but MUST NOT appear in any subagent's
+# tools/frontmatter or adaptive-section body prose (spec §3.2, Option D
+# isolation). T17 merged the previous per-agent/orchestrator split into a
+# single constant — the orchestrator now follows the same staging flow.
+_ADAPTIVE_MCP_TOOLS = [
     "mcp__screw-agents__record_context_required_match",
     "mcp__screw-agents__detect_coverage_gaps",
     "mcp__screw-agents__lint_adaptive_script",
@@ -56,22 +58,6 @@ _PER_AGENT_ADAPTIVE_MCP_TOOLS = [
     "mcp__screw-agents__reject_staged_script",
     "mcp__screw-agents__execute_adaptive_script",
 ]
-
-# Tools required in the orchestrator (screw-injection.md). The orchestrator
-# is updated separately in T17 — until then, it still references the
-# pre-C1 tool surface (sign_adaptive_script). Split out so T15+T16 can land
-# without pulling T17 into scope.
-_ORCHESTRATOR_ADAPTIVE_MCP_TOOLS = [
-    "mcp__screw-agents__record_context_required_match",
-    "mcp__screw-agents__detect_coverage_gaps",
-    "mcp__screw-agents__lint_adaptive_script",
-    "mcp__screw-agents__sign_adaptive_script",
-    "mcp__screw-agents__execute_adaptive_script",
-]
-
-# Back-compat alias — some tests reference the old name; point it at the
-# orchestrator list (which is still the superset including sign).
-_ADAPTIVE_MCP_TOOLS = _ORCHESTRATOR_ADAPTIVE_MCP_TOOLS
 
 
 def _parse_subagent_file(path: Path) -> tuple[dict, str]:
@@ -148,19 +134,25 @@ def test_adaptive_section_identical_modulo_agent_name() -> None:
 
 
 def test_tools_frontmatter_includes_adaptive_mcp_tools() -> None:
-    per_agent = {f"screw-{a}.md": p for a, p in _PER_AGENT_FILES.items()}
-    for name, path in per_agent.items():
+    # Post-C1 (T17): all 5 adaptive-mode subagent files — 4 per-agent +
+    # the injection orchestrator — share the same tool surface. The
+    # negative assertion (sign_adaptive_script MUST NOT appear) now
+    # applies uniformly across all 5, lifting the Option D isolation
+    # guard to cover the orchestrator too.
+    all_files = {f"screw-{a}.md": p for a, p in _PER_AGENT_FILES.items()}
+    all_files["screw-injection.md"] = _ORCHESTRATOR_FILE
+    for name, path in all_files.items():
         frontmatter, _ = _parse_subagent_file(path)
         tools = frontmatter.get("tools", [])
         assert isinstance(tools, list), f"{name} tools must be a list"
-        for required in _PER_AGENT_ADAPTIVE_MCP_TOOLS:
+        for required in _ADAPTIVE_MCP_TOOLS:
             assert required in tools, (
                 f"{name} tools frontmatter missing required adaptive MCP tool: "
                 f"{required}"
             )
-        # Post-C1: per-agent LLM-flow MUST NOT list sign_adaptive_script
-        # (direct-path tool is reserved for non-LLM callers). If this
-        # fails, the Option D isolation has regressed.
+        # Post-C1: LLM-flow files (per-agent + orchestrator) MUST NOT list
+        # sign_adaptive_script (direct-path tool is reserved for non-LLM
+        # callers). If this fails, the Option D isolation has regressed.
         assert "mcp__screw-agents__sign_adaptive_script" not in tools, (
             f"{name} tools frontmatter still lists sign_adaptive_script — "
             f"Option D isolation regressed (spec §3.2)"
@@ -169,17 +161,6 @@ def test_tools_frontmatter_includes_adaptive_mcp_tools() -> None:
             f"{name} tools frontmatter missing 'Task' "
             f"(needed to invoke screw-script-reviewer for Layer 0d)"
         )
-
-    # Orchestrator still uses the pre-C1 tool surface until T17 ships.
-    frontmatter, _ = _parse_subagent_file(_ORCHESTRATOR_FILE)
-    tools = frontmatter.get("tools", [])
-    assert isinstance(tools, list), "screw-injection.md tools must be a list"
-    for required in _ORCHESTRATOR_ADAPTIVE_MCP_TOOLS:
-        assert required in tools, (
-            f"screw-injection.md tools frontmatter missing required "
-            f"adaptive MCP tool: {required}"
-        )
-    assert "Task" in tools
 
 
 # ---- Test 4: orchestrator has its own adaptive section ---------------------
@@ -222,7 +203,7 @@ def test_scan_command_doc_documents_adaptive_flag() -> None:
 
 
 def test_adaptive_section_references_all_required_mcp_tools() -> None:
-    required = set(_PER_AGENT_ADAPTIVE_MCP_TOOLS)
+    required = set(_ADAPTIVE_MCP_TOOLS)
     required.add("screw-script-reviewer")
     for agent, path in _PER_AGENT_FILES.items():
         _, body = _parse_subagent_file(path)
@@ -238,6 +219,20 @@ def test_adaptive_section_references_all_required_mcp_tools() -> None:
             f"sign_adaptive_script — Option D isolation regressed "
             f"(use stage + promote instead)"
         )
+
+    # Post-C1 (T17): the orchestrator's adaptive section MUST NOT reference
+    # sign_adaptive_script either — the same Option D isolation applies.
+    # Note: the orchestrator's Step 2.5 section delegates to per-agent
+    # Step 3.5d for the per-gap pipeline rather than listing every tool
+    # verbatim, so we only assert the negative guard here (no positive
+    # tool-presence check for the orchestrator body).
+    _, body = _parse_subagent_file(_ORCHESTRATOR_FILE)
+    section = _extract_adaptive_section(body, "### Step 2.5: Adaptive Mode")
+    assert "sign_adaptive_script" not in section, (
+        "screw-injection.md adaptive section still references "
+        "sign_adaptive_script — Option D isolation regressed "
+        "(use stage + promote instead)"
+    )
 
 
 # ---- Test 7: prompt-injection-resistance language is present ---------------
