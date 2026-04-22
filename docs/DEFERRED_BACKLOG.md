@@ -1310,3 +1310,23 @@ assert list(stage_dir.iterdir()) == []
 **Why deferred:** Post-T13, `_is_stale` (which `execute_script` calls at `:191`) propagates UnicodeDecodeError from `find_calls` when the target project contains a non-UTF-8 `.py` file. The `execute_script` Raises clause currently lists LintFailure / HashMismatch / SignatureFailure / MetadataError but NOT UnicodeDecodeError. This is a documentation gap: the behavior (surfacing the error) is intended per T13's "surface, don't swallow" philosophy; only the docstring is stale. A real-world concern would be a Python-2 codebase with `# -*- coding: latin-1 -*-` declarations — scanning that project would now hard-fail rather than silently skip. Speculative concern until reported; no change to behavior proposed here.
 **Trigger:** Next executor-docstring polish pass, OR if a user reports unexpected UnicodeDecodeError from `execute_adaptive_script`.
 **Estimated scope:** 1 LOC docstring line (`UnicodeDecodeError: project contains a file that fails UTF-8 decoding`). If behavior change is later wanted (graceful degradation via `errors="replace"` in `project.read_file`), that's a larger task — not in this entry's scope.
+
+### BACKLOG-PR6-63 — Section banner style inconsistency in `test_adaptive_executor.py`
+**Source:** Phase 3b PR #6 T14 Opus code-review (Minor 1), 2026-04-22
+**File:** `tests/test_adaptive_executor.py:851` — T14 section banner
+**Why deferred:** T14 uses a single-line banner `# --- Task 14 — T11-N1 E2E signature-path regression ---` while Tasks 11 and 12 use a three-line boxed format:
+```python
+# -------------------------------------------------------------------------
+# Task 11 — executor pipeline tests
+# -------------------------------------------------------------------------
+```
+Purely visual drift, no correctness impact. Cosmetic polish.
+**Trigger:** Next test-file polish pass.
+**Estimated scope:** 3 LOC (expand the single-line banner to the 3-line boxed form).
+
+### BACKLOG-PR6-64 — `test_execute_adaptive_script_rejects_tampered_signature` uses bare `pytest.raises(SignatureFailure)` rather than tight match
+**Source:** Phase 3b PR #6 T14 Opus code-review (Minor 2), 2026-04-22
+**File:** `tests/test_adaptive_executor.py:~1013` — T14 Layer 3 tamper test
+**Why deferred:** T14's Layer 3 tamper test uses `pytest.raises(SignatureFailure)` bare, while the pre-existing Layer 3 test at `test_adaptive_executor.py:665` uses `pytest.raises(SignatureFailure, match="signature invalid or content mismatch")` — a tight match string pinning the specific failure reason. Bare form would false-pass if the signature path ever started raising a different `SignatureFailure` reason (e.g., missing-public-key, wrong-version). The pre-existing line-628 test already locks the tight match, so T14's bare form doesn't regress overall coverage; it just doesn't tighten further. Defense-in-depth opportunity.
+**Trigger:** Next test-precision polish, OR if a signature-path regression surfaces a different failure mode that slips past the bare `pytest.raises`.
+**Estimated scope:** 1 LOC (add `match="signature invalid or content mismatch"` or the current engine-wrapped equivalent to the `pytest.raises` call).

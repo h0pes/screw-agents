@@ -4718,6 +4718,35 @@ git add tests/test_adaptive_executor.py
 git commit -m "test(phase3b-c1): end-to-end signature-path regression for execute_adaptive_script (T14, T11-N1)"
 ```
 
+**T14 Opus 4.7 re-review (2026-04-22):** Spec review APPROVED 10/10 HRs. Quality review APPROVE-with-Important — one Important finding + 2 Minor. Total across both: 0 Critical, **1 Important**, 5 Minor. **The 7-task 0-Important streak (T7-T13) ended at T14** — the Important was a plan-fix defect (my bug, not the implementer's): my plan-fix code block for the happy-path test omitted the `shutil.which("bwrap")` / `shutil.which("sandbox-exec")` skip guard present on every other sandbox-exercising test in the file. Implementer faithfully copied the plan; reviewer caught the missing guard.
+
+Fix-up applied in commit `fe1f7a8`:
+
+- **I-T14-quality-1 (sandbox-backend skip guard on happy-path test)**: added inline skip to `test_execute_adaptive_script_verifies_layer3_signature_happy_path` before the `engine.execute_adaptive_script` call. Used the in-file precedent string "requires sandbox backend" (matches T11 tests at lines 691-692, 743-744) per cross-task-precedent discipline. Tamper tests don't need the guard — they raise at Layer 2/Layer 3 before the sandbox runs.
+
+All 10 plan-fixes landed cleanly in the feat commit (plus the post-dispatch plan-fixes #9-10 for Option C):
+
+- Plan-fix #1 (engine API): `engine.execute_adaptive_script(project_root=..., script_name=...)` throughout, not internal `execute_script`.
+- Plan-fix #2 (`session_id="t14-sess"`): required string per signature.
+- Plan-fix #3 (`result["status"] == "ok"`): simplified assertion per T11 I3 return shape.
+- Plan-fix #4 (lint-valid tamper): tampered content preserves `from screw_agents.adaptive import ProjectRoot` + `def analyze(...)`. Amended mid-task after implementer caught Layer 2 precedence — see #9.
+- Plan-fix #5 (no cryptography imports): clean — all Ed25519 work is inside `engine.sign_adaptive_script`.
+- Plan-fix #6 (superseded by #10).
+- Plan-fix #7 (`target_patterns=[]`): empty list → `_is_stale` returns False → sandbox runs → full round-trip exercised.
+- Plan-fix #8 (document layer precedence): test docstrings call out Layer 1+Layer 2 before Layer 3.
+- **Plan-fix #9 (Option C — test Layers 2 AND 3 independently)**: implementer caught mid-task that source-byte tamper triggers Layer 2 HashMismatch before Layer 3. Split the single tamper test into two:
+  1. `test_execute_adaptive_script_rejects_tampered_source` — flip a lint-valid byte in the `.py`, expect `HashMismatch` (Layer 2).
+  2. `test_execute_adaptive_script_rejects_tampered_signature` — flip a byte in meta.yaml signature (base64 decode → XOR → re-encode), expect `SignatureFailure` (Layer 3).
+
+  T11-N1 is now strictly higher value than the original 2-test scope: both rejection layers independently locked.
+- Plan-fix #10 (pytest count): 889 baseline + 3 new = **892 passed, 8 skipped**.
+
+Complementary-not-redundant note: a pre-existing test at `tests/test_adaptive_executor.py:628` (`test_execute_script_tampered_signature_raises_signature_failure`) already covers Layer 3 tampering via the INTERNAL `execute_script` API. T14 adds coverage via the MCP-BOUNDARY `engine.execute_adaptive_script` API — both layer paths tested at both API surfaces.
+
+No Critical items. One Important fixed via fix-up commit. 3 spec Minors all non-actionable (informational). 2 quality Minors deferred to DEFERRED_BACKLOG as `BACKLOG-PR6-63` (section banner style inconsistency) and `BACKLOG-PR6-64` (bare `pytest.raises(SignatureFailure)` could use tight `match=` for defense-in-depth).
+
+T14 commit: `dc3762c`. Fix-up commit: `fe1f7a8`. Plan-fix commits: `f5e3bcd` + `677dfde`.
+
 ---
 
 ## Phase E — Subagent Prompt Rewrite (T15-T18)
