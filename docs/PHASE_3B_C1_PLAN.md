@@ -5194,6 +5194,16 @@ Compare to the new per-agent IDs from T15/T16. For any `3.5d-H` references that 
 
 This task is primarily verification. If T15's sub-step renaming requires orchestrator updates, apply them minimally — do NOT restructure the orchestrator's logic. Orchestrator's share-quota behavior is unchanged.
 
+**Plan-fixes #1-5 (2026-04-22)** — pre-audit identified 4 concrete stale refs the plan's "primarily verification" framing glossed over:
+
+- **#1 Frontmatter tool changes**: `plugins/screw/agents/screw-injection.md:13` has `- mcp__screw-agents__sign_adaptive_script`. Remove it. Add `- mcp__screw-agents__stage_adaptive_script`, `- mcp__screw-agents__promote_staged_script`, `- mcp__screw-agents__reject_staged_script` (matching what per-agent files got in T15). Orchestrator tool surface is now identical to per-agent tool surface for the adaptive path.
+- **#2 Sub-step range**: line 165 says "sub-steps A through **I**". Post-T15 the per-agent layout is A through K. Update to "sub-steps A through **K**".
+- **#3 `sign_adaptive_script.meta` → `stage_adaptive_script.meta`**: line 165 references the meta dict via `sign_adaptive_script.meta`. Post-C1 the meta is assembled at STAGE time (not sign time), so the correct reference is `stage_adaptive_script.meta`. Update.
+- **#4 Session ID Reuse list**: line 169 lists MCP tools the session_id is passed to, including `sign_adaptive_script`. Replace with `stage_adaptive_script` (the new staging-flow entry point; promote/reject also take session_id but they're in the resume-from-approval branch — not the mainline flow the orchestrator describes).
+- **#5 Test file constant merge**: after T17 removes sign from the orchestrator's tool surface, `_ORCHESTRATOR_ADAPTIVE_MCP_TOOLS` in `tests/test_adaptive_subagent_prompts.py` equals `_PER_AGENT_ADAPTIVE_MCP_TOOLS`. The split was explicitly a T15→T17 transition artifact. **Recommend**: merge back to a single `_ADAPTIVE_MCP_TOOLS` constant, drop the back-compat alias, simplify the test logic (one tool-list assertion across all 5 files: 4 per-agent + 1 orchestrator). Implementer may keep the split if it makes test logic cleaner for some reason.
+
+**Expected pytest count** (plan-fix #6): 892 passed, 8 skipped unchanged (docs + test-const cleanup only).
+
 - [ ] **Step 3: Run tests to verify orchestrator's format-smoke checks still pass**
 
 Run: `uv run pytest tests/test_adaptive_subagent_prompts.py -v -k "orchestrator or injection"`
