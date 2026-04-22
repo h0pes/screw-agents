@@ -1331,6 +1331,20 @@ Purely visual drift, no correctness impact. Cosmetic polish.
 **Trigger:** Next test-precision polish, OR if a signature-path regression surfaces a different failure mode that slips past the bare `pytest.raises`.
 **Estimated scope:** 1 LOC (add `match="signature invalid or content mismatch"` or the current engine-wrapped equivalent to the `pytest.raises` call).
 
+### BACKLOG-PR6-67 — Stale `sign_adaptive_script` reference in test-file comment
+**Source:** Phase 3b PR #6 T17 Opus spec review (Minor 2), 2026-04-22
+**File:** `tests/test_adaptive_subagent_prompts.py:306`
+**Why deferred:** A regex-documentation test comment still says "matches `sign_adaptive_script` validation". Factually accurate (the regex lives in `adaptive/signing.py` which `sign_adaptive_script` calls), but post-T17 the direct-call tool is absent from all 5 LLM-flow subagent frontmatters. A future reviewer might reasonably rewrite the comment as "matches `adaptive/signing.py` validation" for clarity, since the test now operates on the server-internal validation not the tool name. Pure cosmetic; no behavior impact.
+**Trigger:** Next test-docs polish pass.
+**Estimated scope:** 1 LOC comment rewrite.
+
+### BACKLOG-PR6-68 — Orchestrator body names only 4/7 adaptive tools (prose clarity)
+**Source:** Phase 3b PR #6 T17 Opus code-review (Minor 2), 2026-04-22
+**File:** `plugins/screw/agents/screw-injection.md` — Step 2.5 prose (around lines 165-171)
+**Why deferred:** The orchestrator's frontmatter carries 7 adaptive tools (record_context_required_match, detect_coverage_gaps, lint, stage, promote, reject, execute) but the body only names 4 by tool name (record_context_required_match, detect_coverage_gaps, stage_adaptive_script, accumulate_findings) — those with orchestrator-specific meta (domain field, session ID reuse). promote/reject/execute/lint are covered via delegation to per-agent Step 3.5d. Reviewer's suggestion: a one-line pointer like "per-agent Step 3.5d names the full tool sequence used in-flow" would preempt reader confusion about why only 4/7 are named. Not a defect (delegation is the design); style suggestion.
+**Trigger:** Next orchestrator-prose polish pass.
+**Estimated scope:** ~2 LOC (one sentence added near line 167).
+
 ### BACKLOG-PR6-66 — Orchestrator body-vs-frontmatter symmetry guard (forward-looking)
 **Source:** Phase 3b PR #6 T17 Opus code-review (Minor 1), 2026-04-22
 **File:** `plugins/screw/agents/screw-injection.md` + `tests/test_adaptive_subagent_prompts.py`
