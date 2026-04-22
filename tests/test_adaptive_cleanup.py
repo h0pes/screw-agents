@@ -361,40 +361,49 @@ class TestStaleSemanticAlignment:
 
 
 class TestRemoveAdaptiveScript:
-    """Removal covers happy path, missing, and partial-state recovery."""
+    """Removal covers happy path, missing, partial-state recovery,
+    confirmation-gate enforcement, and delete-failure error-dict
+    (plan-fixes #1 + #2, T8, I6 part 2). Migrated from the former
+    ``cli.adaptive_cleanup.remove_adaptive_script`` entry point to the
+    promoted ``engine.remove_adaptive_script`` MCP-exposed method."""
 
     def test_remove_deletes_both_files(self, tmp_path: Path):
         """Both .py and .meta.yaml present → both deleted, status='removed'."""
-        from screw_agents.cli.adaptive_cleanup import remove_adaptive_script
+        from screw_agents.engine import ScanEngine
 
         script_dir = tmp_path / ".screw" / "custom-scripts"
         script_dir.mkdir(parents=True)
         _write_script_pair(script_dir, "bad", target_patterns=[])
 
-        result = remove_adaptive_script(tmp_path, script_name="bad")
+        engine = ScanEngine.from_defaults()
+        result = engine.remove_adaptive_script(
+            project_root=tmp_path, script_name="bad", confirmed=True
+        )
         assert result["status"] == "removed"
-        assert "bad" in result["message"]
+        assert result["script_name"] == "bad"
         assert not (script_dir / "bad.py").exists()
         assert not (script_dir / "bad.meta.yaml").exists()
-        # Both files should appear in removed_files
-        assert len(result["removed_files"]) == 2
 
     def test_remove_not_found_returns_status(self, tmp_path: Path):
-        """Neither file present → status='not_found', no errors."""
-        from screw_agents.cli.adaptive_cleanup import remove_adaptive_script
+        """Neither file present → status='error', error='not_found'."""
+        from screw_agents.engine import ScanEngine
 
         script_dir = tmp_path / ".screw" / "custom-scripts"
         script_dir.mkdir(parents=True)
 
-        result = remove_adaptive_script(tmp_path, script_name="ghost")
-        assert result["status"] == "not_found"
-        assert "ghost" in result["message"]
-        assert result["removed_files"] == []
+        engine = ScanEngine.from_defaults()
+        result = engine.remove_adaptive_script(
+            project_root=tmp_path, script_name="ghost", confirmed=True
+        )
+        assert result["status"] == "error"
+        assert result["error"] == "not_found"
 
-    def test_remove_partial_state_is_handled(self, tmp_path: Path):
-        """Only .py present, .meta.yaml missing → status='partial',
-        .py is deleted, message mentions the partial state."""
-        from screw_agents.cli.adaptive_cleanup import remove_adaptive_script
+    def test_remove_cleans_up_partial_state_py_only(self, tmp_path: Path):
+        """Only .py present; .meta.yaml already missing. New contract:
+        status='removed' (both-unlinks succeed via missing_ok=True). The
+        old 'partial' status is consolidated into 'removed' per spec §3.6.
+        """
+        from screw_agents.engine import ScanEngine
 
         script_dir = tmp_path / ".screw" / "custom-scripts"
         script_dir.mkdir(parents=True)
@@ -403,11 +412,107 @@ class TestRemoveAdaptiveScript:
         )
         # No .meta.yaml companion
 
-        result = remove_adaptive_script(tmp_path, script_name="lonely")
-        assert result["status"] == "partial"
-        assert "partial" in result["message"].lower()
+        engine = ScanEngine.from_defaults()
+        result = engine.remove_adaptive_script(
+            project_root=tmp_path, script_name="lonely", confirmed=True
+        )
+        assert result["status"] == "removed"
         assert not (script_dir / "lonely.py").exists()
-        assert len(result["removed_files"]) == 1
+
+    def test_remove_cleans_up_partial_state_meta_only(self, tmp_path: Path):
+        """Only .meta.yaml present; .py already missing (orphan meta —
+        e.g. a prior run crashed between the two unlinks). Plan-fix #2
+        (T8) requires this scenario to return status='removed' and
+        actually unlink the orphan meta. Without the fix, the plan's
+        one-sided existence check returned not_found and left the orphan
+        forever.
+        """
+        from screw_agents.engine import ScanEngine
+
+        script_dir = tmp_path / ".screw" / "custom-scripts"
+        script_dir.mkdir(parents=True)
+        (script_dir / "orphan.meta.yaml").write_text(
+            "name: orphan\ncreated: \"2026-04-22T10:00:00Z\"\n",
+            encoding="utf-8",
+        )
+
+        engine = ScanEngine.from_defaults()
+        result = engine.remove_adaptive_script(
+            project_root=tmp_path, script_name="orphan", confirmed=True
+        )
+        assert result["status"] == "removed"
+        assert not (script_dir / "orphan.meta.yaml").exists()
+
+    def test_remove_requires_confirmation_gate(self, tmp_path: Path):
+        """confirmed=False (default) returns status=error/error=confirmation_required
+        AND does not delete any files. Pins the T21-semantic promoted into
+        the engine layer per spec §3.6."""
+        from screw_agents.engine import ScanEngine
+
+        script_dir = tmp_path / ".screw" / "custom-scripts"
+        script_dir.mkdir(parents=True)
+        (script_dir / "guard.py").write_text(
+            "def analyze(project): pass\n", encoding="utf-8"
+        )
+        (script_dir / "guard.meta.yaml").write_text(
+            "name: guard\n", encoding="utf-8"
+        )
+
+        engine = ScanEngine.from_defaults()
+
+        # confirmed omitted — defaults to False
+        result = engine.remove_adaptive_script(
+            project_root=tmp_path, script_name="guard"
+        )
+        assert result["status"] == "error"
+        assert result["error"] == "confirmation_required"
+        assert "confirmed=True" in result["message"]
+        # Critical: files still on disk — gate MUST prevent writes
+        assert (script_dir / "guard.py").exists()
+        assert (script_dir / "guard.meta.yaml").exists()
+
+        # confirmed=False explicit — same behavior
+        result = engine.remove_adaptive_script(
+            project_root=tmp_path, script_name="guard", confirmed=False
+        )
+        assert result["status"] == "error"
+        assert result["error"] == "confirmation_required"
+        assert (script_dir / "guard.py").exists()
+
+    def test_remove_delete_failed_returns_error_dict(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """Plan-fix #1 regression guard: OSError on unlink returns an
+        error-dict with status=error/error=delete_failed, NOT raise. Pins
+        the T5 delete_failed precedent (engine.py:977-983) so a future
+        refactor doesn't silently re-introduce a raise."""
+        from screw_agents.engine import ScanEngine
+
+        script_dir = tmp_path / ".screw" / "custom-scripts"
+        script_dir.mkdir(parents=True)
+        (script_dir / "bad.py").write_text(
+            "def analyze(project): pass\n", encoding="utf-8"
+        )
+        (script_dir / "bad.meta.yaml").write_text(
+            "name: bad\n", encoding="utf-8"
+        )
+
+        # Patch Path.unlink to raise
+        import pathlib
+
+        def fake_unlink(self, *, missing_ok=False):
+            raise PermissionError(f"EACCES: {self}")
+
+        monkeypatch.setattr(pathlib.Path, "unlink", fake_unlink)
+
+        engine = ScanEngine.from_defaults()
+        result = engine.remove_adaptive_script(
+            project_root=tmp_path, script_name="bad", confirmed=True
+        )
+        assert result["status"] == "error"
+        assert result["error"] == "delete_failed"
+        assert "EACCES" in result["message"]
+        assert result["script_name"] == "bad"
 
 
 if __name__ == "__main__":

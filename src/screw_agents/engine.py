@@ -1334,6 +1334,79 @@ class ScanEngine:
             "stale_reason": stale_reason,
         }
 
+    def remove_adaptive_script(
+        self,
+        *,
+        project_root: Path,
+        script_name: str,
+        confirmed: bool = False,
+    ) -> dict[str, Any]:
+        """Delete an adaptive script pair from ``.screw/custom-scripts/``.
+
+        T21 confirmation gate preserved: ``confirmed=False`` returns
+        ``{"status":"error","error":"confirmation_required"}``. Caller is
+        expected to prompt the user for "yes" before passing
+        ``confirmed=True``.
+
+        Promoted from ``cli/adaptive_cleanup.py`` in PR #6 per I6 — the
+        former slash-command invocation broke when ``cwd != worktree``.
+        See design spec §3.6.
+
+        Args:
+            project_root: Absolute path to the project root.
+            script_name: Filesystem-safe name of the script to delete
+                (without the ``.py`` / ``.meta.yaml`` suffix).
+            confirmed: Must be ``True`` to actually delete. ``False`` (or
+                omitted) returns the confirmation-required error-dict
+                without touching the filesystem.
+
+        Returns:
+            On success: ``{"status": "removed", "script_name": <name>}``.
+            On the confirmation gate: ``{"status": "error",
+            "error": "confirmation_required", "message": ...}``.
+            When neither companion file exists: ``{"status": "error",
+            "error": "not_found", "message": ...}``.
+            On filesystem failure mid-delete: ``{"status": "error",
+            "error": "delete_failed", "message": <OS error>,
+            "script_name": <name>}``.
+        """
+        if not confirmed:
+            return {
+                "status": "error",
+                "error": "confirmation_required",
+                "message": "remove_adaptive_script requires confirmed=True",
+            }
+
+        custom_scripts_dir = project_root / ".screw" / "custom-scripts"
+        py_path = custom_scripts_dir / f"{script_name}.py"
+        meta_path = custom_scripts_dir / f"{script_name}.meta.yaml"
+
+        # Plan-fix #2: check BOTH — either-present means there is still state
+        # to clean up. Only both-absent is a genuine not_found. This restores
+        # T21's orphan-meta cleanup for the crash-between-unlinks scenario.
+        if not py_path.exists() and not meta_path.exists():
+            return {
+                "status": "error",
+                "error": "not_found",
+                "message": f"{script_name} not found in custom-scripts/",
+            }
+
+        try:
+            py_path.unlink(missing_ok=True)
+            meta_path.unlink(missing_ok=True)
+        except (PermissionError, OSError) as exc:
+            # Plan-fix #1: error-dict per T5 delete_failed precedent
+            # (engine.py:977-983). NOT a raise — callers pattern-match on
+            # response["status"].
+            return {
+                "status": "error",
+                "error": "delete_failed",
+                "message": str(exc),
+                "script_name": script_name,
+            }
+
+        return {"status": "removed", "script_name": script_name}
+
     def aggregate_learning(
         self,
         *,
@@ -2902,6 +2975,54 @@ class ScanEngine:
                 },
                 "required": [
                     "project_root",
+                ],
+            },
+        })
+
+        # Phase 3b T8: remove_adaptive_script — I6 MCP promotion (part 2)
+        # of the former cli/adaptive_cleanup entry point. Confirmation-gated
+        # (T21 semantics preserved): the caller must pass confirmed=true
+        # after prompting the user for "yes" before any files are deleted.
+        tools.append({
+            "name": "remove_adaptive_script",
+            "description": (
+                "Delete an adaptive script pair (`{name}.py` + `{name}.meta.yaml`) "
+                "from `.screw/custom-scripts/`, gated by an explicit "
+                "`confirmed=true` flag (T21 confirmation-gate semantics "
+                "preserved). Returns status=\"error\" / "
+                "error=\"confirmation_required\" when confirmed is False or "
+                "omitted, status=\"error\" / error=\"not_found\" when the "
+                "script is missing, otherwise status=\"removed\". Promoted from "
+                "`cli/adaptive_cleanup.py` in PR #6 per I6. See design spec §3.6."
+            ),
+            "input_schema": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "project_root": {
+                        "type": "string",
+                        "description": "Absolute path to the project root.",
+                    },
+                    "script_name": {
+                        "type": "string",
+                        "description": (
+                            "Filesystem-safe name of the adaptive script to "
+                            "remove (without `.py` / `.meta.yaml` suffix)."
+                        ),
+                    },
+                    "confirmed": {
+                        "type": "boolean",
+                        "description": (
+                            "Must be true to actually delete. False (or absent) "
+                            "returns error=\"confirmation_required\" — the "
+                            "caller is expected to prompt the user for \"yes\" "
+                            "before retrying with confirmed=true."
+                        ),
+                    },
+                },
+                "required": [
+                    "project_root",
+                    "script_name",
                 ],
             },
         })

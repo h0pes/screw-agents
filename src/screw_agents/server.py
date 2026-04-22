@@ -199,6 +199,15 @@ def _dispatch_tool(
             project_root=Path(args["project_root"]),
         )
 
+    # --- Phase 3b T8: remove_adaptive_script (I6 MCP promotion — confirmation-gated) ---
+
+    if name == "remove_adaptive_script":
+        return engine.remove_adaptive_script(
+            project_root=Path(args["project_root"]),
+            script_name=args["script_name"],
+            confirmed=args.get("confirmed", False),
+        )
+
     # --- Phase 3b T18a: lint_adaptive_script (pre-approval review) ---
 
     if name == "lint_adaptive_script":
