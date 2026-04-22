@@ -246,11 +246,18 @@ class ScanEngine:
                 Layer 3 (signature). Production callers must never set True.
 
         Returns:
-            Dict with keys: ``script_name``, ``findings`` (list of finding
-            dicts), ``stale`` (bool), ``execution_time_ms`` (int),
-            ``sandbox_result`` (dict, stdout/stderr excluded since they are
-            bytes). ``model_dump(mode="json")`` is used so nested datetimes
-            and other non-JSON-native types serialize correctly.
+            Dict with keys: ``status`` (``"ok"`` when the sandbox returncode
+            is 0, else ``"sandbox_failure"``), ``script_name``, ``findings``
+            (list of finding dicts), ``stale`` (bool), ``execution_time_ms``
+            (int), ``stderr`` (top-level decoded stderr string — empty on
+            success, populated with tracebacks/messages on sandbox failure
+            so the T18b failure-render path has something to show the user),
+            and ``sandbox_result`` (dict). Inside ``sandbox_result`` the
+            decoded ``stderr`` is duplicated for convenience; ``stdout`` is
+            intentionally excluded because adaptive scripts communicate via
+            ``findings.json`` rather than stdout. ``model_dump(mode="json")``
+            is used so nested datetimes and other non-JSON-native types
+            serialize correctly. T11 (I3) — Phase 3b PR #6.
 
         Raises:
             FileNotFoundError: Script source or metadata file missing.
@@ -279,14 +286,35 @@ class ScanEngine:
             skip_trust_checks=skip_trust_checks,
         )
 
+        # Decode stderr bytes -> str for JSON payload (T11 plan-fix #2).
+        # errors="replace" so a binary-writing malicious script can't raise
+        # UnicodeDecodeError and break the response.
+        stderr_str = result.sandbox_result.stderr.decode(
+            "utf-8", errors="replace"
+        )
+
+        # Top-level status: "ok" on clean returncode, "sandbox_failure"
+        # otherwise (T11 plan-fix #3). killed_by_timeout yields
+        # returncode=-1, so it's already covered by the != 0 check.
+        status = (
+            "ok"
+            if result.sandbox_result.returncode == 0
+            else "sandbox_failure"
+        )
+
         return {
+            "status": status,  # T11 plan-fix #3: top-level
             "script_name": result.script_name,
             "findings": [f.model_dump(mode="json") for f in result.findings],
             "stale": result.stale,
             "execution_time_ms": result.execution_time_ms,
-            "sandbox_result": result.sandbox_result.model_dump(
-                mode="json", exclude={"stdout", "stderr"}
-            ),
+            "stderr": stderr_str,  # T11 plan-fix #4: top-level alias
+            "sandbox_result": {
+                **result.sandbox_result.model_dump(
+                    mode="json", exclude={"stdout", "stderr"}
+                ),
+                "stderr": stderr_str,  # T11 plan-fix #4: also inside
+            },
         }
 
     def stage_adaptive_script(

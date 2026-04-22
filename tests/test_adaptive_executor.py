@@ -672,3 +672,109 @@ def test_execute_script_tampered_signature_raises_signature_failure(
             skip_trust_checks=False,
             wall_clock_s=10,
         )
+
+
+# -------------------------------------------------------------------------
+# Task 11 — I3: engine.execute_adaptive_script surfaces sandbox stderr
+# -------------------------------------------------------------------------
+
+
+def test_execute_surfaces_stderr_on_nonzero_return(tmp_path: Path) -> None:
+    """A script raising RuntimeError inside analyze() yields sandbox
+    returncode != 0. engine.execute_adaptive_script MUST surface stderr
+    AND set status='sandbox_failure' so the T18b failure-render path has
+    something to show the user. T11 plan-fix #5: use a runtime raise
+    rather than a hallucinated import — T10's unknown_symbol rule now
+    rejects hallucinated imports at Layer 1 before the sandbox runs."""
+    import shutil
+
+    if shutil.which("bwrap") is None and shutil.which("sandbox-exec") is None:
+        pytest.skip("requires sandbox backend")
+
+    from screw_agents.engine import ScanEngine
+
+    script_dir = tmp_path / ".screw" / "custom-scripts"
+    script_dir.mkdir(parents=True)
+
+    # Valid-linting script that raises at runtime inside analyze(). Uses
+    # ProjectRoot (an allowed import) so Layer 1 lint passes; the failure
+    # happens in the sandbox.
+    script_path = script_dir / "t11-failing.py"
+    script_path.write_text(
+        "from screw_agents.adaptive import ProjectRoot\n"
+        "def analyze(project: ProjectRoot) -> None:\n"
+        "    raise RuntimeError('intentional T11 test failure')\n"
+    )
+    meta_path = script_dir / "t11-failing.meta.yaml"
+    meta_path.write_text(
+        "name: t11-failing\n"
+        "created: '2026-04-22T10:00:00Z'\n"
+        "created_by: marco@example.com\n"
+        "domain: injection-input-handling\n"
+        "description: T11 stderr surfacing test\n"
+        "target_patterns: []\n"  # empty -> not stale, sandbox runs
+        "sha256: stub\n"
+    )
+
+    engine = ScanEngine.from_defaults()
+    result = engine.execute_adaptive_script(
+        project_root=tmp_path,
+        script_name="t11-failing",
+        wall_clock_s=15,
+        skip_trust_checks=True,
+    )
+
+    assert result["status"] == "sandbox_failure"
+    assert "RuntimeError" in result["stderr"]
+    assert "intentional T11 test failure" in result["stderr"]
+    assert result["sandbox_result"]["returncode"] != 0
+    # Alias consistency: top-level stderr == inner stderr (plan-fix #4)
+    assert result["stderr"] == result["sandbox_result"]["stderr"]
+
+
+def test_execute_stderr_empty_on_success(tmp_path: Path) -> None:
+    """Happy path: status='ok' and stderr is empty string. Well-behaved
+    scripts don't write to stderr; don't clutter success payloads. T11
+    plan-fix #4: empty string rather than omitted field — keeps the dict
+    shape stable so the subagent's failure-render branch can always test
+    result["stderr"] without a .get() dance."""
+    import shutil
+
+    if shutil.which("bwrap") is None and shutil.which("sandbox-exec") is None:
+        pytest.skip("requires sandbox backend")
+
+    from screw_agents.engine import ScanEngine
+
+    script_dir = tmp_path / ".screw" / "custom-scripts"
+    script_dir.mkdir(parents=True)
+
+    # Benign passing script — imports only allowed names, emits no findings,
+    # never raises. Sandbox returncode must be 0 and stderr empty.
+    script_path = script_dir / "t11-ok.py"
+    script_path.write_text(
+        "from screw_agents.adaptive import ProjectRoot\n"
+        "def analyze(project: ProjectRoot) -> None:\n"
+        "    pass\n"
+    )
+    meta_path = script_dir / "t11-ok.meta.yaml"
+    meta_path.write_text(
+        "name: t11-ok\n"
+        "created: '2026-04-22T10:00:00Z'\n"
+        "created_by: marco@example.com\n"
+        "domain: injection-input-handling\n"
+        "description: T11 stderr-empty-on-success test\n"
+        "target_patterns: []\n"
+        "sha256: stub\n"
+    )
+
+    engine = ScanEngine.from_defaults()
+    result = engine.execute_adaptive_script(
+        project_root=tmp_path,
+        script_name="t11-ok",
+        wall_clock_s=15,
+        skip_trust_checks=True,
+    )
+
+    assert result["status"] == "ok"
+    assert result["stderr"] == ""
+    assert result["sandbox_result"]["returncode"] == 0
