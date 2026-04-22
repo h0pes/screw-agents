@@ -4751,12 +4751,26 @@ T14 commit: `dc3762c`. Fix-up commit: `fe1f7a8`. Plan-fix commits: `f5e3bcd` + `
 
 ## Phase E — Subagent Prompt Rewrite (T15-T18)
 
-### Task 15: Rewrite T18b Adaptive-Mode Section in `screw-sqli.md`
+### Task 15: Rewrite T18b Adaptive-Mode Section in `screw-sqli.md` (combined with T16 — all 4 files)
 
 **Files:**
-- Modify: `plugins/screw/agents/screw-sqli.md` (Step 3.5d rewrite; also adjust `tools:` frontmatter to add new MCP tools)
+- Modify: `plugins/screw/agents/screw-sqli.md` (canonical Step 3.5d rewrite + frontmatter)
+- Modify: `plugins/screw/agents/screw-cmdi.md` (byte-identical copy, agent-name substituted)
+- Modify: `plugins/screw/agents/screw-ssti.md` (byte-identical copy, agent-name substituted)
+- Modify: `plugins/screw/agents/screw-xss.md` (byte-identical copy, agent-name substituted)
 
-**Rationale:** This is THE user-facing C1 fix. The new flow stages BEFORE review, promotes on approve, rejects on reject, and handles respawn via registry lookup. Also applies I1 (plugin namespace), I4 (retention notice), I5 (prompt hardening). The file is the CANONICAL per-agent subagent; T16 then copies this byte-identical section to cmdi/ssti/xss.
+**Rationale:** This is THE user-facing C1 fix. The new flow stages BEFORE review, promotes on approve, rejects on reject, and handles respawn via registry lookup. Also applies I1 (plugin namespace), I4 (retention notice), I5 (prompt hardening).
+
+**T15+T16 combined (plan-fix, 2026-04-22):** Original plan split T15 (rewrite sqli as canonical) from T16 (byte-copy to cmdi/ssti/xss). Combined into single task because: (a) byte-identity invariant is enforced by `test_adaptive_section_identical_modulo_agent_name` regardless of commit boundaries; (b) combining avoids the broken-intermediate-state post-T15-pre-T16 where the byte-identity test fails; (c) one dispatch + one review cycle is significantly cheaper context-wise; (d) cmdi/ssti/xss are byte-identical modulo agent-name substitutions — reviewer reads 1 full rewrite + verifies 3 mechanical copies. Security invariant is preserved. See §T16 below (marked absorbed).
+
+**T15 plan-fixes #1-6 (2026-04-22):**
+- **#1 Tool-invocation format**: plan's concrete patches use bare `"tool": "stage_adaptive_script"` JSON blocks. The existing file convention (line 277) uses full `mcp__screw-agents__<name>({...})` code blocks. MATCH THE EXISTING FILE FORMAT — the T20 format-smoke tests likely check for the `mcp__screw-agents__` prefix.
+- **#2 Execute failure branch status**: plan's K section says `"status == "error""`. Post-T11 (I3), `engine.execute_adaptive_script` returns `status="sandbox_failure"` on non-zero returncode. Update to `status == "sandbox_failure"`.
+- **#3 "Python standard library" misdirection**: current screw-sqli.md at lines 212 and 238 tells the LLM to import from `screw_agents.adaptive` AND "Python standard library". Post-T10 (I2), `_ALLOWED_IMPORT_MODULES = {"screw_agents.adaptive"}` — stdlib imports are REJECTED at Layer 1. I5 hardening must REPLACE stdlib mentions with the 18-name allowlist (not just add it alongside).
+- **#4 Exact 18-name list for I5 enumeration**: from `src/screw_agents/adaptive/__init__.py:65-88`:
+  `ProjectRoot, ProjectPathError, parse_ast, walk_ast, find_calls, find_imports, find_class_definitions, CallSite, ImportNode, ClassNode, trace_dataflow, is_user_input, is_sanitized, match_pattern, get_call_args, get_parent_function, resolve_variable, emit_finding`
+- **#5 Drop `.screw/local/review_log.jsonl` mention**: current reject branch at line 439 mentions a best-effort write to this file. New flow via `reject_staged_script` records the rejection event in `.screw/local/pending-approvals.jsonl` (the pending-approvals registry). The review_log.jsonl mention becomes redundant/stale — delete it.
+- **#6 Expected pytest count**: plan Step 4 says "byte-identity test will FAIL until T16 lands" — N/A with combined T15+T16. Expected: **892 passed, 8 skipped** (unchanged from post-T14 baseline, assuming no test-count changes from the prose rewrite). If the format-smoke tests at T20 aren't yet present, count stays stable. Report actual count in closeout.
 
 **Pre-audit (critical — LLM-flow surface is security-relevant, per `feedback_no_skip_security_artifact_reviews`):**
 - The byte-identical-section contract (T18b's `test_adaptive_section_identical_modulo_agent_name`) enforces cmdi/ssti/xss == sqli after agent-name substitution. Edit sqli FIRST; T16 is a byte-copy with `sqli` → `cmdi`/`ssti`/`xss` substitution ONLY.
@@ -5086,7 +5100,15 @@ git commit -m "feat(phase3b-c1): rewrite screw-sqli.md Step 3.5d with staging fl
 
 ---
 
-### Task 16: Byte-Identical Copy to cmdi/ssti/xss Subagents
+### Task 16: Byte-Identical Copy to cmdi/ssti/xss Subagents — ABSORBED INTO T15
+
+**Status**: **ABSORBED INTO T15** (2026-04-22). See T15 header for rationale. The per-agent substitution logic and byte-identity verification originally scoped here now happen in the combined T15 dispatch. Preserved below for plan-history trail.
+
+---
+
+_Original T16 content follows (preserved as historical documentation; no longer an independent task):_
+
+
 
 **Files:**
 - Modify: `plugins/screw/agents/screw-cmdi.md`
