@@ -4504,11 +4504,21 @@ T13 commit: `91bcbd9`. Plan-fix commit: `6559cdf`.
 - **Plan-fix #1 (use engine method)**: plan's tests call `execute_script(project_root=..., script_name=..., ...)` but `execute_script`'s signature is `(*, script_path, meta_path, project_root, wall_clock_s, skip_trust_checks)` — no `script_name`. Plan author conflated `execute_script` (internal) with `engine.execute_adaptive_script` (engine wrapper). Switch to `engine.execute_adaptive_script(project_root=..., script_name=..., ...)` which returns a dict (matches plan's `result["status"]` assertion shape) AND represents the real caller path through the MCP tool.
 - **Plan-fix #2 (session_id is required)**: plan passes `session_id=None` to `sign_adaptive_script`. The actual signature at `engine.py:1111` is `session_id: str` (required). Use a valid string like `"t14-sess"`. Note: post-C1, `promote_staged_script` is the preferred path, but `sign_adaptive_script` is explicitly retained for tests + legacy consumers (see `engine.py:1122-1128` C1 STATUS NOTE).
 - **Plan-fix #3 (simplify happy-path assertion)**: plan's `assert result["status"] in ("ok", "success") or result.get("returncode") == 0` is confused — "success" is not a valid status value, and the triple-fallback suggests the author wasn't sure which API was being called. Post-T11 (I3), `engine.execute_adaptive_script` returns `{"status": "ok" | "sandbox_failure", ...}`. Simplify to `assert result["status"] == "ok"`.
-- **Plan-fix #4 (tamper stays lint-valid)**: plan's tamper replaces the script with `"# tampered\npass\n"`. Layer 1 lint runs FIRST (before Layer 3) and rejects `pass\n` for missing `def analyze` → `LintFailure`. Test's `pytest.raises(SignatureFailure)` fails. Tamper MUST preserve the lint-valid prefix (`from screw_agents.adaptive import ProjectRoot` + `def analyze(project: ProjectRoot) -> None:`) and flip a byte elsewhere — e.g., add a `# TAMPERED` comment line OR change the body statement. Ensures Layer 1 passes and Layer 3 does the rejecting.
+- **Plan-fix #4 (tamper stays lint-valid)**: plan's tamper replaces the script with `"# tampered\npass\n"`. Layer 1 lint runs FIRST and rejects `pass\n` for missing `def analyze` → `LintFailure`. Tamper MUST preserve the lint-valid prefix (`from screw_agents.adaptive import ProjectRoot` + `def analyze(project: ProjectRoot) -> None:`) and flip a byte elsewhere.
+
+  **NOTE (pre-audit incomplete — implementer caught during T14 work, 2026-04-22)**: `Layer 1` is not the only layer that runs BEFORE Layer 3 — `Layer 2 (hash pin)` also runs before Layer 3 (see `executor.py:157-187` for the exact order: lint → hash → signature). Any byte-flip in the `.py` source (even a lint-valid comment) changes the SHA-256, which Layer 2 catches FIRST with `HashMismatch`. Layer 3 never runs on source-byte tampers. This required plan-fix #9 (Option C) to resolve — see below.
 - **Plan-fix #5 (drop unused cryptography imports)**: plan imports `Ed25519PrivateKey`, `Ed25519PublicKey`, `Encoding`, `PrivateFormat`, `PublicFormat`, `NoEncryption` — but the fixture doesn't use them directly. Signing goes through `engine.sign_adaptive_script` which owns all the Ed25519 work internally. Drop the unused imports entirely.
-- **Plan-fix #6 (pytest count)**: plan said "821 passed". Stale. Current post-T13 baseline at HEAD `5340561` is **889**. T14 adds +2 → **891 passed, 8 skipped**.
+- **Plan-fix #6 (pytest count — superseded by #10)**: plan said "821 passed". Stale. Current post-T13 baseline at HEAD `5340561` is **889**. Initial scope was +2 → **891**, but Option C (plan-fix #9) bumps to +3 → **892 passed, 8 skipped**. See plan-fix #10 below.
 - **Plan-fix #7 (`target_patterns=[]` for full round-trip)**: plan uses `target_patterns=["nothing.at.all"]` — causes `_is_stale` to return True → sandbox never runs (stale sentinel path short-circuits at `executor.py:191`). Layer 3 still runs before the stale check, so the test IS meaningful for Layer 3 coverage. But to genuinely exercise the full round-trip (the plan rationale says "round-trip through Layer 3"), use `target_patterns=[]` (empty → `_is_stale` returns False at `executor.py:246-247` → sandbox runs → Layer 3 + Layer 5+6 all exercised).
-- **Plan-fix #8 (document layer precedence)**: test docstrings should note that Layer 1 (lint) runs BEFORE Layer 3. This documents the plan-fix #4 discipline for future maintainers: "if you simplify the tampered content, keep the lint-valid prefix or you'll get LintFailure instead of SignatureFailure".
+- **Plan-fix #8 (document layer precedence)**: test docstrings should note that Layer 1 (lint) AND Layer 2 (hash pin) BOTH run BEFORE Layer 3. This documents the plan-fix #4/#9 discipline for future maintainers: "if you simplify the tampered content, keep the lint-valid prefix — AND tamper the signature field for the Layer-3 test, not the source bytes, because Layer 2 catches source-byte tampers first".
+
+- **Plan-fix #9 (Option C — test Layers 2 AND 3 independently)**: during implementation, the tamper test as plan-fix-#4-drafted failed because flipping source bytes is caught by Layer 2 (hash pin) BEFORE Layer 3 runs. Resolution: add TWO distinct tamper tests to exercise both rejection layers:
+  1. `test_execute_adaptive_script_rejects_tampered_source`: flip a byte in the `.py` source (lint-valid comment add), expect `HashMismatch`. Tests Layer 2.
+  2. `test_execute_adaptive_script_rejects_tampered_signature`: read `.meta.yaml`, flip a byte in the base64 `signature` field, rewrite. Expect `SignatureFailure`. Tests Layer 3.
+
+  Rationale: T11-N1 is labeled "the most valuable bundled test" in the plan rationale — getting Layer 2 AND Layer 3 coverage independently is strictly higher value than testing one. Also future-proofs: a refactor that silently disables either layer would only be caught if both are independently tested.
+
+- **Plan-fix #10 (pytest count — Option C amendment)**: supersedes plan-fix #6. With Option C, T14 adds 3 new tests (happy path + 2 tamper variants) → **892 passed, 8 skipped**.
 
 - [ ] **Step 1: Add signing helper fixture + 2 E2E tests**
 
@@ -4591,18 +4601,25 @@ def test_execute_adaptive_script_verifies_layer3_signature_happy_path(
     assert result["status"] == "ok"
 
 
-def test_execute_adaptive_script_rejects_tampered_signature(
+def test_execute_adaptive_script_rejects_tampered_source(
     signed_script_setup,
 ) -> None:
-    """Tamper the .py source after signing. Layer 3 verification MUST fail.
+    """Tamper the .py source after signing. Layer 2 hash pin MUST fail.
 
-    Plan-fix #4 + #8: tampered content must stay lint-valid (preserve
-    `from screw_agents.adaptive import ProjectRoot` + `def analyze(...)`)
-    so Layer 1 passes and Layer 3 is the rejecting layer. Layer 1 runs
-    BEFORE Layer 3 in executor.execute_script; if the tamper broke lint,
-    we'd get LintFailure instead of the expected SignatureFailure.
+    Plan-fix #4 + #8 + #9 (Option C): Layer 1 (lint) and Layer 2 (hash
+    pin) BOTH run before Layer 3 (signature) in executor.execute_script.
+    A source-byte tamper is caught by Layer 2 via HashMismatch — Layer 3
+    never runs. This test locks the Layer-2 rejection path specifically.
+    The companion test_execute_adaptive_script_rejects_tampered_signature
+    exercises Layer 3 by flipping the signature field instead.
+
+    Tampered content stays lint-valid (preserves import + def analyze)
+    to prove the rejection comes from Layer 2's SHA-256 check, NOT Layer
+    1's lint. If this test ever starts raising LintFailure, the tamper
+    somehow broke the lint — investigate before assuming the hash check
+    is broken.
     """
-    from screw_agents.adaptive.executor import SignatureFailure
+    from screw_agents.adaptive.executor import HashMismatch
     from screw_agents.engine import ScanEngine
 
     project, script_name, _, _ = signed_script_setup
@@ -4610,15 +4627,67 @@ def test_execute_adaptive_script_rejects_tampered_signature(
 
     # Tamper while preserving lint-validity — add a comment line BEFORE
     # the analyze def so Layer 1 sees valid structure but the SHA-256
-    # changes (and so Layer 3 signature verification fails).
+    # changes (and so Layer 2 hash pin fails).
     py_path.write_text(
         "from screw_agents.adaptive import ProjectRoot\n"
         "\n"
-        "# TAMPERED — this line changes the sha256 but keeps the lint\n"
+        "# TAMPERED — this line changes the sha256\n"
         "def analyze(project: ProjectRoot) -> None:\n"
         "    pass\n",
         encoding="utf-8",
     )
+
+    engine = ScanEngine.from_defaults()
+    with pytest.raises(HashMismatch):
+        engine.execute_adaptive_script(
+            project_root=project,
+            script_name=script_name,
+            wall_clock_s=5,
+            skip_trust_checks=False,
+        )
+
+
+def test_execute_adaptive_script_rejects_tampered_signature(
+    signed_script_setup,
+) -> None:
+    """Tamper .meta.yaml's signature field after signing. Layer 3 MUST fail.
+
+    Plan-fix #9 (Option C): Layer 2 hash pin passes because we leave the
+    .py source untouched (and its sha256 stays in meta.sha256). But we
+    flip a byte in the base64 signature field, so Ed25519 verification
+    at Layer 3 fails with SignatureFailure. This is the T11-N1 flagship
+    test that locks Layer 3 coverage — the rationale for bundling T11-N1
+    in PR #6 in the first place.
+
+    If meta_path's signature field shape ever changes (e.g., moved under
+    a nested key, renamed), this test will break — find the new path
+    and update. The invariant being tested is: ANY byte-change in the
+    on-disk signature post-sign must be rejected at Layer 3.
+    """
+    import base64
+
+    import yaml
+
+    from screw_agents.adaptive.executor import SignatureFailure
+    from screw_agents.engine import ScanEngine
+
+    project, script_name, _, _ = signed_script_setup
+    meta_path = project / ".screw" / "custom-scripts" / f"{script_name}.meta.yaml"
+
+    meta_dict = yaml.safe_load(meta_path.read_text(encoding="utf-8"))
+    assert "signature" in meta_dict, (
+        f"meta at {meta_path} is missing 'signature' field — "
+        f"shape changed? keys present: {sorted(meta_dict.keys())}"
+    )
+
+    # Decode, flip one byte in the middle (avoid padding), re-encode.
+    sig_bytes = bytearray(base64.b64decode(meta_dict["signature"]))
+    assert len(sig_bytes) >= 16, f"Ed25519 signature too short: {len(sig_bytes)} bytes"
+    # Flip a byte at a safe offset — Ed25519 signatures are 64 bytes;
+    # offset 10 is well clear of padding and structural bits.
+    sig_bytes[10] ^= 0xFF
+    meta_dict["signature"] = base64.b64encode(bytes(sig_bytes)).decode("ascii")
+    meta_path.write_text(yaml.safe_dump(meta_dict), encoding="utf-8")
 
     engine = ScanEngine.from_defaults()
     with pytest.raises(SignatureFailure):
