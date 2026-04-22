@@ -1225,3 +1225,17 @@ assert list(stage_dir.iterdir()) == []
 **Why deferred:** The per-pattern `find_calls` call is wrapped in `except Exception:` to tolerate tree-sitter parse failures on any single file without failing the whole stale-check. Plan §T7 mandated verbatim lift (no behavioral changes during the move). Narrowing to a specific tree-sitter exception class is a follow-up concern that belongs with the broader T3-M1 narrow-exception work, not the move itself.
 **Trigger:** Next adaptive-exception sweep OR when `find_calls` grows richer error types worth distinguishing.
 **Estimated scope:** ~3 LOC (narrow the except; add a test that a single tree-sitter failure doesn't derail siblings).
+
+### BACKLOG-PR6-51 — `test_adaptive_cleanup.py` module docstring drift
+**Source:** Phase 3b PR #6 T8 Opus code-review (M1), 2026-04-22
+**File:** `tests/test_adaptive_cleanup.py:1-15`
+**Why deferred:** Module header docstring still says "Tests for the adaptive_cleanup listing + removal backend (T21)" and lists the T21 remove coverage shape ("both-present happy path, not-found, partial-state recovery"). Does not mention the T8-era confirmation-gate and delete_failed tests, nor the migration from `cli.adaptive_cleanup` → `engine`. Class-level docstring for `TestRemoveAdaptiveScript` WAS updated; only the module header was missed. Cosmetic — no behavior impact.
+**Trigger:** Next docs pass in this file, OR when someone touching this file reads the header and notices the drift.
+**Estimated scope:** ~5 LOC (rewrite the module docstring to reflect T8's shape).
+
+### BACKLOG-PR6-52 — Asymmetric filesystem assertion in `test_remove_cleans_up_partial_state_py_only`
+**Source:** Phase 3b PR #6 T8 Opus code-review (M2), 2026-04-22
+**File:** `tests/test_adaptive_cleanup.py` — `test_remove_cleans_up_partial_state_py_only`
+**Why deferred:** Py-only variant asserts only `not (script_dir / "lonely.py").exists()`. The sibling meta-only variant asserts both "not meta.exists()" and no-other-side-present. Adding `assert not (script_dir / "lonely.meta.yaml").exists()` to the py-only test would make the sibling pair diff-grep-comparable. Currently vacuous (meta never existed), so not a correctness concern.
+**Trigger:** Next test-polish pass, OR if a future change introduces leftover-meta risk in the py-only path.
+**Estimated scope:** 1 LOC (add the symmetric negative assertion).

@@ -3756,6 +3756,18 @@ git commit -m "feat(phase3b-c1): promote remove_adaptive_script to engine + MCP 
 
 (Test file now included in the commit per plan-fix #3 — `TestRemoveAdaptiveScript` migrates in this task, not T7.)
 
+**T8 Opus 4.7 re-review (2026-04-22):** Spec review PASSED 11/11 HRs (HR9 test-count and HR11 C1 sentinel verified in foreground — 880 passed, 8 skipped; sentinel `test_sign_output_passes_executor_verification` passes). Quality review APPROVED. Both reviewers reported **0 Critical + 0 Important + 2 Minor** each. Net actionable: 2 Minor items total (the two spec-review Minors were either already-resolved or informational; both quality-review Minors are cosmetic). Spec reviewer called T8 "the cleanest cross-task symmetry audited in PR #6" — two tasks in a row hitting 0 Important against the 0-1 target per `feedback_cross_task_precedent_checks`.
+
+All 4 plan-fixes landed cleanly:
+- Plan-fix #1 (OSError error-dict per T5 precedent `engine.py:977-983`): implemented at `engine.py:1397-1406` with inline landmark comment citing the precedent.
+- Plan-fix #2 (either-exists AND check to preserve orphan-meta cleanup): implemented at `engine.py:1387` with inline landmark comment; regression-guarded by `test_remove_cleans_up_partial_state_meta_only`.
+- Plan-fix #3 (test migration scope): 3 existing tests migrated + 2 new tests (confirmation-gate, delete_failed regression guard) + 1 split (py-only + meta-only siblings). Zero leftover `cli.adaptive_cleanup` imports in the test file.
+- Plan-fix #4 (corrected pytest count): 880 passed, 8 skipped — upper bound matches because the implementer chose the 2-sibling split rather than the 1-test fold, per the plan's "pick what reads cleanest" guidance.
+
+No Important items → no fix-up commit. Minor items deferred to DEFERRED_BACKLOG as `BACKLOG-PR6-51` (module docstring drift in `tests/test_adaptive_cleanup.py:1-15`) and `BACKLOG-PR6-52` (asymmetric filesystem assertion in `test_remove_cleans_up_partial_state_py_only` — vacuous currently, symmetry polish).
+
+T8 commit: `42c8665`. Plan-fix commit: `277034f`.
+
 ---
 
 ### Task 9: Delete `cli/adaptive_cleanup.py` + Migrate T22
