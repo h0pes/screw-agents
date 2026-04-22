@@ -1212,12 +1212,13 @@ assert list(stage_dir.iterdir()) == []
 **Trigger:** Post-incident review OR M-PR6-41 implementation (both fixed together).
 **Estimated scope:** bundled with BACKLOG-PR6-41.
 
-### BACKLOG-PR6-49 — Stale docstring in `cli/adaptive_cleanup.py:16-19` after `_check_stale` relocation
+### BACKLOG-PR6-49 — Stale docstring in `cli/adaptive_cleanup.py:16-19` after `_check_stale` relocation **[RESOLVED — T9 commit `e91fe42`]**
 **Source:** Phase 3b PR #6 T7 Opus code-review (M-T7-1), 2026-04-22
 **File:** `src/screw_agents/cli/adaptive_cleanup.py:16-19`
 **Why deferred:** The module-level docstring still says "If the executor's `_is_stale` semantic ever changes, update `_check_stale` here to match", but after T7's plan-fix #1 the `_check_stale` definition lives in `adaptive/executor.py` and this file only re-exports it. A reader grepping the file for a `def _check_stale` body finds nothing — contradicts the docstring. Not a correctness bug (re-export works). T9 deletes this file entirely, so the drift is short-lived.
 **Trigger:** Naturally resolved when T9 deletes `cli/adaptive_cleanup.py`.
-**Estimated scope:** 0 LOC (auto-resolves). If fixed earlier: ~4 LOC docstring rewrite.
+**Resolution:** T9 (`e91fe42`, 2026-04-22) deleted the file outright. The docstring drift no longer exists because the module no longer exists. T24 will move this entry to the "Shipped (PR #6)" section.
+**Estimated scope:** 0 LOC (auto-resolved).
 
 ### BACKLOG-PR6-50 — `except Exception` inside `_check_stale` (verbatim-lift of pre-T7 code)
 **Source:** Phase 3b PR #6 T7 Opus spec review (M2), 2026-04-22

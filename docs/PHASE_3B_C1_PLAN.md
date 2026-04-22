@@ -3841,6 +3841,19 @@ git commit -m "refactor(phase3b-c1): delete cli/adaptive_cleanup.py, migrate T22
 
 **Cross-plan sync:** confirm DEFERRED_BACKLOG entry I6 is ready to move to Shipped (will happen in T24). Also cross-check: does the slash command at `plugins/screw/commands/adaptive-cleanup.md` still reference the deleted module? If yes (it will), T19 fixes it — don't worry about it here.
 
+**T9 Opus 4.7 re-review (2026-04-22):** Spec review APPROVED (11/11 HRs PASS). Quality review APPROVED. Both reviewers reported **0 Critical, 0 Important, 0 Minor**. Spec reviewer called T9 "a textbook pure deletion + single-test migration"; quality reviewer called it "surgical precision". Third task in a row hitting 0 Important against the 0-1 target per `feedback_cross_task_precedent_checks`.
+
+All 3 plan-fixes held:
+- Plan-fix #1 (grep expectation): initial grep returned exactly the predicted 3 match sites.
+- Plan-fix #2 (pytest count): full suite at 880 passed, 8 skipped — no change from T8 baseline (pure migration, no test additions/removals).
+- Plan-fix #3 (git commands): `git rm` from Step 4 alone sufficed; no secondary `git add -u` required.
+
+`BACKLOG-PR6-49` (stale docstring in `cli/adaptive_cleanup.py:16-19`) is now **auto-resolved** by this deletion — the file no longer exists. T24 will move the entry to the "Shipped (PR #6)" section alongside other I6 work.
+
+The I6 triad (T7 engine-method promotion → T8 confirmation-gated removal → T9 CLI deletion) ships as a cohesive unit: six commits (three feat/refactor + three plan-fix + two cross-plan-sync) total, 880 tests green, zero Important findings across all three reviews, C1 canonical-bytes sentinel untouched and passing throughout.
+
+T9 commit: `e91fe42`. Plan-fix commit: `e1197c8`.
+
 ---
 
 ## Phase D — Adjacent Polish (T10-T14)
