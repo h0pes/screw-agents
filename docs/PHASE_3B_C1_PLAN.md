@@ -5218,6 +5218,22 @@ git commit -m "feat(phase3b-c1): orchestrator refs updated for new T18b sub-step
 
 If no changes were needed: skip the commit; move on to T18.
 
+**T17 Opus 4.7 re-review (2026-04-22):** Spec review APPROVED 10/10 HRs. Quality review APPROVED ("clean execution of the plan-fixes… no Important findings"). Both reviewers reported **0 Critical, 0 Important**; net 4 Minor total (all observational/defensible-by-design or cosmetic). Score since T7: **9 tasks 0-Important / 1 task 1-Important** (T14 only). T17 keeps the streak clean.
+
+All 6 plan-fixes landed cleanly:
+- Plan-fix #1 (frontmatter): `sign_adaptive_script` removed; stage/promote/reject added. Orchestrator tool surface now byte-identical to per-agent adaptive surface.
+- Plan-fix #2 (sub-step range): "A through I" → "A through K" at `screw-injection.md:167`.
+- Plan-fix #3 (meta ref): `sign_adaptive_script.meta` → `stage_adaptive_script.meta` at `:167` — meta is assembled at stage time post-C1.
+- Plan-fix #4 (session-id list): `:171` replaces sign with stage. promote/reject correctly EXCLUDED — they run in the resume-from-approval branch (not mainline).
+- Plan-fix #5 (test constant merge): `_PER_AGENT_ADAPTIVE_MCP_TOOLS` + `_ORCHESTRATOR_ADAPTIVE_MCP_TOOLS` + back-compat alias all dropped; single `_ADAPTIVE_MCP_TOOLS` constant. Negative assertion `sign_adaptive_script NOT in tools` now applies uniformly to all 5 subagent files (4 per-agent + orchestrator).
+- Plan-fix #6 (pytest count): 892 passed, 8 skipped unchanged.
+
+Cross-task alignment: T17 closes the transition explicitly opened by T15+T16's tool-constant split. The T15+T16 implementer had noted "T17 will update the orchestrator" — T17 confirms that prediction.
+
+No Important items → no fix-up commit. One Minor deferred to DEFERRED_BACKLOG as `BACKLOG-PR6-66` (forward-looking guard for body-vs-frontmatter drift). The other 3 Minors are explicitly defensible-by-design or cosmetic — no action.
+
+T17 commit: `8e7ffaa`. Plan-fix commit: `d181e9b`.
+
 ---
 
 ### Task 18: Minor Update to `plugins/screw/commands/scan.md`

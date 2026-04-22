@@ -1331,6 +1331,13 @@ Purely visual drift, no correctness impact. Cosmetic polish.
 **Trigger:** Next test-precision polish, OR if a signature-path regression surfaces a different failure mode that slips past the bare `pytest.raises`.
 **Estimated scope:** 1 LOC (add `match="signature invalid or content mismatch"` or the current engine-wrapped equivalent to the `pytest.raises` call).
 
+### BACKLOG-PR6-66 — Orchestrator body-vs-frontmatter symmetry guard (forward-looking)
+**Source:** Phase 3b PR #6 T17 Opus code-review (Minor 1), 2026-04-22
+**File:** `plugins/screw/agents/screw-injection.md` + `tests/test_adaptive_subagent_prompts.py`
+**Why deferred:** T17 lifted the `sign_adaptive_script NOT in tools` negative guard to cover the orchestrator, but `test_adaptive_section_references_all_required_mcp_tools` intentionally does NOT apply the positive tool-presence assertion to the orchestrator body (rationale documented inline: orchestrator Step 2.5 delegates to per-agent Step 3.5d rather than naming every tool verbatim). Currently the orchestrator body names 4/7 adaptive tools (the ones with orchestrator-specific meta: `stage_adaptive_script.meta`, `record_context_required_match`, `detect_coverage_gaps`, `accumulate_findings`). Latent risk: if a future edit removes a tool from the orchestrator's frontmatter but keeps body prose referencing it (pointing readers at a tool the orchestrator can't call), no current test catches that drift. Inherent to the delegation pattern — not actionable for this PR.
+**Trigger:** If the orchestrator body grows more detailed OR if body-frontmatter drift becomes a recurring regression type.
+**Estimated scope:** ~20 LOC (targeted test that greps orchestrator body for `mcp__screw-agents__<tool>` mentions and cross-checks each appears in frontmatter; invert the per-agent symmetry direction).
+
 ### BACKLOG-PR6-65 — Subagent session-id lookup relies on LLM-driven JSONL parsing
 **Source:** Phase 3b PR #6 T15+T16 Opus spec review (Minor 1), 2026-04-22
 **File:** `plugins/screw/agents/screw-{sqli,cmdi,ssti,xss}.md` — Step 3.5d-I (resume-from-approval branch, around line 449 in each)
