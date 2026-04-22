@@ -4198,6 +4198,23 @@ git add src/screw_agents/engine.py tests/test_adaptive_executor.py
 git commit -m "feat(phase3b-c1): surface sandbox stderr on execution failure (T11, I3)"
 ```
 
+**T11 Opus 4.7 re-review (2026-04-22):** Spec review PASSED 12/12 HRs. Quality review APPROVED — reviewer called out 3 strengths and said "no follow-ups to file". Both reviewers reported **0 Critical, 0 Important**; net 1 Minor (spec only — quality found 0). **Fifth task in a row hitting 0 Important** (T7-T11) against the 0-1 target per `feedback_cross_task_precedent_checks`.
+
+All 7 plan-fixes landed cleanly:
+- Plan-fix #1 (implementation location): fix at `engine.execute_adaptive_script` boundary, not executor/sandbox. Engine.py is the sole src/ file touched.
+- Plan-fix #2 (bytes→str): `SandboxResult.stderr: bytes` unchanged; decoded inline via `.decode("utf-8", errors="replace")`. sandbox/linux.py untouched.
+- Plan-fix #3 (top-level status): `"ok"` / `"sandbox_failure"` on `returncode == 0`. Stale path correctly yields `"ok"` (sentinel SandboxResult has returncode=0; "stale" is legitimate no-op, not failure).
+- Plan-fix #4 (stderr placement): decoded once via `stderr_str` local, reused in top-level alias AND inside `sandbox_result` dict. DRY, identity-stable. stdout stays excluded.
+- Plan-fix #5 (post-T10 test seed): failing test uses `raise RuntimeError(...)` inside `analyze()` (reaches sandbox), NOT hallucinated import (now rejected at Layer 1 by T10's `unknown_symbol` rule). Cross-task awareness between T10 and T11 documented inline.
+- Plan-fix #6 (pytest count): 886 passed, 8 skipped — landed exactly as predicted.
+- Plan-fix #7 (`skip_trust_checks=True`): tests focus on sandbox-stderr surfacing; trust path tested elsewhere.
+
+One unplanned file in the commit: `tests/test_execute_adaptive_script_tool.py` had a stale assertion `assert "stderr" not in result["sandbox_result"]` from the old contract. Implementer updated it in the same commit (replaces with `assert result["sandbox_result"]["stderr"] == ""` on the success path). Legitimate downstream ripple — not feature creep; reviewers validated the change as correct.
+
+No Important items → no fix-up commit. Minor item deferred to DEFERRED_BACKLOG as `BACKLOG-PR6-58` (asymmetric alias check in the success-path test — immaterial since both positions emit from the same local variable; ripple-fix elsewhere already asserts this).
+
+T11 commit: `60104a6`. Plan-fix commit: `d0feeb6`.
+
 **Note:** T18b prompt render-on-failure branch update is part of T15 (per-agent subagent prompt rewrite).
 
 ---

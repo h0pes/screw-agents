@@ -1275,3 +1275,10 @@ assert list(stage_dir.iterdir()) == []
 **Why deferred:** If a future maintainer appends to `__all__` via `__all__ += [...]` or `__all__.append(...)` instead of a single `__all__ = [...]` assignment, those names are silently ignored by the helper → every such appended import would fail `unknown_symbol` (failure-closed — safe, but surprising). Current `adaptive/__init__.py:65` uses a single assignment; this is a latent constraint, not a live bug. Fix options: (a) walk `ast.AugAssign` as well; (b) add a comment in `adaptive/__init__.py` warning future editors to keep `__all__` as a single assignment.
 **Trigger:** Next lint-helper-polish pass OR if `adaptive/__init__.py` grows enough that multi-statement `__all__` assembly becomes tempting.
 **Estimated scope:** ~5 LOC for option (a); 1 LOC for option (b).
+
+### BACKLOG-PR6-58 — Asymmetric alias assertion in `test_execute_stderr_empty_on_success`
+**Source:** Phase 3b PR #6 T11 Opus spec review (Minor 1), 2026-04-22
+**File:** `tests/test_adaptive_executor.py` — `test_execute_stderr_empty_on_success`
+**Why deferred:** The failure-path test (`test_execute_surfaces_stderr_on_nonzero_return`) asserts `result["stderr"] == result["sandbox_result"]["stderr"]` — the alias-consistency check that protects against a future dual-decode bug. The success-path test asserts `result["stderr"] == ""` AND `result["sandbox_result"]["returncode"] == 0` but NOT the symmetric alias equality. Because both positions are emitted from the same `stderr_str` local (`engine.py:311, 316`), drift cannot occur without a code change; the gap is immaterial. The ripple-fix in `test_execute_adaptive_script_tool.py:80` already asserts `result["sandbox_result"]["stderr"] == ""` on success, so coverage exists — it's just not co-located with the dedicated success test.
+**Trigger:** Next test-polish pass; negligible priority.
+**Estimated scope:** 1 LOC (add `assert result["stderr"] == result["sandbox_result"]["stderr"]` alongside the existing `""` check).
