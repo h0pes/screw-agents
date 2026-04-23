@@ -6212,6 +6212,20 @@ git add tests/test_engine.py
 git commit -m "test(phase3b-c1): lock additionalProperties: false on new PR #6 tools (T22, T10-M1 partial)"
 ```
 
+**T22 Opus 4.7 re-review (2026-04-23):** Spec review APPROVED (zero findings at all levels). Quality review APPROVED. **0 Critical / 0 Important / 1 Category-A Minor (→ backlog) / 3 Category-B Minors (no action)**. Byte-identical deliverable vs plan skeleton; zero deviations.
+
+- **Plan-fixes applied pre-dispatch (commit `5367da1`)**: PA-T22-1..5 — file precedent (test_engine.py not new file), engine fixture reuse, Step 1 rewritten as pre-audit confirmation (no engine changes needed), test count projection 941→942, commit scope narrowed to tests/test_engine.py.
+
+- **Pre-audit critical finding**: grep verified all 6 new PR #6 tool schemas ALREADY carry `additionalProperties: false` at engine.py:2744/2828/2897/2950/2997/3028. T22 collapsed to pure test-addition with NO engine.py changes required.
+
+- **Quality-review Category-A Minor (1)**: BACKLOG-PR6-78 (diagnostic-message convention drift — new test has assertion messages, adjacent `test_tool_definitions_json_schema_valid` uses bare asserts; retrofit baseline test or accept as stricter-invariant → with-message divergence; ~3 LOC).
+
+- **Category-B Minors (3)**: `pr6_new_tools` inline literal set (correct — single consumer), `-> None:` hint only on new test (plan-directed to raise bar), two-pass iteration (cleaner failure-mode separation). All reviewer-explicit "no action".
+
+Score since T7: **14 tasks 0-Important / 1 task 1-Important (T14) / 1 task 1-Important transient-to-T19 (T18, resolved)**. Pre-audit held the 0-Important target across T22.
+
+T22 commit: `43cdabe` (+37 lines — new function `test_tool_definitions_pr6_new_tools_reject_additional_properties` in `tests/test_engine.py` at line 110, adjacent to `test_tool_definitions_json_schema_valid` at line 100). Plan-fix precursor: `5367da1`. Test passed in 0.21s. Full suite: **941 → 942 passed, 8 skipped**.
+
 ---
 
 ## Phase H — Docs + Plan Sync (T23-T24)
