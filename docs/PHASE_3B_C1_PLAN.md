@@ -5777,6 +5777,22 @@ git add tests/test_adaptive_subagent_prompts.py
 git commit -m "test(phase3b-c1): 48 whole-file format-smoke assertions for T18b prompt rewrite (T20)"
 ```
 
+**T20 Opus 4.7 re-review (2026-04-23):** Spec review APPROVED-WITH-FIXES (contingent on pytest execution; locked by `940 passed, 8 skipped` at HEAD `152d0d8`). Quality review APPROVED. **0 Critical / 0 Important / 2 Category-A Minors (→ backlog) / 5 Category-B Minors (no action)**.
+
+- **Plan-fixes applied pre-dispatch (commit `910ba41`)**: PA-T20-1..10 — reuse `_PER_AGENT_FILES` dict over parallel public list, `_read_agent_content(path: Path) -> str` helper (Path-typed, not str), test count projection updated 892→940, test #12 split into two asserts (SHA256 AND script_sha256_prefix), `test_adaptive_prompt_*` naming convention, and a top-of-block comment documenting intentional whole-file-vs-section coverage overlap.
+
+- **All 12 assertions verified pre-dispatch via grep against current agent markdown**: 18/18 `adaptive.__all__` exports present in all 4 files; hallucinated-name examples / hardening phrases / retention notice / SHA256 phrases all present; `sign_adaptive_script` absent in all 4 (T17 closure holds). T20 was pure test-addition — no subagent-markdown drift to fix.
+
+- **Implementer deviation (permitted by pre-audit exception)**: added module-level `import pytest` alongside existing `import yaml` — the pre-existing file used `pytest.raises` / `pytest.mark.parametrize` only inline; the module-level import was needed for the new parametrize decorators. Alphabetically-grouped with existing third-party imports. Strictly additive — every diff line is `+`.
+
+- **Quality-review Category-A Minors (2)**: BACKLOG-PR6-71 (parametrize test ID verbosity from Path param — cosmetic, ~12 LOC) and BACKLOG-PR6-72 (`adaptive.__all__` "18 entries" docstring can silently drift as exports grow — 1-2 LOC hardening option).
+
+- **Category-B Minors (2 spec + 3 quality)**: all reviewer-explicit "no action" (plan-skeleton-conformant: retention-notice compound `and` assert, local `import re`, first-4-tests overlap rationale).
+
+Score since T7: **12 tasks 0-Important / 1 task 1-Important (T14) / 1 task 1-Important transient-to-T19 (T18, resolved)**. Pre-audit held the 0-Important target across T20.
+
+T20 commit: `152d0d8` (48 format-smoke assertions, 382→535 lines, +153 insertions, 0 deletions). Plan-fix precursor: `910ba41`. Implementer produced a skeleton-exact deliverable on first pass.
+
 ---
 
 ## Phase G — Integration + Schema Hygiene (T21-T22)
