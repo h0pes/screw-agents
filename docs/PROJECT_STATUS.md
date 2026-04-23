@@ -1,6 +1,6 @@
 # Project Status — screw-agents
 
-> Last updated: 2026-04-12
+> Last updated: 2026-04-23
 
 ## Deferred Obligations
 
@@ -10,16 +10,22 @@ Items explicitly deferred from earlier phases that must be completed in later ph
 |---|---|---|---|---|---|
 | D-01 | Rust benchmark corpus from RustSec (~24 verified CVE candidates + synthetic SSTI fixtures) | Phase 0.5 | **Phase 4 (step 4.0)** — hard gate, Phase 4 cannot close without it | ADR-014 | **DEFERRED** |
 | D-02 | Gates G5-G7: detection rate validation against real-CVE benchmarks | Phase 1 (Task 20) | **Phase 4** — full run deferred to autoresearch loop | — | **SAMPLE COMPLETE** — pipeline validated 2026-04-11, threshold optimization deferred to Phase 4 |
+| D-03 (pointer) | Broader deferred backlog (114 active entries post-T24) | Across all phases | Various — see DEFERRED_BACKLOG §"Phase-4 Readiness Triage" | — | **TRIAGED** — see `docs/DEFERRED_BACKLOG.md` for `blocker` / `nice-to-have` / `phase-7-scoped` / `retire` tags |
 
-**When returning to Phase 4:** The first step of Phase 4 is D-01 (Rust benchmark corpus construction). Verify this deferral is still valid by re-reading ADR-014 and `docs/research/benchmark-tier4-rust-modern.md`. Do not skip this step.
+**When returning to Phase 4:** The first step of Phase 4 is D-01 (Rust benchmark corpus construction). Verify this deferral is still valid by re-reading ADR-014 and `docs/research/benchmark-tier4-rust-modern.md`. Do not skip this step. Also audit `docs/DEFERRED_BACKLOG.md` §"Phase-4 Readiness Triage" for any `blocker` entries added since this doc was refreshed.
 
 **When starting Phase 4:** D-02 threshold optimization runs as part of the autoresearch loop. The benchmark pipeline is validated (PR #3).
 
 ---
 
-## Current Phase: Phase 2 Complete — Claude Code Integration
+## Current Phase: Phase 3b PR #6 in-flight — C1 Staging Architecture
 
-Architecture and product design is **complete** (PRD v0.4.3 is the definitive document). Phase 0 (Knowledge Research) is **complete**. Phase 0.5 (Benchmark Infrastructure) is **complete**. Phase 1 (Core Infrastructure) is **complete** (PR #2 merged 2026-04-10). Gates G1-G4 pass. Phase 1.7 (G5-G7 detection rate validation) is **complete** — pipeline built and validated via sample run (2026-04-11, PR #3), full benchmark deferred to Phase 4 autoresearch. **Phase 2 (Claude Code Integration) is complete. Phase 3 (Adaptive Analysis & Learning Refinement) is next.**
+Architecture and product design is **complete** (PRD v0.4.3). Phases 0 / 0.5 / 1 / 1.7 / 2 all **complete** (Phase 1 PR #2 2026-04-10; Phase 1.7 PR #3 2026-04-11; Phase 2 PR #4/#5 2026-04-11/12). **Phase 3a (Prompt infrastructure + dedup)** is **complete** — PR #6/#7/#8/#9 series merged 2026-04-16/17 (trust infrastructure, learning aggregation + plugin-namespace restructure, core-prompt dedup via X1-M1). **Phase 3b (Adaptive Analysis & Learning Refinement)** is in progress:
+- **PR #4 (#10)** merged 2026-04-18 — adaptive-script executor pipeline + Layer 1 lint + Layer 5 sandbox + MCP tool.
+- **PR #5 (#11)** merged 2026-04-20 — adaptive workflow (D1+D2 gap detection, trust-path signing, cleanup T13-T22). Surfaced C1 + I1-I6 via manual round-trip.
+- **PR #6 in-flight** on branch `phase-3b-c1-staging` — C1 staging architecture + I1-I6 polish. T0-T23 complete as of 2026-04-23; merge planned at T26. Closes C1 for the LLM-flow surface (staged approve path locked by T21 exit gate — signed bytes byte-identical to reviewed bytes). Full closure via `sign_adaptive_script` retirement is a Phase 4 prerequisite (see §Phase 4 Prerequisites below, BACKLOG-PR6-22).
+
+Gates G1-G4 pass. Phase 1.7 full benchmark run deferred to Phase 4 autoresearch. **Phase 4 (Autoresearch) is gated on D-01 + T-FULL-P1 + T19-M1/M2/M3 + BACKLOG-PR6-22 — see "Phase 4 Prerequisites (hard gates)" below.**
 
 ### What's Done
 
@@ -404,12 +410,46 @@ Structured as a dependency graph with three parallel tracks converging at smoke 
 | Phase 0.5 | Benchmark Infrastructure Sprint | **Complete** |
 | Phase 1 | Core Infrastructure (MCP server, agent registry, target resolver) | **Complete** (PR #2, 2026-04-10) |
 | Phase 1.7 | Gates G5-G7: Detection rate validation (D-02) | **Complete** (pipeline validated, PR #3, 2026-04-11) |
-| **Phase 2** | **Claude Code Integration (subagents, skills, filesystem output, FP learning)** | **Complete** (PR #4 2026-04-11, PR #5 2026-04-12) |
-| **Phase 3** | **Adaptive Analysis & Learning Refinement** | **Next** |
-| Phase 4 | Autoresearch & Self-Improvement — step 4.0 is D-01 (hard gate) | Pending |
+| Phase 2 | Claude Code Integration (subagents, skills, filesystem output, FP learning) | **Complete** (PR #4 2026-04-11, PR #5 2026-04-12) |
+| Phase 3a | Prompt infrastructure (trust, learning aggregation, plugin-namespace, core-prompt dedup) | **Complete** (PR #6-#9 series, merged 2026-04-16/17) |
+| **Phase 3b** | **Adaptive Analysis & Learning Refinement** | **In-flight** — PR #4 (#10) + PR #5 (#11) merged 2026-04-18/20; PR #6 branch `phase-3b-c1-staging`, T0-T23 complete, merge pending T26 |
+| Phase 3c | Sandbox hardening sweep (seccomp filter + thread-safety + dedup) | **Deferred** — see `docs/DEFERRED_BACKLOG.md` §"Phase 3c (sandbox hardening follow-ups)" |
+| Phase 4 | Autoresearch & Self-Improvement — step 4.0 is D-01 (hard gate) | **Pending**, hard-gated on D-01 + T-FULL-P1 + T19-M1/M2/M3 + BACKLOG-PR6-22 (see "Phase 4 Prerequisites" below) |
 | Phase 5 | Multi-LLM Challenger System | Pending |
 | Phase 6 | Agent Expansion & Ecosystem | Pending |
 | Phase 7 | screw.nvim Integration (scan commands, review-before-import, exclusions) | Pending |
+
+---
+
+## Phase 4 Prerequisites (hard gates)
+
+Phase 4 (Autoresearch & Self-Improvement) cannot start until the following are in place:
+
+### D-01 — Rust benchmark corpus from RustSec (Deferred Obligations)
+**Status:** DEFERRED since Phase 0.5
+**Why gating:** Phase 4 step 4.0 IS D-01. See ADR-014 and `docs/research/benchmark-tier4-rust-modern.md`.
+**Estimated scope:** ~24 verified CVE candidates + synthetic SSTI fixtures. Medium effort.
+
+### T-FULL-P1 — Paginate scan_full + agent-relevance filter
+**Status:** DEFERRED since Phase 3a X1-M1 (PR #9)
+**Why gating:** `scan_full` is non-paginated and agent-relevance-blind. At the current ~10-agent count it's already marginal; at CWE-1400 expansion (41 agents per `docs/AGENT_CATALOG.md`) it's unusable. Phase 4 autoresearch uses `scan_full` in volume.
+**Estimated scope:** ~500-700 LOC (pagination + lazy fetch + relevance pre-filter). Separate focused PR.
+
+### T19-M1 / T19-M2 / T19-M3 — Merged-findings surface in SARIF, CSV, exclusion semantics, structured format
+**Status:** DEFERRED since Phase 3b T19
+**Why gating:** If Phase 4 autoresearch consumes SARIF or CSV output in volume (likely) OR correlates exclusions with merged findings (the autoresearch FP-learning loop), these deferrals affect correctness not just ergonomics.
+**Estimated scope:** ~170 LOC + tests. Can ship as one Phase-4-prep PR.
+
+### D-02 — Detection-rate validation thresholds (SAMPLE COMPLETE)
+**Status:** Pipeline validated (PR #3, 2026-04-11), full run + threshold optimization DEFERRED to Phase 4 autoresearch loop
+**Why gating:** Not a hard blocker to STARTING Phase 4 — autoresearch IS the threshold-tuning loop. But the benchmark run feeds D-01's corpus. Sequenced inside Phase 4, not before.
+
+### BACKLOG-PR6-22 — `sign_adaptive_script` retirement / C1 full closure
+**Status:** DEFERRED (tagged `blocker` in DEFERRED_BACKLOG.md §Phase-4 Readiness Triage)
+**Why gating:** PR #6's C1 closure covers the LLM-flow surface (subagents route via stage→promote; direct-sign tool is absent from all 5 adaptive-mode subagent frontmatters post-T17). But `engine.sign_adaptive_script` remains exposed server-side as a supervised tool for programmatic consumers. Today it has zero real callers — Phase 4's autoresearch module (BACKLOG-PR6-13) will be the first. Retiring the direct-sign API NOW (before autoresearch is designed against it) prevents the regeneration vector from acquiring a live consumer and forcing a future migration PR.
+**Estimated scope:** ~50 LOC (delete `engine.sign_adaptive_script`, update `server.py::_dispatch_tool`, update the 1 or 2 remaining test files that exercise the direct path). Plus design-discipline that Phase 4's autoresearch module is built against stage→promote from day 1.
+
+**When returning to Phase 4:** Re-read ADR-014 + `docs/research/benchmark-tier4-rust-modern.md`. Audit `docs/DEFERRED_BACKLOG.md` §"Phase-4 Readiness Triage" for any `blocker` entries added since this doc was refreshed. Update the counts + D-01 / T-FULL-P1 / BACKLOG-PR6-22 status before starting step 4.0.
 
 ---
 

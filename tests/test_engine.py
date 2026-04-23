@@ -107,6 +107,43 @@ def test_tool_definitions_json_schema_valid(engine):
             assert "target" in schema["properties"]
 
 
+def test_tool_definitions_pr6_new_tools_reject_additional_properties(engine) -> None:
+    """T22 / T10-M1 partial: each new MCP tool introduced in PR #6 sets
+    additionalProperties: false on its input schema.
+
+    A future tool schema change that relaxes this invariant would regress
+    T10-M1 discipline project-wide (the full audit remains deferred to PR #9).
+
+    Adjacent to `test_tool_definitions_json_schema_valid` above — that test
+    checks baseline schema validity for ALL tools; this one locks a stricter
+    invariant for the PR #6 additions specifically.
+    """
+    tools = engine.list_tool_definitions()
+
+    pr6_new_tools = {
+        "stage_adaptive_script",
+        "promote_staged_script",
+        "reject_staged_script",
+        "sweep_stale_staging",
+        "list_adaptive_scripts",
+        "remove_adaptive_script",
+    }
+
+    found = {t["name"] for t in tools if t["name"] in pr6_new_tools}
+    assert found == pr6_new_tools, (
+        f"Missing new PR #6 tools from tool definitions: "
+        f"{pr6_new_tools - found}"
+    )
+
+    for tool in tools:
+        if tool["name"] in pr6_new_tools:
+            schema = tool["input_schema"]
+            assert schema.get("additionalProperties") is False, (
+                f"Tool {tool['name']!r} input_schema missing "
+                f"additionalProperties: false (T10-M1 partial regressed)"
+            )
+
+
 def test_full_pipeline_sqli(engine, fixtures_dir):
     """Integration: load sqli agent → resolve fixture → assemble → verify structure."""
     vuln_dir = fixtures_dir / "sqli" / "vulnerable"

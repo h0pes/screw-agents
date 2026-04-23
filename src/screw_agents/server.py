@@ -150,6 +150,64 @@ def _dispatch_tool(
             session_id=args["session_id"],
         )
 
+    # --- Phase 3b T3: stage_adaptive_script (C1 staging-path) ---
+
+    if name == "stage_adaptive_script":
+        return engine.stage_adaptive_script(
+            project_root=Path(args["project_root"]),
+            script_name=args["script_name"],
+            source=args["source"],
+            meta=args["meta"],
+            session_id=args["session_id"],
+            target_gap=args.get("target_gap"),
+        )
+
+    # --- Phase 3b T4: promote_staged_script (C1 fix — approve path) ---
+
+    if name == "promote_staged_script":
+        return engine.promote_staged_script(
+            project_root=Path(args["project_root"]),
+            script_name=args["script_name"],
+            session_id=args["session_id"],
+            confirm_sha_prefix=args.get("confirm_sha_prefix"),
+            confirm_stale=args.get("confirm_stale", False),
+        )
+
+    # --- Phase 3b T5: reject_staged_script (decline path) ---
+
+    if name == "reject_staged_script":
+        return engine.reject_staged_script(
+            project_root=Path(args["project_root"]),
+            script_name=args["script_name"],
+            session_id=args["session_id"],
+            reason=args.get("reason"),
+        )
+
+    # --- Phase 3b T6: sweep_stale_staging (orphan GC — absorbs T-STAGING-ORPHAN-GC) ---
+
+    if name == "sweep_stale_staging":
+        return engine.sweep_stale_staging(
+            project_root=Path(args["project_root"]),
+            max_age_days=args.get("max_age_days"),
+            dry_run=args.get("dry_run", False),
+        )
+
+    # --- Phase 3b T7: list_adaptive_scripts (I6 MCP promotion) ---
+
+    if name == "list_adaptive_scripts":
+        return engine.list_adaptive_scripts(
+            project_root=Path(args["project_root"]),
+        )
+
+    # --- Phase 3b T8: remove_adaptive_script (I6 MCP promotion — confirmation-gated) ---
+
+    if name == "remove_adaptive_script":
+        return engine.remove_adaptive_script(
+            project_root=Path(args["project_root"]),
+            script_name=args["script_name"],
+            confirmed=args.get("confirmed", False),
+        )
+
     # --- Phase 3b T18a: lint_adaptive_script (pre-approval review) ---
 
     if name == "lint_adaptive_script":

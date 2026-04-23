@@ -69,10 +69,15 @@ def test_execute_adaptive_script_happy_path(tmp_path: Path) -> None:
     assert len(result["findings"]) == 1
     assert result["findings"][0]["classification"]["cwe"] == "CWE-89"
     assert result["findings"][0]["classification"]["severity"] == "high"
-    # sandbox_result is present but stdout/stderr bytes are excluded
+    # T11 (I3): sandbox_result is present; stdout is still excluded but
+    # stderr is now surfaced (decoded str, empty on success) both as a
+    # top-level alias and inside sandbox_result. status is "ok" on
+    # returncode 0.
+    assert result["status"] == "ok"
+    assert result["stderr"] == ""
     assert "sandbox_result" in result
     assert "stdout" not in result["sandbox_result"]
-    assert "stderr" not in result["sandbox_result"]
+    assert result["sandbox_result"]["stderr"] == ""
 
 
 def test_execute_adaptive_script_missing_script(tmp_path: Path) -> None:

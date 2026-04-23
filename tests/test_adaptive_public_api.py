@@ -38,8 +38,10 @@ def test_public_api_matches_expected_exactly():
     # which test files have run before us. Without this, the test passes only
     # by luck of pytest's alphabetic test-file ordering — fragile contract for
     # what's supposed to be a security-boundary pin.
+    import screw_agents.adaptive.executor  # noqa: F401
     import screw_agents.adaptive.lint  # noqa: F401
     import screw_agents.adaptive.sandbox.linux  # noqa: F401
+    import screw_agents.adaptive.script_name  # noqa: F401  (T2: shared validator)
     import screw_agents.adaptive.signing  # noqa: F401
 
     import screw_agents.adaptive as adaptive
@@ -72,35 +74,43 @@ def test_public_api_matches_expected_exactly():
     # its own test file), update this whitelist in the same commit. Without
     # this, the test passes by luck of alphabetic test-file ordering and fails
     # when run in a different order — fragile contract for a security boundary.
-    allowed_extras = {"ast_walker", "dataflow", "executor", "findings", "lint", "project", "sandbox", "signing"}
+    #
+    # T2 addition: script_name (shared SCRIPT_NAME_RE + validate_script_name).
+    # Imported by signing.py and staging.py — surfaces as attribute once any
+    # code in the session does `from screw_agents.adaptive.script_name import ...`.
+    allowed_extras = {"ast_walker", "dataflow", "executor", "findings", "lint", "project", "sandbox", "script_name", "signing", "staging"}
     assert public_names - allowed_extras == EXPECTED_PUBLIC_API, (
         f"Public API drift: {public_names - EXPECTED_PUBLIC_API} added, "
         f"{EXPECTED_PUBLIC_API - public_names} removed"
     )
 
 
-def test_public_api_count_is_under_26():
-    """Curated library should stay small. Over 26 is a red flag for scope creep.
+def test_public_api_count_is_under_29():
+    """Curated library should stay small. Over 28 is a red flag for scope creep.
 
-    Ceiling was 25 before Phase 3b T18a added the internal `signing`
-    submodule (a sign-side canonicalization helper shared between the
-    CLI validate-script path and the sign_adaptive_script MCP tool —
-    NOT part of the adaptive-script-author public surface). The
-    EXPECTED_PUBLIC_API set is unchanged at 18 entries; the bump is
-    purely submodule-attribute accounting.
+    Ceiling history:
+    - 25 before T18a (original baseline).
+    - 26 after T18a added `signing` (sign-side canonicalization helper).
+    - 27 after T2 added `script_name` (shared SCRIPT_NAME_RE + validator).
+    - 28 after T1 (C1 staging) added `staging` (promote_staged_script + StagedScript).
+    The EXPECTED_PUBLIC_API curated set is unchanged at 18 entries; the extra
+    entries are all internal submodule attributes that Python binds automatically
+    when any code does ``from screw_agents.adaptive.X import ...``.
     """
     # Force-load all submodules so dir(adaptive) is consistent regardless of
     # which test files have run before us. Without this, the test passes only
     # by luck of pytest's alphabetic test-file ordering — fragile contract for
     # what's supposed to be a security-boundary pin.
+    import screw_agents.adaptive.executor  # noqa: F401
     import screw_agents.adaptive.lint  # noqa: F401
     import screw_agents.adaptive.sandbox.linux  # noqa: F401
+    import screw_agents.adaptive.script_name  # noqa: F401  (T2: shared validator)
     import screw_agents.adaptive.signing  # noqa: F401
 
     import screw_agents.adaptive as adaptive
 
     public_count = len([n for n in dir(adaptive) if not n.startswith("_")])
-    assert public_count <= 26, (
+    assert public_count <= 28, (
         f"adaptive public API has {public_count} entries; review for scope creep"
     )
 
@@ -115,8 +125,10 @@ def test_all_matches_expected_exactly():
     # which test files have run before us. Without this, the test passes only
     # by luck of pytest's alphabetic test-file ordering — fragile contract for
     # what's supposed to be a security-boundary pin.
+    import screw_agents.adaptive.executor  # noqa: F401
     import screw_agents.adaptive.lint  # noqa: F401
     import screw_agents.adaptive.sandbox.linux  # noqa: F401
+    import screw_agents.adaptive.script_name  # noqa: F401  (T2: shared validator)
     import screw_agents.adaptive.signing  # noqa: F401
 
     import screw_agents.adaptive as adaptive

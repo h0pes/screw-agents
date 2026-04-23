@@ -31,7 +31,7 @@
 - `src/screw_agents/server.py` — register 6 new MCP tools with `additionalProperties: false`
 - `plugins/screw/agents/screw-{sqli,cmdi,ssti,xss}.md` — byte-identical Step 3.5d section rewrite
 - `plugins/screw/commands/adaptive-cleanup.md` — add `stale` subcommand; switch backend from Bash to MCP tools
-- `docs/DEFERRED_BACKLOG.md` — move C1/I1-I6/absorbed items to Shipped section; add BACKLOG-01..05 under "Phase 3b PR #6 follow-ups"
+- `docs/DEFERRED_BACKLOG.md` — move C1/I1-I6/absorbed items to Shipped section; confirm `BACKLOG-PR6-01..08` (added 2026-04-21 from Opus re-review) and append `BACKLOG-PR6-09..13` (original-plan design items) under "Phase 3b PR #6 follow-ups"
 
 ---
 
@@ -86,7 +86,7 @@
 | `plugins/screw/commands/scan.md` | Minor: document staging conceptually (~10 lines). |
 | `plugins/screw/commands/adaptive-cleanup.md` | Rewrite Bash backends → MCP tool calls (I6); add `stale` subcommand with `--max-age-days` + `--preview`. |
 | `docs/PHASE_3B_PLAN.md` | Add new section "PR #6 — C1 Staging Architecture + I1-I6 Polish" at the end, matching existing structure. |
-| `docs/DEFERRED_BACKLOG.md` | Move C1/I1-I6/T-STAGING-ORPHAN-GC/T10-M1 partial/T11-N1/T11-N2/T3-M1 entries to a new "Shipped (PR #6)" block with post-merge commit SHA. Add 5 new entries BACKLOG-01..05 under "Phase 3b PR #6 follow-ups". |
+| `docs/DEFERRED_BACKLOG.md` | Move C1/I1-I6/T-STAGING-ORPHAN-GC/T10-M1 partial/T11-N1/T11-N2/T3-M1 entries to a new "Shipped (PR #6)" block with post-merge commit SHA. Confirm 8 existing entries `BACKLOG-PR6-01..08` (Opus re-review findings 2026-04-21); append 5 original-plan entries as `BACKLOG-PR6-09..13`. |
 
 ### Deleted (1 file)
 
@@ -432,8 +432,12 @@ def write_staged_files(
 
     py_path = stage_dir / f"{script_name}.py"
     meta_path = stage_dir / f"{script_name}.meta.yaml"
-    py_tmp = py_path.with_suffix(".py.tmp")
-    meta_tmp = meta_path.with_suffix(".meta.yaml.tmp")
+    # String-concat from script_name (not Path.with_suffix) — mirrors T18a's
+    # engine.py pattern exactly. `Path("x.meta.yaml").with_suffix(".meta.yaml.tmp")`
+    # produces `x.meta.meta.yaml.tmp` because Path.suffix is only the last
+    # dotted segment. Concat keeps tmp names symmetric with their targets.
+    py_tmp = stage_dir / f"{script_name}.py.tmp"
+    meta_tmp = stage_dir / f"{script_name}.meta.yaml.tmp"
 
     # Source first.
     try:
@@ -676,23 +680,55 @@ git add src/screw_agents/adaptive/staging.py \
 git commit -m "feat(phase3b-c1): staging.py module with atomic file ops (T1 part 1)"
 ```
 
-Registry operations (`append_registry_entry`, `query_registry`, `fallback_walk`) are added in T3-T5. Sweep (`sweep_stale`) is added in T6. This first slice covers just the filesystem primitives.
+Registry operations (`append_registry_entry`, `query_registry`, `fallback_walk`) are added in T3-T5. Sweep (`sweep_stale`) is added in T6. This first slice covers the filesystem primitives **plus a defense-in-depth `script_name` regex validator** (`_SCRIPT_NAME_RE = r"^[a-z0-9][a-z0-9-]{2,62}$"`, byte-identical to the sibling regex in `engine.py`). Validation runs at the top of `write_staged_files`, `read_staged_files`, and `delete_staged_files` so that path-traversal primitives via `script_name` (e.g., `"../../etc/shadow"`) are rejected at the closest boundary, independent of whether the engine-layer caller validates (it will, per T3). Short-term regex duplication with `_sign_script_bytes` is absorbed by T2's shared-constant extraction — see T2's "Absorbed from T1 re-review" block below.
+
+**Post-review absorbed scope:** two T2-destined items were flagged during T1 re-review and are recorded under Task 2 (I-new-1 trailing-newline regex footgun + I-new-2 coverage gaps). They are within-plan deferrals; nothing escapes to `docs/DEFERRED_BACKLOG.md`.
+
+**T1 Opus 4.7 re-review findings (2026-04-21):** After the initial Sonnet review approved T1 parts 1-3, an Opus re-review caught three Important items Sonnet missed:
+- **I-opus-1 + I-opus-2 (session_id validator asymmetry, commit `d70c344` T1 part 4):** the original 5-char denylist (`.` / `..` / `/` / `\\` / `\x00`) let through newlines, colons, tabs, trailing periods, leading dots, and high-bit bytes — each a distinct threat (JSONL log-injection, NTFS alternate-data-stream, hidden-dir bypass, homoglyph attack). Fix: tightened to allowlist regex `\A[A-Za-z0-9_-]{1,64}\Z` symmetric with `script_name`'s allowlist discipline. Existing `test_resolve_staging_dir_accepts_dots_within_session_id` rewritten as `test_resolve_staging_dir_rejects_dots_within_session_id` (the previous regression-guard against substring-overmatch is obsolete under an allowlist). +5 new regression tests cover newline/CR, whitespace/colon, high-bit bytes, over-length, and valid-edge-cases.
+- **I-opus-3 (PendingApproval runtime per-event-type validator):** within-plan deferral to T3. See §T3's "Absorbed from T1 Opus re-review" block below.
+
+Minor items (I-opus-4 `target_gap: dict` nesting, I-opus-5 `StaleStagingReport` nested-dict typing, M-opus-1..4 test-coverage/docstring nits) deferred to `docs/DEFERRED_BACKLOG.md` as BACKLOG-PR6-01..06 under "Phase 3b PR #6 follow-ups".
 
 ---
 
-### Task 2: Extract `_sign_script_bytes` Shared Helper (Option D Refactor)
+### Task 2: Extract `_sign_script_bytes` Shared Helper (Option D Refactor) + Absorb I-new-1 / I-new-2
 
 **Files:**
-- Modify: `src/screw_agents/adaptive/signing.py` (add `_sign_script_bytes`)
-- Modify: `src/screw_agents/engine.py` (refactor `sign_adaptive_script` to delegate)
-- Modify: `tests/test_adaptive_signing.py` (+5 tests)
+- **Create:** `src/screw_agents/adaptive/script_name.py` — dedicated 20-line module owning the shared regex + validator. Contents:
+  - `SCRIPT_NAME_RE = re.compile(r"\A[a-z0-9][a-z0-9-]{2,62}\Z")` — anchored with `\A…\Z` (not `^…$`) so terminal newlines are rejected (see I-new-1).
+  - `USER_FACING_NAME_REGEX = "^[a-z0-9][a-z0-9-]{2,62}$"` — string constant for error messages shown to users (keeps the familiar `^…$` notation users see in docs; internal match uses the precise `\A…\Z` form).
+  - `validate_script_name(script_name: str) -> None` — raises `ValueError` with `f"script_name {script_name!r} does not match {USER_FACING_NAME_REGEX} (...)"` on mismatch.
+  - `__all__ = ["SCRIPT_NAME_RE", "USER_FACING_NAME_REGEX", "validate_script_name"]`.
+  - This module is a pure leaf — no imports from other `screw_agents` submodules. Both `staging.py` and `signing.py` import from here; `engine.py` imports from here too (for the error-message constants; the validation itself runs inside `_sign_script_bytes`).
+- Modify: `src/screw_agents/adaptive/signing.py` (add `_sign_script_bytes`; import `SCRIPT_NAME_RE` / `USER_FACING_NAME_REGEX` / `validate_script_name` from `script_name.py`)
+- Modify: `src/screw_agents/adaptive/staging.py` — **DELETE** lines 46-48 (local `_SCRIPT_NAME_RE` constant), DELETE `_validate_script_name` helper body, replace with `from screw_agents.adaptive.script_name import validate_script_name` and a one-liner wrapper (or directly call `validate_script_name(script_name)` at the 3 public FS-op entry points). Existing `staging.py` test coverage remains valid because the public FS-op behavior is unchanged — only the error message wording may shift (see test-assertion audit in Step 9).
+- Modify: `src/screw_agents/engine.py` — **DELETE** line 51 (`_SCRIPT_NAME_RE = re.compile(...)` module constant) since it's no longer used (the current 2 in-method references at lines 324 + 329 both move into `_sign_script_bytes`). The `import re` may also be removable from engine.py if no other usage remains — implementer to verify and clean. Refactor `sign_adaptive_script` to delegate to `_sign_script_bytes` (Step 5).
+- Modify: `tests/test_adaptive_signing.py` (+5 original shared-helper tests + 5-7 regression tests for I-new-1 / I-new-2)
+- Modify: `tests/test_adaptive_staging.py` — update the existing `_validate_script_name` import to route via `script_name.py` (or via staging.py's re-export). Keep existing staging regex-validation tests unchanged — they exercise the public staging FS-op API which still enforces validation. Add ONE locking test: `test_staging_imports_from_shared_script_name_module` asserting `staging.py` no longer has a local `_SCRIPT_NAME_RE`.
 
-**Rationale:** Per Q4 / spec §3.7, both `sign_adaptive_script` (direct path) and the upcoming `promote_staged_script` (staged path) must produce byte-identical signed output for the same (source, meta). A shared internal helper is the single canonical-bytes source, eliminating drift risk.
+**Rationale:** Per Q4 / spec §3.7, both `sign_adaptive_script` (direct path) and the upcoming `promote_staged_script` (staged path) must produce byte-identical signed output for the same (source, meta). A shared internal helper is the single canonical-bytes source, eliminating drift risk. T2 also becomes the architectural fix site for the two regex items the T1 re-review surfaced — both the shared-helper extraction and the regex-constant extraction land in one coherent refactor.
 
 **Pre-audit checklist (per `feedback_deeper_pre_audit`):**
 - Map every place in engine.py's current `sign_adaptive_script` that touches canonical bytes, signature bytes, or file bytes. Confirm each translates 1:1 to a call into `_sign_script_bytes`.
 - Verify `build_signed_script_meta` and `compute_script_sha256` already live in signing.py (they do, from T18a). `_sign_script_bytes` COMPOSES them; does not duplicate them.
 - T22's test calls `engine.sign_adaptive_script(...)`. After refactor, T22 MUST pass unchanged. If T22 changes behavior, refactor is wrong.
+- **Regex anchors:** Switch from `^…$` to `\A…\Z` (or use `.fullmatch()` consistently) when consolidating. Python's `$` anchor matches before a terminal `\n`, which lets `"abc\n"` through — not a traversal primitive but a registry/log-formatting footgun. Both `staging.py` and `engine.py:51`'s current regex inherit this; the single consolidation must close it for both.
+- **Audit existing call sites** of the current `engine.py` name regex and `staging.py`'s local validator. All should route through the new shared constant after T2. No more duplication.
+
+**Absorbed from T1 re-review (2026-04-21):** Two items the quality reviewer flagged at T1 re-review are in-scope for T2 because T2 is the architectural fix site (shared-constant extraction):
+
+- **I-new-1 (trailing-newline regex footgun):** `r"^[a-z0-9][a-z0-9-]{2,62}$"` matches `"abc\n"` because Python's `$` anchor matches before a terminal newline. Not a traversal primitive (no slash) but corrupts JSONL registry lines in T3+ that embed `script_name`, poisons error-message formatting, and breaks log parsing. **Fix at shared-constant extraction time** — use `r"\A[a-z0-9][a-z0-9-]{2,62}\Z"` in ONE place (the new `script_name.py` module). `\A` and `\Z` are true start/end-of-string anchors with no newline-special-casing. Pre-audit note: `"abc\r\n"` is already rejected today (the `\r` fails the `[a-z0-9-]` character class check before the anchor is reached), so the only newline-case the anchor switch actually changes is `"abc\n"`. The CRLF case is preserved as a regression test to lock behavior.
+- **I-new-2 (regex test coverage gaps):** Add dedicated regression tests for these named cases. Note which ones the anchor switch changes vs which were already covered by the character class:
+  - `""` (empty) — reject (length < 3); currently rejected; lock with explicit test.
+  - `"---"` (dash-only) — **reject** (first char `-` is not in `[a-z0-9]`; regex requires first-char alnum). Clarification: the reviewer's note said "should match per regex" which was incorrect on my part — the first-char class is `[a-z0-9]` (no dash). Already rejected today; lock with explicit test.
+  - `"a\x00b"` (null byte) — reject (null not in `[a-z0-9-]`); currently rejected; lock.
+  - `"a" * 64` (over-limit) — reject (length > 63); currently rejected; lock.
+  - `"abc\n"` (trailing LF) — **currently passes; becomes rejection after I-new-1**. The primary fix.
+  - `"abc\r\n"` (trailing CRLF) — reject (`\r` fails char class); currently rejected; lock for regression coverage.
+  - `"ab cd"` (space) — reject (space not in char class); currently rejected; lock.
+
+  Place tests in `tests/test_adaptive_signing.py` (alongside the new `_sign_script_bytes` tests). Also add ONE locking test in `tests/test_adaptive_staging.py`: `test_staging_imports_from_shared_script_name_module` asserting the local `_SCRIPT_NAME_RE` constant was removed and `staging.py` imports from `adaptive.script_name`.
 
 - [ ] **Step 1: Read current engine.sign_adaptive_script carefully**
 
@@ -728,8 +764,17 @@ def test_sign_adaptive_script_delegates_to_sign_script_bytes(
 
     Mocks _sign_script_bytes, asserts engine.sign_adaptive_script calls it
     with the same inputs and returns its result.
+
+    PYTHON SEMANTICS NOTE: engine.py uses `from screw_agents.adaptive.signing
+    import _sign_script_bytes` which binds the name in engine.py's namespace
+    at import time. Monkey-patching `signing._sign_script_bytes` does NOT
+    redirect engine's already-captured reference — engine would still call
+    the real function, call_log["called"] would stay False, and the test
+    would fail confusingly. The correct patch target is engine's own
+    reference (`engine_module._sign_script_bytes`). Pre-audit caught this
+    pattern on 2026-04-21; do not "simplify" back to patching `signing`.
     """
-    from screw_agents.adaptive import signing
+    import screw_agents.engine as engine_module
     from screw_agents.engine import ScanEngine
 
     call_log = {"called": False, "kwargs": None}
@@ -739,6 +784,7 @@ def test_sign_adaptive_script_delegates_to_sign_script_bytes(
         call_log["kwargs"] = kwargs
         return {
             "status": "signed",
+            "message": f"Signed adaptive script {kwargs['script_name']} (mock).",
             "script_path": str(kwargs["project_root"] / ".screw" / "custom-scripts" / f"{kwargs['script_name']}.py"),
             "meta_path": str(kwargs["project_root"] / ".screw" / "custom-scripts" / f"{kwargs['script_name']}.meta.yaml"),
             "signed_by": "mock@example.com",
@@ -746,7 +792,8 @@ def test_sign_adaptive_script_delegates_to_sign_script_bytes(
             "session_id": kwargs.get("session_id"),
         }
 
-    monkeypatch.setattr(signing, "_sign_script_bytes", fake_helper)
+    # Patch engine's captured reference, NOT signing's module attribute.
+    monkeypatch.setattr(engine_module, "_sign_script_bytes", fake_helper)
 
     project = tmp_path / "project"
     project.mkdir()
@@ -823,12 +870,27 @@ def _sign_script_bytes(
     ...
 ```
 
-**Implementation note:** The body that currently lives in `engine.sign_adaptive_script` is ~80 LOC. LIFT IT VERBATIM into `_sign_script_bytes`, adjusting only:
-1. Argument signatures to match the helper's
-2. Any references to `self` (engine method) → remove (helper is module-level)
-3. Any `self._config` reads → reload via `load_config(project_root)` at helper entry
+**Implementation note:** The body that currently lives in `engine.sign_adaptive_script` is ~80 LOC (engine.py lines ~320-545). LIFT IT VERBATIM into `_sign_script_bytes`, adjusting only these concrete items:
 
-Pre-audit: diff the moved code against the original. Should be IDENTICAL behavior. Adding `# type: ignore` or function-signature changes during the move is PROHIBITED — those introduce drift risk.
+1. **Remove `self,` from the signature** — helper is module-level. Rename `meta: dict` → `meta_dict: dict` (parameter name matches plan's `_sign_script_bytes` signature).
+2. **Name validation** — replace the 2 current call sites (engine.py:324 and :329) with a single call to `validate_script_name(script_name)` from the new `script_name.py` module. The validator raises `ValueError`; catch it and convert to the `{"status": "error", "message": ...}` dict shape to preserve the current error-return contract. Keep `"Invalid script name"` as the substring in the error message — the existing `test_sign_rejects_invalid_names` parametrize test asserts this at test_sign_adaptive_script.py:177.
+3. **Imports** — add to `signing.py`'s import block: `os`, `yaml`, `Path`, `_get_or_create_local_private_key` from `screw_agents.learning`, `load_config` + `_find_matching_reviewer` + `_fingerprint_public_key` + `_load_public_keys_with_reviewers` from `screw_agents.trust`, and the new `SCRIPT_NAME_RE` / `USER_FACING_NAME_REGEX` / `validate_script_name` from `screw_agents.adaptive.script_name`.
+4. **No `self._config` reads to adjust** — pre-audit (2026-04-21) confirmed the current method does NOT read `self._config`; it already calls `load_config(project_root)` locally at engine.py:373. An earlier draft of this plan warned about `self._config` migration — that note was incorrect and has been removed.
+
+**PROHIBITED during the move:**
+- Adding `# type: ignore` annotations
+- Changing the method's return-dict shape (keys must remain: `status`, `message`, `script_path`, `meta_path`, `signed_by`, `sha256`, `session_id`)
+- Changing error-message substrings that existing tests assert on:
+  - `"Invalid script name"` (test_sign_adaptive_script.py:177)
+  - `"already exists"` + `"validate-script"` (:113, :140)
+  - `"script_reviewers"` + `"init-trust"` (:197)
+  - `"does not match any registered reviewer"` + `"init-trust"` (:251)
+  - `"AdaptiveScriptMeta schema"` (:401)
+  - `"rolled back"` (:368) — from the `ValueError` raised on meta-write failure
+  - `"script source"` (:446) — from the `ValueError` raised on source-write failure
+- Changing the atomic-write filename pattern (`{script_name}.py.tmp`, `{script_name}.meta.yaml.tmp`) — `test_sign_atomic_write_rollback_on_meta_failure` asserts on `rollback-test.meta.yaml.tmp` at :372.
+
+Pre-audit discipline: before committing, run `diff <(git show 1d07d6b:src/screw_agents/engine.py | sed -n '320,545p') <(grep -n ... _sign_script_bytes body)` and visually confirm the moved body is behaviorally identical (allowing for the name-validation-via-validator refactor at point 2 above).
 
 - [ ] **Step 5: Refactor `engine.sign_adaptive_script` to delegate**
 
@@ -876,18 +938,26 @@ Expected: All pass. Both test files exercise the same `engine.sign_adaptive_scri
 - [ ] **Step 7: Run full test suite**
 
 Run: `uv run pytest -q`
-Expected: 785 passed, 8 skipped (780 post-T1 + 5 new signing-helper tests).
+Expected: **~800 passed, 8 skipped** (790 post-T1 part 3 + 5 new signing-helper tests + ~5 regression tests for I-new-1 / I-new-2; final count depends on how many boundary cases the implementer adds per I-new-2). The baseline bumped from 780 to 790 because T1 absorbed 10 additional tests (part-2 quality-fix regressions + part-3 defense-in-depth coverage).
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add src/screw_agents/adaptive/signing.py \
+git add src/screw_agents/adaptive/script_name.py \
+        src/screw_agents/adaptive/signing.py \
+        src/screw_agents/adaptive/staging.py \
         src/screw_agents/engine.py \
-        tests/test_adaptive_signing.py
-git commit -m "refactor(phase3b-c1): extract _sign_script_bytes shared helper (T2, Option D)"
+        tests/test_adaptive_signing.py \
+        tests/test_adaptive_staging.py
+git commit -m "refactor(phase3b-c1): extract _sign_script_bytes + shared SCRIPT_NAME_RE (T2, Option D + I-new-1/2)"
 ```
 
-**Cross-plan sync:** no deviation from spec §3.7. If the refactor required changing `sign_adaptive_script`'s public signature (it should NOT), stop and update spec §3.7 + this task before continuing.
+**Cross-plan sync:** no deviation from spec §3.7 on the shared-helper refactor. The regex-extraction addition (I-new-1 / I-new-2) was deferred from T1 per `feedback_deferral_destination` (within-plan deferral, plan-sync committed before T2 dispatch). If the refactor requires changing `sign_adaptive_script`'s public signature (it should NOT), stop and update spec §3.7 + this task before continuing.
+
+**T2 Opus 4.7 re-review (2026-04-21):** APPROVED — nothing substantive missed by the earlier Sonnet spec review. Three minor items identified:
+- **M-1 (dead imports in `engine.py` after refactor):** fixed in T1 part 4 commit `d70c344` (bundled with the session_id tightening since both touched `engine.py`). Removed unused `build_signed_script_meta`, `compute_script_sha256`, `_get_or_create_local_private_key`, `_find_matching_reviewer`, `_fingerprint_public_key`, `_load_public_keys_with_reviewers` imports.
+- **M-2 (`test_public_api_count_is_under_29` function-name / assertion visual inconsistency):** deferred to DEFERRED_BACKLOG as BACKLOG-PR6-07.
+- **M-3 (`adaptive/__init__.py` stale "under 25 exports" docstring):** deferred to DEFERRED_BACKLOG as BACKLOG-PR6-08.
 
 ---
 
@@ -896,15 +966,75 @@ git commit -m "refactor(phase3b-c1): extract _sign_script_bytes shared helper (T
 ### Task 3: `stage_adaptive_script` MCP Tool
 
 **Files:**
-- Modify: `src/screw_agents/adaptive/staging.py` (add `append_registry_entry`, `query_registry`, `compute_script_sha256_str`)
+- Modify: `src/screw_agents/adaptive/staging.py` (add `append_registry_entry`, `query_registry_most_recent`, `fallback_walk_for_script`, `validate_pending_approval`, `_REQUIRED_FIELDS_BY_EVENT`, `_utc_now_iso`; import `compute_script_sha256` from `signing.py` — do NOT duplicate it)
 - Modify: `src/screw_agents/engine.py` (add `stage_adaptive_script` method)
 - Modify: `src/screw_agents/server.py` (register MCP tool)
 - Modify: `tests/test_adaptive_staging.py` (+6 tests for stage flow)
 
 **Pre-audit checklist:**
 - Confirm atomic registry append semantics: JSONL append via `open(..., "a")` + single `write()` call is POSIX-atomic for writes under PIPE_BUF (4096 bytes). Registry entries are <500 bytes. Safe for single-process MCP.
-- Name-regex `^[a-z0-9][a-z0-9-]{2,62}$` lives in `_sign_script_bytes`'s validation today. For staging, we MUST pre-validate the name before filesystem ops — reusing the same regex. Extract to a module-level constant in signing.py if not already.
+- Name-regex lives as a shared constant after T2 (`SCRIPT_NAME_RE`, anchored `\A…\Z`, extracted per T2's "Absorbed from T1 re-review" block). Both `adaptive/staging.py` (defense-in-depth, added in T1 part 3) and `_sign_script_bytes` call the shared validator. T3's `stage_adaptive_script` gets name validation for free by routing through both layers — do NOT duplicate the regex a third time. If T2 did NOT consolidate as planned, STOP and fix T2 first.
+- Session_id validator is the `\A[A-Za-z0-9_-]{1,64}\Z` allowlist added in T1 part 4 (commit `d70c344`). T3's `stage_adaptive_script` calls into `resolve_staging_dir` which enforces it — no additional session_id validation needed at the engine layer.
 - stage is idempotent on byte-identical re-stage (same sha256 → update timestamps, no error). Error on same script_name + different sha256.
+
+**Absorbed from T1 Opus re-review (2026-04-21):** One item requires T3's attention as the first producer of `PendingApproval` entries to the JSONL audit log:
+
+- **I-opus-3 (PendingApproval runtime per-event-type validator):** `PendingApproval(TypedDict, total=False)` in `models.py` has inline comments documenting which fields are required per event type (`staged`, `promoted`, `promoted_via_fallback`, `promoted_confirm_stale`, `rejected`, `tamper_detected`, `swept`) but no runtime enforcement. A producer could silently emit `{"event": "staged"}` without `script_sha256` / `target_gap` / `staged_at` — corrupting the forensic-audit JSONL stream. T3 is the first task that writes `PendingApproval` entries (`append_registry_entry`); validate the entry shape before the JSONL write.
+
+  **Suggested approach:** Add to `adaptive/staging.py`:
+  ```python
+  _REQUIRED_FIELDS_BY_EVENT: dict[str, frozenset[str]] = {
+      "staged": frozenset({"event", "script_name", "session_id", "script_sha256",
+                          "target_gap", "staged_at", "schema_version"}),
+      "promoted": frozenset({"event", "script_name", "session_id", "script_sha256",
+                            "signed_by", "promoted_at", "schema_version"}),
+      "promoted_via_fallback": frozenset({"event", "script_name", "session_id",
+                                         "script_sha256", "signed_by", "promoted_at",
+                                         "schema_version"}),
+      "promoted_confirm_stale": frozenset({"event", "script_name", "session_id",
+                                          "script_sha256", "signed_by", "promoted_at",
+                                          "schema_version"}),
+      "rejected": frozenset({"event", "script_name", "session_id", "reason",
+                            "rejected_at", "schema_version"}),
+      "tamper_detected": frozenset({"event", "script_name", "session_id",
+                                   "expected_sha256", "actual_sha256",
+                                   "evidence_path", "tampered_at", "schema_version"}),
+      "swept": frozenset({"event", "script_name", "session_id", "swept_at",
+                         "sweep_reason", "schema_version"}),
+  }
+
+  def validate_pending_approval(entry: PendingApproval) -> None:
+      """Raise ValueError if entry lacks required fields for its event type.
+
+      Called from `append_registry_entry` before the JSONL write to
+      prevent silent forensic-audit corruption. Unknown event types raise
+      (new event types require an explicit opt-in via this dict).
+      """
+      event = entry.get("event")
+      if event is None:
+          raise ValueError("PendingApproval entry missing required 'event' field")
+      required = _REQUIRED_FIELDS_BY_EVENT.get(event)
+      if required is None:
+          raise ValueError(f"PendingApproval entry has unknown event type: {event!r}")
+      missing = required - set(entry.keys())
+      if missing:
+          raise ValueError(
+              f"PendingApproval '{event}' entry missing required fields: "
+              f"{sorted(missing)}"
+          )
+  ```
+
+  Call site (at the top of `append_registry_entry`):
+  ```python
+  def append_registry_entry(project_root: Path, entry: PendingApproval) -> None:
+      validate_pending_approval(entry)  # fail fast before any I/O
+      registry_path = resolve_registry_path(project_root)
+      registry_path.parent.mkdir(parents=True, exist_ok=True)
+      with open(registry_path, "a", encoding="utf-8") as f:
+          f.write(json.dumps(entry, sort_keys=True) + "\n")
+  ```
+
+  **Tests to add in T3** (alongside the existing stage-flow tests): (a) valid `staged` entry writes successfully; (b) `{"event": "staged"}` without `script_sha256` raises `ValueError`; (c) unknown event type raises; (d) `tamper_detected` entry missing `evidence_path` raises.
 
 - [ ] **Step 1: Write failing tests — happy-path stage**
 
@@ -1013,6 +1143,52 @@ def test_stage_adaptive_script_rejects_empty_session_id(tmp_path: Path) -> None:
     assert response["error"] == "invalid_session_id"
 
 
+@pytest.mark.parametrize(
+    "bad_session_id",
+    [
+        "foo\nbar",        # newline — I-opus-1 JSONL injection
+        "foo:bar",         # colon — NTFS ADS primitive
+        ".hidden",         # leading dot — hidden-dir bypass
+        "foo\xff",         # high-bit byte — homoglyph primitive
+        "foo bar",         # space
+        "foo\tbar",        # tab
+        "a" * 65,          # over-length
+        "../etc/passwd",   # path traversal
+        "foo/bar",         # slash
+        "foo\\bar",        # backslash
+        ".",               # bare dot
+        "..",              # bare dots
+    ],
+)
+def test_stage_adaptive_script_rejects_threat_session_ids(
+    tmp_path: Path, bad_session_id: str
+) -> None:
+    """P2 regression: the engine-layer error-dict conversion fires for
+    all session_id threat vectors closed by the T1-part-4 allowlist
+    (I-opus-1 + I-opus-2). Validates the ValueError → error-dict path
+    in `stage_adaptive_script` rather than just `resolve_staging_dir`.
+    """
+    from screw_agents.engine import ScanEngine
+
+    project = tmp_path / "project"
+    project.mkdir()
+    engine = ScanEngine.from_defaults()
+
+    response = engine.stage_adaptive_script(
+        project_root=project,
+        script_name="test-001",
+        source="pass\n",
+        meta={"name": "test-001", "created": "2026-04-20T10:00:00Z",
+              "created_by": "t@e.co", "domain": "injection-input-handling",
+              "description": "d", "target_patterns": ["x"]},
+        session_id=bad_session_id,
+        target_gap=None,
+    )
+
+    assert response["status"] == "error"
+    assert response["error"] == "invalid_session_id"
+
+
 def test_stage_adaptive_script_idempotent_on_same_content(tmp_path: Path) -> None:
     from screw_agents.engine import ScanEngine
     from screw_agents.adaptive.staging import resolve_registry_path
@@ -1036,12 +1212,22 @@ def test_stage_adaptive_script_idempotent_on_same_content(tmp_path: Path) -> Non
 
     assert r1["status"] == "staged"
     assert r2["status"] == "staged"
-    assert r1["script_sha256"] == r2["script_sha256"]
+    # P4: `sha256(same source) == sha256(same source)` is tautological;
+    # assert FILESYSTEM + REGISTRY state to prove idempotency actually
+    # worked end-to-end:
+    from screw_agents.adaptive.staging import resolve_staging_dir
+    stage_dir = resolve_staging_dir(project, "sess-abc")
+    assert (stage_dir / "test-idem-001.py").read_text(encoding="utf-8") == "pass\n"
+    assert (stage_dir / "test-idem-001.meta.yaml").exists()
+
     # Registry gets TWO entries even on idempotent re-stage (each event is recorded).
     # The LOOKUP path uses "most-recent" semantics so this is fine.
     entries = [json.loads(line) for line in resolve_registry_path(project).read_text().splitlines() if line.strip()]
     assert len(entries) == 2
     assert all(e["event"] == "staged" for e in entries)
+    assert all(e["script_sha256"] == r1["script_sha256"] for e in entries)
+    # Second entry's staged_at >= first entry's staged_at (monotonic).
+    assert entries[1]["staged_at"] >= entries[0]["staged_at"]
 
 
 def test_stage_adaptive_script_collision_on_same_name_different_content(tmp_path: Path) -> None:
@@ -1115,13 +1301,19 @@ Expected: 6 FAILs with `AttributeError: 'ScanEngine' object has no attribute 'st
 Append to `src/screw_agents/adaptive/staging.py`:
 
 ```python
-import hashlib
+import json
 from datetime import datetime, timezone
 
 
-def compute_script_sha256_str(source: str) -> str:
-    """Return full 64-char hex sha256 of source UTF-8 bytes."""
-    return hashlib.sha256(source.encode("utf-8")).hexdigest()
+# NOTE: do NOT define a new `compute_script_sha256_str` here. T2 already
+# exports `compute_script_sha256` from `screw_agents.adaptive.signing`
+# (same encoding, same algorithm, same hex output). Re-use it. Add to
+# staging.py's imports block at the top of the module:
+#
+#     from screw_agents.adaptive.signing import compute_script_sha256
+#
+# A duplicate helper would re-introduce exactly the drift risk T2 worked
+# to eliminate when it consolidated SCRIPT_NAME_RE.
 
 
 def append_registry_entry(project_root: Path, entry: dict) -> None:
@@ -1131,7 +1323,21 @@ def append_registry_entry(project_root: Path, entry: dict) -> None:
     on Linux. Entries are <500 bytes; safe for single-process MCP.
     Creates parent dirs if needed. Raises ValueError on filesystem
     errors per T13-C1 discipline.
+
+    Call `validate_pending_approval(entry)` BEFORE this function in the
+    engine layer (or invoke it here as the first line) to ensure the
+    entry meets the per-event-type required-field contract. See
+    "Absorbed from T1 Opus re-review" above for the validator spec.
+
+    PARTIAL-STATE SEMANTICS: If the engine has already written the
+    staged `.py` + `.meta.yaml` files and THIS registry append raises
+    ValueError, the staged files remain on disk without a registry
+    entry. This is deliberate — the filesystem is the source of truth;
+    the registry is the audit log. T6's `sweep_stale_staging` recovers
+    orphaned staging dirs by age. The engine does NOT roll back staged
+    files on registry-write failure.
     """
+    validate_pending_approval(entry)  # I-opus-3: fail-fast before any I/O
     registry_path = resolve_registry_path(project_root)
     try:
         registry_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1221,7 +1427,9 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 ```
 
-Export all new functions from `__all__`.
+**Exports in `__all__`:** add the three public helpers — `append_registry_entry`, `query_registry_most_recent`, `fallback_walk_for_script`, and `validate_pending_approval` (the I-opus-3 validator). Keep underscore-prefixed helpers PRIVATE (do NOT add to `__all__`): `_utc_now_iso`, `_REQUIRED_FIELDS_BY_EVENT`, `_SESSION_ID_RE`. The existing `_validate_script_name` alias (imported from `script_name.py` in T2) also stays private.
+
+Also add `_REQUIRED_FIELDS_BY_EVENT` + `validate_pending_approval` per the "Absorbed from T1 Opus re-review" block above (same file, placed near `append_registry_entry` so the relationship is visible).
 
 - [ ] **Step 4: Implement `engine.stage_adaptive_script`**
 
@@ -1250,39 +1458,49 @@ def stage_adaptive_script(
     Returns domain-error dict on name/session validation failures.
     """
     import yaml
-    from screw_agents.adaptive.signing import SCRIPT_NAME_PATTERN
+    from screw_agents.adaptive.script_name import validate_script_name
+    from screw_agents.adaptive.signing import compute_script_sha256
     from screw_agents.adaptive.staging import (
         _utc_now_iso,
         append_registry_entry,
-        compute_script_sha256_str,
         resolve_staging_dir,
         write_staged_files,
     )
-    from screw_agents.models import AdaptiveScriptMeta
 
-    if not SCRIPT_NAME_PATTERN.match(script_name):
+    # Name validation (delegates to shared `adaptive.script_name` per T2
+    # consolidation). Raises ValueError on mismatch — catch and convert
+    # to the existing error-dict contract callers depend on.
+    try:
+        validate_script_name(script_name)
+    except ValueError as exc:
         return {
             "status": "error",
             "error": "invalid_script_name",
-            "message": f"script_name {script_name!r} does not match "
-                       f"{SCRIPT_NAME_PATTERN.pattern}",
+            "message": str(exc),
         }
-    if not session_id or "/" in session_id or "\\" in session_id or ".." in session_id:
+
+    # Session_id validation is enforced by `resolve_staging_dir` (uses
+    # the `\\A[A-Za-z0-9_-]{1,64}\\Z` allowlist regex added in T1 part 4
+    # for I-opus-1/2). Catch the ValueError it raises and convert to the
+    # error-dict contract. Do NOT re-implement a denylist here — that
+    # would diverge from the allowlist and re-open I-opus-1.
+    try:
+        stage_dir = resolve_staging_dir(project_root, session_id)
+    except ValueError as exc:
         return {
             "status": "error",
             "error": "invalid_session_id",
-            "message": f"session_id {session_id!r} is empty or contains path chars",
+            "message": str(exc),
         }
 
     # Compute sha.
-    script_sha256 = compute_script_sha256_str(source)
+    script_sha256 = compute_script_sha256(source)
 
     # Collision check: same script_name exists under this session?
-    stage_dir = resolve_staging_dir(project_root, session_id)
     py_path = stage_dir / f"{script_name}.py"
     if py_path.exists():
         existing = py_path.read_text(encoding="utf-8")
-        existing_sha = compute_script_sha256_str(existing)
+        existing_sha = compute_script_sha256(existing)
         if existing_sha != script_sha256:
             return {
                 "status": "error",
@@ -1305,7 +1523,9 @@ def stage_adaptive_script(
         session_id=session_id,
     )
 
-    # Append registry entry.
+    # Append registry entry. Partial-state semantics: if this fails,
+    # the staged files remain on disk (T6 sweep recovers them by age).
+    # See append_registry_entry's docstring for the rationale.
     entry = {
         "event": "staged",
         "script_name": script_name,
@@ -1328,45 +1548,118 @@ def stage_adaptive_script(
     }
 ```
 
-**Pre-audit note:** `SCRIPT_NAME_PATTERN` is referenced from signing.py. Confirm it's exported there (from T18a); if not, add:
+**Pre-audit note (2026-04-21):** The regex + validator were consolidated into `screw_agents.adaptive.script_name` in T2 (commit `7ba25bb`). Earlier drafts of this plan referenced `SCRIPT_NAME_PATTERN` in `signing.py` which does NOT exist — that guidance was incorrect and has been removed. `validate_script_name` is the canonical entry point. Similarly, `compute_script_sha256` already lives in `signing.py` from T18a — do NOT add a `compute_script_sha256_str` duplicate (see Step 3's NOTE).
+
+- [ ] **Step 5: Register MCP tool in `server.py` AND add schema to `engine.list_tool_definitions`**
+
+**5a. Dispatch branch in `src/screw_agents/server.py`**
+
+The actual pattern is `_dispatch_tool` with `if name == "...":` branches (NOT `@mcp.tool()` decorators). See the existing `sign_adaptive_script` handler at `server.py:144-151` for the canonical form. Add to the dispatcher (near the other adaptive handlers, after `sign_adaptive_script`):
 
 ```python
-# In signing.py near other constants:
-import re
-SCRIPT_NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{2,62}$")
-```
+# --- Phase 3b T3: stage_adaptive_script (C1 staging-path) ---
 
-- [ ] **Step 5: Register MCP tool in `server.py`**
-
-Add to the tool registration block:
-
-```python
-@mcp.tool()
-async def stage_adaptive_script(
-    project_root: str,
-    script_name: str,
-    source: str,
-    meta: dict,
-    session_id: str,
-    target_gap: dict | None = None,
-) -> dict:
-    """Atomically write an unsigned adaptive script to session-scoped staging.
-
-    Called by the generating subagent BEFORE composing the 5-section human
-    review. The staged bytes persist on disk; promote_staged_script later
-    reads them verbatim (no regeneration surface). See design spec §3.1.
-    """
-    return _engine.stage_adaptive_script(
-        project_root=Path(project_root),
-        script_name=script_name,
-        source=source,
-        meta=meta,
-        session_id=session_id,
-        target_gap=target_gap,
+if name == "stage_adaptive_script":
+    return engine.stage_adaptive_script(
+        project_root=Path(args["project_root"]),
+        script_name=args["script_name"],
+        source=args["source"],
+        meta=args["meta"],
+        session_id=args["session_id"],
+        target_gap=args.get("target_gap"),
     )
 ```
 
-**Tool schema MUST set `additionalProperties: false`** per T10-M1 partial (T22 ships this formally, but apply on registration to avoid two-step refactor). If the MCP framework generates schemas automatically from type hints, configure the decorator / generator accordingly. If schemas are hand-written elsewhere, locate the schema block and add the flag.
+Use `args.get("target_gap")` (optional kwarg with `None` default on the engine side), NOT `args["target_gap"]` (KeyError on absent).
+
+**5b. Tool schema in `src/screw_agents/engine.list_tool_definitions`**
+
+Tool schemas are defined in `engine.list_tool_definitions()` (starts at `engine.py:1211`). See the existing `sign_adaptive_script` schema at `engine.py:1593` for the canonical format. Append a new `tools.append({...})` block with:
+
+```python
+tools.append({
+    "name": "stage_adaptive_script",
+    "description": (
+        "Atomically write an unsigned adaptive analysis script to "
+        "session-scoped staging (`.screw/staging/{session_id}/"
+        "adaptive-scripts/`). Called by the generating subagent BEFORE "
+        "composing the human review. The staged bytes persist on disk "
+        "and become the source of truth for the subsequent "
+        "promote_staged_script call — the user reviews what is staged, "
+        "and promote signs what is staged, with sha256 verification "
+        "preventing tamper (C1 trust invariant). Appends a `staged` "
+        "event to .screw/local/pending-approvals.jsonl for audit. "
+        "Idempotent on byte-identical re-stage; returns status=\"error\" "
+        "with error=\"stage_name_collision\" on same name + different "
+        "content. See design spec §3.1."
+    ),
+    "input_schema": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "project_root": {
+                "type": "string",
+                "description": "Absolute path to the project root.",
+            },
+            "script_name": {
+                "type": "string",
+                "description": (
+                    "Filesystem-safe name (regex "
+                    "`^[a-z0-9][a-z0-9-]{2,62}$`). Validated by the "
+                    "shared `adaptive.script_name.validate_script_name` "
+                    "(T2 consolidation) before any filesystem op."
+                ),
+            },
+            "source": {
+                "type": "string",
+                "description": (
+                    "Python source code for the adaptive script. "
+                    "Caller should have run `lint_adaptive_script` "
+                    "BEFORE staging (pre-review), though staging itself "
+                    "does not enforce this."
+                ),
+            },
+            "meta": {
+                "type": "object",
+                "description": (
+                    "Partial meta dict that will eventually conform to "
+                    "AdaptiveScriptMeta (minus signing fields). Must "
+                    "include name, created, created_by, domain; may "
+                    "include description, target_patterns."
+                ),
+            },
+            "session_id": {
+                "type": "string",
+                "description": (
+                    "Scan session id. Validated against "
+                    "`^[A-Za-z0-9_-]{1,64}$` (T1 part 4 allowlist, "
+                    "I-opus-1/2 fix). Scopes the staging directory — "
+                    "different session_ids get different dirs."
+                ),
+            },
+            "target_gap": {
+                "type": "object",
+                "description": (
+                    "Optional coverage-gap metadata recorded in the "
+                    "registry entry. Shape: "
+                    "{type, file, line, agent}. Null for non-gap stages."
+                ),
+            },
+        },
+        "required": [
+            "project_root",
+            "script_name",
+            "source",
+            "meta",
+            "session_id",
+        ],
+    },
+})
+```
+
+**`additionalProperties: false`** is set directly in this schema per T10-M1 partial. T22 performs the project-wide uniform audit but we ship the new tool correctly from the start. Do NOT omit this — the schema gate is trust-path defense in depth (stops schema-extension smuggling).
+
+**Cross-check before commit:** run the dispatcher smoke test template (mirror `test_sign_via_dispatcher_smoke` at `test_sign_adaptive_script.py:481`) in the new stage-flow test block — call `_dispatch_tool(engine, "stage_adaptive_script", {...})` and verify it returns `status="staged"` and the tool appears in `engine.list_tool_definitions()`.
 
 - [ ] **Step 6: Run tests to verify they pass**
 
@@ -1376,7 +1669,7 @@ Expected: 6 PASS.
 - [ ] **Step 7: Run full suite**
 
 Run: `uv run pytest -q`
-Expected: 791 passed (785 post-T2 + 6 new stage tests).
+Expected: **~828 passed, 8 skipped** (817 post-T1-part-4 + 6 plan stage tests + 4 I-opus-3 validator tests + 1 engine-layer session_id parametrize test that exercises the full T1-part-4 threat surface through the engine's error-dict conversion path). Final count depends on exactly how many parametrize cases land; floor is 825, ceiling is 832.
 
 - [ ] **Step 8: Commit**
 
@@ -1391,20 +1684,52 @@ git commit -m "feat(phase3b-c1): stage_adaptive_script MCP tool (T3)"
 
 **Cross-plan sync:** confirm spec §3.1 matches the shipped signature + behavior. Deviation flag: did `additionalProperties: false` actually get applied at server registration? If not, move to T22 and document.
 
+**T3 Opus 4.7 re-review (2026-04-21):** Spec review APPROVED (all 24 checks pass). Quality review found 4 Important + 5 Minor items. Important items fixed in T3 part 2 commit (add SHA after you commit the fix-up below):
+
+- **I1 (dead re-export):** removed the unused `compute_script_sha256` re-export at `staging.py:43`. `engine.py:314` imports directly from `adaptive.signing`; staging.py did not need the alias.
+- **I2 (helper test coverage gap):** added 5 direct unit tests for the three new registry helpers (corrupted-JSONL tolerance, most-recent-wins, fallback-walk non-directory skip, fallback-walk missing-staging-root, append_registry_entry error wrapping). T4/T6 depend on these helpers; transitive coverage through `stage_adaptive_script` was insufficient.
+- **I4 (UnicodeDecodeError leak):** wrapped the collision-check `read_text(encoding="utf-8")` in try/except UnicodeDecodeError → error-dict with `"error": "stage_corrupted"`. Future attacker with fs-write can't crash the tool via corrupted bytes.
+- **I5 (fail-fast contract untested):** added test that asserts `append_registry_entry` raises ValueError BEFORE creating the registry file when the entry is malformed. Locks the I-opus-3 validator's fail-fast-before-I/O contract.
+
+Minor items (M1-M5) deferred to `docs/DEFERRED_BACKLOG.md` as `BACKLOG-PR6-14..18`.
+
 ---
 
 ### Task 4: `promote_staged_script` MCP Tool — The C1 Fix
 
 **Files:**
+- Modify: `src/screw_agents/models.py` — add `stale_staging_hours: int = 24` and `staging_max_age_days: int = 14` to `ScrewConfig` with range validators (1-168 and 1-365 respectively)
 - Modify: `src/screw_agents/engine.py` (add `promote_staged_script`)
 - Modify: `src/screw_agents/server.py` (register MCP tool; `additionalProperties: false`)
-- Modify: `tests/test_adaptive_staging.py` (+12 tests — the bulk of C1 regression locks)
+- Modify: `tests/test_adaptive_staging.py` (+13 tests — the bulk of C1 regression locks, now including I5 promoted_confirm_stale event assertion)
 
 **Pre-audit (critical — trust-path):**
 - Trace sign/verify symmetry: `promote_staged_script` reads staging bytes → calls `_sign_script_bytes`. `_sign_script_bytes` must route meta through `AdaptiveScriptMeta().model_dump()` BEFORE `canonicalize_script`. Verify the meta loaded from staging's `.meta.yaml` goes through THIS path. A bypass would reopen T13-C1 drift.
 - `promote_staged_script` MUST NOT accept a `source` parameter. This is the C1 architectural closure. A format-smoke regression lock (`test_promote_staged_script_signature_rejects_source_param`) is mandatory.
 - Staleness check uses `datetime.fromisoformat(entry["staged_at"].replace("Z", "+00:00"))` or equivalent. ISO8601 `Z` suffix parsing varies by Python version; use `datetime.strptime(..., "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)` for consistency.
 - Tamper case leaves staging files in place + touches `.TAMPERED` marker. The marker + audit entry together = forensic evidence.
+
+- [ ] **Step 0: Add `ScrewConfig` fields (I1 pre-audit fix)**
+
+In `src/screw_agents/models.py`, the `ScrewConfig` Pydantic model currently defines `version`, `exclusion_reviewers`, `script_reviewers`, `adaptive`, `legacy_unsigned_exclusions`, `trusted_reviewers_file`. Add two new fields for the staging lifecycle:
+
+```python
+from pydantic import BaseModel, ConfigDict, Field  # Field may already be imported
+
+class ScrewConfig(BaseModel):
+    ...existing fields...
+    stale_staging_hours: int = Field(default=24, ge=1, le=168)
+    staging_max_age_days: int = Field(default=14, ge=1, le=365)
+```
+
+Rationale: T4's `_read_stale_staging_hours` and T6's `sweep_stale_staging` both consume these fields. Adding them to the Pydantic model enforces validation at config-load time (invalid values raise on `load_config(project_root)` instead of silently degrading to defaults inside helpers). Keeps the ad-hoc `yaml.safe_load` read in `_read_stale_staging_hours` as a lightweight fallback (config file may be absent on fresh projects), but the canonical path now goes through the schema.
+
+**Tests for the schema update:** `tests/test_models.py` (or wherever `ScrewConfig` is tested today) should add:
+- Valid config with custom `stale_staging_hours` value → loads correctly
+- `stale_staging_hours: 0` or `169` → raises `ValidationError`
+- Missing field → defaults to 24
+
+If `tests/test_models.py` doesn't exist yet, inline these 2-3 tests into `tests/test_adaptive_staging.py` next to the other T4 tests. This counts toward the +13 tests total.
 
 - [ ] **Step 1: Write failing test — C1 REGRESSION LOCK (signature rejects source)**
 
@@ -1638,6 +1963,66 @@ def test_promote_stale_staging_requires_confirm_stale(tmp_path, monkeypatch) -> 
         confirm_stale=True,
     )
     assert response2["status"] == "signed"
+
+    # I5 regression: confirm-stale retry must emit `promoted_confirm_stale`
+    # audit event (not plain `promoted`). Locks the audit-event taxonomy
+    # so downstream forensics can distinguish routine promotes from
+    # staleness-override promotes.
+    import json as _json
+    entries = [
+        _json.loads(line) for line in
+        resolve_registry_path(project).read_text().splitlines() if line.strip()
+    ]
+    promoted_events = [e for e in entries if e.get("event", "").startswith("promoted")]
+    assert len(promoted_events) == 1
+    assert promoted_events[0]["event"] == "promoted_confirm_stale", (
+        f"Expected `promoted_confirm_stale` audit event; got {promoted_events[0]['event']!r}"
+    )
+
+
+def test_promote_rejects_malformed_staged_at(tmp_path) -> None:
+    """I3 hardening: staleness check must NOT silently bypass on a
+    malformed timestamp. Force ops to investigate corrupted registry."""
+    from screw_agents.cli.init_trust import run_init_trust
+    from screw_agents.engine import ScanEngine
+    from screw_agents.adaptive.staging import resolve_registry_path
+
+    project = tmp_path / "project"
+    project.mkdir()
+    run_init_trust(project_root=project, name="T", email="t@e.co")
+    engine = ScanEngine.from_defaults()
+    engine.stage_adaptive_script(
+        project_root=project,
+        script_name="test-bad-ts",
+        source="pass\n",
+        meta={"name": "test-bad-ts", "created": "2026-04-21T10:00:00Z",
+              "created_by": "t@e.co", "domain": "injection-input-handling",
+              "description": "d", "target_patterns": ["x"]},
+        session_id="sess-abc",
+        target_gap=None,
+    )
+
+    # Corrupt the staged_at timestamp in the registry.
+    registry = resolve_registry_path(project)
+    import json as _json
+    lines = registry.read_text().splitlines()
+    rewritten = []
+    for line in lines:
+        entry = _json.loads(line)
+        if entry.get("script_name") == "test-bad-ts":
+            entry["staged_at"] = "not-a-timestamp"
+        rewritten.append(_json.dumps(entry, separators=(",", ":"), sort_keys=True))
+    registry.write_text("\n".join(rewritten) + "\n")
+
+    response = engine.promote_staged_script(
+        project_root=project,
+        script_name="test-bad-ts",
+        session_id="sess-abc",
+    )
+
+    assert response["status"] == "error"
+    assert response["error"] == "invalid_registry_entry"
+    assert "malformed" in response["message"].lower() or "parse error" in response["message"].lower()
 ```
 
 Add 6 more tests covering:
@@ -1691,11 +2076,10 @@ def promote_staged_script(
     """
     import yaml
     from datetime import datetime, timedelta, timezone
-    from screw_agents.adaptive.signing import _sign_script_bytes
+    from screw_agents.adaptive.signing import _sign_script_bytes, compute_script_sha256
     from screw_agents.adaptive.staging import (
         _utc_now_iso,
         append_registry_entry,
-        compute_script_sha256_str,
         delete_staged_files,
         fallback_walk_for_script,
         query_registry_most_recent,
@@ -1729,7 +2113,7 @@ def promote_staged_script(
             "error": "staging_not_found",
             "message": f"Staged files vanished between check and read for {script_name!r}",
         }
-    actual_sha256 = compute_script_sha256_str(source)
+    actual_sha256 = compute_script_sha256(source)
 
     # Step 4: registry lookup.
     registry_entry = query_registry_most_recent(
@@ -1739,26 +2123,52 @@ def promote_staged_script(
     # Staleness check when we have a staged_at timestamp.
     stale_threshold_hours = _read_stale_staging_hours(project_root)  # helper below
     if registry_entry and registry_entry.get("event") == "staged":
+        staged_at_str = registry_entry.get("staged_at")
+        if staged_at_str is None:
+            # I3 hardening: registry entry missing staged_at is a schema
+            # violation (validate_pending_approval should have caught this
+            # on write; if we see it at read time, the registry has been
+            # tampered or a legacy entry predates the validator). Force
+            # ops to investigate rather than silently bypass staleness.
+            return {
+                "status": "error",
+                "error": "invalid_registry_entry",
+                "message": (
+                    f"Registry entry for {script_name!r}/{session_id!r} is missing "
+                    f"the 'staged_at' field required for staleness check. "
+                    f"Registry may be corrupted or written by an older schema version. "
+                    f"Inspect `.screw/local/pending-approvals.jsonl` and run "
+                    f"`sweep_stale_staging` to recover orphans."
+                ),
+            }
         try:
             staged_at = datetime.strptime(
-                registry_entry["staged_at"], "%Y-%m-%dT%H:%M:%SZ"
+                staged_at_str, "%Y-%m-%dT%H:%M:%SZ"
             ).replace(tzinfo=timezone.utc)
-            age = datetime.now(timezone.utc) - staged_at
-            if age > timedelta(hours=stale_threshold_hours) and not confirm_stale:
-                return {
-                    "status": "error",
-                    "error": "stale_staging",
-                    "message": (
-                        f"Staged {script_name!r} is {age.total_seconds()/3600:.1f}h old "
-                        f"(staged_at: {registry_entry['staged_at']}); "
-                        f"threshold is {stale_threshold_hours}h. "
-                        f"Re-type `approve {script_name} confirm-stale` to proceed anyway."
-                    ),
-                    "hours_old": round(age.total_seconds() / 3600, 1),
-                    "threshold_hours": stale_threshold_hours,
-                }
-        except (ValueError, KeyError):
-            pass  # malformed timestamp: skip staleness check (defensive)
+        except ValueError as exc:
+            return {
+                "status": "error",
+                "error": "invalid_registry_entry",
+                "message": (
+                    f"Registry entry for {script_name!r}/{session_id!r} has malformed "
+                    f"staged_at ({staged_at_str!r}; expected ISO8601 with Z suffix). "
+                    f"Parse error: {exc}. Inspect `.screw/local/pending-approvals.jsonl`."
+                ),
+            }
+        age = datetime.now(timezone.utc) - staged_at
+        if age > timedelta(hours=stale_threshold_hours) and not confirm_stale:
+            return {
+                "status": "error",
+                "error": "stale_staging",
+                "message": (
+                    f"Staged {script_name!r} is {age.total_seconds()/3600:.1f}h old "
+                    f"(staged_at: {staged_at_str}); "
+                    f"threshold is {stale_threshold_hours}h. "
+                    f"Re-type `approve {script_name} confirm-stale` to proceed anyway."
+                ),
+                "hours_old": round(age.total_seconds() / 3600, 1),
+                "threshold_hours": stale_threshold_hours,
+            }
 
     # Step 4b-5: lifecycle + primary/tamper.
     audit_event = "promoted"
@@ -1863,7 +2273,18 @@ def promote_staged_script(
         session_id=session_id,
     )
     if sign_result.get("status") != "signed":
-        return sign_result  # propagate error as-is (no_matching_reviewer, etc.)
+        # I2 taxonomy-normalization: _sign_script_bytes returns
+        # {"status": "error", "message": "..."} without an "error" key
+        # (no_matching_reviewer, custom_scripts_collision, meta_schema, etc.).
+        # Inject a stable error-key so callers pattern-matching on
+        # response["error"] don't KeyError. Preserve the original message in
+        # "detail" for operators.
+        return {
+            "status": "error",
+            "error": "sign_failed",
+            "message": sign_result.get("message", "Signing failed with no message"),
+            "detail": sign_result,
+        }
 
     # Step 8: delete staging.
     try:
@@ -1916,33 +2337,97 @@ def _read_stale_staging_hours(project_root: Path) -> int:
         return 24
 ```
 
-- [ ] **Step 5: Register MCP tool in `server.py`**
+- [ ] **Step 5: Register MCP tool in `server.py` AND add schema to `engine.list_tool_definitions`**
+
+**5a. Dispatch branch in `src/screw_agents/server.py`** (add after the T3 `stage_adaptive_script` branch, following the same `_dispatch_tool` `if name == "...":` pattern used by `sign_adaptive_script` at `server.py:144-151`):
 
 ```python
-@mcp.tool()
-async def promote_staged_script(
-    project_root: str,
-    script_name: str,
-    session_id: str,
-    confirm_sha_prefix: str | None = None,
-    confirm_stale: bool = False,
-) -> dict:
-    """Sign + promote a staged script. THE C1 FIX.
+# --- Phase 3b T4: promote_staged_script (C1 fix — approve path) ---
 
-    Takes NO source/meta parameter — reads from staging directory on disk
-    by construction. Promoted artifacts land in .screw/custom-scripts/.
-    See design spec §3.2.
-    """
-    return _engine.promote_staged_script(
-        project_root=Path(project_root),
-        script_name=script_name,
-        session_id=session_id,
-        confirm_sha_prefix=confirm_sha_prefix,
-        confirm_stale=confirm_stale,
+if name == "promote_staged_script":
+    return engine.promote_staged_script(
+        project_root=Path(args["project_root"]),
+        script_name=args["script_name"],
+        session_id=args["session_id"],
+        confirm_sha_prefix=args.get("confirm_sha_prefix"),
+        confirm_stale=args.get("confirm_stale", False),
     )
 ```
 
-Apply `additionalProperties: false` to the tool schema.
+Required args (`project_root`, `script_name`, `session_id`) use `args["..."]`. Optional args (`confirm_sha_prefix`, `confirm_stale`) use `args.get(...)` with the same defaults as the engine method — avoids KeyError on absence. **There is no `source` or `meta` arg — the C1 architectural closure.**
+
+**5b. Tool schema in `src/screw_agents/engine.list_tool_definitions`** — append a new `tools.append({...})` block:
+
+```python
+tools.append({
+    "name": "promote_staged_script",
+    "description": (
+        "Sign and promote a staged adaptive script — THE C1 FIX. Reads "
+        "source and meta from the session-scoped staging directory on "
+        "disk (no source/meta parameter, by construction), verifies the "
+        "staging bytes match the registry-recorded sha256 (tamper-detect), "
+        "then delegates to the shared _sign_script_bytes helper and "
+        "appends a promoted/promoted_via_fallback/promoted_confirm_stale "
+        "audit event. Promoted artifacts land in `.screw/custom-scripts/`. "
+        "Returns status=\"error\" with error=\"tamper_detected\" on sha "
+        "mismatch (preserves bytes for forensics), error=\"stale_staging\" "
+        "when staged_at age exceeds the configured threshold unless "
+        "confirm_stale=true, and error=\"fallback_required\" when the "
+        "registry entry is missing (caller re-invokes with "
+        "confirm_sha_prefix). See design spec §3.2."
+    ),
+    "input_schema": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "project_root": {
+                "type": "string",
+                "description": "Absolute path to the project root.",
+            },
+            "script_name": {
+                "type": "string",
+                "description": (
+                    "Filesystem-safe name (regex "
+                    "`^[a-z0-9][a-z0-9-]{2,62}$`) of the staged script "
+                    "to promote."
+                ),
+            },
+            "session_id": {
+                "type": "string",
+                "description": (
+                    "Scan session id the script was staged under "
+                    "(allowlist `^[A-Za-z0-9_-]{1,64}$`)."
+                ),
+            },
+            "confirm_sha_prefix": {
+                "type": ["string", "null"],
+                "description": (
+                    "Short sha256 prefix (first 8 hex chars) re-supplied "
+                    "by the caller when the registry lookup failed and "
+                    "a filesystem fallback walk is used (Q3 fallback "
+                    "path). Null for the normal registry-hit path."
+                ),
+            },
+            "confirm_stale": {
+                "type": "boolean",
+                "description": (
+                    "When true, allows promotion even if the staging "
+                    "entry is older than `stale_staging_hours` (default "
+                    "24). Caller must re-type an explicit "
+                    "`approve {name} confirm-stale` phrase."
+                ),
+            },
+        },
+        "required": [
+            "project_root",
+            "script_name",
+            "session_id",
+        ],
+    },
+})
+```
+
+**`additionalProperties: false`** is set directly per T10-M1 partial — do NOT omit. The schema gate is trust-path defense in depth (stops schema-extension smuggling that would re-introduce a `source` parameter).
 
 - [ ] **Step 6: Run tests — verify they pass**
 
@@ -1952,7 +2437,7 @@ Expected: all 12 promote tests PASS.
 - [ ] **Step 7: Run full suite**
 
 Run: `uv run pytest -q`
-Expected: 803 passed (791 post-T3 + 12 new promote tests).
+Expected: **~859 passed, 8 skipped** (846 post-T3 + ~13 new promote tests + ScrewConfig schema tests). Floor is 856, ceiling is ~862 depending on how parametrize + schema-validator tests count.
 
 - [ ] **Step 8: Commit**
 
@@ -1965,6 +2450,13 @@ git commit -m "feat(phase3b-c1): promote_staged_script MCP tool — C1 fix (T4)"
 
 **Cross-plan sync:** confirm all 12 Q-decisions from spec §3.2 are exercised by at least one test. If a Q decision ISN'T exercised (e.g., no test for invalid_lifecycle_state), add one now. C1 regression coverage is non-negotiable.
 
+**T4 Opus 4.7 re-review (2026-04-21):** Spec review APPROVED (all 10 HR + 15 tests pass). Quality review found 2 Important + 8 Minor items. Both Important items fixed in T4 part 2 commit:
+
+- **I-opus-1 (missing `script_sha256` in registry):** symmetric to I3's `staged_at` discipline. The tamper-detection code path used `registry_sha[:8]` in error messages; a missing `script_sha256` would crash with `TypeError: 'NoneType' object is not subscriptable`. Fixed with an explicit `invalid_registry_entry` return + regression test `test_promote_rejects_missing_script_sha256`.
+- **I-opus-2 (cross-plan C1-closure status):** added a C1 STATUS NOTE docstring paragraph to `sign_adaptive_script` documenting that T4 closes C1 for the staged-path approve flow but the direct-sign path remains open. Operators/auditors should not assume C1 is fully closed at the MCP boundary. Retirement migration tracked as BACKLOG-PR6-22.
+
+Minor items (I-opus-3 through I-opus-10) deferred to `docs/DEFERRED_BACKLOG.md` as `BACKLOG-PR6-21..28`.
+
 ---
 
 ### Task 5: `reject_staged_script` MCP Tool
@@ -1972,7 +2464,7 @@ git commit -m "feat(phase3b-c1): promote_staged_script MCP tool — C1 fix (T4)"
 **Files:**
 - Modify: `src/screw_agents/engine.py` (add `reject_staged_script`)
 - Modify: `src/screw_agents/server.py` (register MCP tool)
-- Modify: `tests/test_adaptive_staging.py` (+4 tests)
+- Modify: `tests/test_adaptive_staging.py` (+6 tests)
 
 - [ ] **Step 1: Write failing tests**
 
@@ -2038,10 +2530,99 @@ def test_reject_staged_script_idempotent_on_second_reject(tmp_path: Path) -> Non
     assert r2["status"] == "already_rejected"  # idempotent
 
 
+def test_reject_staged_script_rejects_invalid_session_id(tmp_path: Path) -> None:
+    """I1 regression: invalid session_id (rejected by T1-part-4 allowlist)
+    must become an error-dict, not an uncaught ValueError."""
+    from screw_agents.engine import ScanEngine
+
+    project = tmp_path / "project"
+    project.mkdir()
+    engine = ScanEngine.from_defaults()
+
+    response = engine.reject_staged_script(
+        project_root=project,
+        script_name="test-001",
+        session_id="foo\nbar",  # newline rejected by allowlist
+        reason=None,
+    )
+
+    assert response["status"] == "error"
+    assert response["error"] == "invalid_session_id"
+
+
+def test_reject_staged_script_rejects_invalid_script_name(tmp_path: Path) -> None:
+    """I1 regression: invalid script_name must become error-dict."""
+    from screw_agents.engine import ScanEngine
+
+    project = tmp_path / "project"
+    project.mkdir()
+    engine = ScanEngine.from_defaults()
+
+    response = engine.reject_staged_script(
+        project_root=project,
+        script_name="UPPERCASE",  # allowlist rejects uppercase
+        session_id="sess-abc",
+        reason=None,
+    )
+
+    assert response["status"] == "error"
+    assert response["error"] == "invalid_script_name"
+
+
 def test_reject_staged_script_updates_adaptive_prompts_json(tmp_path: Path) -> None:
     """T18b's decline tracking lives in .screw/local/adaptive_prompts.json —
-    reject MUST update it."""
-    # ...implementation similar to above; assert the file has the target entry.
+    reject MUST update it so the same target isn't re-proposed on the next scan."""
+    import json as _json
+    from screw_agents.engine import ScanEngine
+
+    project = tmp_path / "project"
+    project.mkdir()
+    engine = ScanEngine.from_defaults()
+
+    engine.stage_adaptive_script(
+        project_root=project, script_name="test-rej-003", source="pass\n",
+        meta={"name": "test-rej-003", "created": "2026-04-20T10:00:00Z",
+              "created_by": "t@e.co", "domain": "injection-input-handling",
+              "description": "d", "target_patterns": ["x"]},
+        session_id="sess-abc", target_gap=None,
+    )
+
+    response = engine.reject_staged_script(
+        project_root=project,
+        script_name="test-rej-003",
+        session_id="sess-abc",
+        reason="too speculative",
+    )
+
+    assert response["status"] == "rejected"
+
+    # The decline-tracking artifact must include the rejected script_name.
+    prompts_path = project / ".screw" / "local" / "adaptive_prompts.json"
+    assert prompts_path.exists(), (
+        "reject_staged_script must create adaptive_prompts.json if absent"
+    )
+    state = _json.loads(prompts_path.read_text(encoding="utf-8"))
+    assert "declined" in state
+    assert "test-rej-003" in state["declined"]
+
+    # Second reject on same target MUST NOT produce duplicate declined entries.
+    engine.stage_adaptive_script(
+        project_root=project, script_name="test-rej-003", source="pass\n",
+        meta={"name": "test-rej-003", "created": "2026-04-20T10:00:00Z",
+              "created_by": "t@e.co", "domain": "injection-input-handling",
+              "description": "d", "target_patterns": ["x"]},
+        session_id="sess-xyz", target_gap=None,  # different session
+    )
+    engine.reject_staged_script(
+        project_root=project,
+        script_name="test-rej-003",
+        session_id="sess-xyz",
+        reason=None,
+    )
+    state2 = _json.loads(prompts_path.read_text(encoding="utf-8"))
+    assert state2["declined"].count("test-rej-003") == 1, (
+        "declined list must deduplicate by script_name"
+    )
 
 
 def test_reject_staged_script_no_staging_returns_already_rejected(tmp_path: Path) -> None:
@@ -2090,7 +2671,28 @@ def reject_staged_script(
         resolve_staging_dir,
     )
 
-    stage_dir = resolve_staging_dir(project_root, session_id)
+    # Symmetric script_name validation (T3/T4 pattern).
+    from screw_agents.adaptive.script_name import validate_script_name
+    try:
+        validate_script_name(script_name)
+    except ValueError as exc:
+        return {
+            "status": "error",
+            "error": "invalid_script_name",
+            "message": str(exc),
+        }
+
+    # I1 defense-in-depth: resolve_staging_dir raises ValueError on invalid
+    # session_id (T1-part-4 allowlist). Catch + convert to error-dict for
+    # consistency with T3/T4's engine-layer contract — no ValueError leak.
+    try:
+        stage_dir = resolve_staging_dir(project_root, session_id)
+    except ValueError as exc:
+        return {
+            "status": "error",
+            "error": "invalid_session_id",
+            "message": str(exc),
+        }
     py_path = stage_dir / f"{script_name}.py"
     if not py_path.exists():
         return {
@@ -2140,26 +2742,76 @@ def reject_staged_script(
     }
 ```
 
-- [ ] **Step 4: Register MCP tool in `server.py`**
+- [ ] **Step 4: Register MCP tool in `server.py` AND add schema to `engine.list_tool_definitions`**
+
+**4a. Dispatch branch in `src/screw_agents/server.py`** (add after the T4 `promote_staged_script` branch, following the `_dispatch_tool` pattern):
 
 ```python
-@mcp.tool()
-async def reject_staged_script(
-    project_root: str,
-    script_name: str,
-    session_id: str,
-    reason: str | None = None,
-) -> dict:
-    """Delete staging files for a rejected script + record audit event. See §3.3."""
-    return _engine.reject_staged_script(
-        project_root=Path(project_root),
-        script_name=script_name,
-        session_id=session_id,
-        reason=reason,
+# --- Phase 3b T5: reject_staged_script (decline path) ---
+
+if name == "reject_staged_script":
+    return engine.reject_staged_script(
+        project_root=Path(args["project_root"]),
+        script_name=args["script_name"],
+        session_id=args["session_id"],
+        reason=args.get("reason"),
     )
 ```
 
-`additionalProperties: false` on schema.
+`reason` is optional via `args.get("reason")` — None when the caller supplies no rationale.
+
+**4b. Tool schema in `src/screw_agents/engine.list_tool_definitions`** — append a new `tools.append({...})` block:
+
+```python
+tools.append({
+    "name": "reject_staged_script",
+    "description": (
+        "Delete the staging files for a rejected adaptive script and "
+        "record a `rejected` audit event in the pending-approvals "
+        "registry. Idempotent: a second reject on already-deleted "
+        "staging returns status=\"already_rejected\" (success). Also "
+        "updates `.screw/local/adaptive_prompts.json` — the existing "
+        "T18b decline-tracking artifact — to add the target to the "
+        "`declined` list so it is not re-proposed. See design spec §3.3."
+    ),
+    "input_schema": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "project_root": {
+                "type": "string",
+                "description": "Absolute path to the project root.",
+            },
+            "script_name": {
+                "type": "string",
+                "description": (
+                    "Filesystem-safe name of the staged script to reject."
+                ),
+            },
+            "session_id": {
+                "type": "string",
+                "description": (
+                    "Scan session id the script was staged under."
+                ),
+            },
+            "reason": {
+                "type": ["string", "null"],
+                "description": (
+                    "Optional short rationale recorded in the audit "
+                    "event (why the reviewer declined this script)."
+                ),
+            },
+        },
+        "required": [
+            "project_root",
+            "script_name",
+            "session_id",
+        ],
+    },
+})
+```
+
+`additionalProperties: false` is set directly per T10-M1 partial.
 
 - [ ] **Step 5: Run tests + full suite**
 
@@ -2167,7 +2819,7 @@ Run: `uv run pytest tests/test_adaptive_staging.py -v -k "reject"`
 Expected: 4 PASS.
 
 Run: `uv run pytest -q`
-Expected: 807 passed.
+Expected: **868 passed, 8 skipped** (862 post-T4 + 6 new reject tests). Floor 866, ceiling ~870.
 
 - [ ] **Step 6: Commit**
 
@@ -2177,6 +2829,14 @@ git add src/screw_agents/engine.py \
         tests/test_adaptive_staging.py
 git commit -m "feat(phase3b-c1): reject_staged_script MCP tool (T5)"
 ```
+
+**T5 Opus 4.7 re-review (2026-04-21):** Spec review APPROVED (all 10 HRs pass). Quality review found 3 Important + 5 Minor items. All 3 Important fixed in T5 part 2 commit:
+
+- **I-T5-1 (prompts-file exception breadth):** `adaptive_prompts.json` update now catches `(PermissionError, OSError, ValueError)` and self-heals corrupted files (wrong shape, invalid JSON). +2 regression tests.
+- **I-T5-2 (delete_staged_files wrap):** symmetric to T4's wrap; ValueError → `{"error": "delete_failed", ...}` error-dict. +1 regression test.
+- **I-T5-3 (audit-count invariant):** idempotent test now asserts exactly one `rejected` event in registry after two rejects.
+
+Minor items deferred to DEFERRED_BACKLOG as `BACKLOG-PR6-32..36`.
 
 ---
 
@@ -2248,26 +2908,185 @@ def test_sweep_removes_stale_orphans(tmp_path: Path) -> None:
 
 
 def test_sweep_preserves_tampered_files(tmp_path: Path) -> None:
-    """TAMPERED marker preserves files for full max_age_days regardless."""
-    # ...stage; inject tamper; sweep with small max_age_days; assert preserved + reported.
+    """TAMPERED marker preserves files for full max_age_days regardless
+    of the normal age-based sweep. The tampered_preserved report field
+    enumerates preserved entries for operator review."""
+    from datetime import datetime, timedelta, timezone
+    from screw_agents.engine import ScanEngine
+    from screw_agents.adaptive.staging import resolve_registry_path, resolve_staging_dir
+
+    project = tmp_path / "project"
+    project.mkdir()
+    engine = ScanEngine.from_defaults()
+
+    # Stage a script, then plant a TAMPERED marker next to it.
+    engine.stage_adaptive_script(
+        project_root=project, script_name="tampered-001", source="pass\n",
+        meta={"name": "tampered-001", "created": "2026-04-20T10:00:00Z",
+              "created_by": "t@e.co", "domain": "injection-input-handling",
+              "description": "d", "target_patterns": ["x"]},
+        session_id="sess-t", target_gap=None,
+    )
+    stage_dir = resolve_staging_dir(project, "sess-t")
+    (stage_dir / "tampered-001.TAMPERED").touch()
+
+    # Rewrite staged_at so file is 10d old; max_age_days=14 → not yet expired.
+    ten_days_ago = (datetime.now(timezone.utc) - timedelta(days=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    registry = resolve_registry_path(project)
+    import json as _json
+    lines = registry.read_text().splitlines()
+    rewritten = []
+    for line in lines:
+        entry = _json.loads(line)
+        if entry.get("script_name") == "tampered-001":
+            entry["staged_at"] = ten_days_ago
+        rewritten.append(_json.dumps(entry, separators=(",", ":"), sort_keys=True))
+    registry.write_text("\n".join(rewritten) + "\n")
+
+    response = engine.sweep_stale_staging(project_root=project, max_age_days=14)
+
+    # File preserved, reported in tampered_preserved.
+    assert response["status"] == "swept"
+    preserved_names = [t["script_name"] for t in response["tampered_preserved"]]
+    assert "tampered-001" in preserved_names
+    assert (stage_dir / "tampered-001.py").exists()
+    assert (stage_dir / "tampered-001.TAMPERED").exists()
 
 
 def test_sweep_dry_run_no_side_effects(tmp_path: Path) -> None:
-    """dry_run=True reports what would be removed but touches no filesystem."""
-    # ...
+    """dry_run=True reports what WOULD be removed but touches no filesystem
+    and appends no swept audit events."""
+    from datetime import datetime, timedelta, timezone
+    from screw_agents.engine import ScanEngine
+    from screw_agents.adaptive.staging import resolve_registry_path, resolve_staging_dir
+
+    project = tmp_path / "project"
+    project.mkdir()
+    engine = ScanEngine.from_defaults()
+
+    # Stage an old script that would be swept in a real run.
+    engine.stage_adaptive_script(
+        project_root=project, script_name="dry-001", source="pass\n",
+        meta={"name": "dry-001", "created": "2026-04-20T10:00:00Z",
+              "created_by": "t@e.co", "domain": "injection-input-handling",
+              "description": "d", "target_patterns": ["x"]},
+        session_id="sess-dry", target_gap=None,
+    )
+    old = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    registry = resolve_registry_path(project)
+    import json as _json
+    lines = registry.read_text().splitlines()
+    rewritten = []
+    for line in lines:
+        entry = _json.loads(line)
+        if entry.get("script_name") == "dry-001":
+            entry["staged_at"] = old
+        rewritten.append(_json.dumps(entry, separators=(",", ":"), sort_keys=True))
+    registry.write_text("\n".join(rewritten) + "\n")
+
+    # Snapshot registry line count before dry-run.
+    lines_before = len(registry.read_text().splitlines())
+
+    response = engine.sweep_stale_staging(
+        project_root=project, max_age_days=14, dry_run=True,
+    )
+
+    assert response["status"] == "swept"
+    assert response["dry_run"] is True
+    # Report populated.
+    removed_names = [r["script_name"] for r in response["scripts_removed"]]
+    assert "dry-001" in removed_names
+    # Filesystem unchanged.
+    assert (resolve_staging_dir(project, "sess-dry") / "dry-001.py").exists()
+    # Registry unchanged — NO swept event appended.
+    lines_after = len(registry.read_text().splitlines())
+    assert lines_after == lines_before
 
 
 def test_sweep_removes_empty_session_dirs(tmp_path: Path) -> None:
-    """After removing the last script in a session, the session dir is gone."""
-    # ...
+    """After removing the last script in a session's adaptive-scripts dir,
+    the empty session directory itself is also removed + counted in
+    sessions_removed."""
+    from datetime import datetime, timedelta, timezone
+    from screw_agents.engine import ScanEngine
+    from screw_agents.adaptive.staging import resolve_registry_path, resolve_staging_dir
+
+    project = tmp_path / "project"
+    project.mkdir()
+    engine = ScanEngine.from_defaults()
+
+    engine.stage_adaptive_script(
+        project_root=project, script_name="only-001", source="pass\n",
+        meta={"name": "only-001", "created": "2026-04-20T10:00:00Z",
+              "created_by": "t@e.co", "domain": "injection-input-handling",
+              "description": "d", "target_patterns": ["x"]},
+        session_id="sess-solo", target_gap=None,
+    )
+    old = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    registry = resolve_registry_path(project)
+    import json as _json
+    lines = registry.read_text().splitlines()
+    rewritten = [
+        _json.dumps({**_json.loads(line), "staged_at": old}
+                    if _json.loads(line).get("script_name") == "only-001"
+                    else _json.loads(line),
+                    separators=(",", ":"), sort_keys=True)
+        for line in lines
+    ]
+    registry.write_text("\n".join(rewritten) + "\n")
+
+    response = engine.sweep_stale_staging(project_root=project, max_age_days=14)
+
+    assert response["sessions_removed"] >= 1
+    # Session dir gone.
+    session_dir = project / ".screw" / "staging" / "sess-solo"
+    assert not session_dir.exists()
 
 
 def test_sweep_reads_config_yaml_threshold(tmp_path: Path) -> None:
-    """.screw/config.yaml staging_max_age_days overrides the default."""
-    # ...
-```
+    """.screw/config.yaml staging_max_age_days overrides the default 14.
+    With threshold=7, a 10-day-old script is swept."""
+    from datetime import datetime, timedelta, timezone
+    from screw_agents.engine import ScanEngine
+    from screw_agents.adaptive.staging import resolve_registry_path, resolve_staging_dir
 
-(Expand the 4 `...` stubs to full tests following the pattern of the first.)
+    project = tmp_path / "project"
+    project.mkdir()
+    config_dir = project / ".screw"
+    config_dir.mkdir()
+    (config_dir / "config.yaml").write_text(
+        "version: 1\n"
+        "staging_max_age_days: 7\n",
+        encoding="utf-8",
+    )
+    engine = ScanEngine.from_defaults()
+
+    engine.stage_adaptive_script(
+        project_root=project, script_name="cfg-001", source="pass\n",
+        meta={"name": "cfg-001", "created": "2026-04-20T10:00:00Z",
+              "created_by": "t@e.co", "domain": "injection-input-handling",
+              "description": "d", "target_patterns": ["x"]},
+        session_id="sess-cfg", target_gap=None,
+    )
+    ten = (datetime.now(timezone.utc) - timedelta(days=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    registry = resolve_registry_path(project)
+    import json as _json
+    lines = registry.read_text().splitlines()
+    rewritten = []
+    for line in lines:
+        entry = _json.loads(line)
+        if entry.get("script_name") == "cfg-001":
+            entry["staged_at"] = ten
+        rewritten.append(_json.dumps(entry, separators=(",", ":"), sort_keys=True))
+    registry.write_text("\n".join(rewritten) + "\n")
+
+    # max_age_days=None → engine reads from config.yaml → 7.
+    response = engine.sweep_stale_staging(project_root=project)
+
+    assert response["max_age_days"] == 7
+    removed_names = [r["script_name"] for r in response["scripts_removed"]]
+    assert "cfg-001" in removed_names
+```
 
 - [ ] **Step 2: Run tests — verify they fail**
 
@@ -2296,7 +3115,6 @@ def sweep_stale(
     """
     from datetime import datetime, timedelta, timezone
 
-    cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
     staging_root = project_root / ".screw" / "staging"
     scripts_removed: list[dict] = []
     tampered_preserved: list[dict] = []
@@ -2332,7 +3150,7 @@ def sweep_stale(
                 tampered_marker = adapt_dir / f"{script_name}.TAMPERED"
 
                 # Compute file age from staged_at (or mtime as fallback).
-                age_days = _compute_age_days(entry, py_path, cutoff)
+                age_days = _compute_age_days(entry, py_path)
                 reason = _classify_sweep_reason(entry, age_days, max_age_days)
 
                 if reason is None:
@@ -2392,7 +3210,7 @@ def sweep_stale(
     }
 
 
-def _compute_age_days(entry: dict | None, py_path: Path, cutoff) -> int:
+def _compute_age_days(entry: dict | None, py_path: Path) -> int:
     """Return age in days based on registry staged_at or file mtime fallback."""
     from datetime import datetime, timezone
     if entry and "staged_at" in entry:
@@ -2405,12 +3223,45 @@ def _compute_age_days(entry: dict | None, py_path: Path, cutoff) -> int:
     return (datetime.now(timezone.utc) - mtime).days
 
 
-def _classify_sweep_reason(entry: dict | None, age_days: int, max_age_days: int) -> str | None:
+# Terminal/completed events — staging files shouldn't still exist if the
+# lifecycle reached any of these. A staged→promoted path deletes staging
+# files (per T4's flow) or logs the failure (per T5's I-T5-2 wrap). Any
+# staged files left behind = orphan to sweep. All 3 promote variants
+# (T4 emits them depending on fallback / confirm-stale) + reject + swept.
+_TERMINAL_EVENTS: frozenset[str] = frozenset({
+    "promoted",
+    "promoted_via_fallback",
+    "promoted_confirm_stale",
+    "rejected",
+    "swept",
+})
+
+
+def _classify_sweep_reason(
+    entry: dict | None, age_days: int, max_age_days: int
+) -> str | None:
     """Decide whether this staging entry should be swept.
 
     Returns reason string or None (keep).
+
+    Rules:
+      - `tamper_detected` as most-recent event → preserve regardless of age
+        (forensic evidence; sweep after max_age_days expiration via the
+        age-based branch, but the TAMPERED marker check in sweep_stale
+        gets the first vote).
+      - Any terminal-lifecycle event → completed_orphan (sweep regardless
+        of age — the files shouldn't be there post-lifecycle).
+      - Age >= max_age_days → stale_orphan.
+      - Otherwise keep.
     """
-    if entry and entry.get("event") in ("promoted", "rejected", "swept"):
+    if entry and entry.get("event") == "tamper_detected":
+        # Do NOT report tamper_detected as sweepable here; the marker-file
+        # check in sweep_stale owns the preserve-vs-expire decision.
+        if age_days >= max_age_days:
+            return "stale_orphan"  # tamper evidence expired; sweep caller
+                                    # still has tampered_preserved reporting
+        return None
+    if entry and entry.get("event") in _TERMINAL_EVENTS:
         return "completed_orphan"
     if age_days >= max_age_days:
         return "stale_orphan"
@@ -2431,7 +3282,7 @@ def sweep_stale_staging(
     from screw_agents.adaptive.staging import sweep_stale
 
     if max_age_days is None:
-        max_age_days = self._read_staging_max_age_days(project_root)
+        max_age_days = _read_staging_max_age_days(project_root)
     max_age_days = max(1, min(365, int(max_age_days)))
 
     return sweep_stale(
@@ -2441,8 +3292,14 @@ def sweep_stale_staging(
     )
 
 
-def _read_staging_max_age_days(self, project_root: Path) -> int:
-    """Return staging_max_age_days from config (default 14, clamped 1-365)."""
+def _read_staging_max_age_days(project_root: Path) -> int:
+    """Return staging_max_age_days from config (default 14, clamped 1-365).
+
+    Module-level helper symmetric with `_read_stale_staging_hours` (T4 /
+    engine.py:63). Raw YAML fallback handles missing/corrupt config; the
+    canonical validation path is `ScrewConfig.staging_max_age_days`
+    (T4-part-2 I1 schema addition).
+    """
     try:
         import yaml
         config_path = project_root / ".screw" / "config.yaml"
@@ -2451,32 +3308,81 @@ def _read_staging_max_age_days(self, project_root: Path) -> int:
         with open(config_path, encoding="utf-8") as f:
             cfg = yaml.safe_load(f) or {}
         return max(1, min(365, int(cfg.get("staging_max_age_days", 14))))
-    except Exception:
+    except (PermissionError, OSError, ValueError):
         return 14
 ```
 
-- [ ] **Step 5: Register MCP tool**
+- [ ] **Step 5: Register MCP tool in `server.py` AND add schema to `engine.list_tool_definitions`**
+
+**5a. Dispatch branch in `src/screw_agents/server.py`** (add after the T5 `reject_staged_script` branch, following the `_dispatch_tool` pattern):
 
 ```python
-@mcp.tool()
-async def sweep_stale_staging(
-    project_root: str,
-    max_age_days: int | None = None,
-    dry_run: bool = False,
-) -> dict:
-    """Clean up orphaned staging entries. Absorbs T-STAGING-ORPHAN-GC. §3.4."""
-    return _engine.sweep_stale_staging(
-        project_root=Path(project_root),
-        max_age_days=max_age_days,
-        dry_run=dry_run,
+# --- Phase 3b T6: sweep_stale_staging (orphan GC — absorbs T-STAGING-ORPHAN-GC) ---
+
+if name == "sweep_stale_staging":
+    return engine.sweep_stale_staging(
+        project_root=Path(args["project_root"]),
+        max_age_days=args.get("max_age_days"),
+        dry_run=args.get("dry_run", False),
     )
 ```
 
-`additionalProperties: false` on schema.
+Both `max_age_days` and `dry_run` are optional via `args.get(...)`. `max_age_days=None` makes the engine fall back to `staging_max_age_days` from config (default 14, clamped 1-365).
+
+**5b. Tool schema in `src/screw_agents/engine.list_tool_definitions`** — append a new `tools.append({...})` block:
+
+```python
+tools.append({
+    "name": "sweep_stale_staging",
+    "description": (
+        "Clean up orphaned staging entries — session directories under "
+        "`.screw/staging/` that are stale (older than max_age_days) or "
+        "whose most-recent registry event is a terminal state "
+        "(promoted / rejected / swept) but whose files were left behind. "
+        "Absorbs the deferred T-STAGING-ORPHAN-GC backlog item: covers "
+        "both the new C1 staging artifacts and legacy session-scoped "
+        "finalize-never-called staging dirs. When dry_run=true, reports "
+        "what would be removed without deleting anything. See design "
+        "spec §3.4."
+    ),
+    "input_schema": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "project_root": {
+                "type": "string",
+                "description": "Absolute path to the project root.",
+            },
+            "max_age_days": {
+                "type": ["integer", "null"],
+                "description": (
+                    "Maximum age (in days) before a staging entry is "
+                    "considered stale. Null means read from config "
+                    "(`staging_max_age_days`, default 14). Clamped to "
+                    "[1, 365]."
+                ),
+            },
+            "dry_run": {
+                "type": "boolean",
+                "description": (
+                    "When true, returns the list of entries that would "
+                    "be removed without actually deleting files. Useful "
+                    "for preview / CI assertions."
+                ),
+            },
+        },
+        "required": [
+            "project_root",
+        ],
+    },
+})
+```
+
+`additionalProperties: false` is set directly per T10-M1 partial.
 
 - [ ] **Step 6: Run tests + full suite**
 
-Expected: 5 PASS, full suite 812 passed.
+Expected: 5 PASS, full suite **~876 passed, 8 skipped** (871 post-T5 + 5 new sweep tests).
 
 - [ ] **Step 7: Commit**
 
@@ -2489,6 +3395,12 @@ git commit -m "feat(phase3b-c1): sweep_stale_staging MCP tool (T6, absorbs T-STA
 ```
 
 **Cross-plan sync:** once merged, `T-STAGING-ORPHAN-GC` moves from Phase 4+ deferred to Shipped (PR #6). Update DEFERRED_BACKLOG in T24.
+
+**T6 Opus 4.7 re-review (2026-04-21):** Spec review APPROVED (all 10 HRs pass, including the implementer's TAMPERED-marker reordering which is semantically superior to the plan's pseudocode). Quality review found **1 Important + 9 Minor** — hitting the 0-1 Important target per `feedback_cross_task_precedent_checks`. The one Important item fixed in T6 part 2 commit:
+
+- **I-T6-quality-1 (partial-state window on registry append failure):** `append_registry_entry` raises `ValueError` on registry I/O failure; outer `except (PermissionError, OSError)` does NOT catch it. Files were already deleted but `scripts_removed.append` ran AFTER — exception escaped with no in-memory tracking of the deletion. Fix: reorder `scripts_removed.append(...)` to come BEFORE `append_registry_entry(...)` inside the `if not dry_run:` block. Regression test verifies the filesystem is reflected post-ValueError even when registry append fails.
+
+Minor items deferred to DEFERRED_BACKLOG as `BACKLOG-PR6-40..48`.
 
 ---
 
@@ -2531,18 +3443,38 @@ scripts = result["scripts"]  # engine returns dict wrapper, not bare list
 
 (Existing tests return `list`; new engine method returns `dict` with `scripts` key and `status` key per spec §3.5.)
 
-Similarly `remove_adaptive_script(project_root, script_name, confirmed)` becomes `engine.remove_adaptive_script(...)`.
+**Scope — what migrates in T7 vs. T8/T9:**
 
-**Critical:** keep ALL existing test assertions. The behavior must not regress — this is purely a re-homing of the function.
+| Test group | Migrates in | How |
+|------------|-------------|-----|
+| `TestListAdaptiveScripts` (7 tests, lines 56-152) | T7 | `list_adaptive_scripts(tmp_path)` → `engine.list_adaptive_scripts(project_root=tmp_path)["scripts"]` |
+| `TestCheckStale` (5 tests, lines 155-268) | T7 | `from screw_agents.cli.adaptive_cleanup import _check_stale` → `from screw_agents.adaptive.executor import _check_stale` (lines 233, 253 in test file). See plan-fix #1 below. |
+| `TestStaleSemanticAlignment` (1 test, lines 271-353) | T7 | `from screw_agents.cli.adaptive_cleanup import _check_stale` → `from screw_agents.adaptive.executor import _check_stale` (line 315). Merge with the existing `from screw_agents.adaptive.executor import _is_stale` import. |
+| `TestRemoveAdaptiveScript` (3 tests, lines 356-403) | **T8 — DO NOT migrate in T7** | `engine.remove_adaptive_script` does not exist until T8. Leave these tests pointing at `from screw_agents.cli.adaptive_cleanup import remove_adaptive_script`; they continue to pass because the CLI function survives until T9. |
+
+**Critical:** keep ALL existing test assertions for the migrated groups. The behavior must not regress — this is purely a re-homing of the function.
 
 - [ ] **Step 3: Run migrated tests — they MUST fail**
 
 Run: `uv run pytest tests/test_adaptive_cleanup.py -v`
 Expected: FAIL with `AttributeError: 'ScanEngine' object has no attribute 'list_adaptive_scripts'`.
 
-- [ ] **Step 4: Implement `engine.list_adaptive_scripts`**
+- [ ] **Step 4: Implement `engine.list_adaptive_scripts` and relocate `_check_stale`**
 
-LIFT the logic from `cli/adaptive_cleanup.py::list_adaptive_scripts` into `engine.py` as a method. The CLI helper functions (`_check_stale`, etc.) move alongside. Preserve every behavioral detail: stale flag computation, signed_by extraction, target_patterns check.
+LIFT the logic from `cli/adaptive_cleanup.py::list_adaptive_scripts` into `engine.py` as a method. Preserve every behavioral detail: alphabetical sort by `name` (CLI `:108`), all 12 per-script fields (name/created/created_by/domain/description/target_patterns/findings_produced/last_used/validated/signed_by/stale/stale_reason), orphan skips (meta without .py, malformed YAML, non-dict meta), empty-dir → `{"status": "ok", "scripts": []}`.
+
+**Plan-fix #1 — `_check_stale` moves to `adaptive/executor.py`, NOT into `engine.py`:**
+
+The `_check_stale` helper is semantically twinned with `adaptive/executor.py::_is_stale` — the `cli/adaptive_cleanup.py:1-19` module docstring already asserts this alignment as load-bearing and warns that drift "would confuse users who see 'stale' in one surface but not the other." Co-locating the two functions in `adaptive/executor.py` closes the drift risk AND survives T9's deletion of the CLI module cleanly (the 3 test imports at `test_adaptive_cleanup.py:233, 253, 315` re-target to the new home as part of T7's migration, not left dangling for T9).
+
+Concrete steps:
+
+1. Move `_check_stale` (~50 lines, currently at `cli/adaptive_cleanup.py:210-258`) **verbatim** into `src/screw_agents/adaptive/executor.py`, placed immediately after `_is_stale` (currently at `executor.py:209`).
+2. Add `ProjectPathError` to the existing `from screw_agents.adaptive.project import ProjectRoot` import at `executor.py:35` (i.e. `from screw_agents.adaptive.project import ProjectPathError, ProjectRoot`).
+3. **CLI file stays functional until T9 deletes it** — so `cli/adaptive_cleanup.py::list_adaptive_scripts` must keep working for the T22 test (`test_adaptive_workflow.py:483`) which won't migrate until T9. Replace the local `_check_stale` definition in `cli/adaptive_cleanup.py` with a re-import: `from screw_agents.adaptive.executor import _check_stale` (module-top). The `find_calls` and `ProjectRoot` imports at `cli/adaptive_cleanup.py:29-30` become unused in that file once `_check_stale`'s definition moves — delete them (ruff would flag). The public interface of `cli.adaptive_cleanup` is preserved: `_check_stale` remains importable from the CLI module (re-export) for test-import back-compat during the T7→T9 window.
+4. The engine method's `_inspect_adaptive_script` helper (still an instance method on `ScanEngine` per the code block below) imports `_check_stale` from its new home: `from screw_agents.adaptive.executor import _check_stale`.
+
+Rationale summary: `find_calls` and `ProjectRoot` are already in `adaptive/`, so `_check_stale` has zero new dependencies in its new home. `_is_stale` (boolean) and `_check_stale` (boolean + reason string) use the same decision tree; co-location is the natural outcome. Engine.py stays focused on MCP-level orchestration rather than growing an adaptive-script staleness helper. The CLI module's `_check_stale` re-export survives the T7→T9 window so T22's non-migrated test path keeps working.
 
 ```python
 def list_adaptive_scripts(
@@ -2579,16 +3511,50 @@ def _inspect_adaptive_script(self, project_root, py_path, meta_path) -> dict:
     # ... verbatim lift of the per-script logic from cli/adaptive_cleanup.py ...
 ```
 
-- [ ] **Step 5: Register MCP tool**
+- [ ] **Step 5: Register MCP tool in `server.py` AND add schema to `engine.list_tool_definitions`**
+
+**5a. Dispatch branch in `src/screw_agents/server.py`** (add in the adaptive-handlers block, following the `_dispatch_tool` pattern):
 
 ```python
-@mcp.tool()
-async def list_adaptive_scripts(project_root: str) -> dict:
-    """List adaptive scripts with validation + staleness. See spec §3.5."""
-    return _engine.list_adaptive_scripts(project_root=Path(project_root))
+# --- Phase 3b T7: list_adaptive_scripts (I6 MCP promotion) ---
+
+if name == "list_adaptive_scripts":
+    return engine.list_adaptive_scripts(
+        project_root=Path(args["project_root"]),
+    )
 ```
 
-`additionalProperties: false` on schema.
+**5b. Tool schema in `src/screw_agents/engine.list_tool_definitions`** — append a new `tools.append({...})` block:
+
+```python
+tools.append({
+    "name": "list_adaptive_scripts",
+    "description": (
+        "List all adaptive scripts present at `.screw/custom-scripts/` "
+        "with their validation status and per-script staleness "
+        "information. Promoted from `cli/adaptive_cleanup.py` in PR #6 "
+        "per I6 — slash-command invocation was breaking on `cwd` "
+        "mismatch. Returns `{\"status\": \"ok\", \"scripts\": [{name, "
+        "validated, signed_by, stale, stale_reason, ...}]}`. Behavior "
+        "unchanged from T21. See design spec §3.5."
+    ),
+    "input_schema": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "project_root": {
+                "type": "string",
+                "description": "Absolute path to the project root.",
+            },
+        },
+        "required": [
+            "project_root",
+        ],
+    },
+})
+```
+
+`additionalProperties: false` is set directly per T10-M1 partial.
 
 - [ ] **Step 6: Run tests — verify pass**
 
@@ -2610,6 +3576,14 @@ git add src/screw_agents/engine.py \
 git commit -m "feat(phase3b-c1): promote list_adaptive_scripts to engine + MCP tool (T7, I6 part 1)"
 ```
 
+**T7 Opus 4.7 re-review (2026-04-22):** Spec review PASSED 14/14 HRs (HR13 test-count unverified by sub-agent due to a Bash permission edge; verified 877 passed / 8 skipped in the foreground session). Quality review APPROVED with 0 Critical, 0 Important, 1 Minor — comfortably under the 0-1 Important target per `feedback_cross_task_precedent_checks`. T7's narrow read-only scope made that outcome the expected shape rather than the lucky one.
+
+Cross-task symmetry vs. T3-T6 held: keyword-only method signature (`engine.py:1237-1241`), in-body imports (`:1310`), narrow `except (yaml.YAMLError, OSError)` (`:1314`), `status`-carrying return dict, tool-schema format with `additionalProperties: false` and spec-§ citation. `_check_stale` co-location per plan-fix #1 landed cleanly; `cli/adaptive_cleanup.py` retained the re-export so T22's non-migrated test path (`tests/test_adaptive_workflow.py:483`) keeps working through the T7→T9 window. The implementer chose to place the new engine method after `lint_adaptive_script` (rather than after `sweep_stale_staging`) for logical grouping with the other adaptive-script methods; plan left both options open.
+
+No Important items → no fix-up commit. Minor items deferred to DEFERRED_BACKLOG as `BACKLOG-PR6-49` (stale docstring in `cli/adaptive_cleanup.py:16-19`, auto-resolves when T9 deletes the file) and `BACKLOG-PR6-50` (verbatim-lifted `except Exception` in `_check_stale` — narrowing is out of T7's scope and belongs with the broader T3-M1 sweep).
+
+T7 commit: `93f04bc`. Plan-fix commit: `32bc93f`.
+
 ---
 
 ### Task 8: Promote `remove_adaptive_script` to Engine Method + MCP Tool
@@ -2617,11 +3591,15 @@ git commit -m "feat(phase3b-c1): promote list_adaptive_scripts to engine + MCP t
 **Files:**
 - Modify: `src/screw_agents/engine.py` (add `remove_adaptive_script`)
 - Modify: `src/screw_agents/server.py` (register MCP tool)
-- Modify: `tests/test_adaptive_cleanup.py` (migration already done in T7)
+- Modify: `tests/test_adaptive_cleanup.py` (migrate `TestRemoveAdaptiveScript` — deferred from T7 per T7 plan-fix #2; rewrites + new tests per T8 plan-fix #3 below)
 
-Follow the T7 pattern exactly. Existing T21 confirmation-gate semantics preserved.
+Follow the T7 pattern exactly. Existing T21 confirmation-gate semantics preserved AND promoted from slash-command level into the engine method.
 
 - [ ] **Step 1: Implement `engine.remove_adaptive_script`**
+
+**Plan-fix #1 (OSError)**: return an error-dict instead of `raise ValueError(...)`, matching T5 `reject_staged_script` at `engine.py:977-983` (`delete_failed` error-dict) and the existing CLI `remove_adaptive_script` at `cli/adaptive_cleanup.py:177-185` (OSError returns error-dict, never raises). This preserves the "all error paths return dicts" invariant shared by T3-T7 and protects callers pattern-matching on `response["status"] == "error"`.
+
+**Plan-fix #2 (existence check)**: check BOTH `py_path` and `meta_path` when deciding `not_found`. If either exists, proceed with delete (both unlinks use `missing_ok=True`). This restores T21's orphan-meta cleanup: if the prior state was "py gone, meta orphaned" from a crash between the two unlinks, the plan's original one-sided check would leave the orphan meta forever. The `"partial"` status from T21 CLI is intentionally dropped (spec §3.6 consolidates into `"removed"`), but the underlying cleanup capability must survive.
 
 ```python
 def remove_adaptive_script(
@@ -2630,7 +3608,7 @@ def remove_adaptive_script(
     project_root: Path,
     script_name: str,
     confirmed: bool = False,
-) -> dict:
+) -> dict[str, Any]:
     """Delete an adaptive script pair from .screw/custom-scripts/.
 
     T21 confirmation gate preserved: confirmed=False returns
@@ -2650,56 +3628,145 @@ def remove_adaptive_script(
     py_path = custom_scripts_dir / f"{script_name}.py"
     meta_path = custom_scripts_dir / f"{script_name}.meta.yaml"
 
-    if not py_path.exists():
+    # Plan-fix #2: check BOTH — either-present means there is still state
+    # to clean up. Only both-absent is a genuine not_found.
+    if not py_path.exists() and not meta_path.exists():
         return {
             "status": "error",
             "error": "not_found",
-            "message": f"{script_name}.py not found in custom-scripts/",
+            "message": f"{script_name} not found in custom-scripts/",
         }
 
     try:
         py_path.unlink(missing_ok=True)
         meta_path.unlink(missing_ok=True)
     except (PermissionError, OSError) as exc:
-        raise ValueError(
-            f"failed to remove {script_name} ({type(exc).__name__}: {exc})"
-        ) from exc
+        # Plan-fix #1: error-dict per T5 delete_failed precedent
+        # (engine.py:977-983). NOT a raise — callers pattern-match on
+        # response["status"].
+        return {
+            "status": "error",
+            "error": "delete_failed",
+            "message": str(exc),
+            "script_name": script_name,
+        }
 
     return {"status": "removed", "script_name": script_name}
 ```
 
-- [ ] **Step 2: Register MCP tool**
+- [ ] **Step 2: Register MCP tool in `server.py` AND add schema to `engine.list_tool_definitions`**
+
+**2a. Dispatch branch in `src/screw_agents/server.py`** (add after the T7 `list_adaptive_scripts` branch, following the `_dispatch_tool` pattern):
 
 ```python
-@mcp.tool()
-async def remove_adaptive_script(
-    project_root: str,
-    script_name: str,
-    confirmed: bool = False,
-) -> dict:
-    """Delete an adaptive script pair with confirmation gate. See §3.6."""
-    return _engine.remove_adaptive_script(
-        project_root=Path(project_root),
-        script_name=script_name,
-        confirmed=confirmed,
+# --- Phase 3b T8: remove_adaptive_script (I6 MCP promotion — confirmation-gated) ---
+
+if name == "remove_adaptive_script":
+    return engine.remove_adaptive_script(
+        project_root=Path(args["project_root"]),
+        script_name=args["script_name"],
+        confirmed=args.get("confirmed", False),
     )
 ```
 
-- [ ] **Step 3: Run tests + full suite**
+`confirmed` defaults to False via `args.get(...)`; the engine method returns `status="error"` / `error="confirmation_required"` when False. The caller (slash command) is expected to prompt the user for "yes" before passing `confirmed=True`.
+
+**2b. Tool schema in `src/screw_agents/engine.list_tool_definitions`** — append a new `tools.append({...})` block:
+
+```python
+tools.append({
+    "name": "remove_adaptive_script",
+    "description": (
+        "Delete an adaptive script pair (`{name}.py` + `{name}.meta.yaml`) "
+        "from `.screw/custom-scripts/`, gated by an explicit "
+        "`confirmed=true` flag (T21 confirmation-gate semantics "
+        "preserved). Returns status=\"error\" / "
+        "error=\"confirmation_required\" when confirmed is False or "
+        "omitted, status=\"error\" / error=\"not_found\" when the "
+        "script is missing, otherwise status=\"removed\". Promoted from "
+        "`cli/adaptive_cleanup.py` in PR #6 per I6. See design spec §3.6."
+    ),
+    "input_schema": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "project_root": {
+                "type": "string",
+                "description": "Absolute path to the project root.",
+            },
+            "script_name": {
+                "type": "string",
+                "description": (
+                    "Filesystem-safe name of the adaptive script to "
+                    "remove (without `.py` / `.meta.yaml` suffix)."
+                ),
+            },
+            "confirmed": {
+                "type": "boolean",
+                "description": (
+                    "Must be true to actually delete. False (or absent) "
+                    "returns error=\"confirmation_required\" — the "
+                    "caller is expected to prompt the user for \"yes\" "
+                    "before retrying with confirmed=true."
+                ),
+            },
+        },
+        "required": [
+            "project_root",
+            "script_name",
+        ],
+    },
+})
+```
+
+`additionalProperties: false` is set directly per T10-M1 partial.
+
+- [ ] **Step 3: Migrate and extend `TestRemoveAdaptiveScript` test group**
+
+**Plan-fix #3**: Contrary to the `**Files:**` block's "migration already done in T7" line, T7 plan-fix #2 EXPLICITLY deferred `TestRemoveAdaptiveScript` (test file lines 356-403) to T8. Those 3 tests still import `from screw_agents.cli.adaptive_cleanup import remove_adaptive_script` and must be migrated now.
+
+Concrete migration:
+
+1. **`test_remove_deletes_both_files`**: change call to `engine.remove_adaptive_script(project_root=tmp_path, script_name="bad", confirmed=True)`. Drop `assert "bad" in result["message"]` (no `message` on success). Drop `assert len(result["removed_files"]) == 2` (field removed per spec §3.6). Keep `assert result["status"] == "removed"` and the filesystem assertions.
+2. **`test_remove_not_found_returns_status`**: add `confirmed=True` to the call. Change `assert result["status"] == "not_found"` to `assert result["status"] == "error"` + `assert result["error"] == "not_found"`. Drop `assert "ghost" in result["message"]` and `assert result["removed_files"] == []`.
+3. **`test_remove_partial_state_is_handled`** (T21's orphan-cleanup test): rewrite as `test_remove_cleans_up_partial_state`. Seeds only `.py` (no meta); call with `confirmed=True`; assert `result["status"] == "removed"` and that `.py` is gone (meta was already missing — `missing_ok=True` handles that path). This now exercises plan-fix #2 (either-exists triggers delete) rather than the old `"partial"` status signal. Add a second case in the same test or a sibling test seeding only `.meta.yaml` (orphan-meta cleanup) and assert same `status="removed"` outcome — this is the scenario plan-fix #2 specifically protects.
+
+4. **ADD new test `test_remove_requires_confirmation_gate`**: call `engine.remove_adaptive_script(project_root=tmp_path, script_name="any")` (no `confirmed`, or `confirmed=False`). Assert `result["status"] == "error"` + `result["error"] == "confirmation_required"` + `"confirmed=True"` appears in `result["message"]`. Also verify no files were deleted when the gate fires. This is the headline new behavior — every other test would false-pass if the gate silently let writes through.
+
+5. **ADD new test `test_remove_delete_failed_returns_error_dict`** (optional but recommended — plan-fix #1 regression guard): patch `Path.unlink` to raise `PermissionError`; assert `result["status"] == "error"` + `result["error"] == "delete_failed"` + `result["message"]` contains the OS error string + `result["script_name"]` is echoed. Pins the T5-precedent error-dict contract so a future refactor doesn't silently re-introduce a raise.
+
+Test count after T8 (per plan-fix #4): pre-T8 baseline 877 + 1 (either-exists orphan cleanup, if you split into two tests) + 1 (confirmation gate) + 1 (delete_failed) = **880 passed, 8 skipped**. If you fold the orphan-meta scenario into the rewritten `test_remove_cleans_up_partial_state` as a second subcase (not a separate test), the count becomes 879. Either shape is acceptable; pick what reads cleanest and update the expected count in the closeout to match.
+
+- [ ] **Step 4: Run tests + full suite**
 
 Run: `uv run pytest tests/test_adaptive_cleanup.py -v`
-Expected: all migrated tests PASS.
+Expected: all migrated + new tests PASS. No CLI-import lingering in `TestRemoveAdaptiveScript`.
 
 Run: `uv run pytest -q`
-Expected: 812 passed.
+Expected: **879 or 880 passed, 8 skipped** (plan-fix #4 — 812 was the stale pre-T1 estimate). Report the actual count in your closeout for the cross-plan-sync commit.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add src/screw_agents/engine.py \
-        src/screw_agents/server.py
+        src/screw_agents/server.py \
+        tests/test_adaptive_cleanup.py
 git commit -m "feat(phase3b-c1): promote remove_adaptive_script to engine + MCP tool (T8, I6 part 2)"
 ```
+
+(Test file now included in the commit per plan-fix #3 — `TestRemoveAdaptiveScript` migrates in this task, not T7.)
+
+**T8 Opus 4.7 re-review (2026-04-22):** Spec review PASSED 11/11 HRs (HR9 test-count and HR11 C1 sentinel verified in foreground — 880 passed, 8 skipped; sentinel `test_sign_output_passes_executor_verification` passes). Quality review APPROVED. Both reviewers reported **0 Critical + 0 Important + 2 Minor** each. Net actionable: 2 Minor items total (the two spec-review Minors were either already-resolved or informational; both quality-review Minors are cosmetic). Spec reviewer called T8 "the cleanest cross-task symmetry audited in PR #6" — two tasks in a row hitting 0 Important against the 0-1 target per `feedback_cross_task_precedent_checks`.
+
+All 4 plan-fixes landed cleanly:
+- Plan-fix #1 (OSError error-dict per T5 precedent `engine.py:977-983`): implemented at `engine.py:1397-1406` with inline landmark comment citing the precedent.
+- Plan-fix #2 (either-exists AND check to preserve orphan-meta cleanup): implemented at `engine.py:1387` with inline landmark comment; regression-guarded by `test_remove_cleans_up_partial_state_meta_only`.
+- Plan-fix #3 (test migration scope): 3 existing tests migrated + 2 new tests (confirmation-gate, delete_failed regression guard) + 1 split (py-only + meta-only siblings). Zero leftover `cli.adaptive_cleanup` imports in the test file.
+- Plan-fix #4 (corrected pytest count): 880 passed, 8 skipped — upper bound matches because the implementer chose the 2-sibling split rather than the 1-test fold, per the plan's "pick what reads cleanest" guidance.
+
+No Important items → no fix-up commit. Minor items deferred to DEFERRED_BACKLOG as `BACKLOG-PR6-51` (module docstring drift in `tests/test_adaptive_cleanup.py:1-15`) and `BACKLOG-PR6-52` (asymmetric filesystem assertion in `test_remove_cleans_up_partial_state_py_only` — vacuous currently, symmetry polish).
+
+T8 commit: `42c8665`. Plan-fix commit: `277034f`.
 
 ---
 
@@ -2714,10 +3781,13 @@ git commit -m "feat(phase3b-c1): promote remove_adaptive_script to engine + MCP 
 - [ ] **Step 1: Verify nothing outside tests imports from cli.adaptive_cleanup**
 
 Run: `grep -rn "from screw_agents.cli.adaptive_cleanup" --include="*.py" --include="*.md"`
-Expected ONLY:
-- `tests/test_adaptive_cleanup.py` (already migrated in T7)
-- `tests/test_adaptive_workflow.py` (needs migration in this task)
-- `plugins/screw/commands/adaptive-cleanup.md` (will be rewritten in T19)
+
+**Plan-fix #1 (T9)**: After T8, `tests/test_adaptive_cleanup.py` has ZERO `cli.adaptive_cleanup` imports (T8 migrated the `TestRemoveAdaptiveScript` group that T7 deferred). The one reference at `tests/test_adaptive_cleanup.py:367` is a historical docstring mention ("Migrated from the former `cli.adaptive_cleanup.remove_adaptive_script`"), not an `from ... import ...` line, so it does NOT match the grep pattern.
+
+Expected ONLY (3 matches total):
+- `tests/test_adaptive_workflow.py:66` (needs migration in this task — the T22 test imports `list_adaptive_scripts`)
+- `plugins/screw/commands/adaptive-cleanup.md:42` (slash command — rewritten in T19)
+- `plugins/screw/commands/adaptive-cleanup.md:85` (slash command — rewritten in T19)
 
 If any OTHER file imports — stop. Revise plan before deleting.
 
@@ -2751,20 +3821,38 @@ git rm src/screw_agents/cli/adaptive_cleanup.py
 - [ ] **Step 5: Run full suite**
 
 Run: `uv run pytest -q`
-Expected: 812 passed (T22 migrated, behavior preserved).
+**Plan-fix #2 (T9)**: Expected count is **880 passed, 8 skipped** (carried forward from T8 baseline at HEAD `99024ae`). The stale "812" previously in this plan was a draft-era estimate. T9 is a pure migration (no tests added or removed); the count stays 880.
 
-Run: `grep -rn "from screw_agents.cli.adaptive_cleanup"` (Python files only)
+Run: `grep -rn "from screw_agents.cli.adaptive_cleanup" --include="*.py"` (Python files only)
 Expected: 0 matches (file deleted; imports all migrated).
+
+Run: `grep -rn "from screw_agents.cli.adaptive_cleanup" --include="*.md"`
+Expected: 2 matches in `plugins/screw/commands/adaptive-cleanup.md` (at `:42` and `:85`) — these are dead imports in the slash command's `uv run python -c "..."` invocations; they break user-facing behavior NOW (T19 rewrites the slash command to use MCP tools instead). The slash command is acceptable-broken during the T9→T19 window because the MCP surface is the canonical path and the engine methods have been live since T7/T8.
 
 - [ ] **Step 6: Commit**
 
+**Plan-fix #3 (T9)**: `git rm` already stages the deletion; the previous plan's extra `git add -u` line was redundant and misleading.
+
 ```bash
-git add tests/test_adaptive_workflow.py
-git add -u src/screw_agents/cli/adaptive_cleanup.py  # -u records the deletion
+git rm src/screw_agents/cli/adaptive_cleanup.py    # from Step 4 — stages deletion
+git add tests/test_adaptive_workflow.py             # T22 migration
 git commit -m "refactor(phase3b-c1): delete cli/adaptive_cleanup.py, migrate T22 import (T9, I6 part 3)"
 ```
 
 **Cross-plan sync:** confirm DEFERRED_BACKLOG entry I6 is ready to move to Shipped (will happen in T24). Also cross-check: does the slash command at `plugins/screw/commands/adaptive-cleanup.md` still reference the deleted module? If yes (it will), T19 fixes it — don't worry about it here.
+
+**T9 Opus 4.7 re-review (2026-04-22):** Spec review APPROVED (11/11 HRs PASS). Quality review APPROVED. Both reviewers reported **0 Critical, 0 Important, 0 Minor**. Spec reviewer called T9 "a textbook pure deletion + single-test migration"; quality reviewer called it "surgical precision". Third task in a row hitting 0 Important against the 0-1 target per `feedback_cross_task_precedent_checks`.
+
+All 3 plan-fixes held:
+- Plan-fix #1 (grep expectation): initial grep returned exactly the predicted 3 match sites.
+- Plan-fix #2 (pytest count): full suite at 880 passed, 8 skipped — no change from T8 baseline (pure migration, no test additions/removals).
+- Plan-fix #3 (git commands): `git rm` from Step 4 alone sufficed; no secondary `git add -u` required.
+
+`BACKLOG-PR6-49` (stale docstring in `cli/adaptive_cleanup.py:16-19`) is now **auto-resolved** by this deletion — the file no longer exists. T24 will move the entry to the "Shipped (PR #6)" section alongside other I6 work.
+
+The I6 triad (T7 engine-method promotion → T8 confirmation-gated removal → T9 CLI deletion) ships as a cohesive unit: six commits (three feat/refactor + three plan-fix + two cross-plan-sync) total, 880 tests green, zero Important findings across all three reviews, C1 canonical-bytes sentinel untouched and passing throughout.
+
+T9 commit: `e91fe42`. Plan-fix commit: `e1197c8`.
 
 ---
 
@@ -2929,7 +4017,9 @@ Expected: all previously-passing tests still pass + 4 new tests PASS.
 - [ ] **Step 5: Full suite**
 
 Run: `uv run pytest -q`
-Expected: 816 passed.
+**Plan-fix #1 (T10)**: Expected **884 passed, 8 skipped** (pre-T10 baseline 880 at HEAD `1eda141` + 4 new tests from Step 1). The stale "816" was a draft-era number from before T1-T9 added tests.
+
+**Note on parametrization choice**: `test_lint_accepts_all_exported_names` in Step 1 uses a for-loop over `adaptive.__all__` inside a single test function. If the implementer prefers `@pytest.mark.parametrize` for better isolation (each symbol → its own test result), the count goes up by N-1 where N = `len(__all__) = 18` → 884 + 17 = 901. Either shape is acceptable; report the actual count in the closeout commit.
 
 - [ ] **Step 6: Commit**
 
@@ -2938,86 +4028,192 @@ git add src/screw_agents/adaptive/lint.py tests/test_adaptive_lint.py
 git commit -m "feat(phase3b-c1): lint validates imported symbols against adaptive.__all__ (T10, I2)"
 ```
 
+**T10 Opus 4.7 re-review (2026-04-22):** Spec review PASSED 12/12 HRs. Quality review APPROVED. Both reviewers reported **0 Critical, 0 Important, 2 Minor each** (with 2 items overlapping — star-import UX and `@lru_cache` test isolation), for **5 unique Minor findings** total. Fourth task in a row hitting 0 Important against the 0-1 target per `feedback_cross_task_precedent_checks`.
+
+Behavioral correctness validated:
+- **Hermeticity**: `_load_adaptive_all()` uses `importlib.util.find_spec` (imports parent `screw_agents` only, not `adaptive`) + `Path.read_text` + `ast.parse`. Never executes adaptive/__init__.py; no fallback to `import_module`.
+- **Double-violation avoidance**: `elif node.module == "screw_agents.adaptive"` guarantees mutual exclusion with the existing `disallowed_import` rule. A non-adaptive import emits ONE violation; an adaptive import with a hallucinated name emits ONE `unknown_symbol` violation. Neither case emits both.
+- **Star imports**: rejected with `unknown_symbol` (correct outcome; message phrasing is slightly awkward but not behaviorally wrong — see BACKLOG-PR6-54).
+- **Aliased imports**: `alias.name` (source name) is checked, not `alias.asname`. Correct.
+- **Failure-closed**: `_load_adaptive_all()` returns `frozenset()` on any failure path, so a corrupted `__all__` rejects every import rather than allowing everything. `test_lint_accepts_valid_script` acts as a downstream canary.
+
+Plan-fix #1 (pytest count 816 → 884) confirmed: implementer chose the for-loop shape, count landed at exactly 884.
+
+No Important items → no fix-up commit. Minor items deferred to DEFERRED_BACKLOG as `BACKLOG-PR6-53..57`:
+- PR6-53: `_load_adaptive_all()` no-spec/no-origin failure paths untested (low risk — downstream canary exists).
+- PR6-54: star-import UX — `'*' is not exported` message slightly awkward; a dedicated `disallowed_star` rule would read better.
+- PR6-55: `@lru_cache(maxsize=1)` may surprise future monkeypatch tests (document the cache-clear requirement).
+- PR6-56: module docstring doesn't list the new `unknown_symbol` rule explicitly.
+- PR6-57: `_load_adaptive_all()` handles only `ast.Assign`, not `ast.AugAssign` — latent constraint; `adaptive/__init__.py` currently uses a single assignment.
+
+T10 commit: `f900aca`. Plan-fix commit: `4b5df2d`.
+
 ---
 
 ### Task 11: I3 — Sandbox Execution stderr Surfacing
 
 **Files:**
-- Modify: `src/screw_agents/adaptive/sandbox/linux.py` (verify/tighten stderr capture)
-- Modify: `src/screw_agents/adaptive/executor.py` (propagate stderr to tool return on failure)
+- Modify: `src/screw_agents/engine.py` (remove stderr from MCP-boundary exclude set, decode bytes→str, add top-level status field)
 - Modify: `tests/test_adaptive_executor.py` (+2 tests)
 
-- [ ] **Step 1: Trace current stderr path**
+**Plan-fixes #1-7 (2026-04-22)** — plan was drafted before key details were finalized; the following adjustments ground the task in current code:
 
-Read `sandbox/linux.py::run_in_sandbox`:
-- Confirm `subprocess.run(..., capture_output=True)` is present. If using `stdout=subprocess.PIPE` + `stderr=subprocess.PIPE`, that's equivalent.
-- Confirm `SandboxResult.stderr` is populated from `proc.stderr.decode("utf-8", errors="replace")`.
-
-Read `executor.py::execute_script`:
-- Confirm on `sandbox_result.returncode != 0`, the return payload includes `stderr`.
-
-Where gaps exist — add them.
-
-- [ ] **Step 2: Write failing test**
+**Plan-fix #1 — Implementation location**: the stderr-surfacing gap is at `engine.execute_adaptive_script` (`engine.py:282-290`), not `executor.execute_script`. The MCP-boundary return dict currently has:
 
 ```python
-# tests/test_adaptive_executor.py
+"sandbox_result": result.sandbox_result.model_dump(
+    mode="json", exclude={"stdout", "stderr"}
+),
+```
 
-@pytest.mark.skipif(
-    shutil.which("bwrap") is None and shutil.which("sandbox-exec") is None,
-    reason="requires sandbox backend",
-)
+The `exclude={"stdout", "stderr"}` is the I3 defect — callers never see why the sandbox failed. `executor.execute_script` already surfaces the full `SandboxResult` (with stderr) through `AdaptiveScriptResult`; no change needed there.
+
+**Plan-fix #2 — Bytes vs str**: keep `SandboxResult.stderr: bytes` (unchanged schema → no ripple to other callers). Decode inline in `engine.execute_adaptive_script` via `.decode("utf-8", errors="replace")`. Avoids touching `sandbox/linux.py` (~550 LOC security-critical file) for a pure serialization concern.
+
+**Plan-fix #3 — Top-level `status` field**: add `"status": "ok"` on `sandbox_result.returncode == 0`, otherwise `"sandbox_failure"`. This matches the plan's Step 2 test assertion (`result["status"] in (...)`). `killed_by_timeout=True` always pairs with `returncode=-1`, so it's subsumed by the `!= 0` check.
+
+**Plan-fix #4 — stderr placement**: include decoded `stderr` inside the `sandbox_result` dict (drop from the `exclude` set). Also expose it as a top-level `"stderr"` alias to match the plan's test expectation that uses `result["stderr"]`. stdout stays excluded — adaptive scripts communicate via `findings.json`, not stdout; surfacing stdout would add noise without value.
+
+**Plan-fix #5 — Test seed-script updated**: plan's example `from screw_agents.adaptive import nonexistent` would now fail at Layer 1 lint (T10's new `unknown_symbol` rule) BEFORE reaching the sandbox, raising `LintFailure` rather than producing a sandbox result. Use a different failure mode: a script that imports valid names but raises at runtime inside `analyze()`. Example: `raise RuntimeError("intentional T11 test failure")`. That reaches the sandbox, emits a stack trace to stderr, and the sandbox returncode is non-zero.
+
+**Plan-fix #6 — Expected pytest count**: baseline 884 at HEAD `1102493` + 2 new tests = **886 passed, 8 skipped**.
+
+**Plan-fix #7 — Use `skip_trust_checks=True` in tests**: existing test pattern in `test_adaptive_executor.py` avoids init-trust/sign dance by passing `skip_trust_checks=True` to `execute_script` (or the equivalent parameter on the engine method). Follow the existing pattern — T11's new tests focus on the sandbox-stderr surfacing, not the trust path.
+
+- [ ] **Step 1: Trace current stderr path (verification — should already match the post-fix notes above)**
+
+Verify in `src/screw_agents/adaptive/sandbox/linux.py`:
+- subprocess.run uses bounded tempfile capture (`linux.py:320-340`) — NOT `capture_output=True`, but functionally equivalent and bounded at 1 MB per stream.
+- `SandboxResult.stderr` populated as `bytes` from the tempfile read (`linux.py:340, 362`). No decoding at this layer — bytes are preserved through to the MCP boundary, where Plan-fix #2 does the decode.
+
+Verify in `src/screw_agents/adaptive/executor.py::execute_script`:
+- Returns `AdaptiveScriptResult` with full `sandbox_result: SandboxResult`. No filtering.
+
+Verify the I3 gap in `src/screw_agents/engine.py`:
+- `execute_adaptive_script` at `engine.py:287-289` does `model_dump(exclude={"stdout", "stderr"})`. THIS is what changes in Step 4.
+
+- [ ] **Step 2: Write failing tests**
+
+```python
+# tests/test_adaptive_executor.py — append at end of file
+
 def test_execute_surfaces_stderr_on_nonzero_return(tmp_path: Path) -> None:
-    """A script with bad import raises ImportError → sandbox returncode=1.
-    Executor MUST surface stderr in the returned result so the subagent's
-    failure-render path has something to show the user."""
-    # ... Arrange: write a script with `from screw_agents.adaptive import nonexistent`
-    # into .screw/custom-scripts/ (sign with a local key via init-trust).
-    # Act: execute_adaptive_script
-    # Assert: result["status"] in ("error", "failed") AND
-    #         "ImportError" in result["stderr"] OR equivalent
+    """A script raising RuntimeError inside analyze() yields sandbox
+    returncode=1. engine.execute_adaptive_script MUST surface stderr AND
+    set status='sandbox_failure' so the T18b failure-render path has
+    something to show the user. Plan-fix #5 (T11): use a runtime raise
+    rather than a hallucinated import — T10's unknown_symbol rule now
+    rejects hallucinated imports at Layer 1 before the sandbox runs."""
+    import shutil
+
+    if shutil.which("bwrap") is None and shutil.which("sandbox-exec") is None:
+        pytest.skip("requires sandbox backend")
+
+    # ... Arrange: write a valid-linting script that raises at runtime
+    # into .screw/custom-scripts/ with dummy .meta.yaml. skip_trust_checks=True
+    # so we don't need an init-trust signature (plan-fix #7).
+    # Example script body:
+    #     from screw_agents.adaptive import ProjectRoot
+    #     def analyze(project: ProjectRoot) -> None:
+    #         raise RuntimeError("intentional T11 test failure")
+    # Act: engine.execute_adaptive_script(..., skip_trust_checks=True)
+    # Assert:
+    #   result["status"] == "sandbox_failure"
+    #   "RuntimeError" in result["stderr"]
+    #   "intentional T11 test failure" in result["stderr"]
+    #   result["sandbox_result"]["returncode"] != 0
+    #   result["sandbox_result"]["stderr"] == result["stderr"]  # alias
     ...
 
 
-def test_execute_stderr_absent_on_success(tmp_path: Path) -> None:
-    """Happy path: no stderr field or empty string. Don't clutter success payloads."""
+def test_execute_stderr_empty_on_success(tmp_path: Path) -> None:
+    """Happy path: status='ok' and stderr is empty string. Well-behaved
+    scripts don't write to stderr; don't clutter success payloads. Plan-fix
+    #4: empty string rather than omitted field — keeps the dict shape
+    stable so the subagent's failure-render branch can always test
+    `result["stderr"]` without a .get() dance."""
+    import shutil
+
+    if shutil.which("bwrap") is None and shutil.which("sandbox-exec") is None:
+        pytest.skip("requires sandbox backend")
+
+    # ... Arrange: write a valid, passing script (no raise, emits no findings OR
+    # one benign finding). skip_trust_checks=True.
+    # Act: engine.execute_adaptive_script(...)
+    # Assert:
+    #   result["status"] == "ok"
+    #   result["stderr"] == ""
+    #   result["sandbox_result"]["returncode"] == 0
     ...
 ```
 
 - [ ] **Step 3: Run — verify failure**
 
-- [ ] **Step 4: Implement — ensure `executor.py` returns stderr on failure**
+Run: `uv run pytest tests/test_adaptive_executor.py::test_execute_surfaces_stderr_on_nonzero_return tests/test_adaptive_executor.py::test_execute_stderr_empty_on_success -v`
+Expected: both FAIL (status field / stderr field doesn't exist yet).
 
-Modify the relevant branch in `executor.py::execute_script`:
+- [ ] **Step 4: Implement in `engine.execute_adaptive_script`**
+
+Modify `src/screw_agents/engine.py` — locate `execute_adaptive_script`'s return-dict construction (currently lines 282-290). Replace with:
 
 ```python
-# Existing (conceptually):
-sandbox_result = run_in_sandbox(...)
-if sandbox_result.returncode != 0:
-    return {
-        "status": "sandbox_failure",
-        "returncode": sandbox_result.returncode,
-        "wall_clock_s": sandbox_result.wall_clock_s,
-        "killed_by_timeout": sandbox_result.killed_by_timeout,
-        # ADD:
-        "stderr": sandbox_result.stderr or "",
-    }
+# Decode stderr bytes → str for JSON payload (plan-fix #2).
+# errors="replace" so a binary-writing malicious script can't raise
+# UnicodeDecodeError and break the response.
+stderr_str = result.sandbox_result.stderr.decode("utf-8", errors="replace")
+
+# Top-level status: "ok" on clean returncode, "sandbox_failure" otherwise
+# (plan-fix #3). killed_by_timeout yields returncode=-1, so it's already
+# covered by the != 0 check — no need for a separate "timeout" status.
+status = "ok" if result.sandbox_result.returncode == 0 else "sandbox_failure"
+
+return {
+    "status": status,                              # plan-fix #3: top-level
+    "script_name": result.script_name,
+    "findings": [f.model_dump(mode="json") for f in result.findings],
+    "stale": result.stale,
+    "execution_time_ms": result.execution_time_ms,
+    "stderr": stderr_str,                          # plan-fix #4: top-level alias
+    "sandbox_result": {
+        **result.sandbox_result.model_dump(
+            mode="json", exclude={"stdout", "stderr"}  # stdout stays excluded
+        ),
+        "stderr": stderr_str,                      # plan-fix #4: also inside
+    },
+}
 ```
 
-If `stderr` is missing from `SandboxResult`, add it to the dataclass and populate in `sandbox/linux.py::run_in_sandbox` via `proc.stderr.decode("utf-8", errors="replace")`.
+No changes to `sandbox/linux.py` (plan-fix #2) or `executor.py` (plan-fix #1). The `SandboxResult` Pydantic model's field types remain unchanged.
 
 - [ ] **Step 5: Run tests — verify pass**
 
 Run: `uv run pytest tests/test_adaptive_executor.py -v`
+Run: `uv run pytest -q`
+Expected (plan-fix #6): **886 passed, 8 skipped** (baseline 884 + 2 new tests).
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/screw_agents/adaptive/sandbox/linux.py \
-        src/screw_agents/adaptive/executor.py \
-        tests/test_adaptive_executor.py
+git add src/screw_agents/engine.py tests/test_adaptive_executor.py
 git commit -m "feat(phase3b-c1): surface sandbox stderr on execution failure (T11, I3)"
 ```
+
+**T11 Opus 4.7 re-review (2026-04-22):** Spec review PASSED 12/12 HRs. Quality review APPROVED — reviewer called out 3 strengths and said "no follow-ups to file". Both reviewers reported **0 Critical, 0 Important**; net 1 Minor (spec only — quality found 0). **Fifth task in a row hitting 0 Important** (T7-T11) against the 0-1 target per `feedback_cross_task_precedent_checks`.
+
+All 7 plan-fixes landed cleanly:
+- Plan-fix #1 (implementation location): fix at `engine.execute_adaptive_script` boundary, not executor/sandbox. Engine.py is the sole src/ file touched.
+- Plan-fix #2 (bytes→str): `SandboxResult.stderr: bytes` unchanged; decoded inline via `.decode("utf-8", errors="replace")`. sandbox/linux.py untouched.
+- Plan-fix #3 (top-level status): `"ok"` / `"sandbox_failure"` on `returncode == 0`. Stale path correctly yields `"ok"` (sentinel SandboxResult has returncode=0; "stale" is legitimate no-op, not failure).
+- Plan-fix #4 (stderr placement): decoded once via `stderr_str` local, reused in top-level alias AND inside `sandbox_result` dict. DRY, identity-stable. stdout stays excluded.
+- Plan-fix #5 (post-T10 test seed): failing test uses `raise RuntimeError(...)` inside `analyze()` (reaches sandbox), NOT hallucinated import (now rejected at Layer 1 by T10's `unknown_symbol` rule). Cross-task awareness between T10 and T11 documented inline.
+- Plan-fix #6 (pytest count): 886 passed, 8 skipped — landed exactly as predicted.
+- Plan-fix #7 (`skip_trust_checks=True`): tests focus on sandbox-stderr surfacing; trust path tested elsewhere.
+
+One unplanned file in the commit: `tests/test_execute_adaptive_script_tool.py` had a stale assertion `assert "stderr" not in result["sandbox_result"]` from the old contract. Implementer updated it in the same commit (replaces with `assert result["sandbox_result"]["stderr"] == ""` on the success path). Legitimate downstream ripple — not feature creep; reviewers validated the change as correct.
+
+No Important items → no fix-up commit. Minor item deferred to DEFERRED_BACKLOG as `BACKLOG-PR6-58` (asymmetric alias check in the success-path test — immaterial since both positions emit from the same local variable; ripple-fix elsewhere already asserts this).
+
+T11 commit: `60104a6`. Plan-fix commit: `d0feeb6`.
 
 **Note:** T18b prompt render-on-failure branch update is part of T15 (per-agent subagent prompt rewrite).
 
@@ -3029,56 +4225,108 @@ git commit -m "feat(phase3b-c1): surface sandbox stderr on execution failure (T1
 - Modify: `src/screw_agents/adaptive/executor.py` (add `MetadataError`; wrap yaml + Pydantic errors)
 - Modify: `tests/test_adaptive_executor.py` (+2 tests)
 
+**Plan-fixes #1-6 (2026-04-22)** — plan was drafted with a conflated API reference and pre-T10 assumptions; the following adjustments ground T12 in current code:
+
+- **Plan-fix #1 (test signature)**: plan's test call `execute_script(project_root=..., script_name=..., wall_clock_s=5)` is wrong — the actual signature is `execute_script(*, script_path: Path, meta_path: Path, project_root: Path, wall_clock_s: int = 30, skip_trust_checks: bool = False)`. The plan author conflated the internal `execute_script` with the engine method `execute_adaptive_script`. Tests must use the correct `script_path` + `meta_path` shape.
+- **Plan-fix #2 (valid-lint script body)**: plan writes `"pass\n"` into the script `.py` file. A bare `pass` has no `def analyze` → Layer 1 lint raises `missing_analyze` violation → `LintFailure` raised BEFORE the yaml load runs. Tests must use a valid-lint script body: `"from screw_agents.adaptive import ProjectRoot\ndef analyze(project: ProjectRoot) -> None:\n    pass\n"`.
+- **Plan-fix #3 (`skip_trust_checks=True`)**: plan imports and calls `run_init_trust` but tests should simply pass `skip_trust_checks=True` to bypass Layer 2+3 and focus purely on meta-loading. Matches the T11 plan-fix #7 pattern.
+- **Plan-fix #4 (engine wrapper scope — Option A, minimal)**: plan Step 3's second paragraph ("Update the executor dispatch / engine wrapper for `execute_adaptive_script` to catch `MetadataError` and return `{"status":"error","error":"invalid_metadata",...}`") is dropped from T12 scope. Current engine wrapper does NOT catch any of the existing `LintFailure` / `HashMismatch` / `SignatureFailure` exceptions — they all propagate to the caller. Making ONLY `MetadataError` convert to an error-dict would be architecturally asymmetric. T12's primary intent per the class docstring ("so the MCP tool layer has a single exception-family to catch") is about **providing the exception class** so callers can catch it, not about changing the engine wrapper. If error-dict conversion is ever desired, it should cover all 4 exception types in a separate task — out of T12 scope.
+- **Plan-fix #5 (pytest count)**: plan says "818 passed (816 post-T10 + 2)". Stale. Current post-T11 baseline at HEAD `bf4d9c7` is **886 passed, 8 skipped**. T12 adds +2 tests → **888 passed, 8 skipped**.
+- **Plan-fix #6 (docstring Raises)**: update `execute_script`'s docstring Raises section (currently `executor.py:119-122`) to list `MetadataError: meta.yaml failed to parse or failed Pydantic schema validation`.
+
 - [ ] **Step 1: Write failing tests**
 
 ```python
 def test_executor_wraps_yaml_error_as_metadata_error(tmp_path: Path) -> None:
-    """Invalid YAML in .meta.yaml → MetadataError (not bare yaml.YAMLError)."""
+    """Invalid YAML in .meta.yaml → MetadataError (not bare yaml.YAMLError).
+    Plan-fix #1 + #2 + #3: uses correct execute_script signature,
+    valid-lint script body (so Layer 1 doesn't short-circuit to
+    LintFailure), and skip_trust_checks=True to bypass Layer 2+3."""
     from screw_agents.adaptive.executor import MetadataError, execute_script
-    from screw_agents.cli.init_trust import run_init_trust
 
-    project = tmp_path / "project"
-    project.mkdir()
-    run_init_trust(project_root=project, name="T", email="t@e.co")
-    custom_dir = project / ".screw" / "custom-scripts"
-    custom_dir.mkdir(parents=True)
-    (custom_dir / "test-yaml-001.py").write_text("pass\n")
-    (custom_dir / "test-yaml-001.meta.yaml").write_text("not: valid: yaml: {\n")  # malformed
+    script_dir = tmp_path / ".screw" / "custom-scripts"
+    script_dir.mkdir(parents=True)
+    script_path = script_dir / "test-yaml-001.py"
+    meta_path = script_dir / "test-yaml-001.meta.yaml"
+
+    # Valid-lint body so Layer 1 passes and execution reaches the meta load.
+    script_path.write_text(
+        "from screw_agents.adaptive import ProjectRoot\n"
+        "def analyze(project: ProjectRoot) -> None:\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+    # Malformed YAML — unclosed quote is a guaranteed yaml.YAMLError.
+    meta_path.write_text("name: test\ncreated: \"unclosed\n", encoding="utf-8")
 
     with pytest.raises(MetadataError, match="invalid YAML"):
-        execute_script(project_root=project, script_name="test-yaml-001", wall_clock_s=5)
+        execute_script(
+            script_path=script_path,
+            meta_path=meta_path,
+            project_root=tmp_path,
+            wall_clock_s=5,
+            skip_trust_checks=True,
+        )
 
 
 def test_executor_wraps_validation_error_as_metadata_error(tmp_path: Path) -> None:
-    """Malformed meta dict (missing required fields) → MetadataError."""
-    # ... similar setup with a meta.yaml that parses but fails
-    # AdaptiveScriptMeta validation ...
+    """Malformed meta dict (missing required fields) → MetadataError.
+    Plan-fix #1 + #2 + #3: same shape as the YAMLError test but with a
+    parseable YAML that fails Pydantic schema validation."""
+    from screw_agents.adaptive.executor import MetadataError, execute_script
+
+    script_dir = tmp_path / ".screw" / "custom-scripts"
+    script_dir.mkdir(parents=True)
+    script_path = script_dir / "test-yaml-002.py"
+    meta_path = script_dir / "test-yaml-002.meta.yaml"
+
+    script_path.write_text(
+        "from screw_agents.adaptive import ProjectRoot\n"
+        "def analyze(project: ProjectRoot) -> None:\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+    # Parseable YAML, but missing required AdaptiveScriptMeta fields
+    # (created_by, domain, description, target_patterns, sha256).
+    meta_path.write_text("name: test-yaml-002\n", encoding="utf-8")
+
+    with pytest.raises(MetadataError, match="malformed metadata"):
+        execute_script(
+            script_path=script_path,
+            meta_path=meta_path,
+            project_root=tmp_path,
+            wall_clock_s=5,
+            skip_trust_checks=True,
+        )
 ```
 
 - [ ] **Step 2: Run — verify failure**
+
+Run: `uv run pytest tests/test_adaptive_executor.py::test_executor_wraps_yaml_error_as_metadata_error tests/test_adaptive_executor.py::test_executor_wraps_validation_error_as_metadata_error -v`
+Expected: both FAIL (`MetadataError` class doesn't exist yet; yaml.YAMLError / ValidationError propagate bare).
 
 - [ ] **Step 3: Implement `MetadataError`**
 
 In `src/screw_agents/adaptive/executor.py`:
 
 ```python
+# Add the new exception class alongside LintFailure/HashMismatch/
+# SignatureFailure (around executor.py:67). Same inheritance shape.
 class MetadataError(RuntimeError):
     """Raised when an adaptive script's .meta.yaml cannot be loaded.
 
     Wraps the underlying yaml.YAMLError or pydantic.ValidationError so
-    the MCP tool layer (execute_adaptive_script dispatch) has a single
-    exception-family to catch alongside LintFailure / HashMismatch /
-    SignatureFailure.
+    callers have a single exception-family to catch alongside
+    LintFailure / HashMismatch / SignatureFailure.
 
     T11-N2 (bundled polish in Phase 3b PR #6).
     """
 
 
-# In execute_script, replace:
-#     meta_raw = yaml.safe_load(meta_path.read_text(encoding="utf-8"))
-#     meta = AdaptiveScriptMeta(**meta_raw)
-# with:
-def _load_meta(meta_path: Path) -> "AdaptiveScriptMeta":
+# Add a module-level _load_meta helper near the other private helpers.
+# Imports needed: `from pydantic import ValidationError` at the top.
+def _load_meta(meta_path: Path) -> AdaptiveScriptMeta:
+    """Load and validate a script's .meta.yaml, wrapping errors as MetadataError."""
     try:
         meta_raw = yaml.safe_load(meta_path.read_text(encoding="utf-8"))
     except yaml.YAMLError as exc:
@@ -3087,14 +4335,29 @@ def _load_meta(meta_path: Path) -> "AdaptiveScriptMeta":
         return AdaptiveScriptMeta(**(meta_raw or {}))
     except ValidationError as exc:
         raise MetadataError(f"malformed metadata in {meta_path}: {exc}") from exc
+
+
+# In execute_script at executor.py:133-134, replace:
+#     meta_raw = yaml.safe_load(meta_path.read_text(encoding="utf-8"))
+#     meta = AdaptiveScriptMeta(**meta_raw)
+# with:
+#     meta = _load_meta(meta_path)
 ```
 
-Update the executor dispatch / engine wrapper for `execute_adaptive_script` to catch `MetadataError` and return `{"status":"error","error":"invalid_metadata",...}` (preserving existing UX for bad meta).
+Per plan-fix #4: DO NOT modify `engine.execute_adaptive_script` or `server.py`. `MetadataError` propagates to callers the same way `LintFailure` / `HashMismatch` / `SignatureFailure` do today. If engine-wrapper error-dict conversion becomes desirable, it should cover all 4 exceptions in a separate task.
+
+Per plan-fix #6: update `execute_script`'s docstring Raises section (currently `executor.py:119-122`) to add:
+
+```
+    MetadataError: meta.yaml failed to parse (yaml.YAMLError) or failed
+        AdaptiveScriptMeta schema validation (pydantic.ValidationError).
+```
 
 - [ ] **Step 4: Run tests + suite**
 
+Run: `uv run pytest tests/test_adaptive_executor.py -v`
 Run: `uv run pytest -q`
-Expected: 818 passed (816 post-T10 + 2 new T11-N2 tests).
+Expected (plan-fix #5): **888 passed, 8 skipped** (baseline 886 + 2 new).
 
 - [ ] **Step 5: Commit**
 
@@ -3103,13 +4366,51 @@ git add src/screw_agents/adaptive/executor.py tests/test_adaptive_executor.py
 git commit -m "feat(phase3b-c1): wrap yaml+pydantic errors as MetadataError (T12, T11-N2 polish)"
 ```
 
+**T12 Opus 4.7 re-review (2026-04-22):** Spec review PASSED 11/11 HRs (HR8 full-suite + HR10 C1 sentinel marked "cannot verify at runtime" due to sub-agent Bash permission; foreground-verified 888 passed and sentinel passes). Quality review APPROVED. Both reviewers reported **0 Critical, 0 Important**; net 2 Minor findings (1 overlap — comment inaccuracy on required-fields list; 1 quality-only — suggest inline comment for `or {}` fallback). **Sixth task in a row hitting 0 Important** (T7-T12) against the 0-1 target per `feedback_cross_task_precedent_checks`.
+
+All 6 plan-fixes landed cleanly:
+- Plan-fix #1 (test signature): both new tests use the correct `execute_script(script_path=..., meta_path=..., project_root=..., wall_clock_s=..., skip_trust_checks=...)` shape.
+- Plan-fix #2 (valid-lint body): `from screw_agents.adaptive import ProjectRoot; def analyze(project: ProjectRoot) -> None: pass` — passes Layer 1 so execution reaches the meta-load path.
+- Plan-fix #3 (`skip_trust_checks=True`): no `run_init_trust` setup; tests focus purely on meta-loading.
+- Plan-fix #4 (Option A, minimal): ONLY 2 files touched (executor.py + test file). `engine.py`, `server.py`, `trust.py`, `signing.py` all unchanged. `MetadataError` propagates to callers identically to the other 3 adaptive exceptions.
+- Plan-fix #5 (pytest count): 886 baseline + 2 new = 888 — landed exactly.
+- Plan-fix #6 (docstring Raises): `execute_script`'s Raises section now lists `MetadataError: meta.yaml failed to parse (yaml.YAMLError) or failed AdaptiveScriptMeta schema validation (pydantic.ValidationError)`.
+
+Cross-task symmetry:
+- Inheritance consistency: 4 exception classes all direct `RuntimeError` subclasses (LintFailure at `executor.py:53`, HashMismatch at `:63`, SignatureFailure at `:67`, MetadataError at `:71`). Ordered by pipeline layer.
+- `from exc` chaining matches the idioms in `signing.py:120` and `trust.py:301, 310`.
+- Helper placement: `_load_meta` sits alongside the exception classes (executor.py:82-96) rather than with the `_is_stale` / `_parse_findings` cluster further down. Implementer cited: "keeps exception + its producer adjacent". Reviewers approved as reasonable.
+
+No Important items → no fix-up commit. Minor items deferred to DEFERRED_BACKLOG as `BACKLOG-PR6-59` (required-fields comment inaccuracy in test) and `BACKLOG-PR6-60` (suggest inline comment for `or {}` fallback).
+
+T12 commit: `c3c52fd`. Plan-fix commit: `44739eb`.
+
 ---
 
 ### Task 13: T3-M1 — Narrow Exception Handling in `ast_walker.py`
 
 **Files:**
-- Modify: `src/screw_agents/adaptive/ast_walker.py`
+- Modify: `src/screw_agents/adaptive/ast_walker.py` — narrow `except Exception` in all 3 helpers
 - Modify: `tests/test_adaptive_ast_walker.py` (+1 test for non-UTF-8)
+
+**Plan-fixes #1-5 (2026-04-22)** — plan was drafted before key details were finalized; these adjustments ground T13 in current code:
+
+- **Plan-fix #1 (drop tree_sitter reference)**: plan's suggested `except tree_sitter.TreeSitterError: continue` branch is speculative — tree_sitter Python binding does NOT expose such a class (`grep -rn "tree_sitter.TreeSitterError" src/` returns zero matches), AND the existing try block at `ast_walker.py:91-94, 130-133, 175-178` covers `project.read_file` ONLY. `parse_ast` runs OUTSIDE the try (at `:96, 135, 180`). There is no parse-error branch to narrow. Drop the tree_sitter reference entirely.
+- **Plan-fix #2 (scope: 3 functions)**: plan's code block shows only `find_calls` and its test only covers `find_calls`, but all 3 helpers (`find_calls`, `find_imports`, `find_class_definitions`) have the identical bug pattern. The fix applies to ALL THREE for consistency — otherwise a non-UTF-8 file surfaces in `find_calls` but silently skips in `find_imports`.
+- **Plan-fix #3 (narrower except: FileNotFoundError only)**: plan's `except (UnicodeDecodeError, OSError): raise` is syntactically awkward — catching then re-raising is equivalent to not catching. Cleaner pattern: catch ONLY the race case we want to swallow (file disappeared mid-walk between `list_files` enumeration and `read_file` call). Everything else propagates naturally. Concrete shape:
+  ```python
+  try:
+      source = project.read_file(rel_path)
+  except FileNotFoundError:
+      # TOCTOU race: file listed by list_files but deleted before read.
+      # Unavoidable; silently skip. All other exceptions propagate:
+      # UnicodeDecodeError (non-UTF-8), PermissionError, IsADirectoryError,
+      # ProjectPathError, etc. This is the T3-M1 narrowing fix — callers
+      # can now distinguish "no findings" from "couldn't read this file".
+      continue
+  ```
+- **Plan-fix #4 (pytest count)**: plan said "819 passed" — stale. Current post-T12 baseline at HEAD `b9aa821` is **888**. T13 adds +1 test → **889 passed, 8 skipped**.
+- **Plan-fix #5 (out-of-scope: `_check_stale`)**: `executor._check_stale:290` has its own `except Exception: continue` wrapping `find_calls`. Post-T13, even though `find_calls` surfaces UnicodeDecodeError, `_check_stale` will still silently swallow it. This is NOT a T13 bug — it is BACKLOG-PR6-50 ("`except Exception` inside `_check_stale` — verbatim-lift of pre-T7 code"). T13 deliberately does NOT touch `_check_stale`; that fix is scheduled separately.
 
 - [ ] **Step 1: Write failing test**
 
@@ -3122,7 +4423,8 @@ def test_find_calls_raises_on_non_utf8_source(tmp_path: Path) -> None:
     from "couldn't read this file". Post-fix: the exception surfaces to
     the caller (executor), which can log / surface to subagent.
     """
-    from screw_agents.adaptive.ast_walker import ProjectRoot, find_calls
+    from screw_agents.adaptive.ast_walker import find_calls
+    from screw_agents.adaptive.project import ProjectRoot
 
     project = tmp_path / "project"
     project.mkdir()
@@ -3130,51 +4432,35 @@ def test_find_calls_raises_on_non_utf8_source(tmp_path: Path) -> None:
     (project / "weird.py").write_bytes(b"# Latin-1: caf\xe9\n")
     root = ProjectRoot(project)
 
-    # find_calls should NOT silently skip this; it should either raise
-    # (preferred for this fix) OR emit a diagnostic that the caller can surface.
+    # Post-T13: find_calls surfaces UnicodeDecodeError rather than
+    # silently skipping the unreadable file. `list(...)` forces the
+    # generator to walk the file, triggering the decode attempt.
     with pytest.raises(UnicodeDecodeError):
         list(find_calls(root, "foo.bar"))
 ```
 
 - [ ] **Step 2: Run — verify failure**
 
-Expected: test FAILS because current code silently swallows the exception.
+Expected: test FAILS because current code silently swallows the exception (bare `except Exception: continue` at `ast_walker.py:93`).
 
-- [ ] **Step 3: Implement narrowing**
+- [ ] **Step 3: Implement narrowing in all 3 helpers**
 
-In `ast_walker.py`, locate the helpers (`find_calls`, `find_imports`, `find_class_definitions`). Each currently has a pattern like:
+In `ast_walker.py`, replace the identical `try/except Exception` pattern in each of these 3 functions:
+- `find_calls` (currently `ast_walker.py:91-94`)
+- `find_imports` (currently `ast_walker.py:130-133`)
+- `find_class_definitions` (currently `ast_walker.py:175-178`)
 
-```python
-try:
-    source = project.read_file(rel_path)
-    # ... parse + match ...
-except Exception:
-    continue
-```
+Each `except Exception: continue` becomes `except FileNotFoundError: continue` with a comment explaining the TOCTOU race as the only swallowed case. See plan-fix #3 above for the exact shape.
 
-Change to:
+Per plan-fix #2: all three functions get the same change. Per plan-fix #1: do NOT add a `tree_sitter.TreeSitterError` branch — it does not exist in this codebase.
 
-```python
-try:
-    source = project.read_file(rel_path)
-    # ... parse + match ...
-except (UnicodeDecodeError, OSError):
-    # Deliberately narrow: raise these so adaptive scripts can distinguish
-    # "no findings" from "couldn't read this file". Catching bare Exception
-    # silently swallowed both T3-M1 category errors (pre-PR #6).
-    raise
-except tree_sitter.TreeSitterError:
-    # Parse errors are still swallowed — the file is not usefully analyzable;
-    # other files in the project may be. Log via logger if one exists.
-    continue
-```
-
-(Adjust the `tree_sitter.TreeSitterError` branch to match the actual exception class the project raises.)
+Per plan-fix #5: do NOT touch `executor._check_stale`. Its `except Exception: continue` (at `executor.py:290`) stays as-is for this task; BACKLOG-PR6-50 owns that fix.
 
 - [ ] **Step 4: Run tests + suite**
 
+Run: `uv run pytest tests/test_adaptive_ast_walker.py -v`
 Run: `uv run pytest -q`
-Expected: 819 passed.
+Expected (plan-fix #4): **889 passed, 8 skipped** (888 baseline + 1 new).
 
 - [ ] **Step 5: Commit**
 
@@ -3183,6 +4469,27 @@ git add src/screw_agents/adaptive/ast_walker.py tests/test_adaptive_ast_walker.p
 git commit -m "refactor(phase3b-c1): narrow exception handling in ast_walker helpers (T13, T3-M1 polish)"
 ```
 
+**T13 Opus 4.7 re-review (2026-04-22):** Spec review PASSED 11/11 HRs; quality review APPROVED. Both reviewers reported **0 Critical, 0 Important**. **Seventh task in a row hitting 0 Important** (T7-T13) against the 0-1 target per `feedback_cross_task_precedent_checks`. Spec reviewer: "textbook plan-conformant fix"; quality reviewer: "scope-faithful, well-documented".
+
+Net Minor findings: 4 (2 per reviewer; some overlap in spirit, distinct in detail):
+- Spec M1 (comment duplication across 3 sites): accepted as-is — plan-fix #3 explicitly prescribed the verbatim comment text; duplication makes each helper self-documenting.
+- Spec M2 (test docstring forward-looking about "caller can log/surface"): will self-resolve when BACKLOG-PR6-50 lands (the `_check_stale` swallow removal that makes the docstring's claim accurate end-to-end).
+- Quality M1 (regression test only covers `find_calls`): deferred as `BACKLOG-PR6-61` — 3-way textual identity provides strong implicit coverage; adding 2 sibling tests or parametrizing is a follow-up polish.
+- Quality M2 (`execute_script` Raises docstring missing UnicodeDecodeError): deferred as `BACKLOG-PR6-62`. Behavioral note: post-T13, `_is_stale` propagates UnicodeDecodeError from `find_calls` when the target project contains a non-UTF-8 `.py` file. The behavior is INTENDED per T13 "surface, don't swallow" philosophy (aligns with `_is_stale`'s pre-existing no-try/except shape); only the docstring is stale. Speculative real-world concern: Python-2 codebases with encoding declarations would hard-fail rather than silently skip — no reports yet.
+
+All 5 plan-fixes landed cleanly:
+- Plan-fix #1 (drop tree_sitter ref): no `tree_sitter.TreeSitterError` branch added — class doesn't exist, and `parse_ast` runs outside the try.
+- Plan-fix #2 (3-function scope): all 3 helpers (`find_calls`, `find_imports`, `find_class_definitions`) identically narrowed at `ast_walker.py:93, 137, 187`.
+- Plan-fix #3 (FileNotFoundError-only swallow): cleanest narrow — TOCTOU race tolerance only, everything else propagates.
+- Plan-fix #4 (pytest count): 888 baseline + 1 new = 889 — exact match.
+- Plan-fix #5 (`_check_stale` out-of-scope): `executor._check_stale:290` untouched — BACKLOG-PR6-50 owns that fix.
+
+Cross-task symmetry: narrower than T5/T6/T7/T11/T12 precedents (single-exception `FileNotFoundError`); let-it-bubble pattern matches T12 Option A; T5-style defense-in-depth comments at all 3 sites.
+
+No Important items → no fix-up commit. Two new Minors deferred: `BACKLOG-PR6-61` (test coverage parity) and `BACKLOG-PR6-62` (docstring drift on `execute_script`).
+
+T13 commit: `91bcbd9`. Plan-fix commit: `6559cdf`.
+
 ---
 
 ### Task 14: T11-N1 — Signature-Path E2E Regression Test
@@ -3190,31 +4497,48 @@ git commit -m "refactor(phase3b-c1): narrow exception handling in ast_walker hel
 **Files:**
 - Modify: `tests/test_adaptive_executor.py` (+60 LOC fixture + 2 tests)
 
-**Rationale:** The most valuable bundled test. Locks the Option D invariant: `execute_script(skip_trust_checks=False)` MUST round-trip through Layer 3 signature verification for any script signed by `_sign_script_bytes` (direct or via promote).
+**Rationale:** The most valuable bundled test. Locks the Option D invariant: the production execute path (`skip_trust_checks=False`) MUST round-trip through Layer 3 signature verification for any script signed by `_sign_script_bytes` (direct or via promote).
 
-- [ ] **Step 1: Add Ed25519 signing helper fixture**
+**Plan-fixes #1-8 (2026-04-22)** — plan was drafted with multiple conflated API references (same pattern as T12 plan); the following adjustments ground T14 in current code:
+
+- **Plan-fix #1 (use engine method)**: plan's tests call `execute_script(project_root=..., script_name=..., ...)` but `execute_script`'s signature is `(*, script_path, meta_path, project_root, wall_clock_s, skip_trust_checks)` — no `script_name`. Plan author conflated `execute_script` (internal) with `engine.execute_adaptive_script` (engine wrapper). Switch to `engine.execute_adaptive_script(project_root=..., script_name=..., ...)` which returns a dict (matches plan's `result["status"]` assertion shape) AND represents the real caller path through the MCP tool.
+- **Plan-fix #2 (session_id is required)**: plan passes `session_id=None` to `sign_adaptive_script`. The actual signature at `engine.py:1111` is `session_id: str` (required). Use a valid string like `"t14-sess"`. Note: post-C1, `promote_staged_script` is the preferred path, but `sign_adaptive_script` is explicitly retained for tests + legacy consumers (see `engine.py:1122-1128` C1 STATUS NOTE).
+- **Plan-fix #3 (simplify happy-path assertion)**: plan's `assert result["status"] in ("ok", "success") or result.get("returncode") == 0` is confused — "success" is not a valid status value, and the triple-fallback suggests the author wasn't sure which API was being called. Post-T11 (I3), `engine.execute_adaptive_script` returns `{"status": "ok" | "sandbox_failure", ...}`. Simplify to `assert result["status"] == "ok"`.
+- **Plan-fix #4 (tamper stays lint-valid)**: plan's tamper replaces the script with `"# tampered\npass\n"`. Layer 1 lint runs FIRST and rejects `pass\n` for missing `def analyze` → `LintFailure`. Tamper MUST preserve the lint-valid prefix (`from screw_agents.adaptive import ProjectRoot` + `def analyze(project: ProjectRoot) -> None:`) and flip a byte elsewhere.
+
+  **NOTE (pre-audit incomplete — implementer caught during T14 work, 2026-04-22)**: `Layer 1` is not the only layer that runs BEFORE Layer 3 — `Layer 2 (hash pin)` also runs before Layer 3 (see `executor.py:157-187` for the exact order: lint → hash → signature). Any byte-flip in the `.py` source (even a lint-valid comment) changes the SHA-256, which Layer 2 catches FIRST with `HashMismatch`. Layer 3 never runs on source-byte tampers. This required plan-fix #9 (Option C) to resolve — see below.
+- **Plan-fix #5 (drop unused cryptography imports)**: plan imports `Ed25519PrivateKey`, `Ed25519PublicKey`, `Encoding`, `PrivateFormat`, `PublicFormat`, `NoEncryption` — but the fixture doesn't use them directly. Signing goes through `engine.sign_adaptive_script` which owns all the Ed25519 work internally. Drop the unused imports entirely.
+- **Plan-fix #6 (pytest count — superseded by #10)**: plan said "821 passed". Stale. Current post-T13 baseline at HEAD `5340561` is **889**. Initial scope was +2 → **891**, but Option C (plan-fix #9) bumps to +3 → **892 passed, 8 skipped**. See plan-fix #10 below.
+- **Plan-fix #7 (`target_patterns=[]` for full round-trip)**: plan uses `target_patterns=["nothing.at.all"]` — causes `_is_stale` to return True → sandbox never runs (stale sentinel path short-circuits at `executor.py:191`). Layer 3 still runs before the stale check, so the test IS meaningful for Layer 3 coverage. But to genuinely exercise the full round-trip (the plan rationale says "round-trip through Layer 3"), use `target_patterns=[]` (empty → `_is_stale` returns False at `executor.py:246-247` → sandbox runs → Layer 3 + Layer 5+6 all exercised).
+- **Plan-fix #8 (document layer precedence)**: test docstrings should note that Layer 1 (lint) AND Layer 2 (hash pin) BOTH run BEFORE Layer 3. This documents the plan-fix #4/#9 discipline for future maintainers: "if you simplify the tampered content, keep the lint-valid prefix — AND tamper the signature field for the Layer-3 test, not the source bytes, because Layer 2 catches source-byte tampers first".
+
+- **Plan-fix #9 (Option C — test Layers 2 AND 3 independently)**: during implementation, the tamper test as plan-fix-#4-drafted failed because flipping source bytes is caught by Layer 2 (hash pin) BEFORE Layer 3 runs. Resolution: add TWO distinct tamper tests to exercise both rejection layers:
+  1. `test_execute_adaptive_script_rejects_tampered_source`: flip a byte in the `.py` source (lint-valid comment add), expect `HashMismatch`. Tests Layer 2.
+  2. `test_execute_adaptive_script_rejects_tampered_signature`: read `.meta.yaml`, flip a byte in the base64 `signature` field, rewrite. Expect `SignatureFailure`. Tests Layer 3.
+
+  Rationale: T11-N1 is labeled "the most valuable bundled test" in the plan rationale — getting Layer 2 AND Layer 3 coverage independently is strictly higher value than testing one. Also future-proofs: a refactor that silently disables either layer would only be caught if both are independently tested.
+
+- **Plan-fix #10 (pytest count — Option C amendment)**: supersedes plan-fix #6. With Option C, T14 adds 3 new tests (happy path + 2 tamper variants) → **892 passed, 8 skipped**.
+
+- [ ] **Step 1: Add signing helper fixture + 2 E2E tests**
 
 Append to `tests/test_adaptive_executor.py`:
 
 ```python
-import pytest
-from cryptography.hazmat.primitives.asymmetric.ed25519 import (
-    Ed25519PrivateKey, Ed25519PublicKey,
-)
-from cryptography.hazmat.primitives.serialization import (
-    Encoding, PrivateFormat, PublicFormat, NoEncryption,
-)
-
-
 @pytest.fixture
 def signed_script_setup(tmp_path: Path):
-    """Yields a (project_root, script_name, source, meta_dict, cleanup) tuple
-    where the script + meta are fully signed and verifiable via Layer 3.
+    """Yields a (project_root, script_name, source, meta_dict) tuple where
+    the script + meta are fully signed and verifiable via Layer 3.
 
     Used by T11-N1's end-to-end signature-path tests to exercise the real
-    sign → verify round-trip, not just skip_trust_checks=True shortcuts.
+    sign → verify round-trip (`skip_trust_checks=False`), not just the
+    skip_trust_checks=True shortcuts other tests use.
+
+    Plan-fix #2 + #7: session_id is a real string ("t14-sess");
+    target_patterns=[] so _is_stale returns False (`executor.py:246-247`)
+    and the sandbox actually runs, exercising the full round-trip rather
+    than short-circuiting at the stale sentinel.
     """
-    from screw_agents.adaptive.signing import _sign_script_bytes
     from screw_agents.cli.init_trust import run_init_trust
     from screw_agents.engine import ScanEngine
 
@@ -3224,8 +4548,9 @@ def signed_script_setup(tmp_path: Path):
     engine = ScanEngine.from_defaults()
 
     source = (
-        "from screw_agents.adaptive import emit_finding\n\n"
-        "def analyze(project):\n"
+        "from screw_agents.adaptive import ProjectRoot\n"
+        "\n"
+        "def analyze(project: ProjectRoot) -> None:\n"
         "    pass\n"
     )
     meta = {
@@ -3234,7 +4559,7 @@ def signed_script_setup(tmp_path: Path):
         "created_by": "sig@example.com",
         "domain": "injection-input-handling",
         "description": "T11-N1 fixture",
-        "target_patterns": ["nothing.at.all"],
+        "target_patterns": [],  # plan-fix #7: full round-trip, not stale sentinel
     }
 
     r = engine.sign_adaptive_script(
@@ -3242,47 +4567,139 @@ def signed_script_setup(tmp_path: Path):
         script_name="test-sig-e2e",
         source=source,
         meta=meta,
-        session_id=None,
+        session_id="t14-sess",  # plan-fix #2: required string
     )
     assert r["status"] == "signed"
 
     yield (project, "test-sig-e2e", source, meta)
 
 
-def test_execute_script_verifies_layer3_signature_happy_path(signed_script_setup) -> None:
-    """Full sign → verify round-trip. skip_trust_checks=False.
+def test_execute_adaptive_script_verifies_layer3_signature_happy_path(
+    signed_script_setup,
+) -> None:
+    """Full sign → verify round-trip with skip_trust_checks=False.
 
     T11-N1: end-to-end Layer 3 coverage that was not exercised before.
+    Uses engine.execute_adaptive_script (the MCP-boundary entry point)
+    per plan-fix #1 — not the internal execute_script which takes
+    script_path/meta_path, not script_name.
     """
-    from screw_agents.adaptive.executor import execute_script
+    from screw_agents.engine import ScanEngine
 
     project, script_name, _, _ = signed_script_setup
 
-    result = execute_script(
+    engine = ScanEngine.from_defaults()
+    result = engine.execute_adaptive_script(
         project_root=project,
         script_name=script_name,
         wall_clock_s=5,
         skip_trust_checks=False,
     )
-    assert result["status"] in ("ok", "success") or result.get("returncode") == 0
+
+    # Plan-fix #3: simplified assertion. Post-T11 (I3), engine returns
+    # status="ok" on returncode==0, "sandbox_failure" otherwise.
+    assert result["status"] == "ok"
 
 
-def test_execute_script_rejects_tampered_signature(signed_script_setup) -> None:
-    """Tamper the .py source after signing. Layer 3 verification MUST fail."""
-    from screw_agents.adaptive.executor import execute_script, SignatureFailure
+def test_execute_adaptive_script_rejects_tampered_source(
+    signed_script_setup,
+) -> None:
+    """Tamper the .py source after signing. Layer 2 hash pin MUST fail.
+
+    Plan-fix #4 + #8 + #9 (Option C): Layer 1 (lint) and Layer 2 (hash
+    pin) BOTH run before Layer 3 (signature) in executor.execute_script.
+    A source-byte tamper is caught by Layer 2 via HashMismatch — Layer 3
+    never runs. This test locks the Layer-2 rejection path specifically.
+    The companion test_execute_adaptive_script_rejects_tampered_signature
+    exercises Layer 3 by flipping the signature field instead.
+
+    Tampered content stays lint-valid (preserves import + def analyze)
+    to prove the rejection comes from Layer 2's SHA-256 check, NOT Layer
+    1's lint. If this test ever starts raising LintFailure, the tamper
+    somehow broke the lint — investigate before assuming the hash check
+    is broken.
+    """
+    from screw_agents.adaptive.executor import HashMismatch
+    from screw_agents.engine import ScanEngine
 
     project, script_name, _, _ = signed_script_setup
     py_path = project / ".screw" / "custom-scripts" / f"{script_name}.py"
-    py_path.write_text("# tampered\npass\n", encoding="utf-8")
 
+    # Tamper while preserving lint-validity — add a comment line BEFORE
+    # the analyze def so Layer 1 sees valid structure but the SHA-256
+    # changes (and so Layer 2 hash pin fails).
+    py_path.write_text(
+        "from screw_agents.adaptive import ProjectRoot\n"
+        "\n"
+        "# TAMPERED — this line changes the sha256\n"
+        "def analyze(project: ProjectRoot) -> None:\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+
+    engine = ScanEngine.from_defaults()
+    with pytest.raises(HashMismatch):
+        engine.execute_adaptive_script(
+            project_root=project,
+            script_name=script_name,
+            wall_clock_s=5,
+            skip_trust_checks=False,
+        )
+
+
+def test_execute_adaptive_script_rejects_tampered_signature(
+    signed_script_setup,
+) -> None:
+    """Tamper .meta.yaml's signature field after signing. Layer 3 MUST fail.
+
+    Plan-fix #9 (Option C): Layer 2 hash pin passes because we leave the
+    .py source untouched (and its sha256 stays in meta.sha256). But we
+    flip a byte in the base64 signature field, so Ed25519 verification
+    at Layer 3 fails with SignatureFailure. This is the T11-N1 flagship
+    test that locks Layer 3 coverage — the rationale for bundling T11-N1
+    in PR #6 in the first place.
+
+    If meta_path's signature field shape ever changes (e.g., moved under
+    a nested key, renamed), this test will break — find the new path
+    and update. The invariant being tested is: ANY byte-change in the
+    on-disk signature post-sign must be rejected at Layer 3.
+    """
+    import base64
+
+    import yaml
+
+    from screw_agents.adaptive.executor import SignatureFailure
+    from screw_agents.engine import ScanEngine
+
+    project, script_name, _, _ = signed_script_setup
+    meta_path = project / ".screw" / "custom-scripts" / f"{script_name}.meta.yaml"
+
+    meta_dict = yaml.safe_load(meta_path.read_text(encoding="utf-8"))
+    assert "signature" in meta_dict, (
+        f"meta at {meta_path} is missing 'signature' field — "
+        f"shape changed? keys present: {sorted(meta_dict.keys())}"
+    )
+
+    # Decode, flip one byte in the middle (avoid padding), re-encode.
+    sig_bytes = bytearray(base64.b64decode(meta_dict["signature"]))
+    assert len(sig_bytes) >= 16, f"Ed25519 signature too short: {len(sig_bytes)} bytes"
+    # Flip a byte at a safe offset — Ed25519 signatures are 64 bytes;
+    # offset 10 is well clear of padding and structural bits.
+    sig_bytes[10] ^= 0xFF
+    meta_dict["signature"] = base64.b64encode(bytes(sig_bytes)).decode("ascii")
+    meta_path.write_text(yaml.safe_dump(meta_dict), encoding="utf-8")
+
+    engine = ScanEngine.from_defaults()
     with pytest.raises(SignatureFailure):
-        execute_script(
+        engine.execute_adaptive_script(
             project_root=project,
             script_name=script_name,
             wall_clock_s=5,
             skip_trust_checks=False,
         )
 ```
+
+Plan-fix #5: note that the plan's scaffolded `cryptography.hazmat.primitives` imports are NOT in the fixture above — they were unused. All Ed25519 work happens inside `engine.sign_adaptive_script`.
 
 - [ ] **Step 2: Run tests — should PASS (trust infrastructure already works; these just exercise it)**
 
@@ -3292,27 +4709,68 @@ Expected: 2 PASS.
 - [ ] **Step 3: Full suite**
 
 Run: `uv run pytest -q`
-Expected: 821 passed (819 + 2 T11-N1 tests).
+Expected (plan-fix #6): **891 passed, 8 skipped** (889 baseline + 2 new).
 
 - [ ] **Step 4: Commit**
 
 ```bash
 git add tests/test_adaptive_executor.py
-git commit -m "test(phase3b-c1): end-to-end signature-path regression for execute_script (T14, T11-N1)"
+git commit -m "test(phase3b-c1): end-to-end signature-path regression for execute_adaptive_script (T14, T11-N1)"
 ```
 
-Note: the test count is now 821, not 820 as projected. Acceptable — we added one more test than the spec's projection. Update expected-count in Exit Checklist (§below) if needed.
+**T14 Opus 4.7 re-review (2026-04-22):** Spec review APPROVED 10/10 HRs. Quality review APPROVE-with-Important — one Important finding + 2 Minor. Total across both: 0 Critical, **1 Important**, 5 Minor. **The 7-task 0-Important streak (T7-T13) ended at T14** — the Important was a plan-fix defect (my bug, not the implementer's): my plan-fix code block for the happy-path test omitted the `shutil.which("bwrap")` / `shutil.which("sandbox-exec")` skip guard present on every other sandbox-exercising test in the file. Implementer faithfully copied the plan; reviewer caught the missing guard.
+
+Fix-up applied in commit `fe1f7a8`:
+
+- **I-T14-quality-1 (sandbox-backend skip guard on happy-path test)**: added inline skip to `test_execute_adaptive_script_verifies_layer3_signature_happy_path` before the `engine.execute_adaptive_script` call. Used the in-file precedent string "requires sandbox backend" (matches T11 tests at lines 691-692, 743-744) per cross-task-precedent discipline. Tamper tests don't need the guard — they raise at Layer 2/Layer 3 before the sandbox runs.
+
+All 10 plan-fixes landed cleanly in the feat commit (plus the post-dispatch plan-fixes #9-10 for Option C):
+
+- Plan-fix #1 (engine API): `engine.execute_adaptive_script(project_root=..., script_name=...)` throughout, not internal `execute_script`.
+- Plan-fix #2 (`session_id="t14-sess"`): required string per signature.
+- Plan-fix #3 (`result["status"] == "ok"`): simplified assertion per T11 I3 return shape.
+- Plan-fix #4 (lint-valid tamper): tampered content preserves `from screw_agents.adaptive import ProjectRoot` + `def analyze(...)`. Amended mid-task after implementer caught Layer 2 precedence — see #9.
+- Plan-fix #5 (no cryptography imports): clean — all Ed25519 work is inside `engine.sign_adaptive_script`.
+- Plan-fix #6 (superseded by #10).
+- Plan-fix #7 (`target_patterns=[]`): empty list → `_is_stale` returns False → sandbox runs → full round-trip exercised.
+- Plan-fix #8 (document layer precedence): test docstrings call out Layer 1+Layer 2 before Layer 3.
+- **Plan-fix #9 (Option C — test Layers 2 AND 3 independently)**: implementer caught mid-task that source-byte tamper triggers Layer 2 HashMismatch before Layer 3. Split the single tamper test into two:
+  1. `test_execute_adaptive_script_rejects_tampered_source` — flip a lint-valid byte in the `.py`, expect `HashMismatch` (Layer 2).
+  2. `test_execute_adaptive_script_rejects_tampered_signature` — flip a byte in meta.yaml signature (base64 decode → XOR → re-encode), expect `SignatureFailure` (Layer 3).
+
+  T11-N1 is now strictly higher value than the original 2-test scope: both rejection layers independently locked.
+- Plan-fix #10 (pytest count): 889 baseline + 3 new = **892 passed, 8 skipped**.
+
+Complementary-not-redundant note: a pre-existing test at `tests/test_adaptive_executor.py:628` (`test_execute_script_tampered_signature_raises_signature_failure`) already covers Layer 3 tampering via the INTERNAL `execute_script` API. T14 adds coverage via the MCP-BOUNDARY `engine.execute_adaptive_script` API — both layer paths tested at both API surfaces.
+
+No Critical items. One Important fixed via fix-up commit. 3 spec Minors all non-actionable (informational). 2 quality Minors deferred to DEFERRED_BACKLOG as `BACKLOG-PR6-63` (section banner style inconsistency) and `BACKLOG-PR6-64` (bare `pytest.raises(SignatureFailure)` could use tight `match=` for defense-in-depth).
+
+T14 commit: `dc3762c`. Fix-up commit: `fe1f7a8`. Plan-fix commits: `f5e3bcd` + `677dfde`.
 
 ---
 
 ## Phase E — Subagent Prompt Rewrite (T15-T18)
 
-### Task 15: Rewrite T18b Adaptive-Mode Section in `screw-sqli.md`
+### Task 15: Rewrite T18b Adaptive-Mode Section in `screw-sqli.md` (combined with T16 — all 4 files)
 
 **Files:**
-- Modify: `plugins/screw/agents/screw-sqli.md` (Step 3.5d rewrite; also adjust `tools:` frontmatter to add new MCP tools)
+- Modify: `plugins/screw/agents/screw-sqli.md` (canonical Step 3.5d rewrite + frontmatter)
+- Modify: `plugins/screw/agents/screw-cmdi.md` (byte-identical copy, agent-name substituted)
+- Modify: `plugins/screw/agents/screw-ssti.md` (byte-identical copy, agent-name substituted)
+- Modify: `plugins/screw/agents/screw-xss.md` (byte-identical copy, agent-name substituted)
 
-**Rationale:** This is THE user-facing C1 fix. The new flow stages BEFORE review, promotes on approve, rejects on reject, and handles respawn via registry lookup. Also applies I1 (plugin namespace), I4 (retention notice), I5 (prompt hardening). The file is the CANONICAL per-agent subagent; T16 then copies this byte-identical section to cmdi/ssti/xss.
+**Rationale:** This is THE user-facing C1 fix. The new flow stages BEFORE review, promotes on approve, rejects on reject, and handles respawn via registry lookup. Also applies I1 (plugin namespace), I4 (retention notice), I5 (prompt hardening).
+
+**T15+T16 combined (plan-fix, 2026-04-22):** Original plan split T15 (rewrite sqli as canonical) from T16 (byte-copy to cmdi/ssti/xss). Combined into single task because: (a) byte-identity invariant is enforced by `test_adaptive_section_identical_modulo_agent_name` regardless of commit boundaries; (b) combining avoids the broken-intermediate-state post-T15-pre-T16 where the byte-identity test fails; (c) one dispatch + one review cycle is significantly cheaper context-wise; (d) cmdi/ssti/xss are byte-identical modulo agent-name substitutions — reviewer reads 1 full rewrite + verifies 3 mechanical copies. Security invariant is preserved. See §T16 below (marked absorbed).
+
+**T15 plan-fixes #1-6 (2026-04-22):**
+- **#1 Tool-invocation format**: plan's concrete patches use bare `"tool": "stage_adaptive_script"` JSON blocks. The existing file convention (line 277) uses full `mcp__screw-agents__<name>({...})` code blocks. MATCH THE EXISTING FILE FORMAT — the T20 format-smoke tests likely check for the `mcp__screw-agents__` prefix.
+- **#2 Execute failure branch status**: plan's K section says `"status == "error""`. Post-T11 (I3), `engine.execute_adaptive_script` returns `status="sandbox_failure"` on non-zero returncode. Update to `status == "sandbox_failure"`.
+- **#3 "Python standard library" misdirection**: current screw-sqli.md at lines 212 and 238 tells the LLM to import from `screw_agents.adaptive` AND "Python standard library". Post-T10 (I2), `_ALLOWED_IMPORT_MODULES = {"screw_agents.adaptive"}` — stdlib imports are REJECTED at Layer 1. I5 hardening must REPLACE stdlib mentions with the 18-name allowlist (not just add it alongside).
+- **#4 Exact 18-name list for I5 enumeration**: from `src/screw_agents/adaptive/__init__.py:65-88`:
+  `ProjectRoot, ProjectPathError, parse_ast, walk_ast, find_calls, find_imports, find_class_definitions, CallSite, ImportNode, ClassNode, trace_dataflow, is_user_input, is_sanitized, match_pattern, get_call_args, get_parent_function, resolve_variable, emit_finding`
+- **#5 Drop `.screw/local/review_log.jsonl` mention**: current reject branch at line 439 mentions a best-effort write to this file. New flow via `reject_staged_script` records the rejection event in `.screw/local/pending-approvals.jsonl` (the pending-approvals registry). The review_log.jsonl mention becomes redundant/stale — delete it.
+- **#6 Expected pytest count**: plan Step 4 says "byte-identity test will FAIL until T16 lands" — N/A with combined T15+T16. Expected: **892 passed, 8 skipped** (unchanged from post-T14 baseline, assuming no test-count changes from the prose rewrite). If the format-smoke tests at T20 aren't yet present, count stays stable. Report actual count in closeout.
 
 **Pre-audit (critical — LLM-flow surface is security-relevant, per `feedback_no_skip_security_artifact_reviews`):**
 - The byte-identical-section contract (T18b's `test_adaptive_section_identical_modulo_agent_name`) enforces cmdi/ssti/xss == sqli after agent-name substitution. Edit sqli FIRST; T16 is a byte-copy with `sqli` → `cmdi`/`ssti`/`xss` substitution ONLY.
@@ -3640,9 +5098,39 @@ git commit -m "feat(phase3b-c1): rewrite screw-sqli.md Step 3.5d with staging fl
 
 **Cross-plan sync:** spec §3.1-§3.3 prompt-side expectations verified. Note any deviation (e.g., if the approval-phrase parser ends up more permissive than specified) and update spec or this plan accordingly.
 
+**T15+T16 Opus 4.7 re-review (2026-04-22):** Spec review APPROVED 14/14 HRs ("clean execution… plan-conformant across all 14 hard requirements"). Quality review APPROVED ("merge-ready… zero Critical, zero Important, zero Minor findings"). Both reviewers reported **0 Critical, 0 Important**; net 2 Minor total (both from spec-review, both observational/forward-looking). 8-task 0-Important count since T7 with only T14 interrupting (7 tasks 0-Important out of 8).
+
+All 6 plan-fixes landed cleanly in the single combined commit:
+- Plan-fix #1 (mcp__screw-agents__ tool format): 0 bare `"tool":` JSON wrappers; all invocations use code blocks.
+- Plan-fix #2 (`sandbox_failure` status): K failure branch updated from stale `"error"`.
+- Plan-fix #3 (drop stdlib misdirection): 0 "Python standard library" occurrences in the 4 injection subagents.
+- Plan-fix #4 (18-name allowlist): all 18 names from `adaptive/__init__.py:65-88` enumerated in Layer 0b + generation-prompt.
+- Plan-fix #5 (drop review_log.jsonl): 0 occurrences; reject flow now via reject_staged_script → pending-approvals.jsonl.
+- Plan-fix #6 (pytest count): 892 passed, 8 skipped — stable.
+
+I1/I3/I4/I5 hardenings all present: `screw:screw-script-reviewer` (namespaced subagent_type), stderr fenced rendering on failure, retention notice + cleanup command, 18-name enumeration + negative-examples for hallucinated names (`read_source`, `parse_module`, `walk_module`).
+
+Byte-identity across 4 files validated via `test_adaptive_section_identical_modulo_agent_name` — passes. Unique cross-file diff is agent-name substitution plus out-of-adaptive-section per-vulnerability prose (CWE IDs, Confidence Calibration bullets).
+
+Scope deviation justified: implementer modified `tests/test_adaptive_subagent_prompts.py` to split `_ADAPTIVE_MCP_TOOLS` into `_PER_AGENT_ADAPTIVE_MCP_TOOLS` (post-C1 surface, no sign) and `_ORCHESTRATOR_ADAPTIVE_MCP_TOOLS` (retains sign until T17 updates orchestrator). Legitimate downstream ripple — same pattern as T11's fix to `test_execute_adaptive_script_tool.py`. New negative assertions (sign_adaptive_script MUST be absent in per-agent frontmatter + section body) reference "Option D isolation regressed (spec §3.2)" as high-signal error message. Back-compat alias `_ADAPTIVE_MCP_TOOLS = _ORCHESTRATOR_ADAPTIVE_MCP_TOOLS` preserves external references.
+
+No Important items → no fix-up commit. One Minor item deferred to DEFERRED_BACKLOG as `BACKLOG-PR6-65` (subagent session-id lookup could use a server-side tool instead of LLM-driven `Read`-then-JSONL-parse; currently server-side fallback codes guard-rail the approach).
+
+**Absorbed T16**: the per-agent substitution work originally scoped in §T16 is complete as part of this single commit. Byte-identity test passes. §T16 header marked ABSORBED; no separate T16 commit.
+
+T15+T16 commit: `1b99247`. Plan-fix commit: `1501517`.
+
 ---
 
-### Task 16: Byte-Identical Copy to cmdi/ssti/xss Subagents
+### Task 16: Byte-Identical Copy to cmdi/ssti/xss Subagents — ABSORBED INTO T15
+
+**Status**: **ABSORBED INTO T15** (2026-04-22). See T15 header for rationale. The per-agent substitution logic and byte-identity verification originally scoped here now happen in the combined T15 dispatch. Preserved below for plan-history trail.
+
+---
+
+_Original T16 content follows (preserved as historical documentation; no longer an independent task):_
+
+
 
 **Files:**
 - Modify: `plugins/screw/agents/screw-cmdi.md`
@@ -3706,6 +5194,16 @@ Compare to the new per-agent IDs from T15/T16. For any `3.5d-H` references that 
 
 This task is primarily verification. If T15's sub-step renaming requires orchestrator updates, apply them minimally — do NOT restructure the orchestrator's logic. Orchestrator's share-quota behavior is unchanged.
 
+**Plan-fixes #1-5 (2026-04-22)** — pre-audit identified 4 concrete stale refs the plan's "primarily verification" framing glossed over:
+
+- **#1 Frontmatter tool changes**: `plugins/screw/agents/screw-injection.md:13` has `- mcp__screw-agents__sign_adaptive_script`. Remove it. Add `- mcp__screw-agents__stage_adaptive_script`, `- mcp__screw-agents__promote_staged_script`, `- mcp__screw-agents__reject_staged_script` (matching what per-agent files got in T15). Orchestrator tool surface is now identical to per-agent tool surface for the adaptive path.
+- **#2 Sub-step range**: line 165 says "sub-steps A through **I**". Post-T15 the per-agent layout is A through K. Update to "sub-steps A through **K**".
+- **#3 `sign_adaptive_script.meta` → `stage_adaptive_script.meta`**: line 165 references the meta dict via `sign_adaptive_script.meta`. Post-C1 the meta is assembled at STAGE time (not sign time), so the correct reference is `stage_adaptive_script.meta`. Update.
+- **#4 Session ID Reuse list**: line 169 lists MCP tools the session_id is passed to, including `sign_adaptive_script`. Replace with `stage_adaptive_script` (the new staging-flow entry point; promote/reject also take session_id but they're in the resume-from-approval branch — not the mainline flow the orchestrator describes).
+- **#5 Test file constant merge**: after T17 removes sign from the orchestrator's tool surface, `_ORCHESTRATOR_ADAPTIVE_MCP_TOOLS` in `tests/test_adaptive_subagent_prompts.py` equals `_PER_AGENT_ADAPTIVE_MCP_TOOLS`. The split was explicitly a T15→T17 transition artifact. **Recommend**: merge back to a single `_ADAPTIVE_MCP_TOOLS` constant, drop the back-compat alias, simplify the test logic (one tool-list assertion across all 5 files: 4 per-agent + 1 orchestrator). Implementer may keep the split if it makes test logic cleaner for some reason.
+
+**Expected pytest count** (plan-fix #6): 892 passed, 8 skipped unchanged (docs + test-const cleanup only).
+
 - [ ] **Step 3: Run tests to verify orchestrator's format-smoke checks still pass**
 
 Run: `uv run pytest tests/test_adaptive_subagent_prompts.py -v -k "orchestrator or injection"`
@@ -3719,6 +5217,22 @@ git commit -m "feat(phase3b-c1): orchestrator refs updated for new T18b sub-step
 ```
 
 If no changes were needed: skip the commit; move on to T18.
+
+**T17 Opus 4.7 re-review (2026-04-22):** Spec review APPROVED 10/10 HRs. Quality review APPROVED ("clean execution of the plan-fixes… no Important findings"). Both reviewers reported **0 Critical, 0 Important**; net 4 Minor total (all observational/defensible-by-design or cosmetic). Score since T7: **9 tasks 0-Important / 1 task 1-Important** (T14 only). T17 keeps the streak clean.
+
+All 6 plan-fixes landed cleanly:
+- Plan-fix #1 (frontmatter): `sign_adaptive_script` removed; stage/promote/reject added. Orchestrator tool surface now byte-identical to per-agent adaptive surface.
+- Plan-fix #2 (sub-step range): "A through I" → "A through K" at `screw-injection.md:167`.
+- Plan-fix #3 (meta ref): `sign_adaptive_script.meta` → `stage_adaptive_script.meta` at `:167` — meta is assembled at stage time post-C1.
+- Plan-fix #4 (session-id list): `:171` replaces sign with stage. promote/reject correctly EXCLUDED — they run in the resume-from-approval branch (not mainline).
+- Plan-fix #5 (test constant merge): `_PER_AGENT_ADAPTIVE_MCP_TOOLS` + `_ORCHESTRATOR_ADAPTIVE_MCP_TOOLS` + back-compat alias all dropped; single `_ADAPTIVE_MCP_TOOLS` constant. Negative assertion `sign_adaptive_script NOT in tools` now applies uniformly to all 5 subagent files (4 per-agent + orchestrator).
+- Plan-fix #6 (pytest count): 892 passed, 8 skipped unchanged.
+
+Cross-task alignment: T17 closes the transition explicitly opened by T15+T16's tool-constant split. The T15+T16 implementer had noted "T17 will update the orchestrator" — T17 confirms that prediction.
+
+No Important items → no fix-up commit. One Minor deferred to DEFERRED_BACKLOG as `BACKLOG-PR6-66` (forward-looking guard for body-vs-frontmatter drift). The other 3 Minors are explicitly defensible-by-design or cosmetic — no action.
+
+T17 commit: `8e7ffaa`. Plan-fix commit: `d181e9b`.
 
 ---
 
@@ -3759,6 +5273,22 @@ git add plugins/screw/commands/scan.md
 git commit -m "docs(phase3b-c1): scan.md documents adaptive staging flow (T18)"
 ```
 
+**T18 Opus 4.7 re-review (2026-04-22):** Spec review APPROVED 6/6 HRs. Quality review APPROVE-with-Important — **1 Important + 2 Minor (Category B)**. Marco accepted the Important as transient-by-design with explicit T19 commitment; see I-T18-quality-1 below and the T19 pre-audit scope which now carries the fix.
+
+- **I-T18-quality-1 (forward-reference to `/screw:adaptive-cleanup stale` subcommand)**: T18's new subsection in scan.md line 71 references `/screw:adaptive-cleanup stale` — but that subcommand doesn't exist in `plugins/screw/commands/adaptive-cleanup.md` yet. `adaptive-cleanup.md` currently documents only `list` and `remove`. T19 (next task) rewrites that file to ADD the `stale` subcommand per Q5c / spec §3.4.
+
+  **Resolution path**: accepted transient-by-design. At T18 HEAD (`d91e834`), the reference is aspirational. At T19 HEAD (forthcoming), the reference becomes valid because T19 adds the `stale` subcommand to adaptive-cleanup.md. Both commits ship in the same PR — at merge time the docs are internally consistent.
+
+  **Hard commitment locked in T19 scope**: T19's pre-audit MUST verify that scan.md line 71's `/screw:adaptive-cleanup stale` reference resolves to a documented subcommand after T19's rewrite. If T19 renames the subcommand (e.g., to `sweep` or `cleanup-stale`), T19 must ALSO update scan.md's reference in the same commit. This is now T19's responsibility, explicitly noted in the T19 pre-audit block below.
+
+- **Spec Minors M1-M2, Quality Minors M1-M2**: all Category B (reviewer explicitly "no action"). M1 spec = parenthetical enhancement beyond minimal plan-fix prescription (factually correct, enhancement not deviation). M2 spec = subsection ordering (implementer followed plan). M1 quality = "exact bytes you reviewed" phrasing (effectively true; reviewer "not worth rewording"). M2 quality = subsection heading level (acceptable as-is). No backlog entries per the Category A/B/C triage framework from the T17 correction.
+
+Score since T7: **10 tasks 0-Important / 1 task 1-Important (T14) / 1 task 1-Important transient-to-T19 (T18)**.
+
+All facts in the new subsection verified against source: staging path via `staging.py:98`, 24h threshold via `models.py:381`, 14-day threshold via `models.py:382`, `confirm-stale` / `confirm-<8hex>` via `engine.py:562, 709`, registry path via `staging.py:103`, `promote_staged_script` signs + writes to `.screw/custom-scripts/` per `engine.py:320-590`. Quality reviewer called out precision: "every path, default, and phrase checks against source."
+
+T18 commit: `d91e834`. No plan-fix commit (implementer applied plan-fixes directly per dispatch instructions, given small scope).
+
 ---
 
 ## Phase F — Slash Command + Format-Smoke (T19-T20)
@@ -3770,82 +5300,267 @@ git commit -m "docs(phase3b-c1): scan.md documents adaptive staging flow (T18)"
 
 **Rationale:** I6 fix. Replace `uv run python -c` Bash blocks with MCP tool invocations. Add `stale` subcommand per Q5c / spec §3.4.
 
+**T19 pre-audit must address I-T18-quality-1 (2026-04-22, carried forward from T18)**: scan.md line 71 contains a forward-reference to `/screw:adaptive-cleanup stale` that is aspirational at T18 HEAD (`d91e834`). T19 MUST:
+1. Add the `stale` subcommand to `adaptive-cleanup.md` (already in this task's rationale — confirming scope).
+2. Verify the subcommand name matches scan.md's reference: `/screw:adaptive-cleanup stale` (the literal phrase). If T19's design renames the subcommand (e.g., to `sweep` or `cleanup-stale`), T19 MUST also update `plugins/screw/commands/scan.md` line 71 in the same commit — the two references must be coherent at merge time.
+3. Verify the 14-day default threshold claim in scan.md: "at the default 14-day threshold". T19's `stale` subcommand must either use this default OR T19 updates scan.md to match whatever default it chooses.
+
+If T19's implementation changes either of these, the fix is a 1-2 LOC scan.md edit in the same commit. The commitment is that scan.md's references are valid at T19 HEAD.
+
 - [ ] **Step 1: Rewrite file with three actions: list, remove, stale**
 
-Replace the existing `list` + `remove` Bash blocks with MCP tool call blocks. Add new `stale` subcommand.
+Replace the existing `list` + `remove` Bash blocks (current file lines 38-88 use `uv run python -c "from screw_agents.cli.adaptive_cleanup import ..."`) with MCP tool call blocks in the plugin's canonical **function-call syntax**. Add new `stale` subcommand.
 
-Skeleton:
+**Precedents the implementer MUST match (non-negotiable):**
+
+1. **Frontmatter** — keep `name: screw:adaptive-cleanup` as line 2 with the existing `description:` on line 3. Precedents:
+   - `plugins/screw/commands/scan.md:2-3` (`name: screw:scan` + `description:`).
+   - `plugins/screw/commands/learn-report.md:2-3` (`name: screw:learn-report` + `description:`).
+   - `plugins/screw/commands/adaptive-cleanup.md:2-3` (existing; do NOT drop the `name:` field).
+2. **MCP tool-call syntax** — `mcp__screw-agents__<tool>({...JSON args...})` function-call form. Precedent: `plugins/screw/agents/screw-sqli.md:329` (and four more call sites in screw-sqli/cmdi/ssti/xss/full-review). Do NOT use a `{"tool": "...", "arguments": {...}}` envelope — that form appears nowhere in the plugin.
+3. **List-action UX** — preserve the compact-block rendering of current lines 49-57 (one block per script with name/description, created/created_by, domain, signing, findings_produced/last_used, target_patterns, stale warning). Do NOT downgrade to a 3-column table.
+4. **Stale-detection semantic section** — the current "Stale-detection semantic" section (lines 102-120) explains when `list`'s per-script `stale` flag fires (AST pattern resolution via `_check_stale`). This documentation MUST be preserved verbatim (it documents the `list` action, which T19 does not change semantically). Re-scope it under the `list` action and re-title to "List action — per-script stale detection (AST pattern-based)" so it is unambiguous which "stale" it describes.
+5. **Two distinct "stale" concepts** — the word "stale" now has two meanings in this file. Call them out explicitly at the top of the file AND in each action's header:
+   - **Per-script stale** (surfaced by `list`): a signed adaptive script whose declared `target_patterns` no longer have matching call sites in the project AST. Script is intact; its target code is gone.
+   - **Orphan-staging stale** (swept by `stale`): an unpromoted/unrejected staging directory under `.screw/staging/{session_id}/` older than the configured threshold (residue from an abandoned review cycle). Nothing was ever signed; the staged bytes are about to be cleaned up.
+
+Skeleton (escaping inside this fenced block is for plan-rendering; the implementer writes real backticks in the file):
 
 ```markdown
 ---
-description: Inspect and clean up adaptive analysis scripts (list, remove, stale sweep)
+name: screw:adaptive-cleanup
+description: "Inspect and clean up adaptive analysis scripts. Usage: /screw:adaptive-cleanup [list|remove <name>|stale [--max-age-days N] [--preview]]"
 ---
 
-# /screw:adaptive-cleanup
+# /screw:adaptive-cleanup — Adaptive Script Cleanup
 
-## Actions
+Inspect and clean up adaptive analysis scripts stored under
+\`.screw/custom-scripts/\` **and** orphaned staging directories under
+\`.screw/staging/\`. The two storage locations have independent lifecycles
+and the word "stale" means different things in each:
 
-### \`list\` — show all adaptive scripts
+- **Per-script stale** (surfaced by \`list\`) — a signed script under
+  \`.screw/custom-scripts/\` whose \`target_patterns\` no longer match any
+  call sites in the project AST. The script is cryptographically intact;
+  its target code is gone. Retire it with \`remove\`.
+- **Orphan-staging stale** (swept by \`stale\`) — an unpromoted and
+  unrejected staging directory under \`.screw/staging/{session_id}/\`
+  older than the configured threshold (default 14 days). Residue from a
+  review cycle the user walked away from. Nothing was ever signed.
 
-Use the MCP tool \`list_adaptive_scripts\`:
+## Syntax
 
-\`\`\`json
-{
-  "tool": "list_adaptive_scripts",
-  "arguments": {"project_root": "{abs path of current project}"}
-}
+\`\`\`
+/screw:adaptive-cleanup [list|remove <script-name>|stale [--max-age-days N] [--preview]]
 \`\`\`
 
-Render the response as a table with columns: Name, Signed By, Stale.
-For stale scripts, show the \`stale_reason\` on the next indented line.
+## Default action: \`list\` — show all adaptive scripts
 
-If no scripts, render: "No adaptive scripts present in \`.screw/custom-scripts/\`."
+When invoked without args (or with \`list\`), call:
 
-### \`remove <name>\` — delete one adaptive script pair
-
-1. Confirm with the user: "Remove \`{name}\` from .screw/custom-scripts/? Type 'yes' to confirm."
-2. On user typing exactly 'yes':
-
-\`\`\`json
-{
-  "tool": "remove_adaptive_script",
-  "arguments": {"project_root": "{abs path}", "script_name": "{name}", "confirmed": true}
-}
+\`\`\`
+mcp__screw-agents__list_adaptive_scripts({
+  "project_root": "<absolute path to current project root>"
+})
 \`\`\`
 
-3. Render result.
+Render each entry in the returned \`scripts\` array as a compact block
+(one block per script, matching the existing UX):
 
-### \`stale [--max-age-days N] [--preview]\` — sweep stale staging artifacts
-
-For inspecting + cleaning the \`.screw/staging/\` directory tree. Removes
-orphaned staging entries from scans that were never approved/rejected, plus
-post-promote/reject residue.
-
-Call:
-
-\`\`\`json
-{
-  "tool": "sweep_stale_staging",
-  "arguments": {
-    "project_root": "{abs path}",
-    "max_age_days": {N if provided; else null (uses config default 14)},
-    "dry_run": {true if --preview else false}
-  }
-}
+\`\`\`
+<name> — <description>
+  created: <created> by <created_by>
+  domain: <domain>
+  signing: <✓ signed | ⚠ unsigned>   (from \`validated\`: True → signed)
+  findings produced: <findings_produced>   last used: <last_used or "never">
+  target patterns: <comma-separated list>
+  <if stale:> ⚠ stale — <stale_reason>
 \`\`\`
 
-Render report: sessions scanned / removed, scripts removed (with reason + age),
-tampered-preserved (with evidence path). For --preview, add a note that no
-filesystem changes were made.
+If \`scripts\` is empty, render: "No adaptive scripts present in
+\`.screw/custom-scripts/\`."
+
+If the listing contains ANY stale scripts, surface a discoverability prompt:
+
+> Stale scripts found: \`<name1>, <name2>\`.
+> Run \`/screw:adaptive-cleanup remove <name>\` to retire them.
+
+### List action — per-script stale detection (AST pattern-based)
+
+A script is **stale** when NONE of its declared \`target_patterns\` have
+matching call sites in the current project AST. This matches the
+executor's \`_check_stale\` semantic in
+\`src/screw_agents/adaptive/executor.py\` exactly (same \`find_calls\`
+helper, same semantics) so staleness here aligns with what would happen
+if you tried to run the script via \`--adaptive\`.
+
+Edge cases:
+
+- \`target_patterns: []\` → NOT flagged as stale (we can't judge without
+  patterns). \`stale_reason\` becomes \`"no target_patterns declared"\` —
+  surfaced informationally, not as a ⚠ warning.
+- Any \`target_pattern\` has at least one matching call site → NOT stale.
+- ALL \`target_patterns\` have zero call sites → stale; \`stale_reason\`
+  names the dead patterns.
+
+Stale scripts still pass Layer 3 signature verification (they're
+cryptographically intact; they just have no code left to analyze).
+\`remove\` is the safe way to retire them.
+
+## Remove action: \`remove <script-name>\`
+
+Deletion is **destructive** — the \`.py\` and \`.meta.yaml\` files are
+unlinked from disk. Historical \`.screw/findings/\` and
+\`.screw/learning/\` artifacts produced by the script survive (they're
+audit records, not live state).
+
+### Confirmation gate (MANDATORY)
+
+Before calling the backend, you MUST prompt the user:
+
+> About to delete \`.screw/custom-scripts/<name>.py\` +
+> \`<name>.meta.yaml\`. Confirm with \`yes\` or \`cancel\`.
+
+- If the user responds with anything other than \`yes\`
+  (case-insensitive), treat as cancel and report
+  "Removal cancelled by user."
+- Only after explicit \`yes\` do you invoke the backend:
+
+\`\`\`
+mcp__screw-agents__remove_adaptive_script({
+  "project_root": "<absolute path>",
+  "script_name": "<name>",
+  "confirmed": true
+})
+\`\`\`
+
+Show the returned \`status\`, \`script_name\`, and (on error) \`message\`
+to the user.
+
+### Backend return statuses
+
+| Status | Meaning |
+|---|---|
+| \`removed\` | Both \`.py\` and \`.meta.yaml\` existed and were deleted (or at least one of the pair existed and its present companion was cleaned up). |
+| \`error\` + \`confirmation_required\` | Slash command bug — \`confirmed=true\` was not sent. User must re-invoke. |
+| \`error\` + \`not_found\` | Neither file existed. |
+| \`error\` + \`delete_failed\` | A filesystem error prevented deletion; \`message\` explains. |
+
+## Stale-sweep action: \`stale [--max-age-days N] [--preview]\`
+
+Sweeps orphaned staging directories under \`.screw/staging/\`. These
+accumulate when a reviewer starts an adaptive cycle, a script is staged
+via \`stage_adaptive_script\`, but the reviewer neither approves nor
+rejects it before walking away (or the process crashes). The
+staging directory sits there indefinitely unless cleaned up.
+
+### Arguments
+
+- \`--max-age-days N\` (optional): override the threshold in days.
+  Omitted → the backend reads \`staging_max_age_days\` from
+  \`.screw/config.yaml\` (default \`14\` when the config key is absent).
+  Clamped to \`[1, 365]\` server-side.
+- \`--preview\` (optional): dry-run. Report what would be removed
+  without touching the filesystem and without appending \`swept\`
+  audit events to the registry.
+
+### Call
+
+\`\`\`
+mcp__screw-agents__sweep_stale_staging({
+  "project_root": "<absolute path>",
+  "max_age_days": <N if --max-age-days N provided; else omit (engine falls back to config)>,
+  "dry_run": <true if --preview provided; else false>
+})
+\`\`\`
+
+### Response shape + rendering
+
+The tool returns:
+
+- \`status\`: \`"ok"\` on success; error otherwise.
+- \`max_age_days\`: the effective threshold used (post-clamp, post-fallback).
+- \`dry_run\`: echoes the request flag.
+- \`sessions_scanned\`: count of session directories examined.
+- \`sessions_removed\`: count of session directories removed (0 on dry-run).
+- \`scripts_removed\`: list of \`{session_id, script_name, age_days, reason}\`.
+- \`tampered_preserved\`: list of \`{session_id, script_name, evidence_path}\` —
+  staging dirs where sha256-mismatch was detected and the dir was KEPT
+  for forensic review (never swept even when old).
+
+Render as:
+
+\`\`\`
+Swept .screw/staging/ at threshold <max_age_days> days
+  <if dry_run:> (--preview: no filesystem changes made)
+
+  sessions scanned: <sessions_scanned>
+  sessions removed: <sessions_removed>
+  scripts removed:
+    - <session_id>/<script_name> — <reason> (age <age_days>d)
+    ... (one line per entry)
+  tampered (preserved for review):
+    - <session_id>/<script_name> — evidence at <evidence_path>
+    ... (one line per entry; section omitted if list is empty)
+\`\`\`
+
+### Security note
+
+The \`tampered_preserved\` list is never empty silently — when it has
+entries, flag it prominently in the output (e.g., a ⚠ warning line
+above the block). A tampered staging directory means someone wrote to
+\`.screw/staging/\` after \`stage_adaptive_script\` produced the sha256;
+that is a tamper signal, not noise. Do NOT offer to re-sweep with a
+shorter threshold or otherwise suggest the operator bypass the
+preservation.
+
+## Examples
+
+\`\`\`
+/screw:adaptive-cleanup
+/screw:adaptive-cleanup list
+/screw:adaptive-cleanup remove qb-check
+/screw:adaptive-cleanup stale
+/screw:adaptive-cleanup stale --preview
+/screw:adaptive-cleanup stale --max-age-days 30
+/screw:adaptive-cleanup stale --max-age-days 7 --preview
+\`\`\`
+
+## Notes
+
+- This command is on-demand. \`list\` walks the project AST once per
+  script (O(project_files × patterns)) — acceptable for interactive
+  cleanup, but NOT cheap enough to call on every scan. If you need
+  scan-time stale filtering, the executor already handles that via
+  \`_check_stale\` during \`execute_script\`.
+- The three MCP tools (\`list_adaptive_scripts\`, \`remove_adaptive_script\`,
+  \`sweep_stale_staging\`) are registered at \`src/screw_agents/server.py\`
+  lines 188-209 and dispatched to engine methods at
+  \`src/screw_agents/engine.py\` lines 1061-1436. This slash command is
+  the only consumer of \`sweep_stale_staging\` in the plugin today; the
+  other two tools are also consumed by future tooling.
 ```
 
-- [ ] **Step 2: Verify no residual `uv run python -c` in the file**
+- [ ] **Step 2: Verify the cut-over is complete and precedents are matched**
 
-Run: `grep "uv run" plugins/screw/commands/adaptive-cleanup.md`
-Expected: 0 matches (full cut-over to MCP tools).
+Negative assertions (must report 0 matches each — the old shelling-out
+and the rejected envelope form must both be gone):
 
-Run: `grep "cli.adaptive_cleanup" plugins/screw/commands/adaptive-cleanup.md`
-Expected: 0 matches (old import pattern gone).
+```bash
+grep -c "uv run" plugins/screw/commands/adaptive-cleanup.md           # expect 0
+grep -c "cli.adaptive_cleanup" plugins/screw/commands/adaptive-cleanup.md  # expect 0
+grep -c '"tool":' plugins/screw/commands/adaptive-cleanup.md          # expect 0
+```
+
+Positive assertions (must match the counted values):
+
+```bash
+grep -c "mcp__screw-agents__" plugins/screw/commands/adaptive-cleanup.md  # expect 3 (list, remove, stale)
+grep -c "^name: screw:adaptive-cleanup" plugins/screw/commands/adaptive-cleanup.md  # expect 1 (frontmatter preserved)
+grep -c "Per-script stale\|Orphan-staging stale" plugins/screw/commands/adaptive-cleanup.md  # expect 2+ (both "stale" concepts named)
+```
+
+If any assertion fails, the rewrite is incomplete — fix before committing.
 
 - [ ] **Step 3: Commit**
 
@@ -3853,6 +5568,20 @@ Expected: 0 matches (old import pattern gone).
 git add plugins/screw/commands/adaptive-cleanup.md
 git commit -m "feat(phase3b-c1): rewrite adaptive-cleanup slash cmd to use MCP tools (T19, I6)"
 ```
+
+**T19 Opus 4.7 re-review (2026-04-23):** Spec review APPROVED. Quality review APPROVED. **0 Critical / 0 Important / 4 Minor (2 Category A, 2 Category B per review)**. All 6 plan-fix grep assertions passed; scan.md line 71's forward-reference to `/screw:adaptive-cleanup stale` resolves valid at T19 HEAD; I-T18-quality-1 closed.
+
+- **I-T18-quality-1 resolved**: scan.md:71 references `/screw:adaptive-cleanup stale` and claims "default 14-day threshold". adaptive-cleanup.md now documents the literal `stale` subcommand (not renamed) with 14-day default (engine reads `.screw/config.yaml::staging_max_age_days`, falls back to 14 per `engine.py:98`). No scan.md edit required. The two files are internally consistent at T19 HEAD.
+
+- **Plan-fixes applied pre-dispatch (commit `5fe57d7`)**: PA-T19-1..7 — MCP call syntax (function-call form from `screw-sqli.md:329`), frontmatter `name:` preserved, compact-block list UX kept (not 3-column table), two distinct "stale" concepts disambiguated at top-of-file + per-action, stale-detection-semantic section preserved verbatim under `list`, case-insensitive "yes" confirmation kept, `max_age_days=None` resolution prose tightened to reference config-first fallback. Additional Step 2 grep assertions (6 total: 3 negative + 3 positive) locked in self-verification.
+
+- **Quality-review Category-A Minors (2)**: tracked as BACKLOG-PR6-69 and BACKLOG-PR6-70 per the T17-correction taxonomy rule — Category A cosmetic polish gets a backlog entry even when low-impact.
+
+- **Spec + quality Category-B Minors (2)**: reviewer explicitly "no action". No backlog entries per the Category-A/B/C framework.
+
+Score since T7: **11 tasks 0-Important / 1 task 1-Important (T14) / 1 task 1-Important transient-to-T19 (T18, now resolved)**. Pre-audit budget held the 0-Important target across the task.
+
+T19 commits: `2b9ead6` (implementer rewrite). Plan-fix precursor: `5fe57d7`. Pre-audit surfaced 7 plan-fixes before dispatch; implementer produced a skeleton-exact deliverable with zero deviations on first pass.
 
 ---
 
@@ -3863,157 +5592,206 @@ git commit -m "feat(phase3b-c1): rewrite adaptive-cleanup slash cmd to use MCP t
 
 **Rationale:** The test is the load-bearing lock on the prompt-side trust isolation. These assertions catch any future regression where a subagent prompt reintroduces `sign_adaptive_script` or drops the I5 hardening.
 
-- [ ] **Step 1: Add 12 assertions**
+**Precedents the implementer MUST match (non-negotiable, from T20 pre-audit 2026-04-23):**
 
-In `tests/test_adaptive_subagent_prompts.py`:
+1. **Reuse the existing `_PER_AGENT_FILES` dict at line 35-40** — do NOT introduce a parallel `PER_AGENT_FILES` list. Parametrize over `_PER_AGENT_FILES.items()` so test IDs read as `[sqli-...]`/`[cmdi-...]`/`[ssti-...]`/`[xss-...]` (matching prior parametrize style), not as full path strings.
+2. **Use `Path` throughout** — the file is `Path`-typed everywhere (`_REPO_ROOT`, `_AGENTS_DIR`, `_parse_subagent_file(path: Path)`). Helper signatures take `Path`, not `str`.
+3. **Naming convention** — new tests operate on whole-file content (not the extracted adaptive section). Prefix them `test_adaptive_prompt_*` (NOT `test_prompt_*`) to align with the existing `test_adaptive_section_*` (section-scoped) / `test_tools_*` (frontmatter-scoped) family.
+4. **Test #12 must lock both phrases, not either/or** — `"SHA256"` appears 2× per file AND `"script_sha256_prefix"` appears 5× per file (verified via grep in the T20 pre-audit). The `or` form is weaker than necessary — a regression that drops one but keeps the other would pass. Tighten to `and`.
+
+**Coverage-overlap rationale (accept as-is per pre-audit PA-T20-5):** The first 4 new tests (`stage_adaptive_script`, `promote_staged_script`, `reject_staged_script`, and the negative `sign_adaptive_script`) are WEAKER-per-test than existing section-level coverage at `test_adaptive_section_references_all_required_mcp_tools` (line 205) and frontmatter-level coverage at `test_tools_frontmatter_includes_adaptive_mcp_tools` (line 136), but they add **whole-file redundancy** — they'd catch a prose mention outside the canonical section. Belt-and-suspenders for format-smoke is appropriate; the intentional redundancy must be documented in a top-of-block comment so a future maintainer doesn't "deduplicate" them.
+
+- [ ] **Step 1: Add 12 assertions (48 parametrized cases)**
+
+In `tests/test_adaptive_subagent_prompts.py`, append the new block after `test_execute_adaptive_script_invocation_omits_session_id` (the last existing test) and before EOF:
 
 ```python
-# Each per-agent file:
-PER_AGENT_FILES = [
-    "plugins/screw/agents/screw-sqli.md",
-    "plugins/screw/agents/screw-cmdi.md",
-    "plugins/screw/agents/screw-ssti.md",
-    "plugins/screw/agents/screw-xss.md",
-]
+# ---- Tests 12-23: T20 whole-file format-smoke assertions -------------------
+#
+# These 12 assertions (48 parametrized cases across the 4 per-agent files)
+# lock the whole-file content of each per-agent adaptive subagent. They
+# INTENTIONALLY overlap with the section-level tests above
+# (`test_adaptive_section_references_all_required_mcp_tools` and
+# `test_tools_frontmatter_includes_adaptive_mcp_tools`) — the prior tests
+# check the EXTRACTED adaptive section or the FRONTMATTER TOOLS LIST; these
+# check WHOLE-FILE content. The redundancy catches regressions that would
+# slip past the section-only checks, e.g. a prose mention of
+# `sign_adaptive_script` outside the adaptive section. Do NOT deduplicate.
 
 
-def _read_agent(filename: str) -> str:
-    return Path(filename).read_text(encoding="utf-8")
+def _read_agent_content(path: Path) -> str:
+    """Return the full markdown file content (frontmatter + body).
+
+    Distinct from `_parse_subagent_file(path)` which splits into (frontmatter,
+    body); these tests assert on the whole file so a single string is simpler.
+    """
+    return path.read_text(encoding="utf-8")
 
 
-@pytest.mark.parametrize("filename", PER_AGENT_FILES)
-def test_prompt_contains_stage_adaptive_script(filename: str) -> None:
-    assert "stage_adaptive_script" in _read_agent(filename), (
-        f"{filename} missing stage_adaptive_script reference — C1 fix regressed"
+@pytest.mark.parametrize("agent,path", sorted(_PER_AGENT_FILES.items()))
+def test_adaptive_prompt_contains_stage_adaptive_script(agent: str, path: Path) -> None:
+    """Whole-file lock: `stage_adaptive_script` must appear in the prompt
+    content (frontmatter + body). Complements section-level checks."""
+    assert "stage_adaptive_script" in _read_agent_content(path), (
+        f"screw-{agent}.md missing stage_adaptive_script reference — C1 fix regressed"
     )
 
 
-@pytest.mark.parametrize("filename", PER_AGENT_FILES)
-def test_prompt_contains_promote_staged_script(filename: str) -> None:
-    assert "promote_staged_script" in _read_agent(filename), (
-        f"{filename} missing promote_staged_script reference"
+@pytest.mark.parametrize("agent,path", sorted(_PER_AGENT_FILES.items()))
+def test_adaptive_prompt_contains_promote_staged_script(agent: str, path: Path) -> None:
+    assert "promote_staged_script" in _read_agent_content(path), (
+        f"screw-{agent}.md missing promote_staged_script reference"
     )
 
 
-@pytest.mark.parametrize("filename", PER_AGENT_FILES)
-def test_prompt_contains_reject_staged_script(filename: str) -> None:
-    assert "reject_staged_script" in _read_agent(filename), (
-        f"{filename} missing reject_staged_script reference"
+@pytest.mark.parametrize("agent,path", sorted(_PER_AGENT_FILES.items()))
+def test_adaptive_prompt_contains_reject_staged_script(agent: str, path: Path) -> None:
+    assert "reject_staged_script" in _read_agent_content(path), (
+        f"screw-{agent}.md missing reject_staged_script reference"
     )
 
 
-@pytest.mark.parametrize("filename", PER_AGENT_FILES)
-def test_prompt_does_not_reference_sign_adaptive_script(filename: str) -> None:
+@pytest.mark.parametrize("agent,path", sorted(_PER_AGENT_FILES.items()))
+def test_adaptive_prompt_does_not_reference_sign_adaptive_script(agent: str, path: Path) -> None:
     """Option D isolation: LLM flow must NEVER reach sign_adaptive_script
     (the direct-path tool). If this test fails, the C1 regeneration-surface
-    closure has regressed."""
-    content = _read_agent(filename)
+    closure has regressed. This is the whole-file form; section-level and
+    frontmatter-level guards exist above at lines 217-221 and 156-159."""
+    content = _read_agent_content(path)
     assert "sign_adaptive_script" not in content, (
-        f"{filename} references sign_adaptive_script — LLM-flow isolation "
+        f"screw-{agent}.md references sign_adaptive_script — LLM-flow isolation "
         f"regressed. Use stage + promote instead (spec §3.2)."
     )
 
 
-@pytest.mark.parametrize("filename", PER_AGENT_FILES)
-def test_prompt_uses_plugin_namespaced_reviewer(filename: str) -> None:
+@pytest.mark.parametrize("agent,path", sorted(_PER_AGENT_FILES.items()))
+def test_adaptive_prompt_uses_plugin_namespaced_reviewer(agent: str, path: Path) -> None:
     """I1: subagent_type MUST be the plugin-namespaced form."""
-    content = _read_agent(filename)
+    content = _read_agent_content(path)
     assert "screw:screw-script-reviewer" in content, (
-        f"{filename} missing plugin-namespaced reviewer name (I1)"
+        f"screw-{agent}.md missing plugin-namespaced reviewer name (I1)"
     )
 
 
-@pytest.mark.parametrize("filename", PER_AGENT_FILES)
-def test_prompt_does_not_use_bare_reviewer_name(filename: str) -> None:
-    """I1 negative: the bare form (without plugin prefix) must not appear."""
-    content = _read_agent(filename)
-    # The bare name could legitimately appear as part of the namespaced one;
-    # search for contexts that clearly refer to a subagent_type value.
+@pytest.mark.parametrize("agent,path", sorted(_PER_AGENT_FILES.items()))
+def test_adaptive_prompt_does_not_use_bare_reviewer_name(agent: str, path: Path) -> None:
+    """I1 negative: the bare form (without plugin prefix) must not appear as
+    a `subagent_type` value. Regex matches both YAML (`subagent_type: "x"`)
+    and JSON-ish (`"subagent_type": "x"`) assignment forms."""
     import re
+    content = _read_agent_content(path)
     bare_refs = re.findall(r"subagent_type['\": ]+\s*\"screw-script-reviewer\"", content)
     assert not bare_refs, (
-        f"{filename} uses bare screw-script-reviewer as subagent_type (I1 regressed)"
+        f"screw-{agent}.md uses bare screw-script-reviewer as subagent_type (I1 regressed)"
     )
 
 
-@pytest.mark.parametrize("filename", PER_AGENT_FILES)
-def test_prompt_contains_must_import_only_phrase(filename: str) -> None:
-    """I5: prompt enforces the allowlist loudly."""
-    content = _read_agent(filename)
+@pytest.mark.parametrize("agent,path", sorted(_PER_AGENT_FILES.items()))
+def test_adaptive_prompt_contains_must_import_only_phrase(agent: str, path: Path) -> None:
+    """I5: prompt enforces the allowlist loudly. Case-sensitive — the
+    uppercase form is the intentional hardening signal."""
+    content = _read_agent_content(path)
     assert "MUST import ONLY" in content, (
-        f"{filename} missing 'MUST import ONLY' hardening phrase (I5)"
+        f"screw-{agent}.md missing 'MUST import ONLY' hardening phrase (I5)"
     )
 
 
-@pytest.mark.parametrize("filename", PER_AGENT_FILES)
-def test_prompt_lists_all_18_adaptive_exports(filename: str) -> None:
-    """I5: every name in adaptive.__all__ must appear in the generation prompt."""
+@pytest.mark.parametrize("agent,path", sorted(_PER_AGENT_FILES.items()))
+def test_adaptive_prompt_lists_all_adaptive_exports(agent: str, path: Path) -> None:
+    """I5: every name in adaptive.__all__ must appear in the generation prompt.
+    At PR #6 HEAD `adaptive.__all__` has 18 entries; this test auto-tracks any
+    additions so the prompt stays in sync with the public surface."""
     from screw_agents import adaptive as adaptive_pkg
-    content = _read_agent(filename)
+    content = _read_agent_content(path)
     for name in adaptive_pkg.__all__:
         assert name in content, (
-            f"{filename} missing adaptive.__all__ entry {name!r} in prompt (I5)"
+            f"screw-{agent}.md missing adaptive.__all__ entry {name!r} in prompt (I5)"
         )
 
 
-@pytest.mark.parametrize("filename", PER_AGENT_FILES)
-def test_prompt_contains_negative_examples_block(filename: str) -> None:
-    """I5: negative examples mention common hallucinated names."""
-    content = _read_agent(filename)
-    assert "DO NOT invent helper names" in content
+@pytest.mark.parametrize("agent,path", sorted(_PER_AGENT_FILES.items()))
+def test_adaptive_prompt_contains_negative_examples_block(agent: str, path: Path) -> None:
+    """I5: negative examples mention common hallucinated names so the LLM
+    sees canonical don't-invent-these examples."""
+    content = _read_agent_content(path)
+    assert "DO NOT invent helper names" in content, (
+        f"screw-{agent}.md missing negative-examples header phrase (I5)"
+    )
     for hallucinated in ("read_source", "parse_module", "walk_module"):
         assert hallucinated in content, (
-            f"{filename} missing hallucinated name example {hallucinated!r} (I5)"
+            f"screw-{agent}.md missing hallucinated name example {hallucinated!r} (I5)"
         )
 
 
-@pytest.mark.parametrize("filename", PER_AGENT_FILES)
-def test_prompt_contains_stderr_render_on_failure(filename: str) -> None:
+@pytest.mark.parametrize("agent,path", sorted(_PER_AGENT_FILES.items()))
+def test_adaptive_prompt_contains_stderr_render_on_failure(agent: str, path: Path) -> None:
     """I3: execute-failure branch renders stderr in a fenced block."""
-    content = _read_agent(filename)
+    content = _read_agent_content(path)
     assert "Standard error output" in content, (
-        f"{filename} missing stderr render in failure branch (I3)"
+        f"screw-{agent}.md missing stderr render in failure branch (I3)"
     )
 
 
-@pytest.mark.parametrize("filename", PER_AGENT_FILES)
-def test_prompt_contains_retention_notice(filename: str) -> None:
-    """I4: retention notice on execute failure."""
-    content = _read_agent(filename)
+@pytest.mark.parametrize("agent,path", sorted(_PER_AGENT_FILES.items()))
+def test_adaptive_prompt_contains_retention_notice(agent: str, path: Path) -> None:
+    """I4: retention notice on execute failure points the operator at
+    `/screw:adaptive-cleanup remove` for cleanup."""
+    content = _read_agent_content(path)
     assert "retained at" in content and "adaptive-cleanup remove" in content, (
-        f"{filename} missing retention notice (I4)"
+        f"screw-{agent}.md missing retention notice (I4)"
     )
 
 
-@pytest.mark.parametrize("filename", PER_AGENT_FILES)
-def test_prompt_displays_sha256_prefix_in_review_header(filename: str) -> None:
-    """C1 UX: the 5-section review header surfaces the staged sha prefix."""
-    content = _read_agent(filename)
-    assert "SHA256" in content or "script_sha256_prefix" in content, (
-        f"{filename} missing sha256 prefix in review header (C1 UX)"
+@pytest.mark.parametrize("agent,path", sorted(_PER_AGENT_FILES.items()))
+def test_adaptive_prompt_displays_sha256_prefix_in_review_header(agent: str, path: Path) -> None:
+    """C1 UX: the 5-section review header surfaces the staged sha prefix.
+    BOTH phrases are locked (not OR) — the uppercase `SHA256` label appears
+    in the review header, and `script_sha256_prefix` is the Python variable
+    name in the sample stage-tool invocation. Both must survive any future
+    edit; dropping either is a UX regression."""
+    content = _read_agent_content(path)
+    assert "SHA256" in content, (
+        f"screw-{agent}.md missing 'SHA256' label in review header (C1 UX)"
+    )
+    assert "script_sha256_prefix" in content, (
+        f"screw-{agent}.md missing `script_sha256_prefix` in stage invocation (C1 UX)"
     )
 ```
 
 - [ ] **Step 2: Run — verify all 12 × 4 = 48 parametrized cases pass**
 
 Run: `uv run pytest tests/test_adaptive_subagent_prompts.py -v`
-Expected: all existing + 48 new assertions PASS.
+Expected: all existing cases + 48 new parametrized cases PASS.
 
-Total test count delta from format-smoke: +48 parametrized (pytest counts each parametrize instance as 1 test). But the PR #6 test projection counted each assertion once (12) — the delta is actually 48, not 12.
-
-**Plan-sync note:** update exit checklist if tests exceed 820 target. Adjust to "at least 820" or update the count. Likely final count: 820 + 36 = 856 (since +12 format-smoke × 4 files = 48; baseline +20 staging + 5 signing + 4 lint + 6 executor + 1 ast_walker + 1 integration + 48 format-smoke = ~85 new tests). That's more than the spec projected (+49). Accept the difference; spec's count was approximate.
+Total test count delta from T20: **+48** (pytest counts each parametrize instance as 1 test; 12 distinct assertions × 4 agent files = 48 cases).
 
 - [ ] **Step 3: Full suite**
 
 Run: `uv run pytest -q`
-Expected: ~869 passed (exact count depends on parametrize vs per-test accounting).
+Expected: **940 passed** (892 baseline at T19 HEAD `0ea6d37` + 48 T20 cases). If the count differs, investigate before committing — T20 should be additive-only, no existing test should change outcome.
 
 - [ ] **Step 4: Commit**
 
 ```bash
 git add tests/test_adaptive_subagent_prompts.py
-git commit -m "test(phase3b-c1): 12 format-smoke assertions for T18b prompt rewrite (T20)"
+git commit -m "test(phase3b-c1): 48 whole-file format-smoke assertions for T18b prompt rewrite (T20)"
 ```
+
+**T20 Opus 4.7 re-review (2026-04-23):** Spec review APPROVED-WITH-FIXES (contingent on pytest execution; locked by `940 passed, 8 skipped` at HEAD `152d0d8`). Quality review APPROVED. **0 Critical / 0 Important / 2 Category-A Minors (→ backlog) / 5 Category-B Minors (no action)**.
+
+- **Plan-fixes applied pre-dispatch (commit `910ba41`)**: PA-T20-1..10 — reuse `_PER_AGENT_FILES` dict over parallel public list, `_read_agent_content(path: Path) -> str` helper (Path-typed, not str), test count projection updated 892→940, test #12 split into two asserts (SHA256 AND script_sha256_prefix), `test_adaptive_prompt_*` naming convention, and a top-of-block comment documenting intentional whole-file-vs-section coverage overlap.
+
+- **All 12 assertions verified pre-dispatch via grep against current agent markdown**: 18/18 `adaptive.__all__` exports present in all 4 files; hallucinated-name examples / hardening phrases / retention notice / SHA256 phrases all present; `sign_adaptive_script` absent in all 4 (T17 closure holds). T20 was pure test-addition — no subagent-markdown drift to fix.
+
+- **Implementer deviation (permitted by pre-audit exception)**: added module-level `import pytest` alongside existing `import yaml` — the pre-existing file used `pytest.raises` / `pytest.mark.parametrize` only inline; the module-level import was needed for the new parametrize decorators. Alphabetically-grouped with existing third-party imports. Strictly additive — every diff line is `+`.
+
+- **Quality-review Category-A Minors (2)**: BACKLOG-PR6-71 (parametrize test ID verbosity from Path param — cosmetic, ~12 LOC) and BACKLOG-PR6-72 (`adaptive.__all__` "18 entries" docstring can silently drift as exports grow — 1-2 LOC hardening option).
+
+- **Category-B Minors (2 spec + 3 quality)**: all reviewer-explicit "no action" (plan-skeleton-conformant: retention-notice compound `and` assert, local `import re`, first-4-tests overlap rationale).
+
+Score since T7: **12 tasks 0-Important / 1 task 1-Important (T14) / 1 task 1-Important transient-to-T19 (T18, resolved)**. Pre-audit held the 0-Important target across T20.
+
+T20 commit: `152d0d8` (48 format-smoke assertions, 382→535 lines, +153 insertions, 0 deletions). Plan-fix precursor: `910ba41`. Implementer produced a skeleton-exact deliverable on first pass.
 
 ---
 
@@ -4025,6 +5803,14 @@ git commit -m "test(phase3b-c1): 12 format-smoke assertions for T18b prompt rewr
 - Create: `tests/test_adaptive_workflow_staged.py`
 
 **Rationale:** The C1 exit gate. One test that composes every MCP tool shipped in T3-T20 in the exact order a real subagent would run them, asserting the C1 invariant at the signing step (`signed_py.read_text() == staged_source`).
+
+**Precedents the implementer MUST match (non-negotiable, from T21 pre-audit 2026-04-23):**
+
+1. **Use engine-returned paths, not hardcoded reconstructions.** The engine's `stage_adaptive_script` response includes `stage_path` (engine.py:371 docstring) and `promote_staged_script` response includes `script_path` (engine.py:572). Step 9 takes `stage_py = Path(stage_response["stage_path"])`; Step 12 takes `signed_py = Path(promote_response["script_path"])`. DO NOT reconstruct `project / ".screw" / "staging" / session_id / ...` — that re-implements the layout and breaks silently when the engine's path discipline changes.
+
+2. **Mirror T22's D1+D2 gap assertions at Step 5.** T22 (`tests/test_adaptive_workflow.py:212-241`) asserts BOTH the `context_required` D1 gap (file=dao.py, line=9, pattern="any-raw-method-check") AND the `unresolved_sink` D2 gap at dao.py. The plan's "mirrors T22" framing (docstring) requires these to carry over — otherwise a silent D2 regression would pass the weaker `>= 1` bound. The fixture/agent/receiver-token semantics are identical to T22, so all T22 D1+D2 assertions will pass.
+
+3. **Mirror T22's session_id + sha256 assertions at the sign step.** T22 Step 8 asserts both `sign_response["session_id"] == session_id` (threading guard) and `sign_response["sha256"] == compute_script_sha256(script_source)` (canonical-bytes guard). T21's Step 11 (promote) must carry both, checking `promote_response["session_id"]` and `promote_response["sha256"]`. The sha assertion is a DIFFERENT angle on the C1 invariant than Step 12's read-and-compare — it catches a signing-layer sha drift before Step 12's file-read step.
 
 - [ ] **Step 1: Write the composition test**
 
@@ -4059,9 +5845,11 @@ def test_full_adaptive_workflow_with_staging_composition(tmp_path: Path) -> None
     """PR #6 exit gate: full composition with stage → promote substituting
     for direct sign.
 
-    The 13 steps mirror T22's composition order (identical seed fixture,
+    The 18 steps mirror T22's composition order (identical seed fixture,
     identical YAML finding, identical adaptive script, identical gap-signal
-    expectations); only the signing step is different.
+    expectations); only Steps 8 and 11 are different — they substitute
+    stage_adaptive_script + promote_staged_script for T22's direct
+    sign_adaptive_script path.
 
     Breakage diagnosis: the FIRST failing assertion pins the regressing
     integration boundary. If Step 12's invariant fails
@@ -4120,15 +5908,41 @@ def test_full_adaptive_workflow_with_staging_composition(tmp_path: Path) -> None
         "analysis": {"description": "YAML detection"},
         "remediation": {"recommendation": "use parameterized queries"},
     }
-    engine.accumulate_findings(
+    acc_response = engine.accumulate_findings(
         project_root=project, findings_chunk=[yaml_finding], session_id=session_id,
     )
+    # T22-precedent session_id threading guard (tests/test_adaptive_workflow.py:197).
+    assert acc_response["session_id"] == session_id
 
-    # Step 5: detect_coverage_gaps (IDENTICAL).
+    # Step 5: detect_coverage_gaps (IDENTICAL to T22 — including D1+D2 assertions).
     gaps = engine.detect_coverage_gaps(
         agent_name="sqli", project_root=project, session_id=session_id,
     )
-    assert len(gaps) >= 1
+    assert isinstance(gaps, list)
+    assert len(gaps) >= 1, f"expected at least 1 gap; got {len(gaps)}"
+
+    # D1 check: the recorded context_required match surfaces as a gap.
+    d1_gaps = [g for g in gaps if g.type == "context_required"]
+    assert len(d1_gaps) == 1, (
+        f"expected exactly 1 D1 gap (the one recorded in Step 3); "
+        f"got {len(d1_gaps)}: {d1_gaps}"
+    )
+    d1 = d1_gaps[0]
+    assert d1.agent == "sqli"
+    assert d1.file == "dao.py"
+    assert d1.line == 9
+    assert d1.evidence["pattern"] == "any-raw-method-check"
+
+    # D2 check: `self.qb.execute_raw(q)` (receiver "qb" not in sqli
+    # known_receivers, tainted arg "q" from request.args.get) must
+    # produce an unresolved_sink gap. Firm assertion — if this fails
+    # either sqli.yaml's known_receivers/known_sources were edited
+    # or gap_signal.detect_d2_unresolved_sink_gaps regressed.
+    d2_gaps = [g for g in gaps if g.type == "unresolved_sink"]
+    assert any(g.file == "dao.py" for g in d2_gaps), (
+        f"expected D2 gap at dao.py (self.qb.execute_raw with tainted "
+        f"arg); got D2 gaps: {d2_gaps}"
+    )
 
     # Step 6: Hand-write adaptive script source (IDENTICAL).
     script_source = (
@@ -4170,7 +5984,8 @@ def test_full_adaptive_workflow_with_staging_composition(tmp_path: Path) -> None
     assert stage_response["script_sha256"] == compute_script_sha256(script_source)
 
     # Step 9: Verify staging file exists AND has exact source.
-    stage_py = project / ".screw" / "staging" / session_id / "adaptive-scripts" / "qb-check.py"
+    # Use engine-returned path — do not reconstruct layout manually.
+    stage_py = Path(stage_response["stage_path"])
     assert stage_py.exists()
     assert stage_py.read_text(encoding="utf-8") == script_source
 
@@ -4182,15 +5997,24 @@ def test_full_adaptive_workflow_with_staging_composition(tmp_path: Path) -> None
     assert staged_entries[0]["script_sha256"] == stage_response["script_sha256"]
 
     # Step 11: **NEW — promote_staged_script** (the C1 fix).
+    # Mirrors T22's sign_adaptive_script assertions (session_id + sha256)
+    # plus the C1-specific promoted_via_fallback guard.
     promote_response = engine.promote_staged_script(
         project_root=project, script_name="qb-check", session_id=session_id,
     )
     assert promote_response["status"] == "signed"
     assert promote_response["signed_by"] == "c1@example.com"
+    assert promote_response["session_id"] == session_id
+    assert promote_response["sha256"] == compute_script_sha256(script_source), (
+        "C1 INVARIANT VIOLATED at signing layer: promote_response['sha256'] "
+        "does NOT match compute_script_sha256(script_source). The signed "
+        "bytes differ from the hand-written source."
+    )
     assert promote_response["promoted_via_fallback"] is False
 
     # Step 12: **★ C1 INVARIANT LOCK ★** — signed source == staged source == hand-written source.
-    signed_py = project / ".screw" / "custom-scripts" / "qb-check.py"
+    # Use engine-returned path — do not reconstruct layout manually.
+    signed_py = Path(promote_response["script_path"])
     assert signed_py.exists()
     signed_content = signed_py.read_text(encoding="utf-8")
     assert signed_content == script_source, (
@@ -4220,11 +6044,13 @@ def test_full_adaptive_workflow_with_staging_composition(tmp_path: Path) -> None
     assert adaptive_finding["agent"] == "adaptive_script:qb-check"
 
     # Step 15: Accumulate adaptive findings (IDENTICAL to T22).
-    engine.accumulate_findings(
+    acc2 = engine.accumulate_findings(
         project_root=project,
         findings_chunk=exec_result["findings"],
         session_id=session_id,
     )
+    # T22-precedent session_id threading guard (tests/test_adaptive_workflow.py:365).
+    assert acc2["session_id"] == session_id
 
     # Step 16: finalize_scan_results with coverage_gaps + T19 Sources line.
     finalize_response = engine.finalize_scan_results(
@@ -4267,7 +6093,7 @@ Expected: PASS.
 - [ ] **Step 3: Run full suite**
 
 Run: `uv run pytest -q`
-Expected: ~870 passed (baseline 771 + ~85 from T1-T20 + 1 from T21).
+Expected: **941 passed, 8 skipped** (940 baseline at T20 HEAD `a583bb9` + 1 new T21 integration test). Any deviation is a finding — investigate before committing.
 
 - [ ] **Step 4: Commit**
 
@@ -4278,41 +6104,71 @@ git commit -m "test(phase3b-c1): E2E integration test for staged workflow — C1
 
 **Cross-plan sync:** the Step 12 invariant assertion is the LOAD-BEARING TEST FOR C1. If it ever flakes or needs loosening, stop. Investigate why. Do not relax it.
 
+**T21 Opus 4.7 re-review (2026-04-23):** Spec review APPROVED-WITH-FIXES (plan-sync only, no code fix — applied in this closeout). Quality review APPROVED. **0 Critical / 0 Important / 5 Category-A Minors (→ backlog) / 3 Category-B Minors (no action)**. **★ C1 ARCHITECTURAL CLOSURE VERIFIED ★** — both Step 11 sha256 and Step 12 read-and-compare assertions PASSED on the executor sandbox run.
+
+- **Plan-fixes applied pre-dispatch (commit `d499786`)**: PA-T21-1 (engine-returned paths at Steps 9 + 12), PA-T21-2 (session_id assertion at Step 11), PA-T21-3 (sha256 assertion at Step 11 — distinct angle on C1 invariant from Step 12's read-and-compare), PA-T21-4 (T22's D1+D2 precise gap assertions restored at Step 5), PA-T21-6 (test count projection 771+85 → 940+1 = 941), PA-T21-9 (docstring "13 steps" → "18 steps").
+
+- **Implementer additive deviation (permitted, T22-precedent match)**: 2 session_id threading assertions added at Step 4 and Step 15 (T22 `tests/test_adaptive_workflow.py:197` + `:365`). Plan skeleton Steps 4 + 15 SYNCED in this closeout commit to include the assertions so plan + code are coherent at merge time (`feedback_plan_sync_on_deviation`).
+
+- **Quality-review Category-A Minors (5)**: BACKLOG-PR6-73 (T22's `accumulated_count == 1` Step 4 diagnostic), PR6-74 (T22's `acc2["accumulated_count"] >= 2` Step 15 diagnostic), PR6-75 (T22's `match_response["matches_recorded"] == 1` Step 3 diagnostic), PR6-76 (`l` loop variable E741 rename to `line`/`raw` at registry reads), PR6-77 (Step 17 trust_status bare assert lacks failure message — T20 signing-round-trip regression path). All defense-in-depth polish; none regress the C1 invariant.
+
+- **Category-B Minors (3)**: lower inline-comment density than T22 (intentional — T21 is a variant, commentary lives at T22), unused `fixture_file` variable (T22 precedent — write is the side effect), module-docstring brevity (plan-specified form).
+
+Score since T7: **13 tasks 0-Important / 1 task 1-Important (T14) / 1 task 1-Important transient-to-T19 (T18, resolved)**. Pre-audit held the 0-Important target across T21.
+
+T21 commit: `1146e3e` (+266 lines — new file `tests/test_adaptive_workflow_staged.py`). Plan-fix precursor: `d499786`. Test executes in 0.30s on Arch Linux with bwrap (not skipped). Full suite: **940 → 941 passed, 8 skipped** (matches expected delta).
+
+**C1 STATUS: ARCHITECTURALLY CLOSED AT HEAD.** Regeneration-after-approval vulnerability remains closed — signed source bytes at `.screw/custom-scripts/qb-check.py` byte-identical to hand-written staged source. Both signing-layer sha verification (Step 11 via `promote_response["sha256"] == compute_script_sha256(source)`) and filesystem read-and-compare (Step 12 via `signed_py.read_text() == source`) locked in the test permanently.
+
 ---
 
 ### Task 22: Apply `additionalProperties: false` Uniformly to 6 New MCP Tool Schemas (T10-M1 Partial)
 
 **Files:**
-- Modify: `src/screw_agents/server.py` (verify all 6 new tool schemas have the flag)
-- Potentially: `tests/test_mcp_tool_schemas.py` or similar (if a schema-consistency test exists; add one if not)
+- Modify: `tests/test_engine.py` (add regression-lock test — no engine.py changes needed, see pre-audit)
 
 **Rationale:** T10-M1 partial. Applied as tools are registered, but this task audits + adds a regression lock test.
 
-- [ ] **Step 1: Find the MCP tool schema generation / decoration point**
+**Pre-audit note (2026-04-21):** Tool schemas are hand-written as `tools.append({...})` blocks inside `engine.list_tool_definitions()` (starts at `engine.py:1211`). The server layer (`src/screw_agents/server.py`) uses a `_dispatch_tool` function with `if name == "tool_name":` branches — there are NO FastMCP `@mcp.tool()` decorators in this codebase. Any task guidance referencing decorators is stale; use the `list_tool_definitions` schema pattern instead.
 
-Run: `grep -n "@mcp.tool" src/screw_agents/server.py`
+**T22 pre-audit (2026-04-23, HEAD `d98279f`):** Grep verified that ALL 6 new PR #6 tool schemas ALREADY carry `additionalProperties: false` — at engine.py lines 2744 (stage), 2828 (promote), 2897 (reject), 2950 (sweep), 2997 (list), 3028 (remove). **T22 is pure test-addition — no engine.py edits required.** Scope collapses to appending one function to `tests/test_engine.py` as a regression-lock.
 
-If the MCP framework auto-generates JSON schemas from type hints, determine how to set `additionalProperties: false`. If it's decoration-based (e.g., FastMCP), set in decorator kwargs. If schemas are hand-written, locate and update.
+- [ ] **Step 1: No-op audit confirmation (pre-audit already did this)**
 
-- [ ] **Step 2: Verify all 6 new tools have the flag**
+Verify the pre-audit's finding holds at the current HEAD:
 
-For each of: `stage_adaptive_script`, `promote_staged_script`, `reject_staged_script`, `sweep_stale_staging`, `list_adaptive_scripts`, `remove_adaptive_script` — inspect the emitted schema.
+```bash
+for tool in stage_adaptive_script promote_staged_script reject_staged_script sweep_stale_staging list_adaptive_scripts remove_adaptive_script; do
+  linenum=$(grep -n "\"name\": \"$tool\"" src/screw_agents/engine.py | head -1 | cut -d: -f1)
+  has_ap=$(sed -n "${linenum},$((linenum+50))p" src/screw_agents/engine.py | grep -c "additionalProperties")
+  echo "$tool: line $linenum, additionalProperties occurrences: $has_ap"
+done
+```
 
-- [ ] **Step 3: Add a regression-lock test**
+Expected output: 6 tools, each with at least 1 `additionalProperties` occurrence within 50 lines of the schema's `"name":` field. If the output deviates, the engine has drifted since pre-audit — STOP and investigate before adding the test. No implementer edits to engine.py are expected.
+
+- [ ] **Step 2: Add a regression-lock test to `tests/test_engine.py`**
+
+Append the new function immediately AFTER `test_tool_definitions_json_schema_valid` (currently at `tests/test_engine.py:100-107`). The new test is a natural adjacent sibling: that test iterates all tools and checks basic schema validity; this one is PR #6-scoped and checks a stricter invariant.
+
+**Precedents the implementer MUST match:**
+
+1. **Use the existing `engine` pytest fixture** (defined at `tests/test_engine.py:11-14` as `ScanEngine(AgentRegistry(domains_dir))`). Function signature is `def test_..._reject_additional_properties(engine) -> None:`. Do NOT introduce `ScanEngine.from_defaults()` — that's not the test_engine.py pattern.
+2. **Type-hint the return type** as `-> None:` (matches surrounding tests).
+3. **No inline `from screw_agents.engine import ScanEngine`** — the fixture handles construction.
 
 ```python
-# tests/test_mcp_tool_schemas.py (new file, or add to existing schema test)
-
-def test_new_phase3b_pr6_tools_reject_additional_properties() -> None:
-    """Lock T10-M1 partial: each new MCP tool introduced in PR #6 sets
+def test_tool_definitions_pr6_new_tools_reject_additional_properties(engine) -> None:
+    """T22 / T10-M1 partial: each new MCP tool introduced in PR #6 sets
     additionalProperties: false on its input schema.
 
     A future tool schema change that relaxes this invariant would regress
     T10-M1 discipline project-wide (the full audit remains deferred to PR #9).
-    """
-    from screw_agents.engine import ScanEngine
 
-    engine = ScanEngine.from_defaults()
+    Adjacent to `test_tool_definitions_json_schema_valid` above — that test
+    checks baseline schema validity for ALL tools; this one locks a stricter
+    invariant for the PR #6 additions specifically.
+    """
     tools = engine.list_tool_definitions()
 
     pr6_new_tools = {
@@ -4326,7 +6182,8 @@ def test_new_phase3b_pr6_tools_reject_additional_properties() -> None:
 
     found = {t["name"] for t in tools if t["name"] in pr6_new_tools}
     assert found == pr6_new_tools, (
-        f"Missing new PR #6 tools from tool definitions: {pr6_new_tools - found}"
+        f"Missing new PR #6 tools from tool definitions: "
+        f"{pr6_new_tools - found}"
     )
 
     for tool in tools:
@@ -4338,101 +6195,134 @@ def test_new_phase3b_pr6_tools_reject_additional_properties() -> None:
             )
 ```
 
-- [ ] **Step 4: Run test**
+- [ ] **Step 3: Run targeted test**
 
-Run: `uv run pytest tests/test_mcp_tool_schemas.py -v`
-Expected: PASS.
+Run: `uv run pytest tests/test_engine.py::test_tool_definitions_pr6_new_tools_reject_additional_properties -v`
+Expected: 1 PASSED.
 
-- [ ] **Step 5: Full suite**
+- [ ] **Step 4: Full suite**
 
 Run: `uv run pytest -q`
-Expected: +1 test from baseline.
+Expected: **942 passed, 8 skipped** (941 baseline at T21 HEAD `d98279f` + 1 new T22 test). Any deviation is a finding — investigate before committing.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add src/screw_agents/server.py tests/test_mcp_tool_schemas.py
+git add tests/test_engine.py
 git commit -m "test(phase3b-c1): lock additionalProperties: false on new PR #6 tools (T22, T10-M1 partial)"
 ```
+
+**T22 Opus 4.7 re-review (2026-04-23):** Spec review APPROVED (zero findings at all levels). Quality review APPROVED. **0 Critical / 0 Important / 1 Category-A Minor (→ backlog) / 3 Category-B Minors (no action)**. Byte-identical deliverable vs plan skeleton; zero deviations.
+
+- **Plan-fixes applied pre-dispatch (commit `5367da1`)**: PA-T22-1..5 — file precedent (test_engine.py not new file), engine fixture reuse, Step 1 rewritten as pre-audit confirmation (no engine changes needed), test count projection 941→942, commit scope narrowed to tests/test_engine.py.
+
+- **Pre-audit critical finding**: grep verified all 6 new PR #6 tool schemas ALREADY carry `additionalProperties: false` at engine.py:2744/2828/2897/2950/2997/3028. T22 collapsed to pure test-addition with NO engine.py changes required.
+
+- **Quality-review Category-A Minor (1)**: BACKLOG-PR6-78 (diagnostic-message convention drift — new test has assertion messages, adjacent `test_tool_definitions_json_schema_valid` uses bare asserts; retrofit baseline test or accept as stricter-invariant → with-message divergence; ~3 LOC).
+
+- **Category-B Minors (3)**: `pr6_new_tools` inline literal set (correct — single consumer), `-> None:` hint only on new test (plan-directed to raise bar), two-pass iteration (cleaner failure-mode separation). All reviewer-explicit "no action".
+
+Score since T7: **14 tasks 0-Important / 1 task 1-Important (T14) / 1 task 1-Important transient-to-T19 (T18, resolved)**. Pre-audit held the 0-Important target across T22.
+
+T22 commit: `43cdabe` (+37 lines — new function `test_tool_definitions_pr6_new_tools_reject_additional_properties` in `tests/test_engine.py` at line 110, adjacent to `test_tool_definitions_json_schema_valid` at line 100). Plan-fix precursor: `5367da1`. Test passed in 0.21s. Full suite: **941 → 942 passed, 8 skipped**.
 
 ---
 
 ## Phase H — Docs + Plan Sync (T23-T24)
 
-### Task 23: Sync `docs/PHASE_3B_PLAN.md` with PR #6 Section
+### Task 23: Pointer paragraph in `docs/PHASE_3B_PLAN.md` for PR #6 follow-up
 
 **Files:**
 - Modify: `docs/PHASE_3B_PLAN.md`
 
-- [ ] **Step 1: Add a new top-level section after "PR #5 Exit Checklist"**
+**Rationale (revised 2026-04-23, pre-audit PA-T23-R):** The original plan prescribed adding a full `## PR #6: C1 Staging Architecture + I1-I6 Polish` section to `PHASE_3B_PLAN.md` with per-task summaries mirroring PR #4/PR #5. That was drafted before `PHASE_3B_C1_PLAN.md` existed as the authoritative PR #6 plan. Today the two plans would duplicate ~150 lines of content and drift over time. `PHASE_3B_PLAN.md` formally ended at "`*End of Phase 3b implementation plan.*`" when PR #5 shipped 2026-04-20; PR #6 is a C1 follow-up with its own plan file.
 
-Structure:
+**Revised scope (Option 2 from pre-audit, accepted by Marco 2026-04-23):** append a single ~3-5 line pointer paragraph to `PHASE_3B_PLAN.md` right before the final `*End of Phase 3b implementation plan.*` line (or immediately after it, as a post-marker addendum — implementer chooses based on readability). The pointer tells a future reader browsing `PHASE_3B_PLAN.md` alone that a PR #6 follow-up exists and names the authoritative plan file. Zero content duplication; single source of truth preserved.
+
+- [ ] **Step 1: Append the pointer paragraph**
+
+Locate the existing closing marker (`*End of Phase 3b implementation plan.*` around line 5790) and insert the pointer IMMEDIATELY BEFORE it so the closing marker still terminates the doc cleanly:
 
 ```markdown
-## PR #6: C1 Staging Architecture + I1-I6 Polish
+## Post-Phase-3b Follow-Up: PR #6 (C1 Staging Architecture)
 
-> **SHIPPED NOTE (PR #6 complete, 2026-XX-XX):** [to be filled post-merge
-> with commit SHA and a summary of shipped tasks T0-T27, test count delta,
-> manual round-trip validation result.]
+PR #5's round-trip validation surfaced a C1 trust-invariant regression (the
+approve path regenerated source bytes after the human review, so the signed
+artifact could differ from what was reviewed). PR #6 is the follow-up that
+closes C1 architecturally by introducing a staging→promote flow where the
+bytes the user reviews are the bytes that get signed, plus I1-I6 polish and
+5 adjacent backlog items bundled for coherent delivery.
 
-Scope: close the C1 trust-invariant violation surfaced by PR #5's
-round-trip (approve path regenerated source after approval). Bundle I1-I6
-polish items and 5 adjacent backlog items whose overlapping file sets
-make single-PR delivery cleaner than separate ones. See
-`docs/specs/2026-04-20-phase-3b-c1-staging-design.md` for the consolidated
-design and `docs/PHASE_3B_C1_PLAN.md` for the task breakdown.
-
-**Test count: 771 → 820+ (exact count TBD post-merge)**
-
-### Task 0: Worktree setup
-### Task 1: New adaptive/staging.py module
-### Task 2: Extract _sign_script_bytes shared helper (Option D refactor)
-### Task 3: stage_adaptive_script MCP tool
-### Task 4: promote_staged_script MCP tool — the C1 fix
-### Task 5: reject_staged_script MCP tool
-### Task 6: sweep_stale_staging MCP tool (absorbs T-STAGING-ORPHAN-GC)
-### Task 7: Promote list_adaptive_scripts to engine + MCP
-### Task 8: Promote remove_adaptive_script to engine + MCP
-### Task 9: Delete cli/adaptive_cleanup.py + migrate T22
-### Task 10: I2 — lint validates adaptive.__all__ symbols
-### Task 11: I3 — sandbox stderr surfacing
-### Task 12: T11-N2 — MetadataError wrapper
-### Task 13: T3-M1 — narrow exceptions in ast_walker
-### Task 14: T11-N1 — E2E signature-path regression test
-### Task 15: Rewrite screw-sqli.md Step 3.5d with staging flow
-### Task 16: Copy Step 3.5d byte-identical to cmdi/ssti/xss
-### Task 17: Orchestrator ref updates (screw-injection.md)
-### Task 18: scan.md staging-flow docs
-### Task 19: Rewrite /screw:adaptive-cleanup slash command
-### Task 20: Format-smoke test extensions (+12 assertions × 4 files)
-### Task 21: New integration test — tests/test_adaptive_workflow_staged.py
-### Task 22: additionalProperties: false on new PR #6 tools (T10-M1 partial)
-### Task 23: Cross-plan sync (this file update)
-### Task 24: DEFERRED_BACKLOG updates (move Shipped, add BACKLOG-01..05)
-
-## PR #6 Exit Checklist
-[mirrors the Exit Checklist in PHASE_3B_C1_PLAN.md]
+The authoritative plan lives at `docs/PHASE_3B_C1_PLAN.md` (28 tasks T0-T27,
+~6500 lines). This PHASE_3B_PLAN.md intentionally does NOT duplicate that
+content — the C1 plan is the single source of truth for PR #6.
 ```
 
-Each task gets a brief (3-5 line) summary mirroring the SHIPPED NOTE style used by PR #5's sections. Full detail stays in PHASE_3B_C1_PLAN.md.
+- [ ] **Step 2: Verify the insertion is tidy**
 
-- [ ] **Step 2: Commit**
+```bash
+# Expect: the pointer section appears BEFORE the final "*End of..." marker
+tail -15 docs/PHASE_3B_PLAN.md
+```
+
+The `*End of Phase 3b implementation plan.*` marker should still be the final content line (it now terminates the doc including the PR #6 pointer).
+
+- [ ] **Step 3: Commit**
 
 ```bash
 git add docs/PHASE_3B_PLAN.md
-git commit -m "sync(phase3b): add PR #6 section to PHASE_3B_PLAN (T23)"
+git commit -m "sync(phase3b): pointer to PHASE_3B_C1_PLAN.md for PR #6 follow-up (T23)"
 ```
+
+**Why not add the pointer after the End-marker:** the end-marker is a structural close. Content after it reads like an appendix that's been tacked on, which is contextually what this is — but the pointer is materially part of the Phase 3b narrative (it tells the reader "the story continues at this other file"). Placing it BEFORE the end-marker integrates it into the main flow rather than treating PR #6 as an afterthought stapled on. The implementer may pick either placement; the pre-audit preference is "before the end-marker".
+
+**T23 Opus 4.7 re-review (2026-04-23):** Spec review APPROVED (zero findings at all levels). Quality review APPROVED (zero Cat-A, 2 Cat-B non-actionable). Byte-identical deliverable; zero implementer deviations.
+
+- **Pre-audit rescope (commit `f74cc41`)**: T23's original scope (full PR #6 section with per-task summaries, ~150 lines) was surfaced to Marco during pre-audit as duplicative of PHASE_3B_C1_PLAN.md. Marco accepted Option 2 (pointer paragraph, ~15 lines). Plan-fix rewrote §T23 to prescribe the pointer form with exact content, insertion position, and verification command.
+
+- **Implementer deliverable (commit `a5ab83d`)**: byte-identical to the rescoped skeleton. +15 lines, -0 deletions, single file touched (`docs/PHASE_3B_PLAN.md`). Pointer inserted at the pre-audit-preferred position (BEFORE `*End of Phase 3b implementation plan.*`), integrating PR #6 into the Phase 3b narrative rather than stapling it on as an appendix. End-marker remains the final content line (5805).
+
+- **Cross-file metrics accurate**: "28 tasks T0-T27" verified (`grep -c "^### Task [0-9]"` = 28); "~6500 lines" verified (`wc -l` = 6637, 2.1% over — within rounding tolerance).
+
+- **No Category-A Minors** — the 2 Cat-B Minors from quality review (paragraph density vs PR #4/#5, rounded line-count claim) are both reviewer-explicit "no action / intentional". No BACKLOG entries warranted.
+
+Score since T7: **15 tasks 0-Important / 1 task 1-Important (T14) / 1 task 1-Important transient-to-T19 (T18, resolved)**. Pre-audit's "Option 2 rescope" intervention avoided ~150 lines of duplicative content + ongoing drift risk — a meaningful win from treating the pre-audit as an active scope-challenge step, not a rubber-stamp.
+
+T23 commits: `a5ab83d` (implementer, +15 lines). Plan-fix precursor: `f74cc41`.
 
 ---
 
-### Task 24: Update `docs/DEFERRED_BACKLOG.md`
+### Task 24: Backlog close-out + Phase 4 readiness triage + PROJECT_STATUS refresh
 
 **Files:**
-- Modify: `docs/DEFERRED_BACKLOG.md`
+- Modify: `docs/DEFERRED_BACKLOG.md` (T24a + T24b)
+- Modify: `docs/PROJECT_STATUS.md` (T24c)
 
-- [ ] **Step 1: Move C1 + I1-I6 to Shipped**
+**Rationale (rescoped 2026-04-23 per pre-audit PA-T24-R, Marco's Option C approval):** The original T24 scope was a mechanical backlog reorg (C1+I1-I6 to Shipped, reserved slots 09-13 filled, commit). Pre-audit surfaced that the broader backlog has ~51 main-branch + 73 PR #6-follow-up entries = 124 total, and Marco explicitly wanted this task to "make the whole picture clear" for the Phase 4 transition. The rescope bundles three sub-tasks into T24 so the PR #6 merge carries the full strategic close-out rather than leaving it for a separate follow-up.
 
-In the "Phase 3b PR #5 round-trip test findings" section, move entries to a new "Shipped (PR #6)" block. Example format:
+**T24 sub-steps:**
+- **T24a** — mechanical backlog reorg (original scope, refined): move PR #5 round-trip findings + absorbed backlog items to Shipped, append reserved BACKLOG-PR6-09..13 content, verify PR6-01..78 integrity.
+- **T24b** — Phase-4 readiness triage tags: add `**Phase-4 readiness:**` line to every active backlog entry with one of four values (`blocker`, `nice-to-have`, `phase-7-scoped`, `retire`). Produces a filterable list answering "what stands between us and Phase 4".
+- **T24c** — PROJECT_STATUS.md refresh: reconcile with current reality (Phase 3a shipped 2026-04-17, Phase 3b PR #4/#5 shipped, PR #6 in-flight pre-merge), add explicit Phase 4 gate section (D-01 hard prerequisite + T-FULL-P1 HIGH priority).
+
+**Critical precedence note:** T24a must complete BEFORE T24b (can't tag entries that haven't been reorganized). T24b should complete BEFORE T24c (PROJECT_STATUS's Phase 4 gate section reads from the tagged backlog). Commit each sub-step separately for review granularity.
+
+---
+
+#### T24a — Mechanical backlog reorg
+
+- [ ] **Step 1: Move C1 + I1-I6 from PR #5 round-trip section to Shipped (PR #6)**
+
+In `docs/DEFERRED_BACKLOG.md`, the section `## Phase 3b PR #5 round-trip test findings (2026-04-20)` (around line 702) contains C1 (the trust regression) + I1-I6 polish items. All 7 were addressed by PR #6:
+- **C1** — closed by T3-T5 staging architecture + T15-T17 subagent prompt migration
+- **I1** (plugin-namespaced subagent name) — addressed by T15-T17 prompt rewrites
+- **I2** (lint validates `adaptive.__all__`) — T10
+- **I3** (sandbox stderr surfacing) — T11
+- **I4** (retention notice on execute failure) — T15-T17 prompt hardening
+- **I5** (`MUST import ONLY` + negative examples) — T15-T17 prompt hardening
+- **I6** (MCP-tool-based `/screw:adaptive-cleanup`) — T7-T9 + T19 slash-command rewrite
+
+Move each entry from the PR #5 findings section to a new `## Shipped (PR #6)` section (create it if not present; place it near existing `## Shipped` section). Preserve each entry's Source/File/Why/Trigger/Suggested-fix structure; **replace** the Priority/Trigger lines with a new `**Shipped in:** PR #6 (phase-3b-c1-staging), commit <SHA>` line + 2-3 line summary of how it was addressed. Example:
 
 ```markdown
 ### C1 — CRITICAL: Human-approval flow regenerates script after approval (trust violation)
@@ -4440,88 +6330,245 @@ In the "Phase 3b PR #5 round-trip test findings" section, move entries to a new 
 **Shipped in:** PR #6 (phase-3b-c1-staging), merge commit <SHA>
 **Plan:** docs/PHASE_3B_C1_PLAN.md
 
-Closed via staging architecture: promote_staged_script takes no source
-parameter, reads staged bytes from disk, verifies sha256 against registry.
-[2-3 line summary]
+Closed via staging architecture (spec §3.1-3.2): the LLM-flow subagent
+stages via `stage_adaptive_script(source, meta)`, the reviewer reads staged
+bytes, the user approves, then `promote_staged_script(script_name, session_id)`
+reads the staged bytes from disk and signs them — no source parameter, no
+regeneration. Locked by tests/test_adaptive_workflow_staged.py (T21 C1 exit
+gate): Step 11 asserts `promote_response["sha256"] == compute_script_sha256(source)`
+and Step 12 asserts `signed_py.read_text() == source`.
 ```
 
-Repeat for I1, I2, I3, I4, I5, I6.
+Once all 7 entries are moved, the PR #5 findings section should be empty. Delete the empty section heading (or replace with a one-liner redirect to "Shipped (PR #6)").
 
-- [ ] **Step 2: Move absorbed backlog items to Shipped**
+- [ ] **Step 2: Move absorbed backlog items to Shipped (PR #6)**
 
-Move `T-STAGING-ORPHAN-GC` (from "Phase 4+ (autoresearch / scale)") to Shipped. Note: absorbed by sweep_stale_staging. Add commit SHA.
+Several pre-existing backlog entries were absorbed/addressed by PR #6:
+- `T-STAGING-ORPHAN-GC` (in `## Phase 4+ (autoresearch / scale)`) — absorbed by T6 `sweep_stale_staging` MCP tool. Move to Shipped (PR #6).
+- `T3-M1` (in `## Project-wide`) — narrow exceptions in `adaptive/ast_walker.py`, addressed by T13. Move to Shipped (PR #6).
+- **T10-M1 PARTIAL** (in `## Project-wide`) — applied to 6 new PR #6 tools by T22 with regression-lock test at `test_tool_definitions_pr6_new_tools_reject_additional_properties`. Project-wide audit of pre-Phase-3b tools remains deferred. Update the existing entry's header to `### T10-M1 — additionalProperties: false on tool input schemas (PARTIAL SHIPPED PR #6)` and add a "Partial shipped:" sub-block naming T22 + commit `43cdabe`.
 
-Move `T3-M1` (from "Project-wide"), `T11-N1` + `T11-N2` (from their respective sections) to Shipped. Note: bundled with PR #6 per spec §7.
+Check for any other absorbed items during the move (grep for references to T6, T13, T14, T22 in the existing backlog).
 
-Move `T10-M1 partial` to a new "Partially shipped (PR #6)" block (project-wide audit remains deferred to PR #9).
+- [ ] **Step 3: Append BACKLOG-PR6-09..13 (reserved-slot content)**
 
-- [ ] **Step 3: Add 5 new BACKLOG-01..05 entries**
-
-Under new section header `## Phase 3b PR #6 follow-ups`:
+The `## Phase 3b PR #6 follow-ups (Opus re-review polish)` section currently contains 73 entries numbered `BACKLOG-PR6-01..08` (8 entries, slots 01-08) + `BACKLOG-PR6-14..78` (65 entries with slots 09-13 deliberately reserved). Populate the reserved slots with the 5 original-plan design entries from the pre-rescope skeleton:
 
 ```markdown
-## Phase 3b PR #6 follow-ups
-
-### BACKLOG-01 — Registry compaction when pending-approvals.jsonl exceeds 10MB or 1yr
+### BACKLOG-PR6-09 — Registry compaction when pending-approvals.jsonl exceeds 10MB or 1yr
 **Source:** Phase 3b PR #6 design, 2026-04-20
 **File:** `src/screw_agents/adaptive/staging.py` + new compaction CLI
-**Priority:** Low — appendto-only JSONL; size stays manageable at current scale.
-**Trigger:** registry exceeds 10 MB OR oldest entry exceeds 1 year OR
-audit performance becomes noticeable.
-**Suggested fix:** `screw-agents compact-registry` CLI that archives old
-entries to `.screw/local/pending-approvals-archive/YYYY-MM.jsonl`; keep
-signatures preserved.
+**Priority:** Low — append-only JSONL; size stays manageable at current scale.
+**Trigger:** registry exceeds 10 MB OR oldest entry exceeds 1 year OR audit performance becomes noticeable.
+**Suggested fix:** `screw-agents compact-registry` CLI that archives old entries to `.screw/local/pending-approvals-archive/YYYY-MM.jsonl`; keep signatures preserved.
 
-### BACKLOG-02 — Shared-prompt skill refactor via Claude Code `skills:` frontmatter
+### BACKLOG-PR6-10 — Shared-prompt skill refactor via Claude Code `skills:` frontmatter
 **Source:** Phase 3b PR #6 design; Claude Code guide confirmed feasible 2026-04-20
-**File:** new `plugins/screw/skills/adaptive-mode/SKILL.md`; per-agent
-frontmatter in `plugins/screw/agents/screw-{sqli,cmdi,ssti,xss}.md`
-**Priority:** Medium — byte-identical duplication across 4 files is painful
-when edited. Investigated in PR #6; Claude Code's `skills:` frontmatter
-preloads skill content into subagent context at startup — architecturally
-feasible.
-**Trigger:** next T18b prompt edit that hits drift, OR after PR #6
-demonstrates the byte-identity test has caught drifts in practice.
-**Suggested fix:** extract the ~300-line Step 3.5d section to a skill
-entry; list the skill in each per-agent `skills:` frontmatter. Prototype
-to verify the preload order preserves the prompt's intended position in
-the subagent's context.
+**File:** new `plugins/screw/skills/adaptive-mode/SKILL.md`; per-agent frontmatter in `plugins/screw/agents/screw-{sqli,cmdi,ssti,xss}.md`
+**Priority:** Medium — byte-identical duplication across 4 files is painful when edited. Investigated in PR #6; Claude Code's `skills:` frontmatter preloads skill content into subagent context at startup — architecturally feasible.
+**Trigger:** next T18b prompt edit that hits drift, OR after PR #6 demonstrates the byte-identity test has caught drifts in practice.
+**Suggested fix:** extract the ~300-line Step 3.5d section to a skill entry; list the skill in each per-agent `skills:` frontmatter. Prototype to verify the preload order preserves the prompt's intended position in the subagent's context.
 
-### BACKLOG-03 — Attribute-access lint for `import screw_agents.adaptive as X; X.unknown`
+### BACKLOG-PR6-11 — Attribute-access lint for `import screw_agents.adaptive as X; X.unknown`
 **Source:** I2 edge case (PR #6)
 **File:** `src/screw_agents/adaptive/lint.py`
-**Priority:** Low — requires attribute-access analysis; common case covered
-by I2.
-**Trigger:** a real adaptive script uses aliased imports + accesses a
-non-existent attribute, OR a user reports lint-pass-then-execute-fail.
-**Suggested fix:** extend AST walker to track `import X as Y` bindings
-and validate `Y.attr` against `screw_agents.adaptive.__all__`.
+**Priority:** Low — requires attribute-access analysis; common case covered by I2.
+**Trigger:** a real adaptive script uses aliased imports + accesses a non-existent attribute, OR a user reports lint-pass-then-execute-fail.
+**Suggested fix:** extend AST walker to track `import X as Y` bindings and validate `Y.attr` against `screw_agents.adaptive.__all__`.
 
-### BACKLOG-04 — Level 3 review-markdown hash binding (cryptographic)
+### BACKLOG-PR6-12 — Level 3 review-markdown hash binding (cryptographic)
 **Source:** Phase 3b PR #6 design Q6; rejected Level 3 during brainstorm
 **File:** TBD — would add `review_markdown_sha256` to registry entries
-**Priority:** Low — only if threat model escalates (e.g., future UI
-auto-populates reviews). Current source-hash binding closes the realistic
-attacker path.
+**Priority:** Low — only if threat model escalates (e.g., future UI auto-populates reviews). Current source-hash binding closes the realistic attacker path.
 **Trigger:** threat-model change making source-only binding insufficient.
+**Suggested fix:** TBD (would require `review_markdown_sha256` field in staging registry entries + `promote_staged_script` re-verification against the review markdown displayed to the user).
 
-### BACKLOG-05 — Phase 4 autoresearch hook into sign_adaptive_script
-**Source:** Phase 3b PR #6 design Q4; Option D preserved the direct-sign
-wrapper for this consumer.
+### BACKLOG-PR6-13 — Phase 4 autoresearch hook into sign_adaptive_script
+**Source:** Phase 3b PR #6 design Q4; Option D preserved the direct-sign wrapper for this consumer.
+**File:** `src/screw_agents/engine.py::sign_adaptive_script` (already in place); Phase 4 autoresearch module (not yet written)
 **Priority:** Phase 4 work (not standalone)
-**Trigger:** Phase 4 autoresearch scaffolding needs a programmatic
-script-signing path after automated review.
-**Suggested approach:** existing `engine.sign_adaptive_script` is already
-the right API; Phase 4's autoresearch module uses it directly after its
-own review produces approved source + meta.
+**Trigger:** Phase 4 autoresearch scaffolding needs a programmatic script-signing path after automated review.
+**Suggested approach:** existing `engine.sign_adaptive_script` is already the right API; Phase 4's autoresearch module uses it directly after its own review produces approved source + meta. BACKLOG-PR6-22 (`sign_adaptive_script` retirement / C1-closure migration) is the counter-force — retiring the direct-sign tool BEFORE Phase 4 wires in would break this path. Sequencing: Phase 4 lands first, THEN PR6-22 retirement can proceed with the autoresearch module as the test-bed consumer.
 ```
 
-- [ ] **Step 4: Commit**
+Insert these 5 entries in the correct numeric position (between PR6-08 and PR6-14) to maintain monotonic numeric ordering in the section.
+
+- [ ] **Step 4: Clean up BACKLOG-PR6-49 marked [RESOLVED]**
+
+`BACKLOG-PR6-49` is marked `[RESOLVED — T9 auto-resolution]` — move it from the follow-ups section to Shipped (PR #6) with a note referencing T9 commit `e91fe42`.
+
+- [ ] **Step 5: Commit T24a**
 
 ```bash
 git add docs/DEFERRED_BACKLOG.md
-git commit -m "docs(phase3b-c1): shipped + follow-up updates in DEFERRED_BACKLOG (T24)"
+git commit -m "docs(phase3b-c1): T24a backlog reorg — C1+I1-I6 shipped, absorbed items, PR6-09..13 appended"
 ```
+
+---
+
+#### T24b — Phase-4 readiness triage tags
+
+- [ ] **Step 1: Define the triage-tag vocabulary**
+
+Add a section header to `docs/DEFERRED_BACKLOG.md` (right after the file's top-of-file intro) introducing the tag system:
+
+```markdown
+## Phase-4 Readiness Triage
+
+Every active backlog entry below carries a `**Phase-4 readiness:**` tag with one of:
+
+- `blocker` — must be addressed before Phase 4 can start. Affects the surfaces Phase 4 autoresearch exercises (scan_full scale, benchmark ingestion path, signing-path programmatic consumers, trust-layer, exclusions model).
+- `nice-to-have` — would help Phase 4 ergonomics or performance, but not correctness-critical. Phase 4 can start with these unaddressed; they'd be nice polish before Phase 4 lands.
+- `phase-7-scoped` — deferred until Phase 7 (multi-process MCP server) work. Single-process screw-agents is unaffected.
+- `retire` — trigger has not fired and the risk/value has decayed; candidate for deletion if no trigger activates by a named future milestone.
+
+Entries already in `## Shipped` / `## Shipped (PR #6)` do NOT carry this tag — they're done.
+```
+
+- [ ] **Step 2: Tag all active entries**
+
+For every `### BACKLOG-*` or `### T*-*` entry in the active sections (Trust-layer polish / Phase 3c / Phase 4+ / Phase 7 / Project-wide / Phase 3b PR #5 findings (empty after T24a) / Phase 3b PR #6 follow-ups), add a `**Phase-4 readiness:**` line after the existing `**Priority:**` / `**Source:**` header block. Default placement: immediately after the last header line, before `**Why deferred:**`.
+
+Tagging guidance (implementer judgment — if a tag is unclear, pick the more conservative one and note it):
+
+| Tag | Typical entries | Rationale |
+|---|---|---|
+| `blocker` | `T-FULL-P1` (scan_full scale), `T19-M1`/`T19-M2`/`T19-M3` (SARIF/CSV/exclusion semantics used by Phase 4), `BACKLOG-PR6-13` (autoresearch hook — actually built BY Phase 4, but sequencing implications) | Directly affects Phase 4's scan + autoresearch surfaces |
+| `nice-to-have` | `T5-M4`, `T8-M4`, `T9-I2`, `T10-I2` (performance), `T-ORCHESTRATOR-SCHEMA` (orchestrator determinism), `T16-M1..M4` (model polish), `BACKLOG-PR6-10` (skill refactor), `BACKLOG-PR6-22` (sign retirement, post-Phase-4) | Ergonomic / performance / determinism improvements; Phase 4 can start without them |
+| `phase-7-scoped` | `T6-M1`, `T6-M4`, `T9-I1` (concurrency), `BACKLOG-PR6-09` (registry compaction at scale), `T8-Sec2` (preexec_fn thread-safety) | Explicitly tagged to Phase 7 triggers (multi-process MCP, concurrency) |
+| `retire` | Candidates: any entry whose trigger was stated as "when X happens" and X has been ruled out by a decision since. Most likely retire candidates: `T4-M6` (trust.py split — repeatedly surveyed, trigger doesn't fire), `BACKLOG-PR6-12` (Level 3 hash binding — explicitly rejected at brainstorm), cosmetic PR6 entries whose files are unlikely to be touched again for months | Low-probability-of-ever-firing; can be revisited at Phase 4 open |
+
+The 73 PR #6 entries skew overwhelmingly to `nice-to-have` / `retire` — they're cosmetic polish from re-review cycles. Most of Phase 3c sandbox-hardening entries are `nice-to-have` unless the sandbox is targeted by adversarial script research (then `blocker`).
+
+**Judgment calls to surface to Marco, not decide unilaterally:**
+- `BACKLOG-PR6-13` (Phase 4 autoresearch hook) — is it a `blocker` or `nice-to-have`? It's literally Phase-4 scope itself, so tagging as `blocker` is circular. Recommend `nice-to-have` with a note "tracked BY Phase 4 build, not blocker to starting Phase 4".
+- `T-FULL-P1` (scan_full scale) — current tag says HIGH priority, Phase 4 prerequisite. Confirm `blocker`.
+- `BACKLOG-PR6-22` (sign_adaptive_script retirement) — Phase 4 needs the direct-sign path (per PR6-13), so RETIREMENT is post-Phase-4. Tag `nice-to-have` with a "post-Phase-4" note.
+
+- [ ] **Step 3: Produce a tag-summary table at the top of the triage section**
+
+After the tag-vocabulary header from Step 1, add a one-table summary:
+
+```markdown
+### Tag summary (as of T24b)
+
+| Tag | Count | Key entries |
+|---|---|---|
+| `blocker` | <N> | T-FULL-P1, T19-M1/M2/M3 (Phase 4 output surfaces) |
+| `nice-to-have` | <N> | Performance + ergonomics polish |
+| `phase-7-scoped` | <N> | Concurrency / multi-process items |
+| `retire` | <N> | Trigger-unfired / low-probability candidates |
+
+**Phase 4 gate:** the `blocker` count must drop to 0 before Phase 4's step 4.0 (D-01 Rust benchmark corpus) can start. Current blockers: T-FULL-P1 (scan_full scale) + T19-M1/M2/M3 (if autoresearch uses SARIF/CSV output in volume). See `docs/PROJECT_STATUS.md` §Phase 4 Prerequisites for scheduling.
+```
+
+Fill in the counts AFTER the tagging pass completes. Recount if `retire` candidates get re-tagged during Marco's review.
+
+- [ ] **Step 4: Commit T24b**
+
+```bash
+git add docs/DEFERRED_BACKLOG.md
+git commit -m "docs(phase3b-c1): T24b Phase-4 readiness triage tags + summary table"
+```
+
+---
+
+#### T24c — PROJECT_STATUS.md refresh
+
+The `docs/PROJECT_STATUS.md` file was last updated 2026-04-12 and says "Current Phase: Phase 2 Complete". Three phases have shipped since: Phase 3a (2026-04-17), Phase 3b PR #4 (2026-04-18), Phase 3b PR #5 (2026-04-20), and PR #6 is in-flight (T0-T23 complete as of 2026-04-23, merge planned in T26).
+
+**Note:** edit the worktree copy (`.worktrees/phase-3b-c1-staging/docs/PROJECT_STATUS.md`), not the main branch. The update lands on the PR #6 branch and ships with the merge per Marco's directive.
+
+- [ ] **Step 1: Update the "Last updated" header + "Current Phase" line**
+
+At the top of `docs/PROJECT_STATUS.md`:
+- Change `> Last updated: 2026-04-12` to `> Last updated: 2026-04-23`
+- Change `## Current Phase: Phase 2 Complete — Claude Code Integration` to `## Current Phase: Phase 3b PR #6 in-flight — C1 Staging Architecture`
+- Rewrite the narrative paragraph under the Current Phase header to reflect: Phase 2 complete (PR #4/#5 2026-04-11/12), Phase 3a complete (PR #6-9 series 2026-04-16/17), Phase 3b PR #4 complete (#10, 2026-04-18), Phase 3b PR #5 complete (#11, 2026-04-20), Phase 3b PR #6 in-flight on branch `phase-3b-c1-staging` (expected merge T26).
+
+- [ ] **Step 2: Update the "Full Phase Plan" table**
+
+The table at `## Full Phase Plan (from PRD §12)` (around line 399) has stale status flags:
+- Phase 2 — `Complete (PR #4 2026-04-11, PR #5 2026-04-12)` — KEEP (accurate)
+- **Phase 3** row needs split into Phase 3a + Phase 3b (PRD §12 has them as one, but execution shipped them separately):
+  - Phase 3a — **Complete** (PR #6-#9 series, merged 2026-04-16/17)
+  - Phase 3b — **In-flight** (PR #4 + PR #5 merged 2026-04-18/20; PR #6 branch `phase-3b-c1-staging`, T0-T23 complete, merge pending T26)
+- Phase 3c — **Deferred** — sandbox hardening sweep (seccomp filter + thread-safety + dedup; see DEFERRED_BACKLOG §Phase 3c)
+- Phase 4 — **Pending, hard-gated on D-01 + T-FULL-P1 + T19-M1/M2/M3** (link to the triage section)
+
+- [ ] **Step 3: Add new "Phase 4 Prerequisites" section**
+
+After the Full Phase Plan table, add a section explicitly enumerating what must land before Phase 4 starts:
+
+```markdown
+## Phase 4 Prerequisites (hard gates)
+
+Phase 4 (Autoresearch & Self-Improvement) cannot start until the following are in place:
+
+### D-01 — Rust benchmark corpus from RustSec (Deferred Obligations)
+**Status:** DEFERRED since Phase 0.5
+**Why gating:** Phase 4 step 4.0 IS D-01. See ADR-014 and `docs/research/benchmark-tier4-rust-modern.md`.
+**Estimated scope:** ~24 verified CVE candidates + synthetic SSTI fixtures. Medium effort.
+
+### T-FULL-P1 — Paginate scan_full + agent-relevance filter
+**Status:** DEFERRED since Phase 3a X1-M1 (PR #9)
+**Why gating:** `scan_full` is non-paginated and agent-relevance-blind. At the current ~10-agent count it's already marginal; at CWE-1400 expansion (41 agents per `docs/AGENT_CATALOG.md`) it's unusable. Phase 4 autoresearch uses `scan_full` in volume.
+**Estimated scope:** ~500-700 LOC (pagination + lazy fetch + relevance pre-filter). Separate focused PR.
+
+### T19-M1/M2/M3 — Merged-findings surface in SARIF, CSV, exclusion semantics, structured format
+**Status:** DEFERRED since Phase 3b T19
+**Why gating:** If Phase 4 autoresearch consumes SARIF or CSV output in volume (likely) OR correlates exclusions with merged findings (the autoresearch FP-learning loop), these deferrals affect correctness not just ergonomics.
+**Estimated scope:** ~170 LOC + tests. Can ship as one Phase-4-prep PR.
+
+### D-02 — Detection-rate validation thresholds (SAMPLE COMPLETE)
+**Status:** Pipeline validated (PR #3 2026-04-11), full run + threshold optimization DEFERRED to Phase 4 autoresearch loop
+**Why gating:** Not a hard blocker to STARTING Phase 4 — autoresearch IS the threshold-tuning loop. But the benchmark run feeds D-01's corpus. Sequenced inside Phase 4, not before.
+
+**When returning to Phase 4:** Re-read ADR-014 + `docs/research/benchmark-tier4-rust-modern.md`. Audit DEFERRED_BACKLOG §"Phase-4 Readiness Triage" for any `blocker` entries added since this doc was refreshed. Update the counts + D-01/T-FULL-P1 status before starting step 4.0.
+```
+
+- [ ] **Step 4: Update "Deferred Obligations" table to cross-reference DEFERRED_BACKLOG**
+
+The top-of-file `## Deferred Obligations` table tracks D-01 + D-02. Add a third row pointing readers to DEFERRED_BACKLOG for the broader backlog:
+
+```markdown
+| D-03 (pointer) | Broader deferred backlog (124 entries post-T24) | Across all phases | Various — see DEFERRED_BACKLOG §"Phase-4 Readiness Triage" | — | **TRIAGED** — see DEFERRED_BACKLOG.md for `blocker` / `nice-to-have` / `phase-7-scoped` / `retire` tags |
+```
+
+- [ ] **Step 5: Commit T24c**
+
+```bash
+git add docs/PROJECT_STATUS.md
+git commit -m "docs(phase3b-c1): T24c PROJECT_STATUS refresh — Phase 3a/3b current state + Phase 4 gate section"
+```
+
+---
+
+**Cross-plan sync commit:** after T24a+T24b+T24c land, update `docs/PHASE_3B_C1_PLAN.md` T24 closeout paragraph (normal closeout flow) summarizing the three sub-steps' outcomes + any new backlog counts.
+
+**T24 Opus 4.7 re-review (2026-04-23):** Spec review APPROVED (zero Critical/Important, 2 Category-B/C Minors on count-literal + tag-placement cosmetics). Quality review APPROVED-WITH-FIXES with **1 Critical + 1 Important + 3 Category-A Minors**. Fix-up applied at commit `dead218` covering all review findings plus Option (b) architectural adoption for the C1 closure narrative. Final state: 3 sub-step commits + 1 fix-up = 4 commits across 2 files, **114 active backlog entries** + 5 blocker Phase-4 prerequisites.
+
+- **Pre-audit rescope (commit `9a7b1d6`, PA-T24-R)**: Second RESCOPE plan-fix in PR #6 (after T23's). Original T24 was "mechanical backlog reorg". Pre-audit surfaced that the broader backlog has 124 total entries (51 main + 73 PR #6 follow-ups) and Marco explicitly wanted "the whole picture clear" for the Phase 4 transition. Rescoped to Option C: T24a mechanical reorg + T24b Phase-4 readiness triage tags + T24c PROJECT_STATUS refresh. Three separate commits per precedence (T24a must complete before T24b before T24c).
+
+- **Implementer deliverables**:
+  - T24a (commit `b53d5e1`): Moved C1 + I1-I6 + T-STAGING-ORPHAN-GC + T3-M1 + BACKLOG-PR6-49 to new `## Shipped (PR #6)` section; marked T10-M1 as PARTIAL SHIPPED; filled reserved BACKLOG-PR6-09..13 slots with original-plan design content. −36 lines (deletions offset additions).
+  - T24b (commit `0feb06d`): Added `## Phase-4 Readiness Triage` section + 4-tag vocabulary; tagged 116 active entries with `blocker` / `nice-to-have` / `phase-7-scoped` / `retire`; tag-summary table + Phase 4 gate paragraph. +142 lines.
+  - T24c (commit `9d80172`): Rewrote PROJECT_STATUS "Current Phase" narrative to reflect Phase 3a + Phase 3b PR #4/#5 shipped + PR #6 in-flight; split Phase 3 row into 3a/3b/3c in the phase table; added new `## Phase 4 Prerequisites (hard gates)` section with D-01 + T-FULL-P1 + T19-M1/M2/M3 + D-02; added D-03 pointer row to Deferred Obligations. +35 lines.
+
+- **Fix-up (commit `dead218`)** addressing review findings + Option (b) adoption:
+  - **C-R1 (Critical)**: T11-N1 (shipped by T14 `dc3762c`) and T11-N2 (shipped by T12 `c3c52fd`) moved from Project-wide section to Shipped (PR #6). The T24a implementer missed these due to ambiguous plan-step-2 phrasing.
+  - **I-1 (Important)**: BACKLOG-PR6-21 retagged `retire` → `nice-to-have`. Reviewer invoked `feedback_never_silently_downgrade_security` — a trust-path UX safety disclaimer shouldn't be "delete if no trigger fires".
+  - **M-A1 Option (b) adoption (security-design choice)**: BACKLOG-PR6-22 (`sign_adaptive_script` retirement) retagged `nice-to-have` → `blocker`. Becomes 5th Phase 4 prerequisite. Marco's call: retiring the direct-sign MCP tool NOW (while it has zero real callers) is cheaper than after Phase 4's autoresearch module acquires it. Prevents designing the autoresearch hook against the regeneration vector. BACKLOG-PR6-13 (Phase 4 autoresearch hook) text updated to specify MUST use stage→promote and blocked-by PR6-22. PROJECT_STATUS line 26 C1 narrative rewritten from "Closes the C1 trust-invariant violation" to "Closes C1 for the LLM-flow surface (staged approve path locked by T21 exit gate); full closure via sign_adaptive_script retirement is a Phase 4 prerequisite".
+
+- **Final tag summary (authoritative at T24 fix-up HEAD `dead218`)**: **5 blocker / 90 nice-to-have / 5 phase-7-scoped / 14 retire = 114 active entries** across `docs/DEFERRED_BACKLOG.md`'s 6 active sections. Phase 4 blocker list: T-FULL-P1 (scan_full scale), T19-M1/M2/M3 (output-surface semantics), BACKLOG-PR6-22 (C1 full closure).
+
+- **Retire candidates flagged for Marco's periodic review**: T4-M6 (trust.py split — trigger repeatedly not fired), T1-M1 (AdaptiveScriptMeta runtime flags — T20 bypassed), and 13 cosmetic PR #6 entries (BACKLOG-PR6-{06,07,08,17,24,51,56,60,62,63,67,72} — pure docstring/comment polish; retire if no Phase-4-era trigger fires).
+
+Score since T7: **16 tasks 0-Important (via fix-up) / 1 task 1-Important via initial fix-up (T14) / 1 task 1-Important transient-to-T19 (T18, resolved)**. T24 is the ONLY PR #6 task that required a substantive fix-up for a Critical finding — attributable to an ambiguous plan-step phrasing ("check for any other absorbed items" which didn't explicitly enumerate T11-N1/N2) that the T24a implementer interpreted conservatively. The miss is on ME (plan authorship), not the implementer.
+
+**Strategic outcome (Marco's original question):** the 4 surfaces that block Phase 4 are now explicitly named and cross-referenced in both PROJECT_STATUS (hard-gate section) and DEFERRED_BACKLOG (blocker tag + current-blockers paragraph). Phase 4 cannot start until: (a) D-01 Rust benchmark corpus built, (b) T-FULL-P1 scan_full paginated, (c) T19-M1/M2/M3 output-surface semantics for merged findings, (d) BACKLOG-PR6-22 sign_adaptive_script retirement. Estimated pre-Phase-4 scope: ~600-700 LOC (T-FULL-P1) + ~170 LOC (T19-M*) + ~50 LOC (PR6-22) = ~850 LOC across 2-3 focused PRs + D-01 corpus research. Realistic Phase 4 start: 2-3 weeks of prep work after PR #6 merges.
+
+T24 commits: `b53d5e1` (T24a) → `0feb06d` (T24b) → `9d80172` (T24c) → `dead218` (fix-up). Plan-fix precursor: `9a7b1d6`. Pre-audit as scope-challenge paid off again (following T23's precedent) — rescope from "mechanical reorg" to "strategic close-out" delivered the Phase 4 decision framework Marco explicitly asked for.
 
 ---
 
@@ -4539,6 +6586,8 @@ git push -u origin phase-3b-c1-staging
 
 - [ ] **Step 2: Create PR**
 
+**PR body text, rewritten at T25 Step 0 pre-audit 2026-04-23** to reflect authoritative shipped state at branch HEAD `a57e2c2`:
+
 ```bash
 gh pr create --title "Phase 3b PR #6 — C1 Staging Architecture + I1-I6 Polish" \
   --body "$(cat <<'EOF'
@@ -4549,27 +6598,77 @@ The approve path no longer regenerates source after approval: the new
 `promote_staged_script` MCP tool takes NO `source` parameter and reads
 staged bytes from disk, verifying sha256 against the registry before signing.
 
-### What shipped
-- Staging architecture: 4 new MCP tools (stage/promote/reject/sweep)
-- 2 MCP tools promoted from CLI: list + remove
-- Shared `_sign_script_bytes` helper — single canonical-bytes source
-- T18b prompt rewrite across 4 per-agent subagents (byte-identical section)
-- Bundled polish: I1 (plugin namespace), I2 (lint __all__), I3 (stderr),
-  I4 (retention), I5 (hallucination hardening), I6 (MCP cwd-independence)
-- Absorbed backlog: T-STAGING-ORPHAN-GC, T10-M1 partial, T11-N1 (sig E2E),
-  T11-N2 (MetadataError), T3-M1 (narrow exceptions)
-- Deleted: src/screw_agents/cli/adaptive_cleanup.py
+**C1 closure is locked by an E2E integration test (T21,
+`tests/test_adaptive_workflow_staged.py`): Step 11 asserts
+`promote_response["sha256"] == compute_script_sha256(source)` and Step 12
+asserts `signed_py.read_text() == source`.** Both pass on Arch Linux bwrap sandbox.
+
+### What shipped (24 tasks T0-T24 across 4 phases)
+
+**Phase A — Staging architecture (T0-T9):**
+- 4 new MCP tools: `stage_adaptive_script`, `promote_staged_script`, `reject_staged_script`, `sweep_stale_staging`
+- 2 MCP tools promoted from CLI: `list_adaptive_scripts`, `remove_adaptive_script` (I6 cwd-independence fix)
+- Shared `_sign_script_bytes` helper — single canonical-bytes source eliminating sign/verify drift (Option D refactor)
+- Deleted: `src/screw_agents/cli/adaptive_cleanup.py`
+
+**Phase B — Bundled polish (T10-T14, I1-I5):**
+- I2 (T10): adaptive-lint validates `adaptive.__all__` symbols (blocks hallucinated helper imports at lint time)
+- I3 (T11): sandbox stderr surfacing on execute failure (visible in adaptive-flow prompts)
+- T11-N2 (T12): `MetadataError` wrapper for yaml+pydantic parsing failures (absorbed)
+- T3-M1 (T13): narrow exceptions in `adaptive/ast_walker.py` (absorbed)
+- T11-N1 (T14): E2E signature-path regression test (absorbed)
+
+**Phase C + D + E — Subagent prompt rewrite + orchestrator + docs (T15-T18):**
+- T15+T16 (combined): Step 3.5d rewrite across 4 per-agent subagents (screw-sqli/cmdi/ssti/xss) — byte-identical adaptive section modulo agent-name substitution
+- T17: orchestrator (screw-injection.md) + shared `_ADAPTIVE_MCP_TOOLS` test constant merge; LLM-flow files all route via stage→promote (`sign_adaptive_script` absent from all 5 frontmatters)
+- T18: scan.md adaptive-flow documentation
+
+**Phase F — Slash command + format-smoke tests (T19-T20):**
+- T19: `/screw:adaptive-cleanup` rewritten to MCP function-call syntax + new `stale` subcommand
+- T20: +48 parametrized format-smoke assertions (12 assertions × 4 agent files) locking whole-file prompt content
+
+**Phase G — Integration test + schema lock (T21-T22):**
+- T21: E2E integration test `tests/test_adaptive_workflow_staged.py` — THE C1 exit gate
+- T22: `additionalProperties: false` regression-lock on 6 new PR #6 MCP tool schemas (T10-M1 partial)
+
+**Phase H — Docs + strategic close-out (T23-T24):**
+- T23: pointer paragraph in `PHASE_3B_PLAN.md` to authoritative `PHASE_3B_C1_PLAN.md`
+- T24: backlog reorg + Phase-4 readiness triage (`blocker` / `nice-to-have` / `phase-7-scoped` / `retire` tags across 114 active entries) + PROJECT_STATUS.md refresh (Phase 3a/3b current state + new Phase 4 Prerequisites section)
 
 ### Test count
-771 baseline → 820+ (exact count after all tasks land; see exit checklist)
 
-### Security property restored
-`bytes_reviewed == bytes_signed == bytes_executed`, enforced by
-(a) script_name content-binding via hash6(source) and
-(b) sha256 registry verification at promote time.
+**771 baseline → 942 passing** (+171 tests, +48 from T20 format-smoke alone). Zero regressions. C1 regression test `test_sign_output_passes_executor_verification` passes. T21 integration test passes (0.30s) on bwrap sandbox.
 
-See `docs/specs/2026-04-20-phase-3b-c1-staging-design.md` for the
-consolidated design and `docs/PHASE_3B_C1_PLAN.md` for task-level detail.
+### Absorbed backlog (10 items → Shipped (PR #6) section)
+
+- C1 (CRITICAL — PR #5 round-trip finding), I1-I6 (PR #5 round-trip polish items)
+- T-STAGING-ORPHAN-GC (Phase 4+), T3-M1 (project-wide), T10-M1 PARTIAL (project-wide — 6 new tools locked)
+- T11-N1 + T11-N2 (shipped by T14 + T12)
+- BACKLOG-PR6-49 (auto-resolved by T9)
+
+### Phase 4 readiness — 5 hard-gate prerequisites identified
+
+PR #6 T24 established the Phase 4 readiness framework. Phase 4 (Autoresearch) cannot start until 5 items are addressed (see `docs/PROJECT_STATUS.md §Phase 4 Prerequisites` + `docs/DEFERRED_BACKLOG.md §Phase-4 Readiness Triage`):
+
+1. **D-01** — Rust benchmark corpus from RustSec (DEFERRED since Phase 0.5)
+2. **T-FULL-P1** — Paginate `scan_full` + agent-relevance filter (~600-700 LOC)
+3. **T19-M1/M2/M3** — Merged-findings output semantics (SARIF/CSV/exclusion model, ~170 LOC)
+4. **BACKLOG-PR6-22** — `sign_adaptive_script` retirement (~50 LOC; new 5th prerequisite per T24 Option b adoption — retire the direct-sign MCP tool before Phase 4 autoresearch module is designed against it)
+
+### Security property restored (scoped)
+
+**`bytes_reviewed == bytes_signed == bytes_executed`** on the LLM-flow surface, enforced by:
+- (a) `script_name` content-binding via hash6(source)
+- (b) sha256 registry verification at promote time
+- (c) T21 exit gate regression test permanently locks the invariant
+
+Direct `sign_adaptive_script` MCP tool is retained server-side as a supervised path for programmatic consumers (future Phase 4 autoresearch); retirement scheduled as BACKLOG-PR6-22 Phase 4 prerequisite to prevent designing the autoresearch hook against the regeneration vector.
+
+### Design references
+
+- `docs/specs/2026-04-20-phase-3b-c1-staging-design.md` — consolidated design (local, not in git)
+- `docs/PHASE_3B_C1_PLAN.md` — task-level detail (28 tasks T0-T27, ~6600 lines)
+- `docs/PROJECT_STATUS.md §Phase 4 Prerequisites` — hard-gate roadmap for next phase
 EOF
 )"
 ```
@@ -4707,7 +6806,7 @@ Before requesting PR review:
 - [ ] `grep -r "sign_adaptive_script" plugins/screw/agents/screw-*.md` → zero matches (LLM-flow isolation invariant)
 - [ ] `grep -rn "from screw_agents.cli.adaptive_cleanup" .` → only match is in deleted file (post-T9)
 - [ ] `docs/PHASE_3B_PLAN.md` has the new "PR #6" section
-- [ ] `docs/DEFERRED_BACKLOG.md` has C1 + I1-I6 + T-STAGING-ORPHAN-GC moved to Shipped; BACKLOG-01..05 added
+- [ ] `docs/DEFERRED_BACKLOG.md` has C1 + I1-I6 + T-STAGING-ORPHAN-GC moved to Shipped; `BACKLOG-PR6-01..08` confirmed (from Opus re-review, 2026-04-21); `BACKLOG-PR6-09..13` appended (original-plan design items)
 - [ ] Spec at `docs/specs/2026-04-20-phase-3b-c1-staging-design.md` remains unmodified (or deviations called out in PHASE_3B_PLAN plan-sync note)
 - [ ] No Claude Code / AI attribution in any commit message (`feedback_no_cc_commits`)
 

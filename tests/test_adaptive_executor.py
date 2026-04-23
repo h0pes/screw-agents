@@ -672,3 +672,358 @@ def test_execute_script_tampered_signature_raises_signature_failure(
             skip_trust_checks=False,
             wall_clock_s=10,
         )
+
+
+# -------------------------------------------------------------------------
+# Task 11 — I3: engine.execute_adaptive_script surfaces sandbox stderr
+# -------------------------------------------------------------------------
+
+
+def test_execute_surfaces_stderr_on_nonzero_return(tmp_path: Path) -> None:
+    """A script raising RuntimeError inside analyze() yields sandbox
+    returncode != 0. engine.execute_adaptive_script MUST surface stderr
+    AND set status='sandbox_failure' so the T18b failure-render path has
+    something to show the user. T11 plan-fix #5: use a runtime raise
+    rather than a hallucinated import — T10's unknown_symbol rule now
+    rejects hallucinated imports at Layer 1 before the sandbox runs."""
+    import shutil
+
+    if shutil.which("bwrap") is None and shutil.which("sandbox-exec") is None:
+        pytest.skip("requires sandbox backend")
+
+    from screw_agents.engine import ScanEngine
+
+    script_dir = tmp_path / ".screw" / "custom-scripts"
+    script_dir.mkdir(parents=True)
+
+    # Valid-linting script that raises at runtime inside analyze(). Uses
+    # ProjectRoot (an allowed import) so Layer 1 lint passes; the failure
+    # happens in the sandbox.
+    script_path = script_dir / "t11-failing.py"
+    script_path.write_text(
+        "from screw_agents.adaptive import ProjectRoot\n"
+        "def analyze(project: ProjectRoot) -> None:\n"
+        "    raise RuntimeError('intentional T11 test failure')\n"
+    )
+    meta_path = script_dir / "t11-failing.meta.yaml"
+    meta_path.write_text(
+        "name: t11-failing\n"
+        "created: '2026-04-22T10:00:00Z'\n"
+        "created_by: marco@example.com\n"
+        "domain: injection-input-handling\n"
+        "description: T11 stderr surfacing test\n"
+        "target_patterns: []\n"  # empty -> not stale, sandbox runs
+        "sha256: stub\n"
+    )
+
+    engine = ScanEngine.from_defaults()
+    result = engine.execute_adaptive_script(
+        project_root=tmp_path,
+        script_name="t11-failing",
+        wall_clock_s=15,
+        skip_trust_checks=True,
+    )
+
+    assert result["status"] == "sandbox_failure"
+    assert "RuntimeError" in result["stderr"]
+    assert "intentional T11 test failure" in result["stderr"]
+    assert result["sandbox_result"]["returncode"] != 0
+    # Alias consistency: top-level stderr == inner stderr (plan-fix #4)
+    assert result["stderr"] == result["sandbox_result"]["stderr"]
+
+
+def test_execute_stderr_empty_on_success(tmp_path: Path) -> None:
+    """Happy path: status='ok' and stderr is empty string. Well-behaved
+    scripts don't write to stderr; don't clutter success payloads. T11
+    plan-fix #4: empty string rather than omitted field — keeps the dict
+    shape stable so the subagent's failure-render branch can always test
+    result["stderr"] without a .get() dance."""
+    import shutil
+
+    if shutil.which("bwrap") is None and shutil.which("sandbox-exec") is None:
+        pytest.skip("requires sandbox backend")
+
+    from screw_agents.engine import ScanEngine
+
+    script_dir = tmp_path / ".screw" / "custom-scripts"
+    script_dir.mkdir(parents=True)
+
+    # Benign passing script — imports only allowed names, emits no findings,
+    # never raises. Sandbox returncode must be 0 and stderr empty.
+    script_path = script_dir / "t11-ok.py"
+    script_path.write_text(
+        "from screw_agents.adaptive import ProjectRoot\n"
+        "def analyze(project: ProjectRoot) -> None:\n"
+        "    pass\n"
+    )
+    meta_path = script_dir / "t11-ok.meta.yaml"
+    meta_path.write_text(
+        "name: t11-ok\n"
+        "created: '2026-04-22T10:00:00Z'\n"
+        "created_by: marco@example.com\n"
+        "domain: injection-input-handling\n"
+        "description: T11 stderr-empty-on-success test\n"
+        "target_patterns: []\n"
+        "sha256: stub\n"
+    )
+
+    engine = ScanEngine.from_defaults()
+    result = engine.execute_adaptive_script(
+        project_root=tmp_path,
+        script_name="t11-ok",
+        wall_clock_s=15,
+        skip_trust_checks=True,
+    )
+
+    assert result["status"] == "ok"
+    assert result["stderr"] == ""
+    assert result["sandbox_result"]["returncode"] == 0
+
+
+# -------------------------------------------------------------------------
+# Task 12 — T11-N2 MetadataError wrapper
+# -------------------------------------------------------------------------
+
+
+def test_executor_wraps_yaml_error_as_metadata_error(tmp_path: Path) -> None:
+    """Invalid YAML in .meta.yaml -> MetadataError (not bare yaml.YAMLError).
+    Plan-fix #1 + #2 + #3: uses correct execute_script signature,
+    valid-lint script body (so Layer 1 doesn't short-circuit to
+    LintFailure), and skip_trust_checks=True to bypass Layer 2+3."""
+    from screw_agents.adaptive.executor import MetadataError, execute_script
+
+    script_dir = tmp_path / ".screw" / "custom-scripts"
+    script_dir.mkdir(parents=True)
+    script_path = script_dir / "test-yaml-001.py"
+    meta_path = script_dir / "test-yaml-001.meta.yaml"
+
+    # Valid-lint body so Layer 1 passes and execution reaches the meta load.
+    script_path.write_text(
+        "from screw_agents.adaptive import ProjectRoot\n"
+        "def analyze(project: ProjectRoot) -> None:\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+    # Malformed YAML — unclosed quote is a guaranteed yaml.YAMLError.
+    meta_path.write_text("name: test\ncreated: \"unclosed\n", encoding="utf-8")
+
+    with pytest.raises(MetadataError, match="invalid YAML"):
+        execute_script(
+            script_path=script_path,
+            meta_path=meta_path,
+            project_root=tmp_path,
+            wall_clock_s=5,
+            skip_trust_checks=True,
+        )
+
+
+def test_executor_wraps_validation_error_as_metadata_error(tmp_path: Path) -> None:
+    """Malformed meta dict (missing required fields) -> MetadataError.
+    Plan-fix #1 + #2 + #3: same shape as the YAMLError test but with a
+    parseable YAML that fails Pydantic schema validation."""
+    from screw_agents.adaptive.executor import MetadataError, execute_script
+
+    script_dir = tmp_path / ".screw" / "custom-scripts"
+    script_dir.mkdir(parents=True)
+    script_path = script_dir / "test-yaml-002.py"
+    meta_path = script_dir / "test-yaml-002.meta.yaml"
+
+    script_path.write_text(
+        "from screw_agents.adaptive import ProjectRoot\n"
+        "def analyze(project: ProjectRoot) -> None:\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+    # Parseable YAML, but missing required AdaptiveScriptMeta fields
+    # (created_by, domain, description, target_patterns, sha256).
+    meta_path.write_text("name: test-yaml-002\n", encoding="utf-8")
+
+    with pytest.raises(MetadataError, match="malformed metadata"):
+        execute_script(
+            script_path=script_path,
+            meta_path=meta_path,
+            project_root=tmp_path,
+            wall_clock_s=5,
+            skip_trust_checks=True,
+        )
+
+
+# --- Task 14 — T11-N1 E2E signature-path regression ---
+
+@pytest.fixture
+def signed_script_setup(tmp_path: Path):
+    """Yields a (project_root, script_name, source, meta_dict) tuple where
+    the script + meta are fully signed and verifiable via Layer 3.
+
+    Used by T11-N1's end-to-end signature-path tests to exercise the real
+    sign -> verify round-trip (`skip_trust_checks=False`), not just the
+    skip_trust_checks=True shortcuts other tests use.
+
+    Plan-fix #2 + #7: session_id is a real string ("t14-sess");
+    target_patterns=[] so _is_stale returns False (`executor.py:246-247`)
+    and the sandbox actually runs, exercising the full round-trip rather
+    than short-circuiting at the stale sentinel.
+    """
+    from screw_agents.cli.init_trust import run_init_trust
+    from screw_agents.engine import ScanEngine
+
+    project = tmp_path / "project"
+    project.mkdir()
+    run_init_trust(project_root=project, name="T11N1", email="sig@example.com")
+    engine = ScanEngine.from_defaults()
+
+    source = (
+        "from screw_agents.adaptive import ProjectRoot\n"
+        "\n"
+        "def analyze(project: ProjectRoot) -> None:\n"
+        "    pass\n"
+    )
+    meta = {
+        "name": "test-sig-e2e",
+        "created": "2026-04-20T10:00:00Z",
+        "created_by": "sig@example.com",
+        "domain": "injection-input-handling",
+        "description": "T11-N1 fixture",
+        "target_patterns": [],  # plan-fix #7: full round-trip, not stale sentinel
+    }
+
+    r = engine.sign_adaptive_script(
+        project_root=project,
+        script_name="test-sig-e2e",
+        source=source,
+        meta=meta,
+        session_id="t14-sess",  # plan-fix #2: required string
+    )
+    assert r["status"] == "signed"
+
+    yield (project, "test-sig-e2e", source, meta)
+
+
+def test_execute_adaptive_script_verifies_layer3_signature_happy_path(
+    signed_script_setup,
+) -> None:
+    """Full sign -> verify round-trip with skip_trust_checks=False.
+
+    T11-N1: end-to-end Layer 3 coverage that was not exercised before.
+    Uses engine.execute_adaptive_script (the MCP-boundary entry point)
+    per plan-fix #1 — not the internal execute_script which takes
+    script_path/meta_path, not script_name.
+    """
+    import shutil
+
+    if shutil.which("bwrap") is None and shutil.which("sandbox-exec") is None:
+        pytest.skip("requires sandbox backend")
+
+    from screw_agents.engine import ScanEngine
+
+    project, script_name, _, _ = signed_script_setup
+
+    engine = ScanEngine.from_defaults()
+    result = engine.execute_adaptive_script(
+        project_root=project,
+        script_name=script_name,
+        wall_clock_s=5,
+        skip_trust_checks=False,
+    )
+
+    # Plan-fix #3: simplified assertion. Post-T11 (I3), engine returns
+    # status="ok" on returncode==0, "sandbox_failure" otherwise.
+    assert result["status"] == "ok"
+
+
+def test_execute_adaptive_script_rejects_tampered_source(
+    signed_script_setup,
+) -> None:
+    """Tamper the .py source after signing. Layer 2 hash pin MUST fail.
+
+    Plan-fix #4 + #8 + #9 (Option C): Layer 1 (lint) and Layer 2 (hash
+    pin) BOTH run before Layer 3 (signature) in executor.execute_script.
+    A source-byte tamper is caught by Layer 2 via HashMismatch — Layer 3
+    never runs. This test locks the Layer-2 rejection path specifically.
+    The companion test_execute_adaptive_script_rejects_tampered_signature
+    exercises Layer 3 by flipping the signature field instead.
+
+    Tampered content stays lint-valid (preserves import + def analyze)
+    to prove the rejection comes from Layer 2's SHA-256 check, NOT Layer
+    1's lint. If this test ever starts raising LintFailure, the tamper
+    somehow broke the lint — investigate before assuming the hash check
+    is broken.
+    """
+    from screw_agents.adaptive.executor import HashMismatch
+    from screw_agents.engine import ScanEngine
+
+    project, script_name, _, _ = signed_script_setup
+    py_path = project / ".screw" / "custom-scripts" / f"{script_name}.py"
+
+    # Tamper while preserving lint-validity — add a comment line BEFORE
+    # the analyze def so Layer 1 sees valid structure but the SHA-256
+    # changes (and so Layer 2 hash pin fails).
+    py_path.write_text(
+        "from screw_agents.adaptive import ProjectRoot\n"
+        "\n"
+        "# TAMPERED — this line changes the sha256\n"
+        "def analyze(project: ProjectRoot) -> None:\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+
+    engine = ScanEngine.from_defaults()
+    with pytest.raises(HashMismatch):
+        engine.execute_adaptive_script(
+            project_root=project,
+            script_name=script_name,
+            wall_clock_s=5,
+            skip_trust_checks=False,
+        )
+
+
+def test_execute_adaptive_script_rejects_tampered_signature(
+    signed_script_setup,
+) -> None:
+    """Tamper .meta.yaml's signature field after signing. Layer 3 MUST fail.
+
+    Plan-fix #9 (Option C): Layer 2 hash pin passes because we leave the
+    .py source untouched (and its sha256 stays in meta.sha256). But we
+    flip a byte in the base64 signature field, so Ed25519 verification
+    at Layer 3 fails with SignatureFailure. This is the T11-N1 flagship
+    test that locks Layer 3 coverage — the rationale for bundling T11-N1
+    in PR #6 in the first place.
+
+    If meta_path's signature field shape ever changes (e.g., moved under
+    a nested key, renamed), this test will break — find the new path
+    and update. The invariant being tested is: ANY byte-change in the
+    on-disk signature post-sign must be rejected at Layer 3.
+    """
+    import base64
+
+    import yaml
+
+    from screw_agents.adaptive.executor import SignatureFailure
+    from screw_agents.engine import ScanEngine
+
+    project, script_name, _, _ = signed_script_setup
+    meta_path = project / ".screw" / "custom-scripts" / f"{script_name}.meta.yaml"
+
+    meta_dict = yaml.safe_load(meta_path.read_text(encoding="utf-8"))
+    assert "signature" in meta_dict, (
+        f"meta at {meta_path} is missing 'signature' field — "
+        f"shape changed? keys present: {sorted(meta_dict.keys())}"
+    )
+
+    # Decode, flip one byte in the middle (avoid padding), re-encode.
+    sig_bytes = bytearray(base64.b64decode(meta_dict["signature"]))
+    assert len(sig_bytes) >= 16, f"Ed25519 signature too short: {len(sig_bytes)} bytes"
+    # Flip a byte at a safe offset — Ed25519 signatures are 64 bytes;
+    # offset 10 is well clear of padding and structural bits.
+    sig_bytes[10] ^= 0xFF
+    meta_dict["signature"] = base64.b64encode(bytes(sig_bytes)).decode("ascii")
+    meta_path.write_text(yaml.safe_dump(meta_dict), encoding="utf-8")
+
+    engine = ScanEngine.from_defaults()
+    with pytest.raises(SignatureFailure):
+        engine.execute_adaptive_script(
+            project_root=project,
+            script_name=script_name,
+            wall_clock_s=5,
+            skip_trust_checks=False,
+        )

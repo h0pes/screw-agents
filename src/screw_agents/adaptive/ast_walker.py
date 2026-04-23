@@ -90,7 +90,12 @@ def find_calls(project: ProjectRoot, pattern: str) -> Iterator[CallSite]:
     for rel_path in project.list_files("**/*.py"):
         try:
             source = project.read_file(rel_path)
-        except Exception:
+        except FileNotFoundError:
+            # TOCTOU race: file listed by list_files but deleted before read.
+            # Unavoidable; silently skip. All other exceptions propagate:
+            # UnicodeDecodeError (non-UTF-8), PermissionError, IsADirectoryError,
+            # ProjectPathError, etc. This is the T3-M1 narrowing fix — callers
+            # can now distinguish "no findings" from "couldn't read this file".
             continue
 
         tree = parse_ast(source, language="python")
@@ -129,7 +134,12 @@ def find_imports(project: ProjectRoot, module_name: str) -> Iterator[ImportNode]
     for rel_path in project.list_files("**/*.py"):
         try:
             source = project.read_file(rel_path)
-        except Exception:
+        except FileNotFoundError:
+            # TOCTOU race: file listed by list_files but deleted before read.
+            # Unavoidable; silently skip. All other exceptions propagate:
+            # UnicodeDecodeError (non-UTF-8), PermissionError, IsADirectoryError,
+            # ProjectPathError, etc. This is the T3-M1 narrowing fix — callers
+            # can now distinguish "no findings" from "couldn't read this file".
             continue
 
         tree = parse_ast(source, language="python")
@@ -174,7 +184,12 @@ def find_class_definitions(project: ProjectRoot, class_name: str) -> Iterator[Cl
     for rel_path in project.list_files("**/*.py"):
         try:
             source = project.read_file(rel_path)
-        except Exception:
+        except FileNotFoundError:
+            # TOCTOU race: file listed by list_files but deleted before read.
+            # Unavoidable; silently skip. All other exceptions propagate:
+            # UnicodeDecodeError (non-UTF-8), PermissionError, IsADirectoryError,
+            # ProjectPathError, etc. This is the T3-M1 narrowing fix — callers
+            # can now distinguish "no findings" from "couldn't read this file".
             continue
 
         tree = parse_ast(source, language="python")

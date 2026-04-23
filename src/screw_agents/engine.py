@@ -12,7 +12,6 @@ import base64
 import hashlib
 import json as _json
 import os
-import re
 from pathlib import Path
 from typing import Any
 
@@ -20,8 +19,7 @@ import yaml
 
 from screw_agents.adaptive.executor import execute_script
 from screw_agents.adaptive.signing import (
-    build_signed_script_meta,
-    compute_script_sha256,
+    _sign_script_bytes,
 )
 from screw_agents.aggregation import (
     aggregate_directory_suggestions,
@@ -30,27 +28,76 @@ from screw_agents.aggregation import (
 )
 from screw_agents.formatter import format_findings
 from screw_agents.learning import (
-    _get_or_create_local_private_key,
     load_exclusions,
 )
 from screw_agents.models import AgentDefinition, Exclusion, Finding, HeuristicEntry
 from screw_agents.registry import AgentRegistry
 from screw_agents.resolver import ResolvedCode, filter_by_relevance, resolve_target
 from screw_agents.trust import (
-    _find_matching_reviewer,
-    _fingerprint_public_key,
-    _load_public_keys_with_reviewers,
     load_config,
     verify_script,
 )
 
-# Filesystem-safe script name regex: lowercase alphanum + dash, 3-63 chars,
-# must start with alphanumeric. Mirrors the safety envelope used elsewhere
-# in adaptive scripts — conservative to avoid path traversal / shell
-# metacharacters / Windows reserved names when these land on disk.
-_SCRIPT_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{2,62}$")
-
 _DEFAULT_DOMAINS_DIR = Path(__file__).resolve().parent.parent.parent / "domains"
+
+
+def _read_stale_staging_hours(project_root: Path) -> int:
+    """Return ``stale_staging_hours`` from ``.screw/config.yaml``.
+
+    Lightweight ad-hoc read (not through the ``ScrewConfig`` Pydantic
+    schema) because a fresh project may not have a config file yet; we
+    want a sane default (24h) rather than an error. When the config file
+    is present, the schema-level validator in ``ScrewConfig`` (I1)
+    guarantees ``stale_staging_hours`` is in [1, 168] at config-load time;
+    we still clamp here as defense-in-depth against hand-edited YAML that
+    bypassed the Pydantic load path.
+
+    Returns:
+        Hours threshold for staleness check. 24 by default; clamped to
+        [1, 168] (1 hour to 1 week) on malformed values.
+    """
+    try:
+        config_path = project_root / ".screw" / "config.yaml"
+        if not config_path.exists():
+            return 24
+        with open(config_path, encoding="utf-8") as f:
+            cfg = yaml.safe_load(f) or {}
+        val = int(cfg.get("stale_staging_hours", 24))
+        return max(1, min(168, val))
+    except (ValueError, TypeError, OSError, yaml.YAMLError):
+        return 24
+
+
+def _read_staging_max_age_days(project_root: Path) -> int:
+    """Return ``staging_max_age_days`` from ``.screw/config.yaml``.
+
+    Module-level helper symmetric with ``_read_stale_staging_hours``
+    above (T4 precedent). Used by ``sweep_stale_staging`` to decide the
+    orphan-age threshold when the caller passes ``max_age_days=None``.
+
+    Lightweight ad-hoc read (not through the ``ScrewConfig`` Pydantic
+    schema) because a fresh project may not have a config file yet; we
+    want a sane default (14d) rather than an error. The canonical
+    schema-level validator in ``ScrewConfig.staging_max_age_days``
+    (T4-part-2 I1) clamps to [1, 365] at config-load time; we still
+    clamp here as defense-in-depth against hand-edited YAML that
+    bypassed the Pydantic load path.
+
+    Returns:
+        Days threshold for staleness check. 14 by default; clamped to
+        [1, 365] (1 day to 1 year) on malformed values.
+    """
+    try:
+        import yaml as _yaml
+
+        config_path = project_root / ".screw" / "config.yaml"
+        if not config_path.exists():
+            return 14
+        with open(config_path, encoding="utf-8") as f:
+            cfg = _yaml.safe_load(f) or {}
+        return max(1, min(365, int(cfg.get("staging_max_age_days", 14))))
+    except (PermissionError, OSError, ValueError):
+        return 14
 
 
 class ScanEngine:
@@ -199,11 +246,18 @@ class ScanEngine:
                 Layer 3 (signature). Production callers must never set True.
 
         Returns:
-            Dict with keys: ``script_name``, ``findings`` (list of finding
-            dicts), ``stale`` (bool), ``execution_time_ms`` (int),
-            ``sandbox_result`` (dict, stdout/stderr excluded since they are
-            bytes). ``model_dump(mode="json")`` is used so nested datetimes
-            and other non-JSON-native types serialize correctly.
+            Dict with keys: ``status`` (``"ok"`` when the sandbox returncode
+            is 0, else ``"sandbox_failure"``), ``script_name``, ``findings``
+            (list of finding dicts), ``stale`` (bool), ``execution_time_ms``
+            (int), ``stderr`` (top-level decoded stderr string — empty on
+            success, populated with tracebacks/messages on sandbox failure
+            so the T18b failure-render path has something to show the user),
+            and ``sandbox_result`` (dict). Inside ``sandbox_result`` the
+            decoded ``stderr`` is duplicated for convenience; ``stdout`` is
+            intentionally excluded because adaptive scripts communicate via
+            ``findings.json`` rather than stdout. ``model_dump(mode="json")``
+            is used so nested datetimes and other non-JSON-native types
+            serialize correctly. T11 (I3) — Phase 3b PR #6.
 
         Raises:
             FileNotFoundError: Script source or metadata file missing.
@@ -232,15 +286,820 @@ class ScanEngine:
             skip_trust_checks=skip_trust_checks,
         )
 
+        # Decode stderr bytes -> str for JSON payload (T11 plan-fix #2).
+        # errors="replace" so a binary-writing malicious script can't raise
+        # UnicodeDecodeError and break the response.
+        stderr_str = result.sandbox_result.stderr.decode(
+            "utf-8", errors="replace"
+        )
+
+        # Top-level status: "ok" on clean returncode, "sandbox_failure"
+        # otherwise (T11 plan-fix #3). killed_by_timeout yields
+        # returncode=-1, so it's already covered by the != 0 check.
+        status = (
+            "ok"
+            if result.sandbox_result.returncode == 0
+            else "sandbox_failure"
+        )
+
         return {
+            "status": status,  # T11 plan-fix #3: top-level
             "script_name": result.script_name,
             "findings": [f.model_dump(mode="json") for f in result.findings],
             "stale": result.stale,
             "execution_time_ms": result.execution_time_ms,
-            "sandbox_result": result.sandbox_result.model_dump(
-                mode="json", exclude={"stdout", "stderr"}
+            "stderr": stderr_str,  # T11 plan-fix #4: top-level alias
+            "sandbox_result": {
+                **result.sandbox_result.model_dump(
+                    mode="json", exclude={"stdout", "stderr"}
+                ),
+                "stderr": stderr_str,  # T11 plan-fix #4: also inside
+            },
+        }
+
+    def stage_adaptive_script(
+        self,
+        *,
+        project_root: Path,
+        script_name: str,
+        source: str,
+        meta: dict[str, Any],
+        session_id: str,
+        target_gap: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Atomically write an unsigned adaptive script to session-scoped staging.
+
+        The LLM-driven review path (Phase 3b C1 staging architecture):
+        subagent calls this BEFORE composing the 5-section human review.
+        The staged bytes are the source of truth for the subsequent
+        ``promote_staged_script`` call — the user reviews what is staged,
+        and promote signs what is staged, with sha256 verification
+        preventing tamper (C1 trust invariant).
+
+        Writes ``.py`` + ``.meta.yaml`` into
+        ``.screw/staging/{session_id}/adaptive-scripts/`` and appends a
+        ``staged`` event to ``.screw/local/pending-approvals.jsonl``.
+
+        Args:
+            project_root: Project root with ``.screw/`` directory.
+            script_name: Filesystem-safe name
+                (regex ``^[a-z0-9][a-z0-9-]{2,62}$``). Validated via the
+                shared ``adaptive.script_name.validate_script_name`` (T2
+                consolidation) before any filesystem op.
+            source: Python source for the adaptive script. Caller
+                SHOULD have run ``lint_adaptive_script`` before staging
+                (pre-review), though staging itself does not enforce
+                this.
+            meta: Partial meta dict that will eventually conform to
+                ``AdaptiveScriptMeta`` (minus signing fields). Must
+                include ``name``, ``created``, ``created_by``, ``domain``;
+                may include ``description``, ``target_patterns``.
+            session_id: Scan session id. Validated by
+                ``resolve_staging_dir`` against the
+                ``\\A[A-Za-z0-9_-]{1,64}\\Z`` allowlist (T1 part 4,
+                I-opus-1/2 fix). Scopes the staging directory —
+                different session_ids get different dirs.
+            target_gap: Optional coverage-gap metadata recorded in the
+                registry entry. Shape:
+                ``{type, file, line, agent}``. ``None`` for non-gap
+                stages.
+
+        Returns:
+            Dict with:
+              - ``status``: ``"staged"`` on success, ``"error"`` on
+                validation / collision failure.
+              - On ``"staged"``: ``script_name``, ``stage_path``,
+                ``script_sha256``, ``script_sha256_prefix``,
+                ``session_id``, ``session_id_short``.
+              - On ``"error"``: ``error``, ``message``, and (for
+                collision) ``existing_sha256_prefix``.
+
+        Spec §3.1. Raises ValueError wrapping filesystem errors per
+        T13-C1. Returns domain-error dict on name/session validation
+        failures (callers compose error-dicts into the MCP tool
+        response; distinct from Python raises which would propagate
+        and fail the whole tool call).
+
+        Idempotency contract:
+          - Same ``script_name`` + same ``sha256(source)``: proceeds
+            through re-write + re-appends a second ``staged`` registry
+            entry. Downstream ``query_registry_most_recent`` returns
+            the last entry.
+          - Same ``script_name`` + different ``sha256``: returns
+            ``{"status": "error", "error": "stage_name_collision"}``
+            WITHOUT touching the filesystem.
+
+        Partial-state contract (cross-reference
+        ``append_registry_entry``): if the filesystem writes succeed but
+        the registry append raises, the staged files remain on disk.
+        This is deliberate — the filesystem is the source of truth;
+        T6 sweep recovers orphans by age.
+        """
+        import yaml
+
+        from screw_agents.adaptive.script_name import validate_script_name
+        from screw_agents.adaptive.signing import compute_script_sha256
+        from screw_agents.adaptive.staging import (
+            _utc_now_iso,
+            append_registry_entry,
+            resolve_staging_dir,
+            write_staged_files,
+        )
+
+        # Name validation (delegates to shared `adaptive.script_name` per
+        # T2 consolidation). Raises ValueError on mismatch — catch and
+        # convert to the existing error-dict contract callers depend on.
+        try:
+            validate_script_name(script_name)
+        except ValueError as exc:
+            return {
+                "status": "error",
+                "error": "invalid_script_name",
+                "message": str(exc),
+            }
+
+        # Session_id validation is enforced by ``resolve_staging_dir``
+        # (uses the ``\\A[A-Za-z0-9_-]{1,64}\\Z`` allowlist regex added
+        # in T1 part 4 for I-opus-1/2). Catch the ValueError it raises
+        # and convert to the error-dict contract. Do NOT re-implement a
+        # denylist here — that would diverge from the allowlist and
+        # re-open I-opus-1.
+        try:
+            stage_dir = resolve_staging_dir(project_root, session_id)
+        except ValueError as exc:
+            return {
+                "status": "error",
+                "error": "invalid_session_id",
+                "message": str(exc),
+            }
+
+        # Compute sha256 via the shared helper (T2 consolidation — do
+        # NOT introduce a duplicate here).
+        script_sha256 = compute_script_sha256(source)
+
+        # Collision check: same script_name exists under this session?
+        py_path = stage_dir / f"{script_name}.py"
+        if py_path.exists():
+            try:
+                existing = py_path.read_text(encoding="utf-8")
+            except UnicodeDecodeError as exc:
+                return {
+                    "status": "error",
+                    "error": "stage_corrupted",
+                    "message": (
+                        f"staged file {py_path} is not valid UTF-8 "
+                        f"({type(exc).__name__}: {exc}). Run sweep_stale_staging "
+                        f"to clean up, or delete the file manually."
+                    ),
+                }
+            existing_sha = compute_script_sha256(existing)
+            if existing_sha != script_sha256:
+                return {
+                    "status": "error",
+                    "error": "stage_name_collision",
+                    "message": (
+                        f"{script_name} already staged in {session_id} "
+                        f"with different content"
+                    ),
+                    "existing_sha256_prefix": existing_sha[:8],
+                }
+            # Same content — idempotent; proceed to re-write + re-record.
+
+        # Serialize meta to YAML (simple sanitization: ensure round-trip).
+        meta_yaml = yaml.safe_dump(
+            meta, sort_keys=True, default_flow_style=False
+        )
+
+        # Atomic write (staging.py helper; raises ValueError on fs
+        # errors via T13-C1 discipline).
+        write_staged_files(
+            project_root=project_root,
+            script_name=script_name,
+            source=source,
+            meta_yaml=meta_yaml,
+            session_id=session_id,
+        )
+
+        # Append registry entry. Partial-state semantics: if this
+        # fails, the staged files remain on disk (T6 sweep recovers
+        # them by age). See ``append_registry_entry``'s docstring.
+        entry = {
+            "event": "staged",
+            "script_name": script_name,
+            "session_id": session_id,
+            "script_sha256": script_sha256,
+            "target_gap": target_gap or {},
+            "staged_at": _utc_now_iso(),
+            "schema_version": 1,
+        }
+        append_registry_entry(project_root, entry)
+
+        return {
+            "status": "staged",
+            "script_name": script_name,
+            "stage_path": str(py_path),
+            "script_sha256": script_sha256,
+            "script_sha256_prefix": script_sha256[:8],
+            "session_id": session_id,
+            "session_id_short": (
+                session_id[:12] if len(session_id) > 12 else session_id
             ),
         }
+
+    def promote_staged_script(
+        self,
+        *,
+        project_root: Path,
+        script_name: str,
+        session_id: str,
+        confirm_sha_prefix: str | None = None,
+        confirm_stale: bool = False,
+    ) -> dict[str, Any]:
+        """Sign + promote a staged script to .screw/custom-scripts/.
+
+        THE C1 FIX. Does NOT accept a ``source`` or ``meta`` parameter — both
+        are read from the staging directory on disk. This is the architectural
+        closure of the regeneration vulnerability: the bytes the user reviewed
+        at stage-time are the bytes that get signed. A subagent (even a
+        compromised one) cannot re-ship different source under the same
+        script_name, because promote compares the staged bytes' sha256 against
+        the registry-recorded sha256 and refuses mismatches.
+
+        Flow (design spec §3.2):
+          1. Resolve staging paths; missing → ``staging_not_found``.
+          2. Read .py + .meta.yaml bytes from staging.
+          3. Compute ``actual_sha256`` from staged source bytes.
+          4. Registry lookup; most-recent ``(script_name, session_id)`` entry.
+          4b. Staleness check (``stale_staging_hours`` default 24;
+              ``confirm_stale=True`` bypasses, emits ``promoted_confirm_stale``
+              audit event). I3 hardening: malformed/missing ``staged_at`` is
+              an explicit ``invalid_registry_entry`` error (no silent bypass).
+          5. Primary path: sha match → proceed; mismatch → ``tamper_detected``
+             (preserves staging bytes + writes ``.TAMPERED`` marker + appends
+             ``tamper_detected`` audit event).
+          6. Fallback path: registry missing / no matching entry →
+             requires caller to re-supply ``confirm_sha_prefix``. On match,
+             audit event is ``promoted_via_fallback``.
+          7. Delegate to ``_sign_script_bytes`` (shared signing helper, T2
+             consolidation). I2 hardening: when the helper returns a
+             status-error dict without an ``error`` key, inject
+             ``error="sign_failed"`` so callers pattern-matching on
+             ``response["error"]`` do not KeyError.
+          8. Delete staging files (idempotent).
+          9. Append ``promoted`` / ``promoted_via_fallback`` /
+             ``promoted_confirm_stale`` audit event.
+
+        Args:
+            project_root: Project root with ``.screw/`` directory.
+            script_name: Filesystem-safe name (regex
+                ``^[a-z0-9][a-z0-9-]{2,62}$``). Validated via the shared
+                ``adaptive.script_name.validate_script_name`` by
+                ``resolve_staging_dir`` → ``read_staged_files`` →
+                ``_sign_script_bytes`` (defense in depth).
+            session_id: Scan session id the script was staged under.
+                Validated by ``resolve_staging_dir`` against the
+                ``\\A[A-Za-z0-9_-]{1,64}\\Z`` allowlist.
+            confirm_sha_prefix: Short sha256 prefix (first 8 hex chars)
+                re-supplied by the caller when the registry lookup failed
+                and a filesystem fallback walk is used. ``None`` for the
+                normal registry-hit path.
+            confirm_stale: When ``True``, allows promotion even if the
+                staging entry is older than ``stale_staging_hours`` (default
+                24). Caller must re-type an explicit
+                ``approve {name} confirm-stale`` phrase.
+
+        Returns:
+            On ``"signed"``: ``status``, ``script_name``, ``script_path``,
+            ``meta_path``, ``signed_by``, ``sha256``, ``session_id``,
+            ``promoted_via_fallback``.
+            On error: ``status="error"`` plus ``error`` + ``message``; error
+            taxonomy: ``staging_not_found``, ``stale_staging``,
+            ``invalid_registry_entry``, ``tamper_detected``,
+            ``invalid_lifecycle_state``, ``fallback_required``,
+            ``fallback_sha_mismatch``, ``invalid_staged_meta``,
+            ``sign_failed``, ``invalid_session_id``.
+
+        Raises:
+            ValueError: Wrapping filesystem errors per T13-C1 discipline
+                (propagates from ``read_staged_files``,
+                ``append_registry_entry``, ``delete_staged_files``).
+
+        Spec §3.2.
+        """
+        import yaml
+        from datetime import datetime, timedelta, timezone
+
+        from screw_agents.adaptive.signing import (
+            _sign_script_bytes,
+            compute_script_sha256,
+        )
+        from screw_agents.adaptive.staging import (
+            _utc_now_iso,
+            append_registry_entry,
+            delete_staged_files,
+            fallback_walk_for_script,
+            query_registry_most_recent,
+            read_staged_files,
+            resolve_staging_dir,
+        )
+
+        # Step 1: resolve + verify staging exists. session_id validation is
+        # enforced by resolve_staging_dir (allowlist regex, I-opus-1 fix).
+        # Catch the ValueError and surface the error-dict contract callers
+        # depend on — do NOT re-implement a denylist here.
+        try:
+            stage_dir = resolve_staging_dir(project_root, session_id)
+        except ValueError as exc:
+            return {
+                "status": "error",
+                "error": "invalid_session_id",
+                "message": str(exc),
+            }
+
+        py_path = stage_dir / f"{script_name}.py"
+        meta_path = stage_dir / f"{script_name}.meta.yaml"
+        if not (py_path.exists() and meta_path.exists()):
+            return {
+                "status": "error",
+                "error": "staging_not_found",
+                "message": (
+                    f"No staged script named {script_name!r} in "
+                    f"session {session_id!r}"
+                ),
+            }
+
+        # Step 2 + 3: read staged bytes + compute sha.
+        try:
+            source, meta_yaml = read_staged_files(
+                project_root=project_root,
+                script_name=script_name,
+                session_id=session_id,
+            )
+        except FileNotFoundError:
+            # Race between exists-check and read; rare but possible.
+            return {
+                "status": "error",
+                "error": "staging_not_found",
+                "message": (
+                    f"Staged files vanished between check and read "
+                    f"for {script_name!r}"
+                ),
+            }
+        actual_sha256 = compute_script_sha256(source)
+
+        # Step 4: registry lookup (most-recent matching entry).
+        registry_entry = query_registry_most_recent(
+            project_root, script_name=script_name, session_id=session_id
+        )
+
+        # Step 4b: staleness check when we have a staged_at timestamp.
+        stale_threshold_hours = _read_stale_staging_hours(project_root)
+        if registry_entry and registry_entry.get("event") == "staged":
+            staged_at_str = registry_entry.get("staged_at")
+            if staged_at_str is None:
+                # I3 hardening: registry entry missing staged_at is a schema
+                # violation (validate_pending_approval should have caught
+                # this on write; if we see it at read time, the registry
+                # has been tampered or a legacy entry predates the
+                # validator). Force ops to investigate rather than
+                # silently bypass the staleness check.
+                return {
+                    "status": "error",
+                    "error": "invalid_registry_entry",
+                    "message": (
+                        f"Registry entry for {script_name!r}/"
+                        f"{session_id!r} is missing the 'staged_at' field "
+                        f"required for staleness check. Registry may be "
+                        f"corrupted or written by an older schema version. "
+                        f"Inspect `.screw/local/pending-approvals.jsonl` "
+                        f"and run `sweep_stale_staging` to recover orphans."
+                    ),
+                }
+            try:
+                staged_at = datetime.strptime(
+                    staged_at_str, "%Y-%m-%dT%H:%M:%SZ"
+                ).replace(tzinfo=timezone.utc)
+            except ValueError as exc:
+                # I3 hardening: malformed staged_at must NOT silently bypass
+                # the staleness check. Fail loudly so ops can investigate.
+                return {
+                    "status": "error",
+                    "error": "invalid_registry_entry",
+                    "message": (
+                        f"Registry entry for {script_name!r}/"
+                        f"{session_id!r} has malformed staged_at "
+                        f"({staged_at_str!r}; expected ISO8601 with Z "
+                        f"suffix). Parse error: {exc}. "
+                        f"Inspect `.screw/local/pending-approvals.jsonl`."
+                    ),
+                }
+            age = datetime.now(timezone.utc) - staged_at
+            if (
+                age > timedelta(hours=stale_threshold_hours)
+                and not confirm_stale
+            ):
+                return {
+                    "status": "error",
+                    "error": "stale_staging",
+                    "message": (
+                        f"Staged {script_name!r} is "
+                        f"{age.total_seconds() / 3600:.1f}h old "
+                        f"(staged_at: {staged_at_str}); "
+                        f"threshold is {stale_threshold_hours}h. "
+                        f"Re-type `approve {script_name} confirm-stale` "
+                        f"to proceed anyway."
+                    ),
+                    "hours_old": round(age.total_seconds() / 3600, 1),
+                    "threshold_hours": stale_threshold_hours,
+                }
+
+        # Step 4b-5: lifecycle + primary/tamper.
+        audit_event = "promoted"
+        if registry_entry:
+            last_event = registry_entry.get("event")
+            if last_event != "staged":
+                return {
+                    "status": "error",
+                    "error": "invalid_lifecycle_state",
+                    "message": (
+                        f"Most-recent registry event for {script_name!r} "
+                        f"in {session_id!r} is {last_event!r}; expected "
+                        f"'staged'. Staging should not exist."
+                    ),
+                    "last_event": last_event,
+                }
+            registry_sha = registry_entry.get("script_sha256")
+            if registry_sha is None:
+                # I-opus-1 hardening: symmetric to I3's staged_at check. A `staged`
+                # entry missing `script_sha256` is a schema violation (T3's
+                # validate_pending_approval should catch this on write). If we see
+                # it at read time, the registry has been tampered or a legacy entry
+                # predates the validator. Force ops to investigate rather than
+                # crash on registry_sha[:8] later.
+                return {
+                    "status": "error",
+                    "error": "invalid_registry_entry",
+                    "message": (
+                        f"Registry entry for {script_name!r}/{session_id!r} is "
+                        f"missing the 'script_sha256' field required for tamper "
+                        f"detection. Registry may be corrupted or written by an "
+                        f"older schema version. Inspect "
+                        f"`.screw/local/pending-approvals.jsonl`."
+                    ),
+                }
+            if actual_sha256 != registry_sha:
+                # TAMPER DETECTED. Preserve the staging bytes for forensic
+                # inspection + write a .TAMPERED marker + append a
+                # tamper_detected audit event.
+                marker = stage_dir / f"{script_name}.TAMPERED"
+                try:
+                    marker.touch()
+                except OSError:
+                    pass  # best-effort marker; do not fail the tamper path
+                tamper_entry = {
+                    "event": "tamper_detected",
+                    "script_name": script_name,
+                    "session_id": session_id,
+                    "expected_sha256": registry_sha,
+                    "actual_sha256": actual_sha256,
+                    "evidence_path": str(py_path),
+                    "tampered_at": _utc_now_iso(),
+                    "schema_version": 1,
+                }
+                append_registry_entry(project_root, tamper_entry)
+                return {
+                    "status": "error",
+                    "error": "tamper_detected",
+                    "message": (
+                        f"Staged content sha256 does not match staging "
+                        f"registry. Expected {registry_sha[:8]}; got "
+                        f"{actual_sha256[:8]}. Approval REJECTED for "
+                        f"safety. Tampered bytes preserved at {py_path} "
+                        f"for forensic inspection. Re-run scan."
+                    ),
+                    "expected_sha256_prefix": registry_sha[:8],
+                    "actual_sha256_prefix": actual_sha256[:8],
+                    "evidence_path": str(py_path),
+                }
+        else:
+            # Step 6: fallback path (registry missing / no matching entry).
+            if confirm_sha_prefix is None:
+                matches = fallback_walk_for_script(
+                    project_root, script_name=script_name
+                )
+                if not matches:
+                    return {
+                        "status": "error",
+                        "error": "staging_not_found",
+                        "message": (
+                            f"No staged script named {script_name!r} "
+                            f"anywhere"
+                        ),
+                    }
+                # We already know py_path exists (verified in Step 1); use
+                # its sha as the recovery prefix for the caller to echo back.
+                return {
+                    "status": "error",
+                    "error": "fallback_required",
+                    "message": (
+                        f"Registry lookup failed. Staging file found "
+                        f"with sha256 prefix {actual_sha256[:8]}. "
+                        f"Re-type `approve {script_name} "
+                        f"confirm-{actual_sha256[:8]}` to proceed."
+                    ),
+                    "recovered_sha256_prefix": actual_sha256[:8],
+                }
+            if confirm_sha_prefix != actual_sha256[:8]:
+                return {
+                    "status": "error",
+                    "error": "fallback_sha_mismatch",
+                    "message": (
+                        f"Confirm phrase sha prefix does not match the "
+                        f"recovered staging file. Re-run scan."
+                    ),
+                    "expected_in_phrase": actual_sha256[:8],
+                    "got_in_phrase": confirm_sha_prefix,
+                }
+            audit_event = "promoted_via_fallback"
+
+        # Confirm-stale variant of audit event (I5 audit-event taxonomy).
+        # Only upgrades the default "promoted" event; fallback path retains
+        # its own event name.
+        if confirm_stale and audit_event == "promoted":
+            audit_event = "promoted_confirm_stale"
+
+        # Step 7: parse staged meta + delegate to shared signing helper.
+        try:
+            meta_dict = yaml.safe_load(meta_yaml)
+        except yaml.YAMLError as exc:
+            return {
+                "status": "error",
+                "error": "invalid_staged_meta",
+                "message": f"staged meta YAML is malformed: {exc}",
+            }
+
+        sign_result = _sign_script_bytes(
+            project_root=project_root,
+            script_name=script_name,
+            source=source,
+            meta_dict=meta_dict,
+            session_id=session_id,
+        )
+        if sign_result.get("status") != "signed":
+            # I2 taxonomy-normalization: _sign_script_bytes returns
+            # {"status": "error", "message": "..."} without an "error" key
+            # (collision, no_matching_reviewer, meta_schema_fail, etc.).
+            # Inject a stable error-key so callers pattern-matching on
+            # response["error"] don't KeyError. Preserve the original dict
+            # in "detail" for operators.
+            return {
+                "status": "error",
+                "error": "sign_failed",
+                "message": sign_result.get(
+                    "message", "Signing failed with no message"
+                ),
+                "detail": sign_result,
+            }
+
+        # Step 8: delete staging (idempotent). If this fails, the sign
+        # already succeeded — the promote is still successful; the staging
+        # orphan will be collected by sweep_stale_staging on the next run.
+        try:
+            delete_staged_files(
+                project_root=project_root,
+                script_name=script_name,
+                session_id=session_id,
+            )
+        except ValueError:
+            # Intentional swallow: promote succeeded, staging cleanup
+            # failed, sweep will pick up the orphan by age.
+            pass
+
+        # Step 9: append promoted audit event.
+        promoted_entry = {
+            "event": audit_event,
+            "script_name": script_name,
+            "session_id": session_id,
+            "script_sha256": sign_result["sha256"],
+            "signed_by": sign_result["signed_by"],
+            "promoted_at": _utc_now_iso(),
+            "schema_version": 1,
+        }
+        append_registry_entry(project_root, promoted_entry)
+
+        return {
+            "status": "signed",
+            "script_name": script_name,
+            "script_path": sign_result["script_path"],
+            "meta_path": sign_result["meta_path"],
+            "signed_by": sign_result["signed_by"],
+            "sha256": sign_result["sha256"],
+            "session_id": session_id,
+            "promoted_via_fallback": audit_event == "promoted_via_fallback",
+        }
+
+    def reject_staged_script(
+        self,
+        *,
+        project_root: Path,
+        script_name: str,
+        session_id: str,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        """Delete staging files and record a rejection audit event.
+
+        Idempotent: a second reject on already-deleted staging returns
+        ``status=already_rejected`` (success). Also updates the existing T18b
+        decline-tracking file ``.screw/local/adaptive_prompts.json`` to mark
+        this target as declined so the same target isn't re-proposed on the
+        next scan.
+
+        Flow (design spec §3.3):
+          1. Validate ``script_name`` via the shared validator; ValueError →
+             ``invalid_script_name`` error-dict (I1 defense-in-depth, symmetric
+             to T3/T4).
+          2. Resolve staging dir; ValueError (invalid ``session_id``) →
+             ``invalid_session_id`` error-dict.
+          3. If staging .py does not exist → ``already_rejected`` (idempotent
+             success — a second reject after first reject, or reject before
+             any stage, is not an error).
+          4. Delete staged files + append ``rejected`` audit event to the
+             pending-approvals registry.
+          5. Best-effort update of ``.screw/local/adaptive_prompts.json``
+             (T18b decline tracking) — swallow filesystem errors so a flaky
+             prompts file never breaks the reject flow's correctness.
+
+        Args:
+            project_root: Project root with ``.screw/`` directory.
+            script_name: Filesystem-safe name (regex
+                ``^[a-z0-9][a-z0-9-]{2,62}$``). Validated via the shared
+                ``adaptive.script_name.validate_script_name``.
+            session_id: Scan session id the script was staged under.
+                Validated by ``resolve_staging_dir`` against the
+                ``\\A[A-Za-z0-9_-]{1,64}\\Z`` allowlist.
+            reason: Optional short rationale recorded in the audit event.
+
+        Returns:
+            On success: ``status="rejected"`` with ``script_name``,
+            ``session_id``, ``reason``.
+            On idempotent re-reject: ``status="already_rejected"`` with same
+            fields.
+            On error: ``status="error"`` plus ``error`` (``invalid_script_name``
+            or ``invalid_session_id``) + ``message``.
+
+        Spec §3.3.
+        """
+        import json
+
+        from screw_agents.adaptive.script_name import validate_script_name
+        from screw_agents.adaptive.staging import (
+            _utc_now_iso,
+            append_registry_entry,
+            delete_staged_files,
+            resolve_staging_dir,
+        )
+
+        # I1 defense-in-depth: symmetric script_name validation (T3/T4 pattern).
+        # Catch ValueError + convert to error-dict so callers pattern-matching
+        # on response["error"] don't see a leaked ValueError.
+        try:
+            validate_script_name(script_name)
+        except ValueError as exc:
+            return {
+                "status": "error",
+                "error": "invalid_script_name",
+                "message": str(exc),
+            }
+
+        # I1 defense-in-depth: resolve_staging_dir raises ValueError on invalid
+        # session_id (T1-part-4 allowlist). Catch + convert to error-dict for
+        # consistency with T3/T4's engine-layer contract — no ValueError leak.
+        try:
+            stage_dir = resolve_staging_dir(project_root, session_id)
+        except ValueError as exc:
+            return {
+                "status": "error",
+                "error": "invalid_session_id",
+                "message": str(exc),
+            }
+
+        py_path = stage_dir / f"{script_name}.py"
+        if not py_path.exists():
+            return {
+                "status": "already_rejected",
+                "script_name": script_name,
+                "session_id": session_id,
+                "reason": reason or "",
+            }
+
+        try:
+            delete_staged_files(
+                project_root=project_root,
+                script_name=script_name,
+                session_id=session_id,
+            )
+        except ValueError as exc:
+            # Reject semantics require delete to succeed. If it fails (EBUSY,
+            # permission, etc.), return error-dict; do NOT append audit event
+            # or update decline-tracking for a half-deleted state.
+            return {
+                "status": "error",
+                "error": "delete_failed",
+                "message": str(exc),
+                "script_name": script_name,
+                "session_id": session_id,
+            }
+
+        reject_entry = {
+            "event": "rejected",
+            "script_name": script_name,
+            "session_id": session_id,
+            "reason": reason or "",
+            "rejected_at": _utc_now_iso(),
+            "schema_version": 1,
+        }
+        append_registry_entry(project_root, reject_entry)
+
+        # Update adaptive_prompts.json — existing T18b decline-tracking artifact.
+        # Best-effort: the reject flow's correctness (files deleted + audit
+        # event appended) does NOT depend on this file; a flaky prompts file
+        # must not break the reject.
+        prompts_path = project_root / ".screw" / "local" / "adaptive_prompts.json"
+        # T18b decline-tracking update — best-effort per docstring. Must self-heal
+        # corrupted files (JSONDecodeError, shape drift) so flaky prompts state
+        # never breaks reject correctness.
+        try:
+            if prompts_path.exists():
+                try:
+                    state = json.loads(prompts_path.read_text(encoding="utf-8"))
+                except ValueError:
+                    state = {"declined": []}  # self-heal: invalid JSON
+                if not isinstance(state, dict):
+                    state = {"declined": []}
+            else:
+                state = {"declined": []}
+            declined = state.setdefault("declined", [])
+            if not isinstance(declined, list):
+                declined = []
+                state["declined"] = declined
+            if script_name not in declined:
+                declined.append(script_name)
+            prompts_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = prompts_path.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(state, indent=2), encoding="utf-8")
+            os.replace(tmp, prompts_path)
+        except (PermissionError, OSError, ValueError):
+            pass  # best-effort: file corruption or fs failure does not fail reject
+
+        return {
+            "status": "rejected",
+            "script_name": script_name,
+            "session_id": session_id,
+            "reason": reason or "",
+        }
+
+    def sweep_stale_staging(
+        self,
+        *,
+        project_root: Path,
+        max_age_days: int | None = None,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        """Clean up orphaned staging entries under ``.screw/staging/``.
+
+        User-invoked orphan GC. Absorbs ``T-STAGING-ORPHAN-GC`` from the
+        Phase 4+ backlog — covers both new C1 staging artifacts (T3-T5)
+        and legacy session-scoped finalize-never-called dirs.
+
+        Reads ``staging_max_age_days`` from ``.screw/config.yaml`` when
+        ``max_age_days`` is None (default 14, clamped [1, 365]).
+        ``dry_run=True`` reports what would be removed without touching
+        the filesystem or registry. See design spec §3.4.
+
+        Args:
+            project_root: Project root with ``.screw/`` directory.
+            max_age_days: Override the config threshold (days). None
+                falls back to ``_read_staging_max_age_days``.
+            dry_run: When True, populates the report but makes no
+                filesystem changes and appends no ``swept`` audit
+                events.
+
+        Returns:
+            ``StaleStagingReport`` dict: ``status``, ``max_age_days``,
+            ``dry_run``, ``sessions_scanned``, ``sessions_removed``,
+            ``scripts_removed``, ``tampered_preserved``.
+        """
+        from screw_agents.adaptive.staging import sweep_stale
+
+        if max_age_days is None:
+            max_age_days = _read_staging_max_age_days(project_root)
+        max_age_days = max(1, min(365, int(max_age_days)))
+
+        return sweep_stale(
+            project_root=project_root,
+            max_age_days=max_age_days,
+            dry_run=dry_run,
+        )
 
     def sign_adaptive_script(
         self,
@@ -259,6 +1118,17 @@ class ScanEngine:
         Fresh-script-only — a name collision is an error, NOT an idempotent
         re-sign. Use ``cli.validate_script.run_validate_script`` for the
         re-sign path on an existing quarantined script.
+
+        C1 STATUS NOTE (2026-04-21): This method accepts ``source`` and ``meta``
+        parameters, which is the regeneration vector T18b-C1 identified. The C1
+        architectural closure lives in ``promote_staged_script`` (T4), which reads
+        staged bytes from disk and takes no ``source``/``meta`` arguments. This
+        method is retained for (a) programmatic/autoresearch consumers that
+        generate-and-sign without human review, and (b) the legacy approve path
+        until the subagent prompt migrations land. See DEFERRED_BACKLOG entry
+        BACKLOG-PR6-22 for the retirement-migration plan. Operators and auditors
+        should NOT assume C1 is fully closed at the MCP boundary while this
+        method still exists in the exposed tool set.
 
         Args:
             project_root: Project root with ``.screw/`` directory.
@@ -317,232 +1187,20 @@ class ScanEngine:
         Layer 3 verification would fail on the next executor call. The
         reverse failure mode (source write fails) leaves no partial
         state because the tmp file is deleted before any commit.
+
+        Implementation note (T2): all filesystem + key + signing work is
+        delegated to ``_sign_script_bytes`` (``adaptive/signing.py``).
+        This method is a thin wrapper that forwards all arguments and
+        returns the helper's result unchanged, preserving the public
+        API and return-dict shape.
         """
-        # Name validation — reject anything that could turn into path
-        # traversal, shell metacharacters, or Windows reserved names
-        # when these land on disk.
-        if not _SCRIPT_NAME_RE.match(script_name):
-            return {
-                "status": "error",
-                "message": (
-                    f"Invalid script name {script_name!r}. Must match "
-                    f"regex {_SCRIPT_NAME_RE.pattern!r} "
-                    f"(lowercase alphanumeric + dashes, 3-63 chars, "
-                    f"starts with alphanumeric)."
-                ),
-            }
-
-        script_dir = project_root / ".screw" / "custom-scripts"
-        script_path = script_dir / f"{script_name}.py"
-        meta_path = script_dir / f"{script_name}.meta.yaml"
-
-        # Fresh-script semantics: if EITHER file already exists, refuse.
-        # Idempotent re-sign is the validate-script CLI's job, not this
-        # tool's — bailing cleanly prevents the subagent accidentally
-        # overwriting a user's hand-edited custom script.
-        if script_path.exists() or meta_path.exists():
-            return {
-                "status": "error",
-                "message": (
-                    f"Script {script_name} already exists at "
-                    f"{script_path} or {meta_path}. Refusing to overwrite; "
-                    f"use `screw-agents validate-script {script_name}` to "
-                    f"re-sign an existing script."
-                ),
-            }
-
-        # Ensure the target directory exists — a fresh project may not
-        # have .screw/custom-scripts/ yet.
-        try:
-            script_dir.mkdir(parents=True, exist_ok=True)
-        except PermissionError as exc:
-            raise ValueError(
-                f"Cannot create adaptive script directory at {script_dir}: "
-                f"permission denied. Original error: {exc}"
-            ) from exc
-        except OSError as exc:
-            raise ValueError(
-                f"Cannot create adaptive script directory at {script_dir}: "
-                f"filesystem shape error ({type(exc).__name__}). "
-                f"Original error: {exc}"
-            ) from exc
-
-        # T13 I1 discipline — friendly error wrapping around load_config.
-        # Mirrors validate_script.py:229-247.
-        try:
-            config = load_config(project_root)
-        except PermissionError as exc:
-            raise ValueError(
-                f"Cannot access `.screw/config.yaml` at "
-                f"{project_root / '.screw' / 'config.yaml'}: "
-                f"permission denied. Check directory permissions or run "
-                f"with appropriate user. Original error: {exc}"
-            ) from exc
-        except OSError as exc:
-            raise ValueError(
-                f"Cannot access `.screw/config.yaml` at "
-                f"{project_root / '.screw' / 'config.yaml'}: filesystem "
-                f"shape error ({type(exc).__name__}). The `.screw` path "
-                f"or config.yaml may be the wrong type (file vs. "
-                f"directory). Original error: {exc}"
-            ) from exc
-
-        if not config.script_reviewers:
-            return {
-                "status": "error",
-                "message": (
-                    "No script_reviewers configured in .screw/config.yaml. "
-                    "Run `screw-agents init-trust --name <name> "
-                    "--email <email>` first to register your local "
-                    "signing key."
-                ),
-            }
-
-        # T13 I1 discipline — friendly error wrapping around
-        # _get_or_create_local_private_key.
-        try:
-            priv, _pub_line = _get_or_create_local_private_key(project_root)
-        except PermissionError as exc:
-            raise RuntimeError(
-                f"Cannot create local signing key at "
-                f"{project_root / '.screw' / 'local' / 'keys'}: permission "
-                f"denied. Check directory permissions. Original: {exc}"
-            ) from exc
-        except OSError as exc:
-            raise RuntimeError(
-                f"Failed to create local signing key at "
-                f"{project_root / '.screw' / 'local' / 'keys'}: {exc}. "
-                f"Check disk space and filesystem state."
-            ) from exc
-
-        # Model A fingerprint-based signer identity selection.
-        # Matching against config.script_reviewers[0].email is WRONG on
-        # multi-reviewer projects (the local key may not be [0]).
-        keys_with_reviewers, _dropped = _load_public_keys_with_reviewers(
-            config.script_reviewers
+        return _sign_script_bytes(
+            project_root=project_root,
+            script_name=script_name,
+            source=source,
+            meta_dict=meta,
+            session_id=session_id,
         )
-        local_fingerprint = _fingerprint_public_key(priv.public_key())
-        matching_reviewer = _find_matching_reviewer(
-            local_fingerprint, keys_with_reviewers
-        )
-
-        if matching_reviewer is None:
-            return {
-                "status": "error",
-                "message": (
-                    "Local signing key does not match any registered "
-                    "reviewer in script_reviewers. Run "
-                    "`screw-agents init-trust` to register this machine's "
-                    "key before signing scripts."
-                ),
-            }
-
-        signer_email = matching_reviewer.email
-        current_sha256 = compute_script_sha256(source)
-
-        # Delegate canonicalization + signing to the shared helper so the
-        # approve-path and the validate-script CLI produce byte-identical
-        # canonical input to the executor's Layer 3 verification.
-        try:
-            meta_for_persist = build_signed_script_meta(
-                meta_raw=meta,
-                source=source,
-                current_sha256=current_sha256,
-                signer_email=signer_email,
-                private_key=priv,
-            )
-        except ValueError as exc:
-            return {
-                "status": "error",
-                "message": (
-                    f"Meta dict failed AdaptiveScriptMeta schema: {exc}"
-                ),
-            }
-
-        # Atomic write, ORDER-SENSITIVE: source file first, then meta.
-        # Rationale: if the meta landed first but source failed, the
-        # executor's Layer 2 hash pin would never be checked (no source
-        # file to hash). If the source lands but meta fails, Layer 2
-        # would fail on next executor run — same partial-state bug class.
-        # Writing source first + best-effort rollback on meta failure
-        # ensures either BOTH files are present and consistent, or
-        # NEITHER is (modulo the best-effort rollback itself racing).
-        #
-        # Single-writer assumption: between the two `os.replace` calls
-        # below, a concurrent reader of `.screw/custom-scripts/` sees the
-        # source file without its meta (brief window). Tolerable today
-        # because approve-path is human-gated — only one reviewer typing
-        # `approve <name>` at a time. If Phase 4 autoresearch automates
-        # the approve path, revisit: consider lock-file serialization or
-        # landing both `.tmp` files before either `os.replace`.
-        script_tmp = script_dir / f"{script_name}.py.tmp"
-        meta_tmp = script_dir / f"{script_name}.meta.yaml.tmp"
-        try:
-            script_tmp.write_text(source, encoding="utf-8")
-            os.replace(script_tmp, script_path)
-        except (PermissionError, OSError) as exc:
-            # T13 I1 discipline — narrow `PermissionError` would leak
-            # bare tracebacks for `IsADirectoryError`, `NotADirectoryError`,
-            # `FileExistsError`, ENOSPC, EROFS (read-only mount), quota
-            # exceeded. All are `OSError` subclasses but NOT
-            # `PermissionError` subclasses. Catch the superset and surface
-            # the concrete type in the message so the user knows whether
-            # to chmod, free disk space, or fix a filesystem shape error.
-            if script_tmp.exists():
-                try:
-                    script_tmp.unlink()
-                except OSError:
-                    pass
-            raise ValueError(
-                f"Cannot write script source at {script_path}: "
-                f"{type(exc).__name__}. Check directory permissions and "
-                f"disk space. Original error: {exc}"
-            ) from exc
-
-        try:
-            meta_tmp.write_text(
-                yaml.dump(
-                    meta_for_persist,
-                    default_flow_style=False,
-                    sort_keys=False,
-                ),
-                encoding="utf-8",
-            )
-            os.replace(meta_tmp, meta_path)
-        except (PermissionError, OSError) as exc:
-            # Best-effort rollback: we succeeded writing the script but
-            # failed on the meta. Leaving the orphaned .py creates a
-            # partial-state bug (Layer 2 would fail on next executor
-            # call). Unlink the orphan; if the unlink itself fails,
-            # swallow — the user will see both the script and our
-            # error message and can clean up manually.
-            if meta_tmp.exists():
-                try:
-                    meta_tmp.unlink()
-                except OSError:
-                    pass
-            try:
-                script_path.unlink()
-            except OSError:
-                pass
-            raise ValueError(
-                f"Cannot write script metadata at {meta_path}: "
-                f"{type(exc).__name__}. Script file at {script_path} was "
-                f"rolled back best-effort. Original error: {exc}"
-            ) from exc
-
-        return {
-            "status": "signed",
-            "message": (
-                f"Signed adaptive script {script_name} with {signer_email} "
-                f"(sha256={current_sha256[:12]}...)."
-            ),
-            "script_path": str(script_path),
-            "meta_path": str(meta_path),
-            "signed_by": signer_email,
-            "sha256": current_sha256,
-            "session_id": session_id,
-        }
 
     def lint_adaptive_script(self, *, source: str) -> dict[str, Any]:
         """Run Layer 1 AST allowlist lint on a script source WITHOUT executing it.
@@ -603,6 +1261,179 @@ class ScanEngine:
                 for v in report.violations
             ],
         }
+
+    def list_adaptive_scripts(
+        self,
+        *,
+        project_root: Path,
+    ) -> dict[str, Any]:
+        """List every adaptive script in ``.screw/custom-scripts/`` with
+        metadata AND per-script stale status.
+
+        Promoted from ``cli/adaptive_cleanup.py`` in PR #6 per I6 — the
+        slash-command ``uv run python -c "from screw_agents.cli..."``
+        invocation was breaking when ``cwd != worktree``. Promoting to an
+        MCP tool resolves that: ``.mcp.json`` already carries the correct
+        ``--project`` argument, so the engine-level entry point is
+        cwd-independent.
+
+        Behavior unchanged from T21. The per-script stale detection goes
+        through ``adaptive.executor._check_stale`` (co-located with
+        ``_is_stale`` as of T7 plan-fix #1).
+
+        Args:
+            project_root: Absolute path to the project root.
+
+        Returns:
+            ``{"status": "ok", "scripts": [...]}`` per spec §3.5. Each
+            entry carries the 12 fields: ``name``, ``created``,
+            ``created_by``, ``domain``, ``description``,
+            ``target_patterns``, ``findings_produced``, ``last_used``,
+            ``validated``, ``signed_by``, ``stale``, ``stale_reason``.
+
+            ``scripts`` is empty when ``.screw/custom-scripts/`` does not
+            exist. Entries with missing companion ``.py``, malformed YAML,
+            or non-dict meta are skipped silently (the user can surface
+            those via ``verify_trust``).
+
+            Sort order: alphabetical by ``name`` for deterministic output.
+            None-named entries (malformed-but-parsed YAML) are sorted to
+            the end so ordering stays total.
+        """
+        custom_scripts_dir = project_root / ".screw" / "custom-scripts"
+        if not custom_scripts_dir.exists():
+            return {"status": "ok", "scripts": []}
+
+        scripts: list[dict[str, Any]] = []
+        for meta_file in sorted(custom_scripts_dir.glob("*.meta.yaml")):
+            # meta_file has two suffixes (".meta.yaml"); stripping both
+            # yields the bare script name. Explicit string handling avoids
+            # path-suffix ambiguity across Python versions.
+            stem = meta_file.name[: -len(".meta.yaml")]
+            source_file = custom_scripts_dir / f"{stem}.py"
+            if not source_file.exists():
+                continue
+            entry = self._inspect_adaptive_script(
+                project_root, source_file, meta_file
+            )
+            if entry is None:
+                continue
+            scripts.append(entry)
+
+        scripts.sort(key=lambda s: (s["name"] is None, s["name"] or ""))
+        return {"status": "ok", "scripts": scripts}
+
+    def _inspect_adaptive_script(
+        self,
+        project_root: Path,
+        source_file: Path,
+        meta_file: Path,
+    ) -> dict[str, Any] | None:
+        """Build one per-script entry for ``list_adaptive_scripts``.
+
+        Returns ``None`` for orphans that should be skipped (malformed YAML,
+        non-dict meta). Verbatim lift from the former CLI helper — every
+        one of the 12 fields survives unchanged.
+        """
+        from screw_agents.adaptive.executor import _check_stale
+
+        try:
+            meta = yaml.safe_load(meta_file.read_text(encoding="utf-8"))
+        except (yaml.YAMLError, OSError):
+            return None
+        if not isinstance(meta, dict):
+            return None
+
+        target_patterns = meta.get("target_patterns", []) or []
+        stale, stale_reason = _check_stale(project_root, target_patterns)
+
+        return {
+            "name": meta.get("name"),
+            "created": meta.get("created"),
+            "created_by": meta.get("created_by"),
+            "domain": meta.get("domain"),
+            "description": meta.get("description", ""),
+            "target_patterns": target_patterns,
+            "findings_produced": meta.get("findings_produced", 0),
+            "last_used": meta.get("last_used"),
+            "validated": meta.get("validated", False),
+            "signed_by": meta.get("signed_by"),
+            "stale": stale,
+            "stale_reason": stale_reason,
+        }
+
+    def remove_adaptive_script(
+        self,
+        *,
+        project_root: Path,
+        script_name: str,
+        confirmed: bool = False,
+    ) -> dict[str, Any]:
+        """Delete an adaptive script pair from ``.screw/custom-scripts/``.
+
+        T21 confirmation gate preserved: ``confirmed=False`` returns
+        ``{"status":"error","error":"confirmation_required"}``. Caller is
+        expected to prompt the user for "yes" before passing
+        ``confirmed=True``.
+
+        Promoted from ``cli/adaptive_cleanup.py`` in PR #6 per I6 — the
+        former slash-command invocation broke when ``cwd != worktree``.
+        See design spec §3.6.
+
+        Args:
+            project_root: Absolute path to the project root.
+            script_name: Filesystem-safe name of the script to delete
+                (without the ``.py`` / ``.meta.yaml`` suffix).
+            confirmed: Must be ``True`` to actually delete. ``False`` (or
+                omitted) returns the confirmation-required error-dict
+                without touching the filesystem.
+
+        Returns:
+            On success: ``{"status": "removed", "script_name": <name>}``.
+            On the confirmation gate: ``{"status": "error",
+            "error": "confirmation_required", "message": ...}``.
+            When neither companion file exists: ``{"status": "error",
+            "error": "not_found", "message": ...}``.
+            On filesystem failure mid-delete: ``{"status": "error",
+            "error": "delete_failed", "message": <OS error>,
+            "script_name": <name>}``.
+        """
+        if not confirmed:
+            return {
+                "status": "error",
+                "error": "confirmation_required",
+                "message": "remove_adaptive_script requires confirmed=True",
+            }
+
+        custom_scripts_dir = project_root / ".screw" / "custom-scripts"
+        py_path = custom_scripts_dir / f"{script_name}.py"
+        meta_path = custom_scripts_dir / f"{script_name}.meta.yaml"
+
+        # Plan-fix #2: check BOTH — either-present means there is still state
+        # to clean up. Only both-absent is a genuine not_found. This restores
+        # T21's orphan-meta cleanup for the crash-between-unlinks scenario.
+        if not py_path.exists() and not meta_path.exists():
+            return {
+                "status": "error",
+                "error": "not_found",
+                "message": f"{script_name} not found in custom-scripts/",
+            }
+
+        try:
+            py_path.unlink(missing_ok=True)
+            meta_path.unlink(missing_ok=True)
+        except (PermissionError, OSError) as exc:
+            # Plan-fix #1: error-dict per T5 delete_failed precedent
+            # (engine.py:977-983). NOT a raise — callers pattern-match on
+            # response["status"].
+            return {
+                "status": "error",
+                "error": "delete_failed",
+                "message": str(exc),
+                "script_name": script_name,
+            }
+
+        return {"status": "removed", "script_name": script_name}
 
     def aggregate_learning(
         self,
@@ -1883,6 +2714,343 @@ class ScanEngine:
                     "source",
                     "meta",
                     "session_id",
+                ],
+            },
+        })
+
+        # Phase 3b T3: stage_adaptive_script — C1 staging-path MCP tool.
+        # Writes an UNSIGNED script to session-scoped staging so the
+        # user reviews what is staged and promote_staged_script signs
+        # what is staged (sha256-verified). Closes the C1 regeneration
+        # vulnerability where approve-path LLM re-sent the source.
+        tools.append({
+            "name": "stage_adaptive_script",
+            "description": (
+                "Atomically write an unsigned adaptive analysis script to "
+                "session-scoped staging (`.screw/staging/{session_id}/"
+                "adaptive-scripts/`). Called by the generating subagent BEFORE "
+                "composing the human review. The staged bytes persist on disk "
+                "and become the source of truth for the subsequent "
+                "promote_staged_script call — the user reviews what is staged, "
+                "and promote signs what is staged, with sha256 verification "
+                "preventing tamper (C1 trust invariant). Appends a `staged` "
+                "event to .screw/local/pending-approvals.jsonl for audit. "
+                "Idempotent on byte-identical re-stage; returns status=\"error\" "
+                "with error=\"stage_name_collision\" on same name + different "
+                "content. See design spec §3.1."
+            ),
+            "input_schema": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "project_root": {
+                        "type": "string",
+                        "description": "Absolute path to the project root.",
+                    },
+                    "script_name": {
+                        "type": "string",
+                        "description": (
+                            "Filesystem-safe name (regex "
+                            "`^[a-z0-9][a-z0-9-]{2,62}$`). Validated by the "
+                            "shared `adaptive.script_name.validate_script_name` "
+                            "(T2 consolidation) before any filesystem op."
+                        ),
+                    },
+                    "source": {
+                        "type": "string",
+                        "description": (
+                            "Python source code for the adaptive script. "
+                            "Caller should have run `lint_adaptive_script` "
+                            "BEFORE staging (pre-review), though staging itself "
+                            "does not enforce this."
+                        ),
+                    },
+                    "meta": {
+                        "type": "object",
+                        "description": (
+                            "Partial meta dict that will eventually conform to "
+                            "AdaptiveScriptMeta (minus signing fields). Must "
+                            "include name, created, created_by, domain; may "
+                            "include description, target_patterns."
+                        ),
+                    },
+                    "session_id": {
+                        "type": "string",
+                        "description": (
+                            "Scan session id. Validated against "
+                            "`^[A-Za-z0-9_-]{1,64}$` (T1 part 4 allowlist, "
+                            "I-opus-1/2 fix). Scopes the staging directory — "
+                            "different session_ids get different dirs."
+                        ),
+                    },
+                    "target_gap": {
+                        "type": "object",
+                        "description": (
+                            "Optional coverage-gap metadata recorded in the "
+                            "registry entry. Shape: "
+                            "{type, file, line, agent}. Null for non-gap stages."
+                        ),
+                    },
+                },
+                "required": [
+                    "project_root",
+                    "script_name",
+                    "source",
+                    "meta",
+                    "session_id",
+                ],
+            },
+        })
+
+        # Phase 3b T4: promote_staged_script — THE C1 FIX. Sign + promote a
+        # staged adaptive script, reading source + meta from the staging
+        # directory on disk (no source/meta parameter, by construction).
+        # The trust invariant: bytes_reviewed == bytes_signed == bytes_executed.
+        tools.append({
+            "name": "promote_staged_script",
+            "description": (
+                "Sign and promote a staged adaptive script — THE C1 FIX. Reads "
+                "source and meta from the session-scoped staging directory on "
+                "disk (no source/meta parameter, by construction), verifies the "
+                "staging bytes match the registry-recorded sha256 (tamper-detect), "
+                "then delegates to the shared _sign_script_bytes helper and "
+                "appends a promoted/promoted_via_fallback/promoted_confirm_stale "
+                "audit event. Promoted artifacts land in `.screw/custom-scripts/`. "
+                "Returns status=\"error\" with error=\"tamper_detected\" on sha "
+                "mismatch (preserves bytes for forensics), error=\"stale_staging\" "
+                "when staged_at age exceeds the configured threshold unless "
+                "confirm_stale=true, and error=\"fallback_required\" when the "
+                "registry entry is missing (caller re-invokes with "
+                "confirm_sha_prefix). See design spec §3.2."
+            ),
+            "input_schema": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "project_root": {
+                        "type": "string",
+                        "description": "Absolute path to the project root.",
+                    },
+                    "script_name": {
+                        "type": "string",
+                        "description": (
+                            "Filesystem-safe name (regex "
+                            "`^[a-z0-9][a-z0-9-]{2,62}$`) of the staged "
+                            "script to promote."
+                        ),
+                    },
+                    "session_id": {
+                        "type": "string",
+                        "description": (
+                            "Scan session id the script was staged under "
+                            "(allowlist `^[A-Za-z0-9_-]{1,64}$`)."
+                        ),
+                    },
+                    "confirm_sha_prefix": {
+                        "type": ["string", "null"],
+                        "description": (
+                            "Short sha256 prefix (first 8 hex chars) "
+                            "re-supplied by the caller when the registry "
+                            "lookup failed and a filesystem fallback walk "
+                            "is used (Q3 fallback path). Null for the "
+                            "normal registry-hit path."
+                        ),
+                    },
+                    "confirm_stale": {
+                        "type": "boolean",
+                        "description": (
+                            "When true, allows promotion even if the "
+                            "staging entry is older than "
+                            "`stale_staging_hours` (default 24). Caller "
+                            "must re-type an explicit "
+                            "`approve {name} confirm-stale` phrase."
+                        ),
+                    },
+                },
+                "required": [
+                    "project_root",
+                    "script_name",
+                    "session_id",
+                ],
+            },
+        })
+
+        # Phase 3b T5: reject_staged_script — C1 staging-path decline tool.
+        # Symmetric to promote_staged_script on the reject branch: deletes
+        # staging files, appends a `rejected` audit event, and updates the
+        # T18b decline tracking (.screw/local/adaptive_prompts.json) so the
+        # same target is not re-proposed on the next scan. Idempotent:
+        # re-rejecting after files are gone returns already_rejected.
+        tools.append({
+            "name": "reject_staged_script",
+            "description": (
+                "Delete the staging files for a rejected adaptive script and "
+                "record a `rejected` audit event in the pending-approvals "
+                "registry. Idempotent: a second reject on already-deleted "
+                "staging returns status=\"already_rejected\" (success). Also "
+                "updates `.screw/local/adaptive_prompts.json` — the existing "
+                "T18b decline-tracking artifact — to add the target to the "
+                "`declined` list so it is not re-proposed. See design spec §3.3."
+            ),
+            "input_schema": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "project_root": {
+                        "type": "string",
+                        "description": "Absolute path to the project root.",
+                    },
+                    "script_name": {
+                        "type": "string",
+                        "description": (
+                            "Filesystem-safe name of the staged script to reject."
+                        ),
+                    },
+                    "session_id": {
+                        "type": "string",
+                        "description": (
+                            "Scan session id the script was staged under."
+                        ),
+                    },
+                    "reason": {
+                        "type": ["string", "null"],
+                        "description": (
+                            "Optional short rationale recorded in the audit "
+                            "event (why the reviewer declined this script)."
+                        ),
+                    },
+                },
+                "required": [
+                    "project_root",
+                    "script_name",
+                    "session_id",
+                ],
+            },
+        })
+
+        # Phase 3b T6: sweep_stale_staging — orphan GC for .screw/staging/.
+        # Absorbs T-STAGING-ORPHAN-GC from the Phase 4+ backlog; covers both
+        # new C1 staging artifacts (T3-T5) and legacy session-scoped
+        # finalize-never-called dirs. See design spec §3.4.
+        tools.append({
+            "name": "sweep_stale_staging",
+            "description": (
+                "Clean up orphaned staging entries — session directories under "
+                "`.screw/staging/` that are stale (older than max_age_days) or "
+                "whose most-recent registry event is a terminal state "
+                "(promoted / rejected / swept) but whose files were left behind. "
+                "Absorbs the deferred T-STAGING-ORPHAN-GC backlog item: covers "
+                "both the new C1 staging artifacts and legacy session-scoped "
+                "finalize-never-called staging dirs. When dry_run=true, reports "
+                "what would be removed without deleting anything. See design "
+                "spec §3.4."
+            ),
+            "input_schema": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "project_root": {
+                        "type": "string",
+                        "description": "Absolute path to the project root.",
+                    },
+                    "max_age_days": {
+                        "type": ["integer", "null"],
+                        "description": (
+                            "Maximum age (in days) before a staging entry is "
+                            "considered stale. Null means read from config "
+                            "(`staging_max_age_days`, default 14). Clamped to "
+                            "[1, 365]."
+                        ),
+                    },
+                    "dry_run": {
+                        "type": "boolean",
+                        "description": (
+                            "When true, returns the list of entries that would "
+                            "be removed without actually deleting files. Useful "
+                            "for preview / CI assertions."
+                        ),
+                    },
+                },
+                "required": [
+                    "project_root",
+                ],
+            },
+        })
+
+        # Phase 3b T7: list_adaptive_scripts — I6 MCP promotion of the
+        # former cli/adaptive_cleanup entry point. Slash command was breaking
+        # on cwd mismatch; the MCP tool resolves that because .mcp.json
+        # already carries the correct --project argument.
+        tools.append({
+            "name": "list_adaptive_scripts",
+            "description": (
+                "List all adaptive scripts present at `.screw/custom-scripts/` "
+                "with their validation status and per-script staleness "
+                "information. Promoted from `cli/adaptive_cleanup.py` in PR #6 "
+                "per I6 — slash-command invocation was breaking on `cwd` "
+                "mismatch. Returns `{\"status\": \"ok\", \"scripts\": [{name, "
+                "validated, signed_by, stale, stale_reason, ...}]}`. Behavior "
+                "unchanged from T21. See design spec §3.5."
+            ),
+            "input_schema": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "project_root": {
+                        "type": "string",
+                        "description": "Absolute path to the project root.",
+                    },
+                },
+                "required": [
+                    "project_root",
+                ],
+            },
+        })
+
+        # Phase 3b T8: remove_adaptive_script — I6 MCP promotion (part 2)
+        # of the former cli/adaptive_cleanup entry point. Confirmation-gated
+        # (T21 semantics preserved): the caller must pass confirmed=true
+        # after prompting the user for "yes" before any files are deleted.
+        tools.append({
+            "name": "remove_adaptive_script",
+            "description": (
+                "Delete an adaptive script pair (`{name}.py` + `{name}.meta.yaml`) "
+                "from `.screw/custom-scripts/`, gated by an explicit "
+                "`confirmed=true` flag (T21 confirmation-gate semantics "
+                "preserved). Returns status=\"error\" / "
+                "error=\"confirmation_required\" when confirmed is False or "
+                "omitted, status=\"error\" / error=\"not_found\" when the "
+                "script is missing, otherwise status=\"removed\". Promoted from "
+                "`cli/adaptive_cleanup.py` in PR #6 per I6. See design spec §3.6."
+            ),
+            "input_schema": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "project_root": {
+                        "type": "string",
+                        "description": "Absolute path to the project root.",
+                    },
+                    "script_name": {
+                        "type": "string",
+                        "description": (
+                            "Filesystem-safe name of the adaptive script to "
+                            "remove (without `.py` / `.meta.yaml` suffix)."
+                        ),
+                    },
+                    "confirmed": {
+                        "type": "boolean",
+                        "description": (
+                            "Must be true to actually delete. False (or absent) "
+                            "returns error=\"confirmation_required\" — the "
+                            "caller is expected to prompt the user for \"yes\" "
+                            "before retrying with confirmed=true."
+                        ),
+                    },
+                },
+                "required": [
+                    "project_root",
+                    "script_name",
                 ],
             },
         })

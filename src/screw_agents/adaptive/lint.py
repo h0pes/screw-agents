@@ -40,7 +40,10 @@ Inside `analyze`:
 from __future__ import annotations
 
 import ast
+import importlib.util
 from dataclasses import dataclass, field
+from functools import lru_cache
+from pathlib import Path
 
 
 class LintError(Exception):
@@ -88,6 +91,33 @@ _FORBIDDEN_NAMES = {
 def _is_dunder(name: str) -> bool:
     """Return True if `name` is a dunder (`__x__` pattern, length >= 5)."""
     return len(name) >= 5 and name.startswith("__") and name.endswith("__")
+
+
+@lru_cache(maxsize=1)
+def _load_adaptive_all() -> frozenset[str]:
+    """Return the cached __all__ set from screw_agents.adaptive.
+
+    Uses AST parsing (not runtime import) to stay hermetic — lint must not
+    depend on the adaptive package being fully importable in the linting
+    environment. Only imports the parent `screw_agents` package via
+    `importlib.util.find_spec`; the adaptive package's own module body is
+    never executed.
+    """
+    spec = importlib.util.find_spec("screw_agents.adaptive")
+    if spec is None or spec.origin is None:
+        return frozenset()
+    source = Path(spec.origin).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id == "__all__":
+                    if isinstance(node.value, (ast.List, ast.Tuple)):
+                        return frozenset(
+                            elt.value for elt in node.value.elts
+                            if isinstance(elt, ast.Constant) and isinstance(elt.value, str)
+                        )
+    return frozenset()
 
 
 def lint_script(source: str) -> LintReport:
@@ -193,6 +223,23 @@ def _check_node(node: ast.AST, violations: list[LintViolation]) -> None:
                 message=f"import from {module_repr} not allowed; only {_ALLOWED_IMPORT_MODULES}",
                 line=line,
             ))
+        elif node.module == "screw_agents.adaptive":
+            # Symbol-level validation: each imported name must appear in
+            # screw_agents.adaptive.__all__. Guards against hallucinated
+            # symbols (e.g. `read_source`, `parse_module`) slipping past
+            # Layer 1 because only the module — not its members — was checked.
+            allowed = _load_adaptive_all()
+            for alias in node.names:
+                if alias.name not in allowed:
+                    allowlist_display = ", ".join(sorted(allowed))
+                    violations.append(LintViolation(
+                        rule="unknown_symbol",
+                        message=(
+                            f"'{alias.name}' is not exported from screw_agents.adaptive. "
+                            f"Valid names: {allowlist_display}"
+                        ),
+                        line=line,
+                    ))
     if isinstance(node, ast.Import):
         violations.append(LintViolation(
             rule="disallowed_import",
