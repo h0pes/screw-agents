@@ -5908,9 +5908,11 @@ def test_full_adaptive_workflow_with_staging_composition(tmp_path: Path) -> None
         "analysis": {"description": "YAML detection"},
         "remediation": {"recommendation": "use parameterized queries"},
     }
-    engine.accumulate_findings(
+    acc_response = engine.accumulate_findings(
         project_root=project, findings_chunk=[yaml_finding], session_id=session_id,
     )
+    # T22-precedent session_id threading guard (tests/test_adaptive_workflow.py:197).
+    assert acc_response["session_id"] == session_id
 
     # Step 5: detect_coverage_gaps (IDENTICAL to T22 — including D1+D2 assertions).
     gaps = engine.detect_coverage_gaps(
@@ -6042,11 +6044,13 @@ def test_full_adaptive_workflow_with_staging_composition(tmp_path: Path) -> None
     assert adaptive_finding["agent"] == "adaptive_script:qb-check"
 
     # Step 15: Accumulate adaptive findings (IDENTICAL to T22).
-    engine.accumulate_findings(
+    acc2 = engine.accumulate_findings(
         project_root=project,
         findings_chunk=exec_result["findings"],
         session_id=session_id,
     )
+    # T22-precedent session_id threading guard (tests/test_adaptive_workflow.py:365).
+    assert acc2["session_id"] == session_id
 
     # Step 16: finalize_scan_results with coverage_gaps + T19 Sources line.
     finalize_response = engine.finalize_scan_results(
@@ -6099,6 +6103,22 @@ git commit -m "test(phase3b-c1): E2E integration test for staged workflow — C1
 ```
 
 **Cross-plan sync:** the Step 12 invariant assertion is the LOAD-BEARING TEST FOR C1. If it ever flakes or needs loosening, stop. Investigate why. Do not relax it.
+
+**T21 Opus 4.7 re-review (2026-04-23):** Spec review APPROVED-WITH-FIXES (plan-sync only, no code fix — applied in this closeout). Quality review APPROVED. **0 Critical / 0 Important / 5 Category-A Minors (→ backlog) / 3 Category-B Minors (no action)**. **★ C1 ARCHITECTURAL CLOSURE VERIFIED ★** — both Step 11 sha256 and Step 12 read-and-compare assertions PASSED on the executor sandbox run.
+
+- **Plan-fixes applied pre-dispatch (commit `d499786`)**: PA-T21-1 (engine-returned paths at Steps 9 + 12), PA-T21-2 (session_id assertion at Step 11), PA-T21-3 (sha256 assertion at Step 11 — distinct angle on C1 invariant from Step 12's read-and-compare), PA-T21-4 (T22's D1+D2 precise gap assertions restored at Step 5), PA-T21-6 (test count projection 771+85 → 940+1 = 941), PA-T21-9 (docstring "13 steps" → "18 steps").
+
+- **Implementer additive deviation (permitted, T22-precedent match)**: 2 session_id threading assertions added at Step 4 and Step 15 (T22 `tests/test_adaptive_workflow.py:197` + `:365`). Plan skeleton Steps 4 + 15 SYNCED in this closeout commit to include the assertions so plan + code are coherent at merge time (`feedback_plan_sync_on_deviation`).
+
+- **Quality-review Category-A Minors (5)**: BACKLOG-PR6-73 (T22's `accumulated_count == 1` Step 4 diagnostic), PR6-74 (T22's `acc2["accumulated_count"] >= 2` Step 15 diagnostic), PR6-75 (T22's `match_response["matches_recorded"] == 1` Step 3 diagnostic), PR6-76 (`l` loop variable E741 rename to `line`/`raw` at registry reads), PR6-77 (Step 17 trust_status bare assert lacks failure message — T20 signing-round-trip regression path). All defense-in-depth polish; none regress the C1 invariant.
+
+- **Category-B Minors (3)**: lower inline-comment density than T22 (intentional — T21 is a variant, commentary lives at T22), unused `fixture_file` variable (T22 precedent — write is the side effect), module-docstring brevity (plan-specified form).
+
+Score since T7: **13 tasks 0-Important / 1 task 1-Important (T14) / 1 task 1-Important transient-to-T19 (T18, resolved)**. Pre-audit held the 0-Important target across T21.
+
+T21 commit: `1146e3e` (+266 lines — new file `tests/test_adaptive_workflow_staged.py`). Plan-fix precursor: `d499786`. Test executes in 0.30s on Arch Linux with bwrap (not skipped). Full suite: **940 → 941 passed, 8 skipped** (matches expected delta).
+
+**C1 STATUS: ARCHITECTURALLY CLOSED AT HEAD.** Regeneration-after-approval vulnerability remains closed — signed source bytes at `.screw/custom-scripts/qb-check.py` byte-identical to hand-written staged source. Both signing-layer sha verification (Step 11 via `promote_response["sha256"] == compute_script_sha256(source)`) and filesystem read-and-compare (Step 12 via `signed_py.read_text() == source`) locked in the test permanently.
 
 ---
 

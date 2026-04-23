@@ -1386,3 +1386,38 @@ Purely visual drift, no correctness impact. Cosmetic polish.
 **Why deferred:** The test's docstring says "At PR #6 HEAD `adaptive.__all__` has 18 entries; this test auto-tracks any additions so the prompt stays in sync with the public surface." The test body iterates `__all__` dynamically so it remains correct as the export set grows — but the docstring's hardcoded "18" would drift silently. Two hardening options: (a) remove the count from the docstring (simpler, no belt-and-suspenders), or (b) add `assert len(adaptive_pkg.__all__) == 18` inside the test as a canary — a new export would fail the canary, forcing the maintainer to (1) update the agent prompt to include the new name, (2) update the test's expected count. Option (b) turns a silent docstring drift into a loud test failure. Marco's call on whether the belt-and-suspenders check is worth the minor maintenance friction.
 **Trigger:** Next test-docs polish pass, OR if a new `adaptive/` public function is added (which would drift the docstring silently and the review should catch the opportunity then).
 **Estimated scope:** 1-2 LOC (option (a) removes the count; option (b) adds a 1-line length assertion).
+
+### BACKLOG-PR6-73 — `accumulated_count == 1` diagnostic check dropped at T21 Step 4
+**Source:** Phase 3b PR #6 T21 Opus code-review (Minor A1, Category A), 2026-04-23
+**File:** `tests/test_adaptive_workflow_staged.py::test_full_adaptive_workflow_with_staging_composition` — Step 4 accumulate_findings call (around line 97)
+**Why deferred:** T22's E2E test at `tests/test_adaptive_workflow.py:198` asserts `acc_response["accumulated_count"] == 1` in addition to the session_id echo. T21 only asserts the session_id threading. `accumulated_count` catches a regression where `accumulate_findings` silently no-ops the append even though it returns a valid session id — a subtle diagnostic angle T22 carries but T21 skipped (because the plan skeleton itself omitted the count). Low cost (~1 LOC), distinct angle on accumulator behavior.
+**Trigger:** Next T21 diagnostic-tightening pass, OR if a silent-accumulator regression surfaces in another task.
+**Estimated scope:** 1 LOC (`assert acc_response["accumulated_count"] == 1` after the existing session_id assert at line 97).
+
+### BACKLOG-PR6-74 — `acc2["accumulated_count"] >= 2` diagnostic check dropped at T21 Step 15
+**Source:** Phase 3b PR #6 T21 Opus code-review (Minor A2, Category A), 2026-04-23
+**File:** `tests/test_adaptive_workflow_staged.py::test_full_adaptive_workflow_with_staging_composition` — Step 15 accumulate second call (around line 234)
+**Why deferred:** T22's Step 10 at `tests/test_adaptive_workflow.py:369` asserts `acc2["accumulated_count"] >= 2`, proving BOTH the YAML finding AND the adaptive-script finding landed in the session buffer pre-finalize. T21's Step 15 only asserts session_id threading. If the executor regresses to zero findings but Step 14's `>= 1` bound slips past, Step 16's `summary.total == 1` still passes (1 = YAML alone) — the merge-collapsed-2→1 evidence chain is lost. T22's Review I4 inline comment calls this out.
+**Trigger:** Next T21 diagnostic-tightening pass, OR if a silent-merge regression surfaces.
+**Estimated scope:** 1 LOC (`assert acc2["accumulated_count"] >= 2`).
+
+### BACKLOG-PR6-75 — `match_response["matches_recorded"] == 1` diagnostic check dropped at T21 Step 3
+**Source:** Phase 3b PR #6 T21 Opus code-review (Minor A3, Category A), 2026-04-23
+**File:** `tests/test_adaptive_workflow_staged.py::test_full_adaptive_workflow_with_staging_composition` — Step 3 record_context_required_match call (around line 85)
+**Why deferred:** T22 at `tests/test_adaptive_workflow.py:155` asserts `match_response["matches_recorded"] == 1` — confirms the idempotent-dedup key actually recorded the match rather than returning a valid session id with zero effect. T21 only captures `session_id` from the response. Deferring hides a potential silent no-op regression in `record_context_required_match`. Low cost, high diagnostic value.
+**Trigger:** Next T21 diagnostic-tightening pass, OR if `record_context_required_match` surfaces a no-op bug.
+**Estimated scope:** 1 LOC (`assert match_response["matches_recorded"] == 1` after the existing `session_id = match_response["session_id"]` extraction).
+
+### BACKLOG-PR6-76 — `l` loop variable (E741) in registry list comprehensions at T21 Steps 10 + 13
+**Source:** Phase 3b PR #6 T21 Opus code-review (Minor A4, Category A), 2026-04-23
+**File:** `tests/test_adaptive_workflow_staged.py::test_full_adaptive_workflow_with_staging_composition` — list comprehensions at approximately lines 176 and 211
+**Why deferred:** Both Step 10 and Step 13 use `[json.loads(l) for l in registry.read_text().splitlines() if l.strip()]`. PEP 8 / flake8 E741 flags `l` as ambiguous (visually indistinguishable from `1` or uppercase `I`). T22 does not have this pattern (T22 does not touch the registry directly). Trivial fix: rename to `line` or `raw`. Pure style; no behavior impact.
+**Trigger:** Next test-style polish pass, OR if ruff/flake8 is added to CI with E741 enabled.
+**Estimated scope:** 2-4 LOC (rename `l` → `line` at 2 list-comprehension sites).
+
+### BACKLOG-PR6-77 — Step 17 `trust_status["script_quarantine_count"] == 0` bare assert lacks failure message
+**Source:** Phase 3b PR #6 T21 Opus code-review (Minor A5, Category A), 2026-04-23
+**File:** `tests/test_adaptive_workflow_staged.py::test_full_adaptive_workflow_with_staging_composition` — Step 17 verify_trust assertion (around line 244)
+**Why deferred:** If this assert fails with `script_quarantine_count == 1`, the bare form tells the reader nothing about why. T22's Step 12 at `tests/test_adaptive_workflow.py:466` has a multi-line failure message explaining the T20 signing-round-trip regression pathway (verify_script sees a quarantined script → sign-side canonical bytes drifted from verify-side → check PR #6 T2 consolidation points). T21 exercises the same T20 surface through a different approach path (promote rather than direct sign), so the same diagnostic guidance is relevant. Pure diagnostic polish; catches nothing new but makes breakage-pinpointing faster.
+**Trigger:** Next T21 diagnostic-tightening pass, OR if a trust-count regression surfaces and the bare assert impedes root-cause analysis.
+**Estimated scope:** 4-6 LOC (add a multi-line failure message to the existing assert; copy-adapt from T22:466-472).
