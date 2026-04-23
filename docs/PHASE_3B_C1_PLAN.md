@@ -6586,6 +6586,8 @@ git push -u origin phase-3b-c1-staging
 
 - [ ] **Step 2: Create PR**
 
+**PR body text, rewritten at T25 Step 0 pre-audit 2026-04-23** to reflect authoritative shipped state at branch HEAD `a57e2c2`:
+
 ```bash
 gh pr create --title "Phase 3b PR #6 — C1 Staging Architecture + I1-I6 Polish" \
   --body "$(cat <<'EOF'
@@ -6596,27 +6598,77 @@ The approve path no longer regenerates source after approval: the new
 `promote_staged_script` MCP tool takes NO `source` parameter and reads
 staged bytes from disk, verifying sha256 against the registry before signing.
 
-### What shipped
-- Staging architecture: 4 new MCP tools (stage/promote/reject/sweep)
-- 2 MCP tools promoted from CLI: list + remove
-- Shared `_sign_script_bytes` helper — single canonical-bytes source
-- T18b prompt rewrite across 4 per-agent subagents (byte-identical section)
-- Bundled polish: I1 (plugin namespace), I2 (lint __all__), I3 (stderr),
-  I4 (retention), I5 (hallucination hardening), I6 (MCP cwd-independence)
-- Absorbed backlog: T-STAGING-ORPHAN-GC, T10-M1 partial, T11-N1 (sig E2E),
-  T11-N2 (MetadataError), T3-M1 (narrow exceptions)
-- Deleted: src/screw_agents/cli/adaptive_cleanup.py
+**C1 closure is locked by an E2E integration test (T21,
+`tests/test_adaptive_workflow_staged.py`): Step 11 asserts
+`promote_response["sha256"] == compute_script_sha256(source)` and Step 12
+asserts `signed_py.read_text() == source`.** Both pass on Arch Linux bwrap sandbox.
+
+### What shipped (24 tasks T0-T24 across 4 phases)
+
+**Phase A — Staging architecture (T0-T9):**
+- 4 new MCP tools: `stage_adaptive_script`, `promote_staged_script`, `reject_staged_script`, `sweep_stale_staging`
+- 2 MCP tools promoted from CLI: `list_adaptive_scripts`, `remove_adaptive_script` (I6 cwd-independence fix)
+- Shared `_sign_script_bytes` helper — single canonical-bytes source eliminating sign/verify drift (Option D refactor)
+- Deleted: `src/screw_agents/cli/adaptive_cleanup.py`
+
+**Phase B — Bundled polish (T10-T14, I1-I5):**
+- I2 (T10): adaptive-lint validates `adaptive.__all__` symbols (blocks hallucinated helper imports at lint time)
+- I3 (T11): sandbox stderr surfacing on execute failure (visible in adaptive-flow prompts)
+- T11-N2 (T12): `MetadataError` wrapper for yaml+pydantic parsing failures (absorbed)
+- T3-M1 (T13): narrow exceptions in `adaptive/ast_walker.py` (absorbed)
+- T11-N1 (T14): E2E signature-path regression test (absorbed)
+
+**Phase C + D + E — Subagent prompt rewrite + orchestrator + docs (T15-T18):**
+- T15+T16 (combined): Step 3.5d rewrite across 4 per-agent subagents (screw-sqli/cmdi/ssti/xss) — byte-identical adaptive section modulo agent-name substitution
+- T17: orchestrator (screw-injection.md) + shared `_ADAPTIVE_MCP_TOOLS` test constant merge; LLM-flow files all route via stage→promote (`sign_adaptive_script` absent from all 5 frontmatters)
+- T18: scan.md adaptive-flow documentation
+
+**Phase F — Slash command + format-smoke tests (T19-T20):**
+- T19: `/screw:adaptive-cleanup` rewritten to MCP function-call syntax + new `stale` subcommand
+- T20: +48 parametrized format-smoke assertions (12 assertions × 4 agent files) locking whole-file prompt content
+
+**Phase G — Integration test + schema lock (T21-T22):**
+- T21: E2E integration test `tests/test_adaptive_workflow_staged.py` — THE C1 exit gate
+- T22: `additionalProperties: false` regression-lock on 6 new PR #6 MCP tool schemas (T10-M1 partial)
+
+**Phase H — Docs + strategic close-out (T23-T24):**
+- T23: pointer paragraph in `PHASE_3B_PLAN.md` to authoritative `PHASE_3B_C1_PLAN.md`
+- T24: backlog reorg + Phase-4 readiness triage (`blocker` / `nice-to-have` / `phase-7-scoped` / `retire` tags across 114 active entries) + PROJECT_STATUS.md refresh (Phase 3a/3b current state + new Phase 4 Prerequisites section)
 
 ### Test count
-771 baseline → 820+ (exact count after all tasks land; see exit checklist)
 
-### Security property restored
-`bytes_reviewed == bytes_signed == bytes_executed`, enforced by
-(a) script_name content-binding via hash6(source) and
-(b) sha256 registry verification at promote time.
+**771 baseline → 942 passing** (+171 tests, +48 from T20 format-smoke alone). Zero regressions. C1 regression test `test_sign_output_passes_executor_verification` passes. T21 integration test passes (0.30s) on bwrap sandbox.
 
-See `docs/specs/2026-04-20-phase-3b-c1-staging-design.md` for the
-consolidated design and `docs/PHASE_3B_C1_PLAN.md` for task-level detail.
+### Absorbed backlog (10 items → Shipped (PR #6) section)
+
+- C1 (CRITICAL — PR #5 round-trip finding), I1-I6 (PR #5 round-trip polish items)
+- T-STAGING-ORPHAN-GC (Phase 4+), T3-M1 (project-wide), T10-M1 PARTIAL (project-wide — 6 new tools locked)
+- T11-N1 + T11-N2 (shipped by T14 + T12)
+- BACKLOG-PR6-49 (auto-resolved by T9)
+
+### Phase 4 readiness — 5 hard-gate prerequisites identified
+
+PR #6 T24 established the Phase 4 readiness framework. Phase 4 (Autoresearch) cannot start until 5 items are addressed (see `docs/PROJECT_STATUS.md §Phase 4 Prerequisites` + `docs/DEFERRED_BACKLOG.md §Phase-4 Readiness Triage`):
+
+1. **D-01** — Rust benchmark corpus from RustSec (DEFERRED since Phase 0.5)
+2. **T-FULL-P1** — Paginate `scan_full` + agent-relevance filter (~600-700 LOC)
+3. **T19-M1/M2/M3** — Merged-findings output semantics (SARIF/CSV/exclusion model, ~170 LOC)
+4. **BACKLOG-PR6-22** — `sign_adaptive_script` retirement (~50 LOC; new 5th prerequisite per T24 Option b adoption — retire the direct-sign MCP tool before Phase 4 autoresearch module is designed against it)
+
+### Security property restored (scoped)
+
+**`bytes_reviewed == bytes_signed == bytes_executed`** on the LLM-flow surface, enforced by:
+- (a) `script_name` content-binding via hash6(source)
+- (b) sha256 registry verification at promote time
+- (c) T21 exit gate regression test permanently locks the invariant
+
+Direct `sign_adaptive_script` MCP tool is retained server-side as a supervised path for programmatic consumers (future Phase 4 autoresearch); retirement scheduled as BACKLOG-PR6-22 Phase 4 prerequisite to prevent designing the autoresearch hook against the regeneration vector.
+
+### Design references
+
+- `docs/specs/2026-04-20-phase-3b-c1-staging-design.md` — consolidated design (local, not in git)
+- `docs/PHASE_3B_C1_PLAN.md` — task-level detail (28 tasks T0-T27, ~6600 lines)
+- `docs/PROJECT_STATUS.md §Phase 4 Prerequisites` — hard-gate roadmap for next phase
 EOF
 )"
 ```
