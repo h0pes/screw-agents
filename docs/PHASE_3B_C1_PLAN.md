@@ -6276,6 +6276,20 @@ git commit -m "sync(phase3b): pointer to PHASE_3B_C1_PLAN.md for PR #6 follow-up
 
 **Why not add the pointer after the End-marker:** the end-marker is a structural close. Content after it reads like an appendix that's been tacked on, which is contextually what this is — but the pointer is materially part of the Phase 3b narrative (it tells the reader "the story continues at this other file"). Placing it BEFORE the end-marker integrates it into the main flow rather than treating PR #6 as an afterthought stapled on. The implementer may pick either placement; the pre-audit preference is "before the end-marker".
 
+**T23 Opus 4.7 re-review (2026-04-23):** Spec review APPROVED (zero findings at all levels). Quality review APPROVED (zero Cat-A, 2 Cat-B non-actionable). Byte-identical deliverable; zero implementer deviations.
+
+- **Pre-audit rescope (commit `f74cc41`)**: T23's original scope (full PR #6 section with per-task summaries, ~150 lines) was surfaced to Marco during pre-audit as duplicative of PHASE_3B_C1_PLAN.md. Marco accepted Option 2 (pointer paragraph, ~15 lines). Plan-fix rewrote §T23 to prescribe the pointer form with exact content, insertion position, and verification command.
+
+- **Implementer deliverable (commit `a5ab83d`)**: byte-identical to the rescoped skeleton. +15 lines, -0 deletions, single file touched (`docs/PHASE_3B_PLAN.md`). Pointer inserted at the pre-audit-preferred position (BEFORE `*End of Phase 3b implementation plan.*`), integrating PR #6 into the Phase 3b narrative rather than stapling it on as an appendix. End-marker remains the final content line (5805).
+
+- **Cross-file metrics accurate**: "28 tasks T0-T27" verified (`grep -c "^### Task [0-9]"` = 28); "~6500 lines" verified (`wc -l` = 6637, 2.1% over — within rounding tolerance).
+
+- **No Category-A Minors** — the 2 Cat-B Minors from quality review (paragraph density vs PR #4/#5, rounded line-count claim) are both reviewer-explicit "no action / intentional". No BACKLOG entries warranted.
+
+Score since T7: **15 tasks 0-Important / 1 task 1-Important (T14) / 1 task 1-Important transient-to-T19 (T18, resolved)**. Pre-audit's "Option 2 rescope" intervention avoided ~150 lines of duplicative content + ongoing drift risk — a meaningful win from treating the pre-audit as an active scope-challenge step, not a rubber-stamp.
+
+T23 commits: `a5ab83d` (implementer, +15 lines). Plan-fix precursor: `f74cc41`.
+
 ---
 
 ### Task 24: Update `docs/DEFERRED_BACKLOG.md`
