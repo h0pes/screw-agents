@@ -6125,38 +6125,50 @@ T21 commit: `1146e3e` (+266 lines — new file `tests/test_adaptive_workflow_sta
 ### Task 22: Apply `additionalProperties: false` Uniformly to 6 New MCP Tool Schemas (T10-M1 Partial)
 
 **Files:**
-- Modify: `src/screw_agents/engine.py` (verify all 6 new tool schemas in `list_tool_definitions` have the flag)
-- Potentially: `tests/test_mcp_tool_schemas.py` or similar (if a schema-consistency test exists; add one if not)
+- Modify: `tests/test_engine.py` (add regression-lock test — no engine.py changes needed, see pre-audit)
 
 **Rationale:** T10-M1 partial. Applied as tools are registered, but this task audits + adds a regression lock test.
 
 **Pre-audit note (2026-04-21):** Tool schemas are hand-written as `tools.append({...})` blocks inside `engine.list_tool_definitions()` (starts at `engine.py:1211`). The server layer (`src/screw_agents/server.py`) uses a `_dispatch_tool` function with `if name == "tool_name":` branches — there are NO FastMCP `@mcp.tool()` decorators in this codebase. Any task guidance referencing decorators is stale; use the `list_tool_definitions` schema pattern instead.
 
-- [ ] **Step 1: Locate the 6 new tool schemas in `engine.list_tool_definitions`**
+**T22 pre-audit (2026-04-23, HEAD `d98279f`):** Grep verified that ALL 6 new PR #6 tool schemas ALREADY carry `additionalProperties: false` — at engine.py lines 2744 (stage), 2828 (promote), 2897 (reject), 2950 (sweep), 2997 (list), 3028 (remove). **T22 is pure test-addition — no engine.py edits required.** Scope collapses to appending one function to `tests/test_engine.py` as a regression-lock.
 
-Run: `grep -n 'tools.append({' src/screw_agents/engine.py | head -20`
+- [ ] **Step 1: No-op audit confirmation (pre-audit already did this)**
 
-This lists every hand-written tool schema block. For each of the 6 new-in-PR#6 tools (`stage_adaptive_script`, `promote_staged_script`, `reject_staged_script`, `sweep_stale_staging`, `list_adaptive_scripts`, `remove_adaptive_script`), confirm the schema block is present. Cross-check the corresponding `_dispatch_tool` branches in `server.py` (roughly `server.py:71-200`) — each dispatcher branch must have exactly one matching schema, and vice versa.
+Verify the pre-audit's finding holds at the current HEAD:
 
-- [ ] **Step 2: Verify all 6 new tools have the flag**
+```bash
+for tool in stage_adaptive_script promote_staged_script reject_staged_script sweep_stale_staging list_adaptive_scripts remove_adaptive_script; do
+  linenum=$(grep -n "\"name\": \"$tool\"" src/screw_agents/engine.py | head -1 | cut -d: -f1)
+  has_ap=$(sed -n "${linenum},$((linenum+50))p" src/screw_agents/engine.py | grep -c "additionalProperties")
+  echo "$tool: line $linenum, additionalProperties occurrences: $has_ap"
+done
+```
 
-For each of: `stage_adaptive_script`, `promote_staged_script`, `reject_staged_script`, `sweep_stale_staging`, `list_adaptive_scripts`, `remove_adaptive_script` — inspect the emitted schema (`input_schema.additionalProperties` should be `False`).
+Expected output: 6 tools, each with at least 1 `additionalProperties` occurrence within 50 lines of the schema's `"name":` field. If the output deviates, the engine has drifted since pre-audit — STOP and investigate before adding the test. No implementer edits to engine.py are expected.
 
-- [ ] **Step 3: Add a regression-lock test**
+- [ ] **Step 2: Add a regression-lock test to `tests/test_engine.py`**
+
+Append the new function immediately AFTER `test_tool_definitions_json_schema_valid` (currently at `tests/test_engine.py:100-107`). The new test is a natural adjacent sibling: that test iterates all tools and checks basic schema validity; this one is PR #6-scoped and checks a stricter invariant.
+
+**Precedents the implementer MUST match:**
+
+1. **Use the existing `engine` pytest fixture** (defined at `tests/test_engine.py:11-14` as `ScanEngine(AgentRegistry(domains_dir))`). Function signature is `def test_..._reject_additional_properties(engine) -> None:`. Do NOT introduce `ScanEngine.from_defaults()` — that's not the test_engine.py pattern.
+2. **Type-hint the return type** as `-> None:` (matches surrounding tests).
+3. **No inline `from screw_agents.engine import ScanEngine`** — the fixture handles construction.
 
 ```python
-# tests/test_mcp_tool_schemas.py (new file, or add to existing schema test)
-
-def test_new_phase3b_pr6_tools_reject_additional_properties() -> None:
-    """Lock T10-M1 partial: each new MCP tool introduced in PR #6 sets
+def test_tool_definitions_pr6_new_tools_reject_additional_properties(engine) -> None:
+    """T22 / T10-M1 partial: each new MCP tool introduced in PR #6 sets
     additionalProperties: false on its input schema.
 
     A future tool schema change that relaxes this invariant would regress
     T10-M1 discipline project-wide (the full audit remains deferred to PR #9).
-    """
-    from screw_agents.engine import ScanEngine
 
-    engine = ScanEngine.from_defaults()
+    Adjacent to `test_tool_definitions_json_schema_valid` above — that test
+    checks baseline schema validity for ALL tools; this one locks a stricter
+    invariant for the PR #6 additions specifically.
+    """
     tools = engine.list_tool_definitions()
 
     pr6_new_tools = {
@@ -6170,7 +6182,8 @@ def test_new_phase3b_pr6_tools_reject_additional_properties() -> None:
 
     found = {t["name"] for t in tools if t["name"] in pr6_new_tools}
     assert found == pr6_new_tools, (
-        f"Missing new PR #6 tools from tool definitions: {pr6_new_tools - found}"
+        f"Missing new PR #6 tools from tool definitions: "
+        f"{pr6_new_tools - found}"
     )
 
     for tool in tools:
@@ -6182,20 +6195,20 @@ def test_new_phase3b_pr6_tools_reject_additional_properties() -> None:
             )
 ```
 
-- [ ] **Step 4: Run test**
+- [ ] **Step 3: Run targeted test**
 
-Run: `uv run pytest tests/test_mcp_tool_schemas.py -v`
-Expected: PASS.
+Run: `uv run pytest tests/test_engine.py::test_tool_definitions_pr6_new_tools_reject_additional_properties -v`
+Expected: 1 PASSED.
 
-- [ ] **Step 5: Full suite**
+- [ ] **Step 4: Full suite**
 
 Run: `uv run pytest -q`
-Expected: +1 test from baseline.
+Expected: **942 passed, 8 skipped** (941 baseline at T21 HEAD `d98279f` + 1 new T22 test). Any deviation is a finding — investigate before committing.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add src/screw_agents/server.py tests/test_mcp_tool_schemas.py
+git add tests/test_engine.py
 git commit -m "test(phase3b-c1): lock additionalProperties: false on new PR #6 tools (T22, T10-M1 partial)"
 ```
 
