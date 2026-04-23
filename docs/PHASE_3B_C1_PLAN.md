@@ -5592,156 +5592,189 @@ T19 commits: `2b9ead6` (implementer rewrite). Plan-fix precursor: `5fe57d7`. Pre
 
 **Rationale:** The test is the load-bearing lock on the prompt-side trust isolation. These assertions catch any future regression where a subagent prompt reintroduces `sign_adaptive_script` or drops the I5 hardening.
 
-- [ ] **Step 1: Add 12 assertions**
+**Precedents the implementer MUST match (non-negotiable, from T20 pre-audit 2026-04-23):**
 
-In `tests/test_adaptive_subagent_prompts.py`:
+1. **Reuse the existing `_PER_AGENT_FILES` dict at line 35-40** — do NOT introduce a parallel `PER_AGENT_FILES` list. Parametrize over `_PER_AGENT_FILES.items()` so test IDs read as `[sqli-...]`/`[cmdi-...]`/`[ssti-...]`/`[xss-...]` (matching prior parametrize style), not as full path strings.
+2. **Use `Path` throughout** — the file is `Path`-typed everywhere (`_REPO_ROOT`, `_AGENTS_DIR`, `_parse_subagent_file(path: Path)`). Helper signatures take `Path`, not `str`.
+3. **Naming convention** — new tests operate on whole-file content (not the extracted adaptive section). Prefix them `test_adaptive_prompt_*` (NOT `test_prompt_*`) to align with the existing `test_adaptive_section_*` (section-scoped) / `test_tools_*` (frontmatter-scoped) family.
+4. **Test #12 must lock both phrases, not either/or** — `"SHA256"` appears 2× per file AND `"script_sha256_prefix"` appears 5× per file (verified via grep in the T20 pre-audit). The `or` form is weaker than necessary — a regression that drops one but keeps the other would pass. Tighten to `and`.
+
+**Coverage-overlap rationale (accept as-is per pre-audit PA-T20-5):** The first 4 new tests (`stage_adaptive_script`, `promote_staged_script`, `reject_staged_script`, and the negative `sign_adaptive_script`) are WEAKER-per-test than existing section-level coverage at `test_adaptive_section_references_all_required_mcp_tools` (line 205) and frontmatter-level coverage at `test_tools_frontmatter_includes_adaptive_mcp_tools` (line 136), but they add **whole-file redundancy** — they'd catch a prose mention outside the canonical section. Belt-and-suspenders for format-smoke is appropriate; the intentional redundancy must be documented in a top-of-block comment so a future maintainer doesn't "deduplicate" them.
+
+- [ ] **Step 1: Add 12 assertions (48 parametrized cases)**
+
+In `tests/test_adaptive_subagent_prompts.py`, append the new block after `test_execute_adaptive_script_invocation_omits_session_id` (the last existing test) and before EOF:
 
 ```python
-# Each per-agent file:
-PER_AGENT_FILES = [
-    "plugins/screw/agents/screw-sqli.md",
-    "plugins/screw/agents/screw-cmdi.md",
-    "plugins/screw/agents/screw-ssti.md",
-    "plugins/screw/agents/screw-xss.md",
-]
+# ---- Tests 12-23: T20 whole-file format-smoke assertions -------------------
+#
+# These 12 assertions (48 parametrized cases across the 4 per-agent files)
+# lock the whole-file content of each per-agent adaptive subagent. They
+# INTENTIONALLY overlap with the section-level tests above
+# (`test_adaptive_section_references_all_required_mcp_tools` and
+# `test_tools_frontmatter_includes_adaptive_mcp_tools`) — the prior tests
+# check the EXTRACTED adaptive section or the FRONTMATTER TOOLS LIST; these
+# check WHOLE-FILE content. The redundancy catches regressions that would
+# slip past the section-only checks, e.g. a prose mention of
+# `sign_adaptive_script` outside the adaptive section. Do NOT deduplicate.
 
 
-def _read_agent(filename: str) -> str:
-    return Path(filename).read_text(encoding="utf-8")
+def _read_agent_content(path: Path) -> str:
+    """Return the full markdown file content (frontmatter + body).
+
+    Distinct from `_parse_subagent_file(path)` which splits into (frontmatter,
+    body); these tests assert on the whole file so a single string is simpler.
+    """
+    return path.read_text(encoding="utf-8")
 
 
-@pytest.mark.parametrize("filename", PER_AGENT_FILES)
-def test_prompt_contains_stage_adaptive_script(filename: str) -> None:
-    assert "stage_adaptive_script" in _read_agent(filename), (
-        f"{filename} missing stage_adaptive_script reference — C1 fix regressed"
+@pytest.mark.parametrize("agent,path", sorted(_PER_AGENT_FILES.items()))
+def test_adaptive_prompt_contains_stage_adaptive_script(agent: str, path: Path) -> None:
+    """Whole-file lock: `stage_adaptive_script` must appear in the prompt
+    content (frontmatter + body). Complements section-level checks."""
+    assert "stage_adaptive_script" in _read_agent_content(path), (
+        f"screw-{agent}.md missing stage_adaptive_script reference — C1 fix regressed"
     )
 
 
-@pytest.mark.parametrize("filename", PER_AGENT_FILES)
-def test_prompt_contains_promote_staged_script(filename: str) -> None:
-    assert "promote_staged_script" in _read_agent(filename), (
-        f"{filename} missing promote_staged_script reference"
+@pytest.mark.parametrize("agent,path", sorted(_PER_AGENT_FILES.items()))
+def test_adaptive_prompt_contains_promote_staged_script(agent: str, path: Path) -> None:
+    assert "promote_staged_script" in _read_agent_content(path), (
+        f"screw-{agent}.md missing promote_staged_script reference"
     )
 
 
-@pytest.mark.parametrize("filename", PER_AGENT_FILES)
-def test_prompt_contains_reject_staged_script(filename: str) -> None:
-    assert "reject_staged_script" in _read_agent(filename), (
-        f"{filename} missing reject_staged_script reference"
+@pytest.mark.parametrize("agent,path", sorted(_PER_AGENT_FILES.items()))
+def test_adaptive_prompt_contains_reject_staged_script(agent: str, path: Path) -> None:
+    assert "reject_staged_script" in _read_agent_content(path), (
+        f"screw-{agent}.md missing reject_staged_script reference"
     )
 
 
-@pytest.mark.parametrize("filename", PER_AGENT_FILES)
-def test_prompt_does_not_reference_sign_adaptive_script(filename: str) -> None:
+@pytest.mark.parametrize("agent,path", sorted(_PER_AGENT_FILES.items()))
+def test_adaptive_prompt_does_not_reference_sign_adaptive_script(agent: str, path: Path) -> None:
     """Option D isolation: LLM flow must NEVER reach sign_adaptive_script
     (the direct-path tool). If this test fails, the C1 regeneration-surface
-    closure has regressed."""
-    content = _read_agent(filename)
+    closure has regressed. This is the whole-file form; section-level and
+    frontmatter-level guards exist above at lines 217-221 and 156-159."""
+    content = _read_agent_content(path)
     assert "sign_adaptive_script" not in content, (
-        f"{filename} references sign_adaptive_script — LLM-flow isolation "
+        f"screw-{agent}.md references sign_adaptive_script — LLM-flow isolation "
         f"regressed. Use stage + promote instead (spec §3.2)."
     )
 
 
-@pytest.mark.parametrize("filename", PER_AGENT_FILES)
-def test_prompt_uses_plugin_namespaced_reviewer(filename: str) -> None:
+@pytest.mark.parametrize("agent,path", sorted(_PER_AGENT_FILES.items()))
+def test_adaptive_prompt_uses_plugin_namespaced_reviewer(agent: str, path: Path) -> None:
     """I1: subagent_type MUST be the plugin-namespaced form."""
-    content = _read_agent(filename)
+    content = _read_agent_content(path)
     assert "screw:screw-script-reviewer" in content, (
-        f"{filename} missing plugin-namespaced reviewer name (I1)"
+        f"screw-{agent}.md missing plugin-namespaced reviewer name (I1)"
     )
 
 
-@pytest.mark.parametrize("filename", PER_AGENT_FILES)
-def test_prompt_does_not_use_bare_reviewer_name(filename: str) -> None:
-    """I1 negative: the bare form (without plugin prefix) must not appear."""
-    content = _read_agent(filename)
-    # The bare name could legitimately appear as part of the namespaced one;
-    # search for contexts that clearly refer to a subagent_type value.
+@pytest.mark.parametrize("agent,path", sorted(_PER_AGENT_FILES.items()))
+def test_adaptive_prompt_does_not_use_bare_reviewer_name(agent: str, path: Path) -> None:
+    """I1 negative: the bare form (without plugin prefix) must not appear as
+    a `subagent_type` value. Regex matches both YAML (`subagent_type: "x"`)
+    and JSON-ish (`"subagent_type": "x"`) assignment forms."""
     import re
+    content = _read_agent_content(path)
     bare_refs = re.findall(r"subagent_type['\": ]+\s*\"screw-script-reviewer\"", content)
     assert not bare_refs, (
-        f"{filename} uses bare screw-script-reviewer as subagent_type (I1 regressed)"
+        f"screw-{agent}.md uses bare screw-script-reviewer as subagent_type (I1 regressed)"
     )
 
 
-@pytest.mark.parametrize("filename", PER_AGENT_FILES)
-def test_prompt_contains_must_import_only_phrase(filename: str) -> None:
-    """I5: prompt enforces the allowlist loudly."""
-    content = _read_agent(filename)
+@pytest.mark.parametrize("agent,path", sorted(_PER_AGENT_FILES.items()))
+def test_adaptive_prompt_contains_must_import_only_phrase(agent: str, path: Path) -> None:
+    """I5: prompt enforces the allowlist loudly. Case-sensitive — the
+    uppercase form is the intentional hardening signal."""
+    content = _read_agent_content(path)
     assert "MUST import ONLY" in content, (
-        f"{filename} missing 'MUST import ONLY' hardening phrase (I5)"
+        f"screw-{agent}.md missing 'MUST import ONLY' hardening phrase (I5)"
     )
 
 
-@pytest.mark.parametrize("filename", PER_AGENT_FILES)
-def test_prompt_lists_all_18_adaptive_exports(filename: str) -> None:
-    """I5: every name in adaptive.__all__ must appear in the generation prompt."""
+@pytest.mark.parametrize("agent,path", sorted(_PER_AGENT_FILES.items()))
+def test_adaptive_prompt_lists_all_adaptive_exports(agent: str, path: Path) -> None:
+    """I5: every name in adaptive.__all__ must appear in the generation prompt.
+    At PR #6 HEAD `adaptive.__all__` has 18 entries; this test auto-tracks any
+    additions so the prompt stays in sync with the public surface."""
     from screw_agents import adaptive as adaptive_pkg
-    content = _read_agent(filename)
+    content = _read_agent_content(path)
     for name in adaptive_pkg.__all__:
         assert name in content, (
-            f"{filename} missing adaptive.__all__ entry {name!r} in prompt (I5)"
+            f"screw-{agent}.md missing adaptive.__all__ entry {name!r} in prompt (I5)"
         )
 
 
-@pytest.mark.parametrize("filename", PER_AGENT_FILES)
-def test_prompt_contains_negative_examples_block(filename: str) -> None:
-    """I5: negative examples mention common hallucinated names."""
-    content = _read_agent(filename)
-    assert "DO NOT invent helper names" in content
+@pytest.mark.parametrize("agent,path", sorted(_PER_AGENT_FILES.items()))
+def test_adaptive_prompt_contains_negative_examples_block(agent: str, path: Path) -> None:
+    """I5: negative examples mention common hallucinated names so the LLM
+    sees canonical don't-invent-these examples."""
+    content = _read_agent_content(path)
+    assert "DO NOT invent helper names" in content, (
+        f"screw-{agent}.md missing negative-examples header phrase (I5)"
+    )
     for hallucinated in ("read_source", "parse_module", "walk_module"):
         assert hallucinated in content, (
-            f"{filename} missing hallucinated name example {hallucinated!r} (I5)"
+            f"screw-{agent}.md missing hallucinated name example {hallucinated!r} (I5)"
         )
 
 
-@pytest.mark.parametrize("filename", PER_AGENT_FILES)
-def test_prompt_contains_stderr_render_on_failure(filename: str) -> None:
+@pytest.mark.parametrize("agent,path", sorted(_PER_AGENT_FILES.items()))
+def test_adaptive_prompt_contains_stderr_render_on_failure(agent: str, path: Path) -> None:
     """I3: execute-failure branch renders stderr in a fenced block."""
-    content = _read_agent(filename)
+    content = _read_agent_content(path)
     assert "Standard error output" in content, (
-        f"{filename} missing stderr render in failure branch (I3)"
+        f"screw-{agent}.md missing stderr render in failure branch (I3)"
     )
 
 
-@pytest.mark.parametrize("filename", PER_AGENT_FILES)
-def test_prompt_contains_retention_notice(filename: str) -> None:
-    """I4: retention notice on execute failure."""
-    content = _read_agent(filename)
+@pytest.mark.parametrize("agent,path", sorted(_PER_AGENT_FILES.items()))
+def test_adaptive_prompt_contains_retention_notice(agent: str, path: Path) -> None:
+    """I4: retention notice on execute failure points the operator at
+    `/screw:adaptive-cleanup remove` for cleanup."""
+    content = _read_agent_content(path)
     assert "retained at" in content and "adaptive-cleanup remove" in content, (
-        f"{filename} missing retention notice (I4)"
+        f"screw-{agent}.md missing retention notice (I4)"
     )
 
 
-@pytest.mark.parametrize("filename", PER_AGENT_FILES)
-def test_prompt_displays_sha256_prefix_in_review_header(filename: str) -> None:
-    """C1 UX: the 5-section review header surfaces the staged sha prefix."""
-    content = _read_agent(filename)
-    assert "SHA256" in content or "script_sha256_prefix" in content, (
-        f"{filename} missing sha256 prefix in review header (C1 UX)"
+@pytest.mark.parametrize("agent,path", sorted(_PER_AGENT_FILES.items()))
+def test_adaptive_prompt_displays_sha256_prefix_in_review_header(agent: str, path: Path) -> None:
+    """C1 UX: the 5-section review header surfaces the staged sha prefix.
+    BOTH phrases are locked (not OR) — the uppercase `SHA256` label appears
+    in the review header, and `script_sha256_prefix` is the Python variable
+    name in the sample stage-tool invocation. Both must survive any future
+    edit; dropping either is a UX regression."""
+    content = _read_agent_content(path)
+    assert "SHA256" in content, (
+        f"screw-{agent}.md missing 'SHA256' label in review header (C1 UX)"
+    )
+    assert "script_sha256_prefix" in content, (
+        f"screw-{agent}.md missing `script_sha256_prefix` in stage invocation (C1 UX)"
     )
 ```
 
 - [ ] **Step 2: Run — verify all 12 × 4 = 48 parametrized cases pass**
 
 Run: `uv run pytest tests/test_adaptive_subagent_prompts.py -v`
-Expected: all existing + 48 new assertions PASS.
+Expected: all existing cases + 48 new parametrized cases PASS.
 
-Total test count delta from format-smoke: +48 parametrized (pytest counts each parametrize instance as 1 test). But the PR #6 test projection counted each assertion once (12) — the delta is actually 48, not 12.
-
-**Plan-sync note:** update exit checklist if tests exceed 820 target. Adjust to "at least 820" or update the count. Likely final count: 820 + 36 = 856 (since +12 format-smoke × 4 files = 48; baseline +20 staging + 5 signing + 4 lint + 6 executor + 1 ast_walker + 1 integration + 48 format-smoke = ~85 new tests). That's more than the spec projected (+49). Accept the difference; spec's count was approximate.
+Total test count delta from T20: **+48** (pytest counts each parametrize instance as 1 test; 12 distinct assertions × 4 agent files = 48 cases).
 
 - [ ] **Step 3: Full suite**
 
 Run: `uv run pytest -q`
-Expected: ~869 passed (exact count depends on parametrize vs per-test accounting).
+Expected: **940 passed** (892 baseline at T19 HEAD `0ea6d37` + 48 T20 cases). If the count differs, investigate before committing — T20 should be additive-only, no existing test should change outcome.
 
 - [ ] **Step 4: Commit**
 
 ```bash
 git add tests/test_adaptive_subagent_prompts.py
-git commit -m "test(phase3b-c1): 12 format-smoke assertions for T18b prompt rewrite (T20)"
+git commit -m "test(phase3b-c1): 48 whole-file format-smoke assertions for T18b prompt rewrite (T20)"
 ```
 
 ---
