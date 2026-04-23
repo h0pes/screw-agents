@@ -5804,6 +5804,14 @@ T20 commit: `152d0d8` (48 format-smoke assertions, 382→535 lines, +153 inserti
 
 **Rationale:** The C1 exit gate. One test that composes every MCP tool shipped in T3-T20 in the exact order a real subagent would run them, asserting the C1 invariant at the signing step (`signed_py.read_text() == staged_source`).
 
+**Precedents the implementer MUST match (non-negotiable, from T21 pre-audit 2026-04-23):**
+
+1. **Use engine-returned paths, not hardcoded reconstructions.** The engine's `stage_adaptive_script` response includes `stage_path` (engine.py:371 docstring) and `promote_staged_script` response includes `script_path` (engine.py:572). Step 9 takes `stage_py = Path(stage_response["stage_path"])`; Step 12 takes `signed_py = Path(promote_response["script_path"])`. DO NOT reconstruct `project / ".screw" / "staging" / session_id / ...` — that re-implements the layout and breaks silently when the engine's path discipline changes.
+
+2. **Mirror T22's D1+D2 gap assertions at Step 5.** T22 (`tests/test_adaptive_workflow.py:212-241`) asserts BOTH the `context_required` D1 gap (file=dao.py, line=9, pattern="any-raw-method-check") AND the `unresolved_sink` D2 gap at dao.py. The plan's "mirrors T22" framing (docstring) requires these to carry over — otherwise a silent D2 regression would pass the weaker `>= 1` bound. The fixture/agent/receiver-token semantics are identical to T22, so all T22 D1+D2 assertions will pass.
+
+3. **Mirror T22's session_id + sha256 assertions at the sign step.** T22 Step 8 asserts both `sign_response["session_id"] == session_id` (threading guard) and `sign_response["sha256"] == compute_script_sha256(script_source)` (canonical-bytes guard). T21's Step 11 (promote) must carry both, checking `promote_response["session_id"]` and `promote_response["sha256"]`. The sha assertion is a DIFFERENT angle on the C1 invariant than Step 12's read-and-compare — it catches a signing-layer sha drift before Step 12's file-read step.
+
 - [ ] **Step 1: Write the composition test**
 
 ```python
@@ -5837,9 +5845,11 @@ def test_full_adaptive_workflow_with_staging_composition(tmp_path: Path) -> None
     """PR #6 exit gate: full composition with stage → promote substituting
     for direct sign.
 
-    The 13 steps mirror T22's composition order (identical seed fixture,
+    The 18 steps mirror T22's composition order (identical seed fixture,
     identical YAML finding, identical adaptive script, identical gap-signal
-    expectations); only the signing step is different.
+    expectations); only Steps 8 and 11 are different — they substitute
+    stage_adaptive_script + promote_staged_script for T22's direct
+    sign_adaptive_script path.
 
     Breakage diagnosis: the FIRST failing assertion pins the regressing
     integration boundary. If Step 12's invariant fails
@@ -5902,11 +5912,35 @@ def test_full_adaptive_workflow_with_staging_composition(tmp_path: Path) -> None
         project_root=project, findings_chunk=[yaml_finding], session_id=session_id,
     )
 
-    # Step 5: detect_coverage_gaps (IDENTICAL).
+    # Step 5: detect_coverage_gaps (IDENTICAL to T22 — including D1+D2 assertions).
     gaps = engine.detect_coverage_gaps(
         agent_name="sqli", project_root=project, session_id=session_id,
     )
-    assert len(gaps) >= 1
+    assert isinstance(gaps, list)
+    assert len(gaps) >= 1, f"expected at least 1 gap; got {len(gaps)}"
+
+    # D1 check: the recorded context_required match surfaces as a gap.
+    d1_gaps = [g for g in gaps if g.type == "context_required"]
+    assert len(d1_gaps) == 1, (
+        f"expected exactly 1 D1 gap (the one recorded in Step 3); "
+        f"got {len(d1_gaps)}: {d1_gaps}"
+    )
+    d1 = d1_gaps[0]
+    assert d1.agent == "sqli"
+    assert d1.file == "dao.py"
+    assert d1.line == 9
+    assert d1.evidence["pattern"] == "any-raw-method-check"
+
+    # D2 check: `self.qb.execute_raw(q)` (receiver "qb" not in sqli
+    # known_receivers, tainted arg "q" from request.args.get) must
+    # produce an unresolved_sink gap. Firm assertion — if this fails
+    # either sqli.yaml's known_receivers/known_sources were edited
+    # or gap_signal.detect_d2_unresolved_sink_gaps regressed.
+    d2_gaps = [g for g in gaps if g.type == "unresolved_sink"]
+    assert any(g.file == "dao.py" for g in d2_gaps), (
+        f"expected D2 gap at dao.py (self.qb.execute_raw with tainted "
+        f"arg); got D2 gaps: {d2_gaps}"
+    )
 
     # Step 6: Hand-write adaptive script source (IDENTICAL).
     script_source = (
@@ -5948,7 +5982,8 @@ def test_full_adaptive_workflow_with_staging_composition(tmp_path: Path) -> None
     assert stage_response["script_sha256"] == compute_script_sha256(script_source)
 
     # Step 9: Verify staging file exists AND has exact source.
-    stage_py = project / ".screw" / "staging" / session_id / "adaptive-scripts" / "qb-check.py"
+    # Use engine-returned path — do not reconstruct layout manually.
+    stage_py = Path(stage_response["stage_path"])
     assert stage_py.exists()
     assert stage_py.read_text(encoding="utf-8") == script_source
 
@@ -5960,15 +5995,24 @@ def test_full_adaptive_workflow_with_staging_composition(tmp_path: Path) -> None
     assert staged_entries[0]["script_sha256"] == stage_response["script_sha256"]
 
     # Step 11: **NEW — promote_staged_script** (the C1 fix).
+    # Mirrors T22's sign_adaptive_script assertions (session_id + sha256)
+    # plus the C1-specific promoted_via_fallback guard.
     promote_response = engine.promote_staged_script(
         project_root=project, script_name="qb-check", session_id=session_id,
     )
     assert promote_response["status"] == "signed"
     assert promote_response["signed_by"] == "c1@example.com"
+    assert promote_response["session_id"] == session_id
+    assert promote_response["sha256"] == compute_script_sha256(script_source), (
+        "C1 INVARIANT VIOLATED at signing layer: promote_response['sha256'] "
+        "does NOT match compute_script_sha256(script_source). The signed "
+        "bytes differ from the hand-written source."
+    )
     assert promote_response["promoted_via_fallback"] is False
 
     # Step 12: **★ C1 INVARIANT LOCK ★** — signed source == staged source == hand-written source.
-    signed_py = project / ".screw" / "custom-scripts" / "qb-check.py"
+    # Use engine-returned path — do not reconstruct layout manually.
+    signed_py = Path(promote_response["script_path"])
     assert signed_py.exists()
     signed_content = signed_py.read_text(encoding="utf-8")
     assert signed_content == script_source, (
@@ -6045,7 +6089,7 @@ Expected: PASS.
 - [ ] **Step 3: Run full suite**
 
 Run: `uv run pytest -q`
-Expected: ~870 passed (baseline 771 + ~85 from T1-T20 + 1 from T21).
+Expected: **941 passed, 8 skipped** (940 baseline at T20 HEAD `a583bb9` + 1 new T21 integration test). Any deviation is a finding — investigate before committing.
 
 - [ ] **Step 4: Commit**
 
