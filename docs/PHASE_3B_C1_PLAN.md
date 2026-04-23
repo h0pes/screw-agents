@@ -6292,14 +6292,37 @@ T23 commits: `a5ab83d` (implementer, +15 lines). Plan-fix precursor: `f74cc41`.
 
 ---
 
-### Task 24: Update `docs/DEFERRED_BACKLOG.md`
+### Task 24: Backlog close-out + Phase 4 readiness triage + PROJECT_STATUS refresh
 
 **Files:**
-- Modify: `docs/DEFERRED_BACKLOG.md`
+- Modify: `docs/DEFERRED_BACKLOG.md` (T24a + T24b)
+- Modify: `docs/PROJECT_STATUS.md` (T24c)
 
-- [ ] **Step 1: Move C1 + I1-I6 to Shipped**
+**Rationale (rescoped 2026-04-23 per pre-audit PA-T24-R, Marco's Option C approval):** The original T24 scope was a mechanical backlog reorg (C1+I1-I6 to Shipped, reserved slots 09-13 filled, commit). Pre-audit surfaced that the broader backlog has ~51 main-branch + 73 PR #6-follow-up entries = 124 total, and Marco explicitly wanted this task to "make the whole picture clear" for the Phase 4 transition. The rescope bundles three sub-tasks into T24 so the PR #6 merge carries the full strategic close-out rather than leaving it for a separate follow-up.
 
-In the "Phase 3b PR #5 round-trip test findings" section, move entries to a new "Shipped (PR #6)" block. Example format:
+**T24 sub-steps:**
+- **T24a** — mechanical backlog reorg (original scope, refined): move PR #5 round-trip findings + absorbed backlog items to Shipped, append reserved BACKLOG-PR6-09..13 content, verify PR6-01..78 integrity.
+- **T24b** — Phase-4 readiness triage tags: add `**Phase-4 readiness:**` line to every active backlog entry with one of four values (`blocker`, `nice-to-have`, `phase-7-scoped`, `retire`). Produces a filterable list answering "what stands between us and Phase 4".
+- **T24c** — PROJECT_STATUS.md refresh: reconcile with current reality (Phase 3a shipped 2026-04-17, Phase 3b PR #4/#5 shipped, PR #6 in-flight pre-merge), add explicit Phase 4 gate section (D-01 hard prerequisite + T-FULL-P1 HIGH priority).
+
+**Critical precedence note:** T24a must complete BEFORE T24b (can't tag entries that haven't been reorganized). T24b should complete BEFORE T24c (PROJECT_STATUS's Phase 4 gate section reads from the tagged backlog). Commit each sub-step separately for review granularity.
+
+---
+
+#### T24a — Mechanical backlog reorg
+
+- [ ] **Step 1: Move C1 + I1-I6 from PR #5 round-trip section to Shipped (PR #6)**
+
+In `docs/DEFERRED_BACKLOG.md`, the section `## Phase 3b PR #5 round-trip test findings (2026-04-20)` (around line 702) contains C1 (the trust regression) + I1-I6 polish items. All 7 were addressed by PR #6:
+- **C1** — closed by T3-T5 staging architecture + T15-T17 subagent prompt migration
+- **I1** (plugin-namespaced subagent name) — addressed by T15-T17 prompt rewrites
+- **I2** (lint validates `adaptive.__all__`) — T10
+- **I3** (sandbox stderr surfacing) — T11
+- **I4** (retention notice on execute failure) — T15-T17 prompt hardening
+- **I5** (`MUST import ONLY` + negative examples) — T15-T17 prompt hardening
+- **I6** (MCP-tool-based `/screw:adaptive-cleanup`) — T7-T9 + T19 slash-command rewrite
+
+Move each entry from the PR #5 findings section to a new `## Shipped (PR #6)` section (create it if not present; place it near existing `## Shipped` section). Preserve each entry's Source/File/Why/Trigger/Suggested-fix structure; **replace** the Priority/Trigger lines with a new `**Shipped in:** PR #6 (phase-3b-c1-staging), commit <SHA>` line + 2-3 line summary of how it was addressed. Example:
 
 ```markdown
 ### C1 — CRITICAL: Human-approval flow regenerates script after approval (trust violation)
@@ -6307,90 +6330,221 @@ In the "Phase 3b PR #5 round-trip test findings" section, move entries to a new 
 **Shipped in:** PR #6 (phase-3b-c1-staging), merge commit <SHA>
 **Plan:** docs/PHASE_3B_C1_PLAN.md
 
-Closed via staging architecture: promote_staged_script takes no source
-parameter, reads staged bytes from disk, verifies sha256 against registry.
-[2-3 line summary]
+Closed via staging architecture (spec §3.1-3.2): the LLM-flow subagent
+stages via `stage_adaptive_script(source, meta)`, the reviewer reads staged
+bytes, the user approves, then `promote_staged_script(script_name, session_id)`
+reads the staged bytes from disk and signs them — no source parameter, no
+regeneration. Locked by tests/test_adaptive_workflow_staged.py (T21 C1 exit
+gate): Step 11 asserts `promote_response["sha256"] == compute_script_sha256(source)`
+and Step 12 asserts `signed_py.read_text() == source`.
 ```
 
-Repeat for I1, I2, I3, I4, I5, I6.
+Once all 7 entries are moved, the PR #5 findings section should be empty. Delete the empty section heading (or replace with a one-liner redirect to "Shipped (PR #6)").
 
-- [ ] **Step 2: Move absorbed backlog items to Shipped**
+- [ ] **Step 2: Move absorbed backlog items to Shipped (PR #6)**
 
-Move `T-STAGING-ORPHAN-GC` (from "Phase 4+ (autoresearch / scale)") to Shipped. Note: absorbed by sweep_stale_staging. Add commit SHA.
+Several pre-existing backlog entries were absorbed/addressed by PR #6:
+- `T-STAGING-ORPHAN-GC` (in `## Phase 4+ (autoresearch / scale)`) — absorbed by T6 `sweep_stale_staging` MCP tool. Move to Shipped (PR #6).
+- `T3-M1` (in `## Project-wide`) — narrow exceptions in `adaptive/ast_walker.py`, addressed by T13. Move to Shipped (PR #6).
+- **T10-M1 PARTIAL** (in `## Project-wide`) — applied to 6 new PR #6 tools by T22 with regression-lock test at `test_tool_definitions_pr6_new_tools_reject_additional_properties`. Project-wide audit of pre-Phase-3b tools remains deferred. Update the existing entry's header to `### T10-M1 — additionalProperties: false on tool input schemas (PARTIAL SHIPPED PR #6)` and add a "Partial shipped:" sub-block naming T22 + commit `43cdabe`.
 
-Move `T3-M1` (from "Project-wide"), `T11-N1` + `T11-N2` (from their respective sections) to Shipped. Note: bundled with PR #6 per spec §7.
+Check for any other absorbed items during the move (grep for references to T6, T13, T14, T22 in the existing backlog).
 
-Move `T10-M1 partial` to a new "Partially shipped (PR #6)" block (project-wide audit remains deferred to PR #9).
+- [ ] **Step 3: Append BACKLOG-PR6-09..13 (reserved-slot content)**
 
-- [ ] **Step 3: Verify and augment the "Phase 3b PR #6 follow-ups" section**
-
-As of 2026-04-21, `docs/DEFERRED_BACKLOG.md` already contains a `## Phase 3b PR #6 follow-ups (Opus re-review polish)` section with 8 entries (`BACKLOG-PR6-01..08`) captured when the Opus re-review of T1 + T2 completed. Verify those entries are still present and accurate.
-
-Then **append** the 5 original-plan entries to the same section, renumbered as `BACKLOG-PR6-09..13`:
+The `## Phase 3b PR #6 follow-ups (Opus re-review polish)` section currently contains 73 entries numbered `BACKLOG-PR6-01..08` (8 entries, slots 01-08) + `BACKLOG-PR6-14..78` (65 entries with slots 09-13 deliberately reserved). Populate the reserved slots with the 5 original-plan design entries from the pre-rescope skeleton:
 
 ```markdown
 ### BACKLOG-PR6-09 — Registry compaction when pending-approvals.jsonl exceeds 10MB or 1yr
 **Source:** Phase 3b PR #6 design, 2026-04-20
 **File:** `src/screw_agents/adaptive/staging.py` + new compaction CLI
 **Priority:** Low — append-only JSONL; size stays manageable at current scale.
-**Trigger:** registry exceeds 10 MB OR oldest entry exceeds 1 year OR
-audit performance becomes noticeable.
-**Suggested fix:** `screw-agents compact-registry` CLI that archives old
-entries to `.screw/local/pending-approvals-archive/YYYY-MM.jsonl`; keep
-signatures preserved.
+**Trigger:** registry exceeds 10 MB OR oldest entry exceeds 1 year OR audit performance becomes noticeable.
+**Suggested fix:** `screw-agents compact-registry` CLI that archives old entries to `.screw/local/pending-approvals-archive/YYYY-MM.jsonl`; keep signatures preserved.
 
 ### BACKLOG-PR6-10 — Shared-prompt skill refactor via Claude Code `skills:` frontmatter
 **Source:** Phase 3b PR #6 design; Claude Code guide confirmed feasible 2026-04-20
-**File:** new `plugins/screw/skills/adaptive-mode/SKILL.md`; per-agent
-frontmatter in `plugins/screw/agents/screw-{sqli,cmdi,ssti,xss}.md`
-**Priority:** Medium — byte-identical duplication across 4 files is painful
-when edited. Investigated in PR #6; Claude Code's `skills:` frontmatter
-preloads skill content into subagent context at startup — architecturally
-feasible.
-**Trigger:** next T18b prompt edit that hits drift, OR after PR #6
-demonstrates the byte-identity test has caught drifts in practice.
-**Suggested fix:** extract the ~300-line Step 3.5d section to a skill
-entry; list the skill in each per-agent `skills:` frontmatter. Prototype
-to verify the preload order preserves the prompt's intended position in
-the subagent's context.
+**File:** new `plugins/screw/skills/adaptive-mode/SKILL.md`; per-agent frontmatter in `plugins/screw/agents/screw-{sqli,cmdi,ssti,xss}.md`
+**Priority:** Medium — byte-identical duplication across 4 files is painful when edited. Investigated in PR #6; Claude Code's `skills:` frontmatter preloads skill content into subagent context at startup — architecturally feasible.
+**Trigger:** next T18b prompt edit that hits drift, OR after PR #6 demonstrates the byte-identity test has caught drifts in practice.
+**Suggested fix:** extract the ~300-line Step 3.5d section to a skill entry; list the skill in each per-agent `skills:` frontmatter. Prototype to verify the preload order preserves the prompt's intended position in the subagent's context.
 
 ### BACKLOG-PR6-11 — Attribute-access lint for `import screw_agents.adaptive as X; X.unknown`
 **Source:** I2 edge case (PR #6)
 **File:** `src/screw_agents/adaptive/lint.py`
-**Priority:** Low — requires attribute-access analysis; common case covered
-by I2.
-**Trigger:** a real adaptive script uses aliased imports + accesses a
-non-existent attribute, OR a user reports lint-pass-then-execute-fail.
-**Suggested fix:** extend AST walker to track `import X as Y` bindings
-and validate `Y.attr` against `screw_agents.adaptive.__all__`.
+**Priority:** Low — requires attribute-access analysis; common case covered by I2.
+**Trigger:** a real adaptive script uses aliased imports + accesses a non-existent attribute, OR a user reports lint-pass-then-execute-fail.
+**Suggested fix:** extend AST walker to track `import X as Y` bindings and validate `Y.attr` against `screw_agents.adaptive.__all__`.
 
 ### BACKLOG-PR6-12 — Level 3 review-markdown hash binding (cryptographic)
 **Source:** Phase 3b PR #6 design Q6; rejected Level 3 during brainstorm
 **File:** TBD — would add `review_markdown_sha256` to registry entries
-**Priority:** Low — only if threat model escalates (e.g., future UI
-auto-populates reviews). Current source-hash binding closes the realistic
-attacker path.
+**Priority:** Low — only if threat model escalates (e.g., future UI auto-populates reviews). Current source-hash binding closes the realistic attacker path.
 **Trigger:** threat-model change making source-only binding insufficient.
+**Suggested fix:** TBD (would require `review_markdown_sha256` field in staging registry entries + `promote_staged_script` re-verification against the review markdown displayed to the user).
 
 ### BACKLOG-PR6-13 — Phase 4 autoresearch hook into sign_adaptive_script
-**Source:** Phase 3b PR #6 design Q4; Option D preserved the direct-sign
-wrapper for this consumer.
+**Source:** Phase 3b PR #6 design Q4; Option D preserved the direct-sign wrapper for this consumer.
+**File:** `src/screw_agents/engine.py::sign_adaptive_script` (already in place); Phase 4 autoresearch module (not yet written)
 **Priority:** Phase 4 work (not standalone)
-**Trigger:** Phase 4 autoresearch scaffolding needs a programmatic
-script-signing path after automated review.
-**Suggested approach:** existing `engine.sign_adaptive_script` is already
-the right API; Phase 4's autoresearch module uses it directly after its
-own review produces approved source + meta.
+**Trigger:** Phase 4 autoresearch scaffolding needs a programmatic script-signing path after automated review.
+**Suggested approach:** existing `engine.sign_adaptive_script` is already the right API; Phase 4's autoresearch module uses it directly after its own review produces approved source + meta. BACKLOG-PR6-22 (`sign_adaptive_script` retirement / C1-closure migration) is the counter-force — retiring the direct-sign tool BEFORE Phase 4 wires in would break this path. Sequencing: Phase 4 lands first, THEN PR6-22 retirement can proceed with the autoresearch module as the test-bed consumer.
 ```
 
-Also review whether the ongoing implementation of T3-T22 surfaced additional follow-up items that belong in the same section (e.g., T4 `promote_staged_script` reviewer findings, T6 sweep edge cases, T21 integration-test findings). If so, append them as `BACKLOG-PR6-14..` etc.
+Insert these 5 entries in the correct numeric position (between PR6-08 and PR6-14) to maintain monotonic numeric ordering in the section.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 4: Clean up BACKLOG-PR6-49 marked [RESOLVED]**
+
+`BACKLOG-PR6-49` is marked `[RESOLVED — T9 auto-resolution]` — move it from the follow-ups section to Shipped (PR #6) with a note referencing T9 commit `e91fe42`.
+
+- [ ] **Step 5: Commit T24a**
 
 ```bash
 git add docs/DEFERRED_BACKLOG.md
-git commit -m "docs(phase3b-c1): shipped + follow-up updates in DEFERRED_BACKLOG (T24)"
+git commit -m "docs(phase3b-c1): T24a backlog reorg — C1+I1-I6 shipped, absorbed items, PR6-09..13 appended"
 ```
+
+---
+
+#### T24b — Phase-4 readiness triage tags
+
+- [ ] **Step 1: Define the triage-tag vocabulary**
+
+Add a section header to `docs/DEFERRED_BACKLOG.md` (right after the file's top-of-file intro) introducing the tag system:
+
+```markdown
+## Phase-4 Readiness Triage
+
+Every active backlog entry below carries a `**Phase-4 readiness:**` tag with one of:
+
+- `blocker` — must be addressed before Phase 4 can start. Affects the surfaces Phase 4 autoresearch exercises (scan_full scale, benchmark ingestion path, signing-path programmatic consumers, trust-layer, exclusions model).
+- `nice-to-have` — would help Phase 4 ergonomics or performance, but not correctness-critical. Phase 4 can start with these unaddressed; they'd be nice polish before Phase 4 lands.
+- `phase-7-scoped` — deferred until Phase 7 (multi-process MCP server) work. Single-process screw-agents is unaffected.
+- `retire` — trigger has not fired and the risk/value has decayed; candidate for deletion if no trigger activates by a named future milestone.
+
+Entries already in `## Shipped` / `## Shipped (PR #6)` do NOT carry this tag — they're done.
+```
+
+- [ ] **Step 2: Tag all active entries**
+
+For every `### BACKLOG-*` or `### T*-*` entry in the active sections (Trust-layer polish / Phase 3c / Phase 4+ / Phase 7 / Project-wide / Phase 3b PR #5 findings (empty after T24a) / Phase 3b PR #6 follow-ups), add a `**Phase-4 readiness:**` line after the existing `**Priority:**` / `**Source:**` header block. Default placement: immediately after the last header line, before `**Why deferred:**`.
+
+Tagging guidance (implementer judgment — if a tag is unclear, pick the more conservative one and note it):
+
+| Tag | Typical entries | Rationale |
+|---|---|---|
+| `blocker` | `T-FULL-P1` (scan_full scale), `T19-M1`/`T19-M2`/`T19-M3` (SARIF/CSV/exclusion semantics used by Phase 4), `BACKLOG-PR6-13` (autoresearch hook — actually built BY Phase 4, but sequencing implications) | Directly affects Phase 4's scan + autoresearch surfaces |
+| `nice-to-have` | `T5-M4`, `T8-M4`, `T9-I2`, `T10-I2` (performance), `T-ORCHESTRATOR-SCHEMA` (orchestrator determinism), `T16-M1..M4` (model polish), `BACKLOG-PR6-10` (skill refactor), `BACKLOG-PR6-22` (sign retirement, post-Phase-4) | Ergonomic / performance / determinism improvements; Phase 4 can start without them |
+| `phase-7-scoped` | `T6-M1`, `T6-M4`, `T9-I1` (concurrency), `BACKLOG-PR6-09` (registry compaction at scale), `T8-Sec2` (preexec_fn thread-safety) | Explicitly tagged to Phase 7 triggers (multi-process MCP, concurrency) |
+| `retire` | Candidates: any entry whose trigger was stated as "when X happens" and X has been ruled out by a decision since. Most likely retire candidates: `T4-M6` (trust.py split — repeatedly surveyed, trigger doesn't fire), `BACKLOG-PR6-12` (Level 3 hash binding — explicitly rejected at brainstorm), cosmetic PR6 entries whose files are unlikely to be touched again for months | Low-probability-of-ever-firing; can be revisited at Phase 4 open |
+
+The 73 PR #6 entries skew overwhelmingly to `nice-to-have` / `retire` — they're cosmetic polish from re-review cycles. Most of Phase 3c sandbox-hardening entries are `nice-to-have` unless the sandbox is targeted by adversarial script research (then `blocker`).
+
+**Judgment calls to surface to Marco, not decide unilaterally:**
+- `BACKLOG-PR6-13` (Phase 4 autoresearch hook) — is it a `blocker` or `nice-to-have`? It's literally Phase-4 scope itself, so tagging as `blocker` is circular. Recommend `nice-to-have` with a note "tracked BY Phase 4 build, not blocker to starting Phase 4".
+- `T-FULL-P1` (scan_full scale) — current tag says HIGH priority, Phase 4 prerequisite. Confirm `blocker`.
+- `BACKLOG-PR6-22` (sign_adaptive_script retirement) — Phase 4 needs the direct-sign path (per PR6-13), so RETIREMENT is post-Phase-4. Tag `nice-to-have` with a "post-Phase-4" note.
+
+- [ ] **Step 3: Produce a tag-summary table at the top of the triage section**
+
+After the tag-vocabulary header from Step 1, add a one-table summary:
+
+```markdown
+### Tag summary (as of T24b)
+
+| Tag | Count | Key entries |
+|---|---|---|
+| `blocker` | <N> | T-FULL-P1, T19-M1/M2/M3 (Phase 4 output surfaces) |
+| `nice-to-have` | <N> | Performance + ergonomics polish |
+| `phase-7-scoped` | <N> | Concurrency / multi-process items |
+| `retire` | <N> | Trigger-unfired / low-probability candidates |
+
+**Phase 4 gate:** the `blocker` count must drop to 0 before Phase 4's step 4.0 (D-01 Rust benchmark corpus) can start. Current blockers: T-FULL-P1 (scan_full scale) + T19-M1/M2/M3 (if autoresearch uses SARIF/CSV output in volume). See `docs/PROJECT_STATUS.md` §Phase 4 Prerequisites for scheduling.
+```
+
+Fill in the counts AFTER the tagging pass completes. Recount if `retire` candidates get re-tagged during Marco's review.
+
+- [ ] **Step 4: Commit T24b**
+
+```bash
+git add docs/DEFERRED_BACKLOG.md
+git commit -m "docs(phase3b-c1): T24b Phase-4 readiness triage tags + summary table"
+```
+
+---
+
+#### T24c — PROJECT_STATUS.md refresh
+
+The `docs/PROJECT_STATUS.md` file was last updated 2026-04-12 and says "Current Phase: Phase 2 Complete". Three phases have shipped since: Phase 3a (2026-04-17), Phase 3b PR #4 (2026-04-18), Phase 3b PR #5 (2026-04-20), and PR #6 is in-flight (T0-T23 complete as of 2026-04-23, merge planned in T26).
+
+**Note:** edit the worktree copy (`.worktrees/phase-3b-c1-staging/docs/PROJECT_STATUS.md`), not the main branch. The update lands on the PR #6 branch and ships with the merge per Marco's directive.
+
+- [ ] **Step 1: Update the "Last updated" header + "Current Phase" line**
+
+At the top of `docs/PROJECT_STATUS.md`:
+- Change `> Last updated: 2026-04-12` to `> Last updated: 2026-04-23`
+- Change `## Current Phase: Phase 2 Complete — Claude Code Integration` to `## Current Phase: Phase 3b PR #6 in-flight — C1 Staging Architecture`
+- Rewrite the narrative paragraph under the Current Phase header to reflect: Phase 2 complete (PR #4/#5 2026-04-11/12), Phase 3a complete (PR #6-9 series 2026-04-16/17), Phase 3b PR #4 complete (#10, 2026-04-18), Phase 3b PR #5 complete (#11, 2026-04-20), Phase 3b PR #6 in-flight on branch `phase-3b-c1-staging` (expected merge T26).
+
+- [ ] **Step 2: Update the "Full Phase Plan" table**
+
+The table at `## Full Phase Plan (from PRD §12)` (around line 399) has stale status flags:
+- Phase 2 — `Complete (PR #4 2026-04-11, PR #5 2026-04-12)` — KEEP (accurate)
+- **Phase 3** row needs split into Phase 3a + Phase 3b (PRD §12 has them as one, but execution shipped them separately):
+  - Phase 3a — **Complete** (PR #6-#9 series, merged 2026-04-16/17)
+  - Phase 3b — **In-flight** (PR #4 + PR #5 merged 2026-04-18/20; PR #6 branch `phase-3b-c1-staging`, T0-T23 complete, merge pending T26)
+- Phase 3c — **Deferred** — sandbox hardening sweep (seccomp filter + thread-safety + dedup; see DEFERRED_BACKLOG §Phase 3c)
+- Phase 4 — **Pending, hard-gated on D-01 + T-FULL-P1 + T19-M1/M2/M3** (link to the triage section)
+
+- [ ] **Step 3: Add new "Phase 4 Prerequisites" section**
+
+After the Full Phase Plan table, add a section explicitly enumerating what must land before Phase 4 starts:
+
+```markdown
+## Phase 4 Prerequisites (hard gates)
+
+Phase 4 (Autoresearch & Self-Improvement) cannot start until the following are in place:
+
+### D-01 — Rust benchmark corpus from RustSec (Deferred Obligations)
+**Status:** DEFERRED since Phase 0.5
+**Why gating:** Phase 4 step 4.0 IS D-01. See ADR-014 and `docs/research/benchmark-tier4-rust-modern.md`.
+**Estimated scope:** ~24 verified CVE candidates + synthetic SSTI fixtures. Medium effort.
+
+### T-FULL-P1 — Paginate scan_full + agent-relevance filter
+**Status:** DEFERRED since Phase 3a X1-M1 (PR #9)
+**Why gating:** `scan_full` is non-paginated and agent-relevance-blind. At the current ~10-agent count it's already marginal; at CWE-1400 expansion (41 agents per `docs/AGENT_CATALOG.md`) it's unusable. Phase 4 autoresearch uses `scan_full` in volume.
+**Estimated scope:** ~500-700 LOC (pagination + lazy fetch + relevance pre-filter). Separate focused PR.
+
+### T19-M1/M2/M3 — Merged-findings surface in SARIF, CSV, exclusion semantics, structured format
+**Status:** DEFERRED since Phase 3b T19
+**Why gating:** If Phase 4 autoresearch consumes SARIF or CSV output in volume (likely) OR correlates exclusions with merged findings (the autoresearch FP-learning loop), these deferrals affect correctness not just ergonomics.
+**Estimated scope:** ~170 LOC + tests. Can ship as one Phase-4-prep PR.
+
+### D-02 — Detection-rate validation thresholds (SAMPLE COMPLETE)
+**Status:** Pipeline validated (PR #3 2026-04-11), full run + threshold optimization DEFERRED to Phase 4 autoresearch loop
+**Why gating:** Not a hard blocker to STARTING Phase 4 — autoresearch IS the threshold-tuning loop. But the benchmark run feeds D-01's corpus. Sequenced inside Phase 4, not before.
+
+**When returning to Phase 4:** Re-read ADR-014 + `docs/research/benchmark-tier4-rust-modern.md`. Audit DEFERRED_BACKLOG §"Phase-4 Readiness Triage" for any `blocker` entries added since this doc was refreshed. Update the counts + D-01/T-FULL-P1 status before starting step 4.0.
+```
+
+- [ ] **Step 4: Update "Deferred Obligations" table to cross-reference DEFERRED_BACKLOG**
+
+The top-of-file `## Deferred Obligations` table tracks D-01 + D-02. Add a third row pointing readers to DEFERRED_BACKLOG for the broader backlog:
+
+```markdown
+| D-03 (pointer) | Broader deferred backlog (124 entries post-T24) | Across all phases | Various — see DEFERRED_BACKLOG §"Phase-4 Readiness Triage" | — | **TRIAGED** — see DEFERRED_BACKLOG.md for `blocker` / `nice-to-have` / `phase-7-scoped` / `retire` tags |
+```
+
+- [ ] **Step 5: Commit T24c**
+
+```bash
+git add docs/PROJECT_STATUS.md
+git commit -m "docs(phase3b-c1): T24c PROJECT_STATUS refresh — Phase 3a/3b current state + Phase 4 gate section"
+```
+
+---
+
+**Cross-plan sync commit:** after T24a+T24b+T24c land, update `docs/PHASE_3B_C1_PLAN.md` T24 closeout paragraph (normal closeout flow) summarizing the three sub-steps' outcomes + any new backlog counts.
 
 ---
 
