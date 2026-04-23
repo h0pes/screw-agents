@@ -496,9 +496,11 @@ Expected: only `tests/test_adaptive_subagent_prompts.py` has failures. Empirical
 git add tests/test_adaptive_subagent_prompts.py
 git commit -m "test(phase3b-c2): pre-update assertions for chain-subagents refactor (RED)
 
-Flip 11 polarity assertions + delete 9 obsolete parametrized tests +
-add 9 new assertions for scan.md orchestration. After this commit the
-test suite is RED on ~20 assertions — expected; T2-T6 walk implementation
+2 polarity-flip rewrites + 9 obsolete test deletions (8 parametrized ×
+4 agents + 1 non-parametrized = 33 cases) + 8 new test functions
+(including 1 file-absence + 1 trust-path Option S assertion from
+fix-up) for scan.md orchestration. After this commit + fix-up the test
+suite is RED on ~11 assertions — expected; T2-T6 walk implementation
 to green.
 
 Preserves all 12 stable assertions (15-layer stack, injection fence,

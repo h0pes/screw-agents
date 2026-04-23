@@ -470,7 +470,15 @@ def test_scan_md_dispatches_plugin_namespaced_reviewer() -> None:
 
 def test_scan_md_phrase_grammar_locked() -> None:
     """Post-C2 spec §4.2 D2: phrase grammar includes approve, confirm-high
-    (C2-new for HIGH-risk UX friction), confirm-stale, confirm-<8hex>, reject."""
+    (C2-new for HIGH-risk UX friction), confirm-stale, confirm-<8hex>, reject.
+
+    Uses word-boundary matching so `approve` doesn't match `disapprove` and
+    `reject` doesn't match `rejection`. For `confirm-` family: `\\bconfirm-\\b`
+    matches any `confirm-<wordchar...>` form (e.g., `confirm-high`,
+    `confirm-stale`, `confirm-a…` hex) — the trailing `\\b` matches the
+    non-word→word transition between `-` and the first char of the suffix.
+    """
+    import re
     _, body = _parse_subagent_file(_SCAN_COMMAND_FILE)
     required_phrases = [
         "approve",
@@ -480,8 +488,9 @@ def test_scan_md_phrase_grammar_locked() -> None:
         "confirm-",
     ]
     for phrase in required_phrases:
-        assert phrase in body, (
-            f"scan.md missing approval phrase token: `{phrase}`"
+        assert re.search(rf"\b{re.escape(phrase)}\b", body), (
+            f"scan.md missing approval phrase token: `{phrase}` "
+            f"(word-boundary match)"
         )
 
 
@@ -549,13 +558,12 @@ def test_per_agent_files_instruct_fenced_json_return() -> None:
 def test_scan_md_contains_full_scope_list_domains_branch() -> None:
     """Post-C2 Option A: scan.md's `full` branch dispatches domain
     orchestrators via list_domains (no more screw-full-review). The branch
-    must reference list_domains and iterate per-domain dispatch."""
+    must reference list_domains; the `list_domains` assertion alone
+    covers the full-scope branch (the MCP tool is only invoked there)."""
     _, body = _parse_subagent_file(_SCAN_COMMAND_FILE)
     assert "list_domains" in body, (
         "scan.md missing list_domains reference (full scope branch)"
     )
-    # Sanity: full scope is documented
-    assert "full" in body.lower()
 
 
 def test_scan_md_verifies_trust_before_promote() -> None:
