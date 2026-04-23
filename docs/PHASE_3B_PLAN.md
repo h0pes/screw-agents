@@ -5787,4 +5787,19 @@ Only after step 7 does Phase 4 implementation begin — matching the strict sequ
 
 ---
 
+## Post-Phase-3b Follow-Up: PR #6 (C1 Staging Architecture)
+
+PR #5's round-trip validation surfaced a C1 trust-invariant regression (the
+approve path regenerated source bytes after the human review, so the signed
+artifact could differ from what was reviewed). PR #6 is the follow-up that
+closes C1 architecturally by introducing a staging→promote flow where the
+bytes the user reviews are the bytes that get signed, plus I1-I6 polish and
+5 adjacent backlog items bundled for coherent delivery.
+
+The authoritative plan lives at `docs/PHASE_3B_C1_PLAN.md` (28 tasks T0-T27,
+~6500 lines). This PHASE_3B_PLAN.md intentionally does NOT duplicate that
+content — the C1 plan is the single source of truth for PR #6.
+
+---
+
 *End of Phase 3b implementation plan.*
