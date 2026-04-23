@@ -5309,80 +5309,258 @@ If T19's implementation changes either of these, the fix is a 1-2 LOC scan.md ed
 
 - [ ] **Step 1: Rewrite file with three actions: list, remove, stale**
 
-Replace the existing `list` + `remove` Bash blocks with MCP tool call blocks. Add new `stale` subcommand.
+Replace the existing `list` + `remove` Bash blocks (current file lines 38-88 use `uv run python -c "from screw_agents.cli.adaptive_cleanup import ..."`) with MCP tool call blocks in the plugin's canonical **function-call syntax**. Add new `stale` subcommand.
 
-Skeleton:
+**Precedents the implementer MUST match (non-negotiable):**
+
+1. **Frontmatter** — keep `name: screw:adaptive-cleanup` as line 2 with the existing `description:` on line 3. Precedents:
+   - `plugins/screw/commands/scan.md:2-3` (`name: screw:scan` + `description:`).
+   - `plugins/screw/commands/learn-report.md:2-3` (`name: screw:learn-report` + `description:`).
+   - `plugins/screw/commands/adaptive-cleanup.md:2-3` (existing; do NOT drop the `name:` field).
+2. **MCP tool-call syntax** — `mcp__screw-agents__<tool>({...JSON args...})` function-call form. Precedent: `plugins/screw/agents/screw-sqli.md:329` (and four more call sites in screw-sqli/cmdi/ssti/xss/full-review). Do NOT use a `{"tool": "...", "arguments": {...}}` envelope — that form appears nowhere in the plugin.
+3. **List-action UX** — preserve the compact-block rendering of current lines 49-57 (one block per script with name/description, created/created_by, domain, signing, findings_produced/last_used, target_patterns, stale warning). Do NOT downgrade to a 3-column table.
+4. **Stale-detection semantic section** — the current "Stale-detection semantic" section (lines 102-120) explains when `list`'s per-script `stale` flag fires (AST pattern resolution via `_check_stale`). This documentation MUST be preserved verbatim (it documents the `list` action, which T19 does not change semantically). Re-scope it under the `list` action and re-title to "List action — per-script stale detection (AST pattern-based)" so it is unambiguous which "stale" it describes.
+5. **Two distinct "stale" concepts** — the word "stale" now has two meanings in this file. Call them out explicitly at the top of the file AND in each action's header:
+   - **Per-script stale** (surfaced by `list`): a signed adaptive script whose declared `target_patterns` no longer have matching call sites in the project AST. Script is intact; its target code is gone.
+   - **Orphan-staging stale** (swept by `stale`): an unpromoted/unrejected staging directory under `.screw/staging/{session_id}/` older than the configured threshold (residue from an abandoned review cycle). Nothing was ever signed; the staged bytes are about to be cleaned up.
+
+Skeleton (escaping inside this fenced block is for plan-rendering; the implementer writes real backticks in the file):
 
 ```markdown
 ---
-description: Inspect and clean up adaptive analysis scripts (list, remove, stale sweep)
+name: screw:adaptive-cleanup
+description: "Inspect and clean up adaptive analysis scripts. Usage: /screw:adaptive-cleanup [list|remove <name>|stale [--max-age-days N] [--preview]]"
 ---
 
-# /screw:adaptive-cleanup
+# /screw:adaptive-cleanup — Adaptive Script Cleanup
 
-## Actions
+Inspect and clean up adaptive analysis scripts stored under
+\`.screw/custom-scripts/\` **and** orphaned staging directories under
+\`.screw/staging/\`. The two storage locations have independent lifecycles
+and the word "stale" means different things in each:
 
-### \`list\` — show all adaptive scripts
+- **Per-script stale** (surfaced by \`list\`) — a signed script under
+  \`.screw/custom-scripts/\` whose \`target_patterns\` no longer match any
+  call sites in the project AST. The script is cryptographically intact;
+  its target code is gone. Retire it with \`remove\`.
+- **Orphan-staging stale** (swept by \`stale\`) — an unpromoted and
+  unrejected staging directory under \`.screw/staging/{session_id}/\`
+  older than the configured threshold (default 14 days). Residue from a
+  review cycle the user walked away from. Nothing was ever signed.
 
-Use the MCP tool \`list_adaptive_scripts\`:
+## Syntax
 
-\`\`\`json
-{
-  "tool": "list_adaptive_scripts",
-  "arguments": {"project_root": "{abs path of current project}"}
-}
+\`\`\`
+/screw:adaptive-cleanup [list|remove <script-name>|stale [--max-age-days N] [--preview]]
 \`\`\`
 
-Render the response as a table with columns: Name, Signed By, Stale.
-For stale scripts, show the \`stale_reason\` on the next indented line.
+## Default action: \`list\` — show all adaptive scripts
 
-If no scripts, render: "No adaptive scripts present in \`.screw/custom-scripts/\`."
+When invoked without args (or with \`list\`), call:
 
-### \`remove <name>\` — delete one adaptive script pair
-
-1. Confirm with the user: "Remove \`{name}\` from .screw/custom-scripts/? Type 'yes' to confirm."
-2. On user typing exactly 'yes':
-
-\`\`\`json
-{
-  "tool": "remove_adaptive_script",
-  "arguments": {"project_root": "{abs path}", "script_name": "{name}", "confirmed": true}
-}
+\`\`\`
+mcp__screw-agents__list_adaptive_scripts({
+  "project_root": "<absolute path to current project root>"
+})
 \`\`\`
 
-3. Render result.
+Render each entry in the returned \`scripts\` array as a compact block
+(one block per script, matching the existing UX):
 
-### \`stale [--max-age-days N] [--preview]\` — sweep stale staging artifacts
-
-For inspecting + cleaning the \`.screw/staging/\` directory tree. Removes
-orphaned staging entries from scans that were never approved/rejected, plus
-post-promote/reject residue.
-
-Call:
-
-\`\`\`json
-{
-  "tool": "sweep_stale_staging",
-  "arguments": {
-    "project_root": "{abs path}",
-    "max_age_days": {N if provided; else null (uses config default 14)},
-    "dry_run": {true if --preview else false}
-  }
-}
+\`\`\`
+<name> — <description>
+  created: <created> by <created_by>
+  domain: <domain>
+  signing: <✓ signed | ⚠ unsigned>   (from \`validated\`: True → signed)
+  findings produced: <findings_produced>   last used: <last_used or "never">
+  target patterns: <comma-separated list>
+  <if stale:> ⚠ stale — <stale_reason>
 \`\`\`
 
-Render report: sessions scanned / removed, scripts removed (with reason + age),
-tampered-preserved (with evidence path). For --preview, add a note that no
-filesystem changes were made.
+If \`scripts\` is empty, render: "No adaptive scripts present in
+\`.screw/custom-scripts/\`."
+
+If the listing contains ANY stale scripts, surface a discoverability prompt:
+
+> Stale scripts found: \`<name1>, <name2>\`.
+> Run \`/screw:adaptive-cleanup remove <name>\` to retire them.
+
+### List action — per-script stale detection (AST pattern-based)
+
+A script is **stale** when NONE of its declared \`target_patterns\` have
+matching call sites in the current project AST. This matches the
+executor's \`_check_stale\` semantic in
+\`src/screw_agents/adaptive/executor.py\` exactly (same \`find_calls\`
+helper, same semantics) so staleness here aligns with what would happen
+if you tried to run the script via \`--adaptive\`.
+
+Edge cases:
+
+- \`target_patterns: []\` → NOT flagged as stale (we can't judge without
+  patterns). \`stale_reason\` becomes \`"no target_patterns declared"\` —
+  surfaced informationally, not as a ⚠ warning.
+- Any \`target_pattern\` has at least one matching call site → NOT stale.
+- ALL \`target_patterns\` have zero call sites → stale; \`stale_reason\`
+  names the dead patterns.
+
+Stale scripts still pass Layer 3 signature verification (they're
+cryptographically intact; they just have no code left to analyze).
+\`remove\` is the safe way to retire them.
+
+## Remove action: \`remove <script-name>\`
+
+Deletion is **destructive** — the \`.py\` and \`.meta.yaml\` files are
+unlinked from disk. Historical \`.screw/findings/\` and
+\`.screw/learning/\` artifacts produced by the script survive (they're
+audit records, not live state).
+
+### Confirmation gate (MANDATORY)
+
+Before calling the backend, you MUST prompt the user:
+
+> About to delete \`.screw/custom-scripts/<name>.py\` +
+> \`<name>.meta.yaml\`. Confirm with \`yes\` or \`cancel\`.
+
+- If the user responds with anything other than \`yes\`
+  (case-insensitive), treat as cancel and report
+  "Removal cancelled by user."
+- Only after explicit \`yes\` do you invoke the backend:
+
+\`\`\`
+mcp__screw-agents__remove_adaptive_script({
+  "project_root": "<absolute path>",
+  "script_name": "<name>",
+  "confirmed": true
+})
+\`\`\`
+
+Show the returned \`status\`, \`script_name\`, and (on error) \`message\`
+to the user.
+
+### Backend return statuses
+
+| Status | Meaning |
+|---|---|
+| \`removed\` | Both \`.py\` and \`.meta.yaml\` existed and were deleted (or at least one of the pair existed and its present companion was cleaned up). |
+| \`error\` + \`confirmation_required\` | Slash command bug — \`confirmed=true\` was not sent. User must re-invoke. |
+| \`error\` + \`not_found\` | Neither file existed. |
+| \`error\` + \`delete_failed\` | A filesystem error prevented deletion; \`message\` explains. |
+
+## Stale-sweep action: \`stale [--max-age-days N] [--preview]\`
+
+Sweeps orphaned staging directories under \`.screw/staging/\`. These
+accumulate when a reviewer starts an adaptive cycle, a script is staged
+via \`stage_adaptive_script\`, but the reviewer neither approves nor
+rejects it before walking away (or the process crashes). The
+staging directory sits there indefinitely unless cleaned up.
+
+### Arguments
+
+- \`--max-age-days N\` (optional): override the threshold in days.
+  Omitted → the backend reads \`staging_max_age_days\` from
+  \`.screw/config.yaml\` (default \`14\` when the config key is absent).
+  Clamped to \`[1, 365]\` server-side.
+- \`--preview\` (optional): dry-run. Report what would be removed
+  without touching the filesystem and without appending \`swept\`
+  audit events to the registry.
+
+### Call
+
+\`\`\`
+mcp__screw-agents__sweep_stale_staging({
+  "project_root": "<absolute path>",
+  "max_age_days": <N if --max-age-days N provided; else omit (engine falls back to config)>,
+  "dry_run": <true if --preview provided; else false>
+})
+\`\`\`
+
+### Response shape + rendering
+
+The tool returns:
+
+- \`status\`: \`"ok"\` on success; error otherwise.
+- \`max_age_days\`: the effective threshold used (post-clamp, post-fallback).
+- \`dry_run\`: echoes the request flag.
+- \`sessions_scanned\`: count of session directories examined.
+- \`sessions_removed\`: count of session directories removed (0 on dry-run).
+- \`scripts_removed\`: list of \`{session_id, script_name, age_days, reason}\`.
+- \`tampered_preserved\`: list of \`{session_id, script_name, evidence_path}\` —
+  staging dirs where sha256-mismatch was detected and the dir was KEPT
+  for forensic review (never swept even when old).
+
+Render as:
+
+\`\`\`
+Swept .screw/staging/ at threshold <max_age_days> days
+  <if dry_run:> (--preview: no filesystem changes made)
+
+  sessions scanned: <sessions_scanned>
+  sessions removed: <sessions_removed>
+  scripts removed:
+    - <session_id>/<script_name> — <reason> (age <age_days>d)
+    ... (one line per entry)
+  tampered (preserved for review):
+    - <session_id>/<script_name> — evidence at <evidence_path>
+    ... (one line per entry; section omitted if list is empty)
+\`\`\`
+
+### Security note
+
+The \`tampered_preserved\` list is never empty silently — when it has
+entries, flag it prominently in the output (e.g., a ⚠ warning line
+above the block). A tampered staging directory means someone wrote to
+\`.screw/staging/\` after \`stage_adaptive_script\` produced the sha256;
+that is a tamper signal, not noise. Do NOT offer to re-sweep with a
+shorter threshold or otherwise suggest the operator bypass the
+preservation.
+
+## Examples
+
+\`\`\`
+/screw:adaptive-cleanup
+/screw:adaptive-cleanup list
+/screw:adaptive-cleanup remove qb-check
+/screw:adaptive-cleanup stale
+/screw:adaptive-cleanup stale --preview
+/screw:adaptive-cleanup stale --max-age-days 30
+/screw:adaptive-cleanup stale --max-age-days 7 --preview
+\`\`\`
+
+## Notes
+
+- This command is on-demand. \`list\` walks the project AST once per
+  script (O(project_files × patterns)) — acceptable for interactive
+  cleanup, but NOT cheap enough to call on every scan. If you need
+  scan-time stale filtering, the executor already handles that via
+  \`_check_stale\` during \`execute_script\`.
+- The three MCP tools (\`list_adaptive_scripts\`, \`remove_adaptive_script\`,
+  \`sweep_stale_staging\`) are registered at \`src/screw_agents/server.py\`
+  lines 188-209 and dispatched to engine methods at
+  \`src/screw_agents/engine.py\` lines 1061-1436. This slash command is
+  the only consumer of \`sweep_stale_staging\` in the plugin today; the
+  other two tools are also consumed by future tooling.
 ```
 
-- [ ] **Step 2: Verify no residual `uv run python -c` in the file**
+- [ ] **Step 2: Verify the cut-over is complete and precedents are matched**
 
-Run: `grep "uv run" plugins/screw/commands/adaptive-cleanup.md`
-Expected: 0 matches (full cut-over to MCP tools).
+Negative assertions (must report 0 matches each — the old shelling-out
+and the rejected envelope form must both be gone):
 
-Run: `grep "cli.adaptive_cleanup" plugins/screw/commands/adaptive-cleanup.md`
-Expected: 0 matches (old import pattern gone).
+```bash
+grep -c "uv run" plugins/screw/commands/adaptive-cleanup.md           # expect 0
+grep -c "cli.adaptive_cleanup" plugins/screw/commands/adaptive-cleanup.md  # expect 0
+grep -c '"tool":' plugins/screw/commands/adaptive-cleanup.md          # expect 0
+```
+
+Positive assertions (must match the counted values):
+
+```bash
+grep -c "mcp__screw-agents__" plugins/screw/commands/adaptive-cleanup.md  # expect 3 (list, remove, stale)
+grep -c "^name: screw:adaptive-cleanup" plugins/screw/commands/adaptive-cleanup.md  # expect 1 (frontmatter preserved)
+grep -c "Per-script stale\|Orphan-staging stale" plugins/screw/commands/adaptive-cleanup.md  # expect 2+ (both "stale" concepts named)
+```
+
+If any assertion fails, the rewrite is incomplete — fix before committing.
 
 - [ ] **Step 3: Commit**
 
