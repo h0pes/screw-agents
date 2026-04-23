@@ -15,18 +15,18 @@ Every active backlog entry below carries a `**Phase-4 readiness:**` tag with one
 
 Entries already in `## Shipped` / `## Shipped (PR #6)` do NOT carry this tag — they're done.
 
-### Tag summary (as of T24b, 2026-04-23)
+### Tag summary (as of T24 fix-up, 2026-04-23)
 
-116 active entries tagged (Shipped / Shipped (PR #6) entries excluded).
+114 active entries tagged (Shipped / Shipped (PR #6) entries excluded).
 
 | Tag | Count | Key entries |
 |---|---|---|
-| `blocker` | 4 | T-FULL-P1 (scan_full scale), T19-M1 / T19-M2 / T19-M3 (SARIF + CSV + exclusion semantics consumed by Phase 4 autoresearch output) |
-| `nice-to-have` | 92 | Performance, ergonomics, determinism polish; majority of PR6-01..78 cosmetic entries; sandbox hardening (Phase 3c) |
+| `blocker` | 5 | T-FULL-P1 (scan_full scale), T19-M1 / T19-M2 / T19-M3 (SARIF + CSV + exclusion semantics consumed by Phase 4 autoresearch output), BACKLOG-PR6-22 (sign_adaptive_script retirement / C1 full closure) |
+| `nice-to-have` | 90 | Performance, ergonomics, determinism polish; majority of PR6-01..78 cosmetic entries; sandbox hardening (Phase 3c) |
 | `phase-7-scoped` | 5 | T6-M1, T6-M4, T9-I1 (multi-process concurrency); T8-Sec2 (preexec thread-safety); BACKLOG-PR6-09 (registry compaction at scale) |
-| `retire` | 15 | Trust-layer T4-M6 + T1-M1 (flagged for Marco review — triggers repeatedly not fired) + 13 PR6-* cosmetic/docstring entries whose files are unlikely to be revisited |
+| `retire` | 14 | Trust-layer T4-M6 + T1-M1 (flagged for Marco review — triggers repeatedly not fired) + 12 PR6-* cosmetic/docstring entries whose files are unlikely to be revisited |
 
-**Phase 4 gate:** the `blocker` count must drop to 0 before Phase 4's step 4.0 (D-01 Rust benchmark corpus) can start. Current blockers: T-FULL-P1 (paginate `scan_full` + agent-relevance filter — Phase 4 autoresearch uses it in volume at 41-agent expansion) + T19-M1 / T19-M2 / T19-M3 (SARIF / CSV / exclusion-semantics of merged findings — Phase 4 FP-learning loop consumes these). See `docs/PROJECT_STATUS.md` §"Phase 4 Prerequisites (hard gates)" for scheduling + estimated scope.
+**Phase 4 gate:** the `blocker` count must drop to 0 before Phase 4's step 4.0 (D-01 Rust benchmark corpus) can start. Current blockers: T-FULL-P1, T19-M1/M2/M3, BACKLOG-PR6-22. T-FULL-P1 (paginate `scan_full` + agent-relevance filter — Phase 4 autoresearch uses it in volume at 41-agent expansion); T19-M1/M2/M3 (SARIF / CSV / exclusion-semantics of merged findings — Phase 4 FP-learning loop consumes these); BACKLOG-PR6-22 (direct-sign MCP tool retirement — must land before Phase 4's autoresearch module is designed against the direct-sign API, preventing future migration debt). See `docs/PROJECT_STATUS.md` §"Phase 4 Prerequisites (hard gates)" for scheduling + estimated scope.
 
 ---
 
@@ -574,38 +574,6 @@ At CWE-1400 expansion scale (41 agents × ~5-7k tokens prompt each + all code), 
 
 **Estimated scope:** ~5-10 LOC of prompt text + round-trip validation.
 
-### T11-N1 — Signature-path regression test for `execute_script`
-**Source:** Phase 3b PR #4 Task 11 quality review (commit `da24076`), 2026-04-18
-**File:** `tests/test_adaptive_executor.py`
-**Priority:** Medium (Layer 3 integration untested end-to-end)
-**Phase-4 readiness:** `nice-to-have` — E2E signature-path test; Phase 4 has its own signing tests in autoresearch scaffolding
-
-**Why deferred:** The executor's Layer 3 signature verification
-(`verify_script(source, meta, config)`) is currently covered only via the
-`skip_trust_checks=True` test gate plus `trust.py`'s existing unit-test
-suite for `verify_script` itself. There is NO end-to-end test that
-constructs a real Ed25519-signed script + metadata, runs it through
-`execute_script(skip_trust_checks=False)`, and asserts `SignatureFailure`
-on tampered signature / `AdaptiveScriptResult` on valid signature.
-Requires a signing helper that generates a test fixture (private key →
-sign script bytes → embed signature in meta YAML). Task 13 (init-trust
-CLI) will ship a reusable signing helper which makes the fixture trivial
-to write.
-
-**Trigger:** When Task 13 (init-trust CLI) lands a reusable signing helper
-OR when a regression in `trust.verify_script` integration is suspected.
-
-**Suggested approach:**
-1. Add a pytest fixture that generates an ephemeral Ed25519 keypair via
-   `cryptography.hazmat.primitives.asymmetric.ed25519.Ed25519PrivateKey.generate()`.
-2. Fixture signs a sample script + metadata (via `trust.sign_content` +
-   `trust.canonicalize_script`).
-3. Fixture seeds `.screw/config.yaml` with the corresponding public key
-   as a `script_reviewer`.
-4. Two tests: valid-signature happy path + tampered-signature `SignatureFailure`.
-
-**Estimated scope:** ~60 LOC (fixture + 2 tests). Small PR.
-
 ### T11-M2 — Opt-in `require_all_target_patterns` metadata flag
 **Source:** Phase 3b PR #4 Task 11 quality review (commit `da24076`), 2026-04-18
 **File:** `src/screw_agents/adaptive/executor.py` `_is_stale` + `src/screw_agents/models.py` `AdaptiveScriptMeta`
@@ -634,44 +602,6 @@ because partial target_patterns are out-of-date, OR when autoresearch
 4. Document in the adaptive-scripts authoring guide (Task 14+).
 
 **Estimated scope:** ~20 LOC + 4 tests. Trivial.
-
-### T11-N2 — `MetadataError` exception wrapper for meta-load failures
-**Source:** Phase 3b PR #4 Task 11 quality review (commit `da24076`), 2026-04-18
-**File:** `src/screw_agents/adaptive/executor.py`
-**Priority:** Low (code polish, not functional)
-**Phase-4 readiness:** `nice-to-have` — MetadataError wrapper for meta-load failures; shipped via T7-T13 in PR #6 already
-
-**Why deferred:** `execute_script` currently propagates raw `yaml.YAMLError`
-(from `yaml.safe_load(meta_path.read_text(...))`) and raw
-`pydantic.ValidationError` (from `AdaptiveScriptMeta(**raw)`) to callers.
-Both propagate cleanly but break the executor's otherwise-consistent
-exception-family design (`LintFailure` / `HashMismatch` / `SignatureFailure`
-are all executor-owned `RuntimeError` subclasses). Task 12's MCP tool
-wiring will need to catch and surface these; a unified `MetadataError`
-wrapper would give that layer a single exception-family to catch.
-
-**Trigger:** When Task 12 implements the MCP tool wiring and needs to
-surface meta-load errors cleanly to the subagent caller.
-
-**Suggested approach:**
-1. Add `MetadataError(RuntimeError)` to the executor module.
-2. Wrap the two error sources in `execute_script`:
-   ```python
-   try:
-       meta_raw = yaml.safe_load(meta_path.read_text(encoding="utf-8"))
-   except yaml.YAMLError as exc:
-       raise MetadataError(f"invalid YAML in {meta_path}: {exc}") from exc
-   try:
-       meta = AdaptiveScriptMeta(**meta_raw)
-   except ValidationError as exc:
-       raise MetadataError(f"malformed metadata in {meta_path}: {exc}") from exc
-   ```
-3. Task 12's MCP tool handler catches `MetadataError` alongside the
-   other 3 executor exception types.
-4. Add test `test_executor_wraps_meta_load_errors` that asserts
-   `MetadataError` is raised on invalid YAML and on malformed meta.
-
-**Estimated scope:** ~15 LOC + 2 tests. Trivial.
 
 ### T16-M1 — Server-side context-required match detection (vs LLM-reported)
 **Source:** Phase 3b PR #5 Task 16 implementation, 2026-04-19
@@ -845,6 +775,28 @@ Auto-resolved by T9's deletion of `src/screw_agents/cli/adaptive_cleanup.py`
 — the docstring drift no longer exists because the module no longer
 exists.
 
+### T11-N1 — Signature-path regression test for `execute_script`
+**Source:** Phase 3b PR #4 Task 11 quality review (commit `da24076`), 2026-04-18
+**Shipped in:** PR #6 (phase-3b-c1-staging), commit `dc3762c` (T14)
+
+Absorbed by T14: end-to-end signature-path regression test for
+`execute_adaptive_script` covers Layer 2 (hash) AND Layer 3
+(Ed25519 signature) on a real signed script + metadata. Tests
+assert `SignatureFailure` on tampered signature and
+`AdaptiveScriptResult` on valid signature, closing the
+Layer 3 integration gap identified in T11's review.
+
+### T11-N2 — `MetadataError` exception wrapper for meta-load failures
+**Source:** Phase 3b PR #4 Task 11 quality review (commit `da24076`), 2026-04-18
+**Shipped in:** PR #6 (phase-3b-c1-staging), commit `c3c52fd` (T12)
+
+Absorbed by T12: `execute_script` now wraps both `yaml.YAMLError`
+and `pydantic.ValidationError` from meta-loading as
+`MetadataError(RuntimeError)`. The MCP tool wiring catches the
+single unified exception family alongside `LintFailure` /
+`HashMismatch` / `SignatureFailure`, closing the
+exception-family-design inconsistency identified in T11's review.
+
 ### Round-trip test validation summary (PR #5 → PR #6)
 
 The PR #5 round-trip manual test (2026-04-20) surfaced C1 + I1-I6
@@ -979,13 +931,13 @@ assert list(stage_dir.iterdir()) == []
 **Trigger:** threat-model change making source-only binding insufficient.
 **Suggested fix:** TBD (would require `review_markdown_sha256` field in staging registry entries + `promote_staged_script` re-verification against the review markdown displayed to the user).
 
-### BACKLOG-PR6-13 — Phase 4 autoresearch hook into sign_adaptive_script
-**Source:** Phase 3b PR #6 design Q4; Option D preserved the direct-sign wrapper for this consumer.
-**File:** `src/screw_agents/engine.py::sign_adaptive_script` (already in place); Phase 4 autoresearch module (not yet written)
+### BACKLOG-PR6-13 — Phase 4 autoresearch hook into staged-signing path
+**Source:** Phase 3b PR #6 design Q4; revised 2026-04-23 (T24 fix-up) to migrate onto stage→promote per Option (b) architectural closure.
+**File:** `src/screw_agents/engine.py::stage_adaptive_script` + `promote_staged_script` (already in place); Phase 4 autoresearch module (not yet written)
 **Priority:** Phase 4 work (not standalone)
-**Phase-4 readiness:** `nice-to-have` — Phase 4 autoresearch builds this hook itself; tracked BY Phase 4 build, not blocker to starting Phase 4
+**Phase-4 readiness:** `nice-to-have` — Phase 4 autoresearch builds this hook itself; tracked BY Phase 4 build, not prerequisite to starting Phase 4 (tagging `blocker` would be circular — Phase 4 IS the consumer)
 **Trigger:** Phase 4 autoresearch scaffolding needs a programmatic script-signing path after automated review.
-**Suggested approach:** existing `engine.sign_adaptive_script` is already the right API; Phase 4's autoresearch module uses it directly after its own review produces approved source + meta. BACKLOG-PR6-22 (`sign_adaptive_script` retirement / C1-closure migration) is the counter-force — retiring the direct-sign tool BEFORE Phase 4 wires in would break this path. Sequencing: Phase 4 lands first, THEN PR6-22 retirement can proceed with the autoresearch module as the test-bed consumer.
+**Suggested approach:** Phase 4's autoresearch module MUST use `stage_adaptive_script` → `promote_staged_script`, NOT the direct `sign_adaptive_script` path (which is retired per BACKLOG-PR6-22). After automated review produces approved source + meta, the module stages the script, performs its own verification step against the staged bytes, then calls `promote_staged_script` to sign and install. Blocked-by: BACKLOG-PR6-22 must be resolved before PR6-13 lands so the autoresearch module migrates onto stage→promote from day 1 (not after-the-fact).
 
 ### BACKLOG-PR6-14 — `append_registry_entry` `fsync` omission rationale
 **Source:** Phase 3b PR #6 T3 Opus re-review (M1), 2026-04-21
@@ -1052,7 +1004,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-21 — Fallback-path UX: reviewer-responsibility disclaimer
 **Source:** Phase 3b PR #6 T4 Opus re-review (I-opus-3), 2026-04-21
 **File:** `src/screw_agents/engine.py` — `promote_staged_script` fallback-path error message
-**Phase-4 readiness:** `retire` — cosmetic/docstring-wording polish — trigger unlikely to fire
+**Phase-4 readiness:** `nice-to-have` — trust-path UX safety disclaimer on the promote fallback message; not a blocker but should not be silently dropped
 **Why deferred:** The `fallback_required` response message hands the user the sha prefix and instructs them to paste it back. A user who did not personally review the staged bytes can copy-paste their way to a confirm. This is a design tradeoff (Q3 spec accepted) rather than a vulnerability, but the UX should explicitly name the reviewer's responsibility.
 **Trigger:** Next UX polish pass on the approve-flow slash commands, OR if a user reports confusion / a post-incident review flags the UX.
 **Suggested fix:** append to the fallback message body: "You are confirming the staging bytes' sha matches what you reviewed at stage time. If you did not personally review these bytes, run `reject` instead."
@@ -1061,11 +1013,11 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-22 — `sign_adaptive_script` retirement / C1-closure migration
 **Source:** Phase 3b PR #6 T4 Opus re-review (I-opus-2), 2026-04-21
 **File:** `src/screw_agents/engine.py` — `sign_adaptive_script`; `src/screw_agents/server.py` dispatcher; `plugins/screw/agents/screw-{sqli,cmdi,ssti,xss}.md` subagent prompts
-**Phase-4 readiness:** `nice-to-have` — sign_adaptive_script retirement; post-Phase-4 — retiring BEFORE Phase 4 wires in the autoresearch hook would break that path
-**Why deferred:** T4 closed C1 for the staged-path approve flow via `promote_staged_script`. The direct `sign_adaptive_script` MCP tool still accepts `source` / `meta` arguments — the regeneration vector at the MCP boundary. Fully closing C1 requires: (a) migrating subagent prompts to always use stage→promote, (b) retiring or dev-gating the direct-sign path, (c) updating the autoresearch hook (BACKLOG-PR6-13) to the staged path as well.
-**Trigger:** After subagent prompt migrations ship (T15-T17), AND autoresearch scaffolding uses staged path.
-**Suggested approach:** Phased retirement — (1) add deprecation warning to `sign_adaptive_script` responses pointing to the staged path; (2) remove from default tool set, keep as `screw-agents migrate-sign` CLI for legacy flows; (3) eventually delete.
-**Estimated scope:** ~50 LOC deprecation shim + multi-file prompt migrations + tests + release notes.
+**Phase-4 readiness:** `blocker` — architectural closure of C1; must be resolved before Phase 4's autoresearch module (BACKLOG-PR6-13) is designed against the direct-sign API
+**Why deferred:** T4 closed C1 for the staged-path approve flow via `promote_staged_script`. The direct `sign_adaptive_script` MCP tool still accepts `source` / `meta` arguments — the regeneration vector at the MCP boundary. PR #6's T15-T17 subagent-prompt rewrite removed `sign_adaptive_script` from all 5 adaptive-mode subagent frontmatters, so no LLM-flow consumer exists today; the tool remains exposed server-side for programmatic consumers only. Fully closing C1 requires: (a) keeping subagent prompts on stage→promote (done in T15-T17), (b) retiring or dev-gating the direct-sign path at the server boundary, (c) ensuring the autoresearch hook (BACKLOG-PR6-13) is built against stage→promote from day 1. Phase 4 must be designed against stage→promote from day 1; tagging as blocker now prevents designing the autoresearch module against the direct-sign interface and creating a migration debt.
+**Trigger:** Before Phase 4 step 4.0 (D-01 Rust benchmark corpus) — retire the direct-sign tool now, while it has zero real callers, rather than after the autoresearch module acquires it as a consumer.
+**Suggested approach:** Direct retirement (no deprecation shim needed since no live callers exist) — (1) delete `engine.sign_adaptive_script`, (2) remove dispatcher entry in `server.py::_dispatch_tool`, (3) update the 1-2 remaining test files that exercise the direct path, (4) enforce Phase 4's autoresearch module is built against `stage_adaptive_script` → `promote_staged_script` from day 1.
+**Estimated scope:** ~50 LOC (delete direct-sign code path + dispatcher entry + test migrations) plus design-discipline that Phase 4's autoresearch module uses stage→promote.
 
 ### BACKLOG-PR6-23 — Tamper-path `append_registry_entry` failure handling
 **Source:** Phase 3b PR #6 T4 Opus re-review (I-opus-5), 2026-04-21
