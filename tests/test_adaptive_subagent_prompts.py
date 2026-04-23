@@ -556,3 +556,37 @@ def test_scan_md_contains_full_scope_list_domains_branch() -> None:
     )
     # Sanity: full scope is documented
     assert "full" in body.lower()
+
+
+def test_scan_md_verifies_trust_before_promote() -> None:
+    """Post-C2 spec §7 (trust-path): main session MUST verify the staged
+    script's signed fingerprint (via `verify_trust` MCP tool) BEFORE calling
+    `promote_staged_script`. If scan.md doesn't document the `verify_trust`
+    step, the main-session LLM won't perform the check, allowing a
+    trust-path-compromised script to promote — defeating the C1 (PR #6)
+    Option D signing isolation guarantee.
+
+    This carries the C1 trust-path precedent forward to C2's main-session
+    orchestrator: signing happens at stage time (inside MCP engine),
+    verification happens at promote time (main-session responsibility, post-C2).
+    """
+    _, body = _parse_subagent_file(_SCAN_COMMAND_FILE)
+    assert "verify_trust" in body, (
+        "scan.md missing verify_trust reference — spec §7 requires main "
+        "session to verify signed fingerprint before promote "
+        "(security: C1 Option D isolation guarantee rides on this check)"
+    )
+    # Ordering smoke: first verify_trust mention must precede the LAST
+    # promote_staged_script mention. Not a strict proof of correct sequencing
+    # (T10 live round-trip validates runtime order), but catches the gross
+    # case where verify_trust is only documented after promote.
+    first_verify = body.find("verify_trust")
+    last_promote = body.rfind("promote_staged_script")
+    assert first_verify >= 0 and last_promote >= 0, (
+        "scan.md must reference both verify_trust and promote_staged_script"
+    )
+    assert first_verify < last_promote, (
+        "scan.md's first verify_trust reference comes AFTER the last "
+        "promote_staged_script reference — ordering suggests verify_trust "
+        "isn't instructed before promote (spec §7 violated)"
+    )
