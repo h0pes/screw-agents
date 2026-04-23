@@ -61,6 +61,59 @@ The Task tool is unavailable (or allowlist-restricted to empty) inside subagent 
 
 ---
 
+## Phase 3b-C2 T1-review minors + coverage gaps (discovered 2026-04-23)
+
+Non-blocking minors and spec-coverage gaps surfaced during T1 (pre-update assertions) spec + quality review rounds. All are safe to defer past C2 merge; each has a natural resolution point.
+
+### BACKLOG-C2-M-SR-T1-M2 — Schema-key subset (5 of §5.1's 10 / §6.1's 7)
+**Phase-4 readiness:** `non-blocker` — test-quality polish; no correctness impact on C2 ship path
+**Source:** Phase 3b-C2 T1 spec review, 2026-04-23 (SR-T1-M2)
+**File:** `tests/test_adaptive_subagent_prompts.py::test_scan_md_contains_subagent_return_schema_keys`
+
+**Why deferred:** The test asserts 5 of spec §5.1's 10 top-level keys (`pending_reviews`, `session_id`, `trust_status`, `scan_subagent`, `scan_metadata`). This is defensible per plan step 8 intent — the 5-key set matches the "consumed-by-main" subset from §6.1's pseudocode — but the defensive-parse guard in §6.1 validates 7 keys (adding `schema_version`, `yaml_findings_accumulated`, `adaptive_mode_engaged`). The current 5-key assertion leaves 2 validated keys unasserted, weakening the coupling between §6.1's guard and the prompt surface. T2 author may choose whether expanding to the 7-key set buys better drift protection.
+
+**Remediation sketch:** In T2 (scan.md rewrite) or immediately after, decide between (a) keeping the 5-key minimal set as "what main parses" (documenting the rationale in the docstring), or (b) expanding to §6.1's 7 validated keys. If (b), also close BACKLOG-C2-M-QR-T1-M5 in the same edit.
+
+**Estimated scope:** ~5 LOC test + docstring clarification.
+
+### BACKLOG-C2-M-QR-T1-M4 — Commit-message template vs immutable commit inconsistency
+**Phase-4 readiness:** `non-blocker` — process lesson; no code fix needed
+**Source:** Phase 3b-C2 T1 quality review, 2026-04-23 (QR-T1-M4)
+**File:** `docs/PHASE_3B_C2_PLAN.md` Step 11 (historical pattern only)
+
+**Why deferred:** When a plan is amended mid-task (as commit `ab884c4` adjusted T1 counts after `176f7ac` shipped), embedded commit-message templates in the plan should also update so a future implementer following the plan literally doesn't re-introduce stale language into a NEW commit. In this case, the historical commit `176f7ac` cannot be rewritten (already pushed, immutable), and the plan was updated in the T1 fix-up to match reality. No further action needed — this entry is a process record, not an actionable fix.
+
+**Remediation sketch:** None. Documented here to preserve the lesson: whenever amending a plan that contains literal commit-message templates, sync both (plan text AND template block) in the same edit.
+
+### BACKLOG-C2-M-QR-T1-M5 — Schema-key docstring substring-match caveat
+**Phase-4 readiness:** `non-blocker` — docstring polish; folds into BACKLOG-C2-M-SR-T1-M2 if that is resolved
+**Source:** Phase 3b-C2 T1 quality review, 2026-04-23 (QR-T1-M5)
+**File:** `tests/test_adaptive_subagent_prompts.py::test_scan_md_contains_subagent_return_schema_keys`
+
+**Why deferred:** The test uses plain substring matching (`key in body`). A key name could appear in an unrelated example snippet inside scan.md (e.g., an illustrative JSON fragment that isn't the real §5.1 schema). Docstring should note this weakness so future readers don't mistake the test for a strict schema validator. Low-value alone; best folded into the schema-key expansion in BACKLOG-C2-M-SR-T1-M2.
+
+**Remediation sketch:** Add one sentence to the test docstring: "Substring-match; does not validate the keys appear in the authoritative §5.1 schema block rather than an example snippet — stronger matching would require parsing scan.md's fenced blocks. Considered acceptable at format-smoke scope." Ideally combined with the §6.1 7-key expansion.
+
+### BACKLOG-C2-GAP-SPEC-5-3 — Spec §5.3 defensive-parse (schema_version mismatch) not asserted
+**Phase-4 readiness:** `non-blocker` — coverage gap at the prompt-format-smoke layer; runtime path is T10 / engine-pytest territory
+**Source:** Phase 3b-C2 T1 spec review, 2026-04-23 (GAP-SPEC-5-3)
+**File:** `tests/test_adaptive_subagent_prompts.py` (candidate home) OR engine-level test in a future PR
+
+**Why deferred:** Spec §5.3 requires the main session to reject / downgrade scan-subagent returns whose `schema_version` does not match the version main expects — a defensive parse to catch drift between engine schema versions and scan-subagent emit templates. Prompt-format-smoke tests lock structure only; they cannot verify the main session actually rejects an older-version payload at runtime. The T10 live round-trip is the natural acceptance check, supplemented by an engine-level pytest that injects a bad `schema_version`.
+
+**Remediation sketch:** Either (a) add T10 E2E acceptance criterion "inject schema_version='0.0-fake' into a mocked subagent return; verify scan.md downgrades to YAML-only + logs a warning"; or (b) add an engine-level integration test once a dedicated entrypoint exists for the main-session parse loop (post-C2 refactor may expose it).
+
+### BACKLOG-C2-GAP-SPEC-6-1 — Spec §6.1 sequential approve/reject invariant not asserted
+**Phase-4 readiness:** `non-blocker` — prompt-level smoke can't cover; T10 or future integration test territory
+**Source:** Phase 3b-C2 T1 spec review, 2026-04-23 (GAP-SPEC-6-1)
+**File:** `tests/test_adaptive_subagent_prompts.py` (not the right home) OR T10 E2E / future integration test
+
+**Why deferred:** Spec §6.1 requires main-session review loop to process pending_reviews one-at-a-time (no batch `approve all`; each approval promotes → executes → accumulates before proceeding to the next). Prompt-format-smoke cannot assert runtime ordering; asserting the NEGATIVE ("no batch language") is too brittle (any informal list in prose trips it). Live round-trip is the right surface.
+
+**Remediation sketch:** Add T10 E2E acceptance criterion "stage 2 scripts in one adaptive turn; verify main session prompts user for approval on #1 before staging #2 is accessible" (exact UX wording per implementer). Alternatively, once a mock-harness exists for main-session orchestration, pytest can assert the call order on stubbed MCP tools.
+
+---
+
 ## Phase-4 Readiness Triage
 
 Every active backlog entry below carries a `**Phase-4 readiness:**` tag with one of:
