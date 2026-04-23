@@ -6546,6 +6546,30 @@ git commit -m "docs(phase3b-c1): T24c PROJECT_STATUS refresh — Phase 3a/3b cur
 
 **Cross-plan sync commit:** after T24a+T24b+T24c land, update `docs/PHASE_3B_C1_PLAN.md` T24 closeout paragraph (normal closeout flow) summarizing the three sub-steps' outcomes + any new backlog counts.
 
+**T24 Opus 4.7 re-review (2026-04-23):** Spec review APPROVED (zero Critical/Important, 2 Category-B/C Minors on count-literal + tag-placement cosmetics). Quality review APPROVED-WITH-FIXES with **1 Critical + 1 Important + 3 Category-A Minors**. Fix-up applied at commit `dead218` covering all review findings plus Option (b) architectural adoption for the C1 closure narrative. Final state: 3 sub-step commits + 1 fix-up = 4 commits across 2 files, **114 active backlog entries** + 5 blocker Phase-4 prerequisites.
+
+- **Pre-audit rescope (commit `9a7b1d6`, PA-T24-R)**: Second RESCOPE plan-fix in PR #6 (after T23's). Original T24 was "mechanical backlog reorg". Pre-audit surfaced that the broader backlog has 124 total entries (51 main + 73 PR #6 follow-ups) and Marco explicitly wanted "the whole picture clear" for the Phase 4 transition. Rescoped to Option C: T24a mechanical reorg + T24b Phase-4 readiness triage tags + T24c PROJECT_STATUS refresh. Three separate commits per precedence (T24a must complete before T24b before T24c).
+
+- **Implementer deliverables**:
+  - T24a (commit `b53d5e1`): Moved C1 + I1-I6 + T-STAGING-ORPHAN-GC + T3-M1 + BACKLOG-PR6-49 to new `## Shipped (PR #6)` section; marked T10-M1 as PARTIAL SHIPPED; filled reserved BACKLOG-PR6-09..13 slots with original-plan design content. −36 lines (deletions offset additions).
+  - T24b (commit `0feb06d`): Added `## Phase-4 Readiness Triage` section + 4-tag vocabulary; tagged 116 active entries with `blocker` / `nice-to-have` / `phase-7-scoped` / `retire`; tag-summary table + Phase 4 gate paragraph. +142 lines.
+  - T24c (commit `9d80172`): Rewrote PROJECT_STATUS "Current Phase" narrative to reflect Phase 3a + Phase 3b PR #4/#5 shipped + PR #6 in-flight; split Phase 3 row into 3a/3b/3c in the phase table; added new `## Phase 4 Prerequisites (hard gates)` section with D-01 + T-FULL-P1 + T19-M1/M2/M3 + D-02; added D-03 pointer row to Deferred Obligations. +35 lines.
+
+- **Fix-up (commit `dead218`)** addressing review findings + Option (b) adoption:
+  - **C-R1 (Critical)**: T11-N1 (shipped by T14 `dc3762c`) and T11-N2 (shipped by T12 `c3c52fd`) moved from Project-wide section to Shipped (PR #6). The T24a implementer missed these due to ambiguous plan-step-2 phrasing.
+  - **I-1 (Important)**: BACKLOG-PR6-21 retagged `retire` → `nice-to-have`. Reviewer invoked `feedback_never_silently_downgrade_security` — a trust-path UX safety disclaimer shouldn't be "delete if no trigger fires".
+  - **M-A1 Option (b) adoption (security-design choice)**: BACKLOG-PR6-22 (`sign_adaptive_script` retirement) retagged `nice-to-have` → `blocker`. Becomes 5th Phase 4 prerequisite. Marco's call: retiring the direct-sign MCP tool NOW (while it has zero real callers) is cheaper than after Phase 4's autoresearch module acquires it. Prevents designing the autoresearch hook against the regeneration vector. BACKLOG-PR6-13 (Phase 4 autoresearch hook) text updated to specify MUST use stage→promote and blocked-by PR6-22. PROJECT_STATUS line 26 C1 narrative rewritten from "Closes the C1 trust-invariant violation" to "Closes C1 for the LLM-flow surface (staged approve path locked by T21 exit gate); full closure via sign_adaptive_script retirement is a Phase 4 prerequisite".
+
+- **Final tag summary (authoritative at T24 fix-up HEAD `dead218`)**: **5 blocker / 90 nice-to-have / 5 phase-7-scoped / 14 retire = 114 active entries** across `docs/DEFERRED_BACKLOG.md`'s 6 active sections. Phase 4 blocker list: T-FULL-P1 (scan_full scale), T19-M1/M2/M3 (output-surface semantics), BACKLOG-PR6-22 (C1 full closure).
+
+- **Retire candidates flagged for Marco's periodic review**: T4-M6 (trust.py split — trigger repeatedly not fired), T1-M1 (AdaptiveScriptMeta runtime flags — T20 bypassed), and 13 cosmetic PR #6 entries (BACKLOG-PR6-{06,07,08,17,24,51,56,60,62,63,67,72} — pure docstring/comment polish; retire if no Phase-4-era trigger fires).
+
+Score since T7: **16 tasks 0-Important (via fix-up) / 1 task 1-Important via initial fix-up (T14) / 1 task 1-Important transient-to-T19 (T18, resolved)**. T24 is the ONLY PR #6 task that required a substantive fix-up for a Critical finding — attributable to an ambiguous plan-step phrasing ("check for any other absorbed items" which didn't explicitly enumerate T11-N1/N2) that the T24a implementer interpreted conservatively. The miss is on ME (plan authorship), not the implementer.
+
+**Strategic outcome (Marco's original question):** the 4 surfaces that block Phase 4 are now explicitly named and cross-referenced in both PROJECT_STATUS (hard-gate section) and DEFERRED_BACKLOG (blocker tag + current-blockers paragraph). Phase 4 cannot start until: (a) D-01 Rust benchmark corpus built, (b) T-FULL-P1 scan_full paginated, (c) T19-M1/M2/M3 output-surface semantics for merged findings, (d) BACKLOG-PR6-22 sign_adaptive_script retirement. Estimated pre-Phase-4 scope: ~600-700 LOC (T-FULL-P1) + ~170 LOC (T19-M*) + ~50 LOC (PR6-22) = ~850 LOC across 2-3 focused PRs + D-01 corpus research. Realistic Phase 4 start: 2-3 weeks of prep work after PR #6 merges.
+
+T24 commits: `b53d5e1` (T24a) → `0feb06d` (T24b) → `9d80172` (T24c) → `dead218` (fix-up). Plan-fix precursor: `9a7b1d6`. Pre-audit as scope-challenge paid off again (following T23's precedent) — rescope from "mechanical reorg" to "strategic close-out" delivered the Phase 4 decision framework Marco explicitly asked for.
+
 ---
 
 ## Phase I — Merge + Validation (T25-T27)
