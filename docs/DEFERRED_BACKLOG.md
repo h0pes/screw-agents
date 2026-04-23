@@ -4,11 +4,38 @@
 
 ---
 
+## Phase-4 Readiness Triage
+
+Every active backlog entry below carries a `**Phase-4 readiness:**` tag with one of:
+
+- `blocker` — must be addressed before Phase 4 can start. Affects the surfaces Phase 4 autoresearch exercises (scan_full scale, benchmark ingestion path, signing-path programmatic consumers, trust-layer, exclusions model).
+- `nice-to-have` — would help Phase 4 ergonomics or performance, but not correctness-critical. Phase 4 can start with these unaddressed; they'd be nice polish before Phase 4 lands.
+- `phase-7-scoped` — deferred until Phase 7 (multi-process MCP server) work. Single-process screw-agents is unaffected.
+- `retire` — trigger has not fired and the risk/value has decayed; candidate for deletion if no trigger activates by a named future milestone.
+
+Entries already in `## Shipped` / `## Shipped (PR #6)` do NOT carry this tag — they're done.
+
+### Tag summary (as of T24b, 2026-04-23)
+
+116 active entries tagged (Shipped / Shipped (PR #6) entries excluded).
+
+| Tag | Count | Key entries |
+|---|---|---|
+| `blocker` | 4 | T-FULL-P1 (scan_full scale), T19-M1 / T19-M2 / T19-M3 (SARIF + CSV + exclusion semantics consumed by Phase 4 autoresearch output) |
+| `nice-to-have` | 92 | Performance, ergonomics, determinism polish; majority of PR6-01..78 cosmetic entries; sandbox hardening (Phase 3c) |
+| `phase-7-scoped` | 5 | T6-M1, T6-M4, T9-I1 (multi-process concurrency); T8-Sec2 (preexec thread-safety); BACKLOG-PR6-09 (registry compaction at scale) |
+| `retire` | 15 | Trust-layer T4-M6 + T1-M1 (flagged for Marco review — triggers repeatedly not fired) + 13 PR6-* cosmetic/docstring entries whose files are unlikely to be revisited |
+
+**Phase 4 gate:** the `blocker` count must drop to 0 before Phase 4's step 4.0 (D-01 Rust benchmark corpus) can start. Current blockers: T-FULL-P1 (paginate `scan_full` + agent-relevance filter — Phase 4 autoresearch uses it in volume at 41-agent expansion) + T19-M1 / T19-M2 / T19-M3 (SARIF / CSV / exclusion-semantics of merged findings — Phase 4 FP-learning loop consumes these). See `docs/PROJECT_STATUS.md` §"Phase 4 Prerequisites (hard gates)" for scheduling + estimated scope.
+
+---
+
 ## Trust-layer polish (was "Phase 3b Task 13", re-scoped 2026-04-19)
 
 ### T4-M6 — Split `src/screw_agents/trust.py` into a package
 **Source:** Phase 3a PR#1 punchlist (commit `27d147d`)
 **File:** `src/screw_agents/trust.py` (~552 lines after Task 7.1)
+**Phase-4 readiness:** `retire` — trigger has not fired across Phase 3b; repeatedly surveyed at T13/T17/T18a/T20 and rejected — flagged for Marco review
 **Why deferred:** ~~Phase 3b Task 13 (init-trust CLI) will naturally extend trust.py with key-generation utilities. Splitting now would mean churning the file twice.~~ REVISED 2026-04-19: Phase 3b T13 validate-script CLI was reviewed and found to only IMPORT existing trust.py functions, not extend them. The original split-avoidance rationale no longer applies; trigger revised accordingly.
 **Trigger:** When trust.py gains new exported functions (e.g., Phase 3b T17 screw-script-reviewer or T18 subagent-prompt integration may need new helpers) OR during a dedicated polish commit. Phase 3b T13 validate-script CLI does NOT extend trust.py — it only imports `canonicalize_script`, `load_config`, `sign_content`, and the internal helpers — so T13 is no longer a valid trigger. REVISED 2026-04-19 (post-T18a): T18a (`sign_adaptive_script` + `lint_adaptive_script` MCP tools) does NOT extend trust.py either — it imports the same internal helpers and places the shared canonicalization wrapper at `src/screw_agents/adaptive/signing.py` (adaptive-specific signing lives with adaptive code). T18a is no longer a valid trigger.
 **Suggested split:**
@@ -23,6 +50,7 @@
 ### T1-M1 — `AdaptiveScriptMeta` runtime-flag fields (dual-layer defense pattern)
 **Source:** Phase 3b PR #4 Task 1 quality review, 2026-04-18
 **File:** `src/screw_agents/models.py` `AdaptiveScriptMeta`
+**Phase-4 readiness:** `retire` — T20 surfaced the stale-script trigger but T20 shipped without needing runtime-flag fields; Exclusion dual-layer pattern now covers exclusion path fully — flagged for Marco review
 **Why deferred:** ~~Task 11-14 (executor + validate-script CLI) will need per-script trust state ("trusted", "warned", "quarantined", "allowed") on `AdaptiveScriptMeta`, mirroring the `Exclusion.quarantined` + `Exclusion.trust_state` runtime fields added in Phase 3a. Adding the fields speculatively in Task 1 was rejected — the exact field name and value set should be decided by the implementer who has the executor context.~~ REVISED 2026-04-19: T11 (shipped in PR #4) and T13 (bundled in PR #5) were both reviewed and found to NOT need runtime-flag fields. T11's executor returns `AdaptiveScriptResult.stale` as a top-level runtime flag and does not annotate the meta model itself; T13's validate-script writes only persisted fields (`signed_by`, `signature`, `validated`, `sha256`). First likely trigger is T20 stale-script detection (runtime `stale` annotation) or T21 adaptive-cleanup (user-visible trust state).
 **Trigger:** When the executor OR a CLI command needs to annotate `AdaptiveScriptMeta` at runtime (e.g., Phase 3b T20 stale-script detection may attach a `stale: True` runtime flag, or T21 adaptive-cleanup may want `quarantined`/`trust_state` annotations). Phase 3b T11 executor shipped without needing runtime state; T13 validate-script writes only persisted fields (`signed_by`, `signature`, `validated`, `sha256`). Neither is a trigger.
 **Suggested approach:** Mirror the `Exclusion` dual-layer defense exactly — `Field(default=..., exclude=True)` at the schema level + `_RUNTIME_ONLY_FIELDS` ClassVar set + `model_dump` override to catch caller-side `include=` edge cases (see `Exclusion._RUNTIME_ONLY_FIELDS` at `src/screw_agents/models.py` line ~262 and the `model_dump` override at line ~264 for the template). Don't skip the override — Pydantic v2's `include`/`exclude` precedence can let `include` win over field-level `exclude`, so the runtime override is the load-bearing second layer.
@@ -36,6 +64,7 @@
 **Source:** Phase 3b PR #4 Task 8 quality reviews (commits `7d07dc2`, `be9ccfc`), 2026-04-18
 **File:** `src/screw_agents/adaptive/sandbox/linux.py`
 **Priority:** **HIGH** (security depth) — currently the sandbox relies on bwrap's namespace + capability isolation for syscall-level defense; capability drop (`CapEff = 0`) blocks the most dangerous syscalls (ptrace, raw sockets, etc.) but is broader than necessary and offers less defense-in-depth than a real BPF-based seccomp filter.
+**Phase-4 readiness:** `nice-to-have` — Phase 4 autoresearch doesn't target the sandbox adversarially; multi-layer bwrap defense covers current threat model
 
 **Why deferred:** Implementing a proper seccomp filter requires either a libseccomp Python binding (`pyseccomp` or `seccomp-bpf`) or hand-rolling the BPF bytecode via `libc.prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, ...)`. Either path is significant work (~200-400 LOC, careful syscall allowlist tuning, per-Python-version compatibility testing). The Phase 3b sandbox already has structurally-correct multi-layer defense (17 properties locked by regression tests in `tests/test_adaptive_sandbox_linux_isolation.py`); seccomp is hardening, not gap closure.
 
@@ -58,6 +87,7 @@
 **Source:** Phase 3b PR #4 Task 8 quality reviews (commits `7d07dc2`, `be9ccfc`), 2026-04-18
 **File:** `src/screw_agents/adaptive/sandbox/linux.py` `_preexec()`
 **Priority:** Low (currently single-threaded; conditional)
+**Phase-4 readiness:** `phase-7-scoped` — preexec_fn thread-safety only matters when MCP server becomes multi-process
 
 **Why deferred:** Python's `subprocess` `preexec_fn` runs in the FORKED child between `fork()` and `exec()`. If the parent process has multiple threads concurrently allocating memory, the fork can deadlock on the GIL or on `malloc`'s internal locks (POSIX-fork-after-thread anti-pattern). screw-agents is currently single-threaded — the orchestrator runs one sandbox at a time per request — so the deadlock risk is zero today. Becomes relevant if the executor is ever parallelized (Task 11 + future) or the MCP server moves to a multi-process / multi-threaded model (Phase 7 — see existing T6-M1, T6-M4, T9-I1 entries for related concurrency risks).
 
@@ -75,6 +105,7 @@ Either path requires re-validating all 17 isolation properties (the rlimit value
 **Estimated scope:** 50-100 LOC + re-validation of isolation tests. Small-to-medium PR.
 
 ### T8-Sec3 — Rename `_SCRIPT_PROCESS_BUDGET` / `_BWRAP_HEADROOM` to reflect thread-counting semantics
+**Phase-4 readiness:** `nice-to-have` — naming-only polish; no correctness impact
 
 **Source:** T8 latent-bug fix (commit `7cff916`, 2026-04-19)
 **File:** `src/screw_agents/adaptive/sandbox/linux.py`
@@ -90,6 +121,7 @@ Either path requires re-validating all 17 isolation properties (the rlimit value
 **Source:** Phase 3b PR #4 Task 9 implementation, 2026-04-18
 **File:** `src/screw_agents/adaptive/sandbox/_common.py` (new) + linux.py + macos.py
 **Priority:** Low (code quality, not security gap)
+**Phase-4 readiness:** `nice-to-have` — host-side dedup is code-quality polish, not Phase 4 surface
 
 **Why deferred:** T9's macos.py duplicates 3 host-side helpers from linux.py
 verbatim (`_safe_read_findings`, `_clean_findings_path`,
@@ -124,6 +156,7 @@ need a fix that would have to be applied in two places.
 **Source:** Phase 3b T19 (commit `bff35b5`, 2026-04-19)
 **File:** `src/screw_agents/formatter.py` `_format_sarif` + `format_csv`
 **Priority:** Low — Markdown + JSON are the primary structured paths and both surface the field.
+**Phase-4 readiness:** `blocker` — Phase 4 autoresearch consumes SARIF / CSV output of merged findings in volume
 
 **What's shipped:** Phase 3b T19 adds `merged_from_sources: list[str] | None` to `Finding`. When a finding is the result of an augmentative merge (multiple scan sources detected the same `(file, line_start, cwe)`), the list carries `"<agent> (<severity>)"` entries in input order. Markdown renders a `**Sources:**` line after Description; JSON carries the field via `model_dump()` automatically.
 
@@ -149,6 +182,7 @@ need a fix that would have to be applied in two places.
 **Estimated scope:** ~30 LOC + 2 tests (one SARIF assertion, one CSV assertion). Trivial.
 
 ### T19-M2 — Per-source exclusion matching for merged findings
+**Phase-4 readiness:** `blocker` — Phase 4 FP-learning correlates exclusions against merged findings — per-source matching is correctness-critical
 
 **Source:** Phase 3b T19 quality review, 2026-04-19
 **File:** `src/screw_agents/results.py` (exclusion-match call site around line 200)
@@ -206,6 +240,7 @@ iteration helper + 3 regression tests. Medium complexity due to the
 exclusions_applied schema extension.
 
 ### T19-M3 — Structured `merged_from_sources` format (list[str] → list[dict])
+**Phase-4 readiness:** `blocker` — structured `merged_from_sources` format is the schema Phase 4 autoresearch reads
 
 **Source:** Phase 3b T19 quality review, 2026-04-19
 **File:** `src/screw_agents/models.py::Finding.merged_from_sources` +
@@ -261,6 +296,7 @@ evolvability concern.
 **Source:** X1-M1 (PR #9, 2026-04-17) — incremental dedup landed; full architectural fix deferred.
 **File:** `src/screw_agents/engine.py` `assemble_full_scan`, `plugins/screw/agents/screw-full-review.md`
 **Priority:** **HIGH** — `scan_full` is unusable at CWE-1400 expansion scale (41 agents per `docs/AGENT_CATALOG.md`).
+**Phase-4 readiness:** `blocker` — HIGH priority — scan_full is non-paginated + agent-relevance-blind; at 41-agent CWE-1400 expansion it's unusable; Phase 4 autoresearch uses scan_full in volume
 
 **Why deferred:** X1-M1 shipped incremental improvements to `assemble_full_scan`:
 - PR #9 T5: changed return shape from `list[dict]` to `dict` with top-level `prompts`
@@ -291,6 +327,7 @@ At CWE-1400 expansion scale (41 agents × ~5-7k tokens prompt each + all code), 
 ### T5-M4 — Lazy fingerprint computation in `verify_signature`
 **Source:** Phase 3a PR#1 punchlist (commit `27d147d`)
 **File:** `src/screw_agents/trust.py` `_fingerprint_public_key` and `verify_signature`
+**Phase-4 readiness:** `nice-to-have` — fingerprint compute cost; perf polish only
 **Why deferred:** Each successful verify computes the fingerprint even when the caller doesn't read `matched_key_fingerprint`. Trivial cost today; CLI batch verification could amplify.
 **Trigger:** When batch verification becomes a measurable cost (Phase 4 autoresearch loop or Phase 7 multi-tenant MCP).
 **Suggested fix:** Add `compute_fingerprint: bool = True` parameter to `verify_signature` OR make the fingerprint a `VerificationResult` cached property.
@@ -298,6 +335,7 @@ At CWE-1400 expansion scale (41 agents × ~5-7k tokens prompt each + all code), 
 ### T8-M4 — `record_exclusion` O(n²) verification cost
 **Source:** Phase 3a PR#1 punchlist (commit `27d147d`)
 **File:** `src/screw_agents/learning.py` `record_exclusion`
+**Phase-4 readiness:** `nice-to-have` — O(n²) verification cost at scale; Phase 4 scale may amplify but not blocker
 **Why deferred:** Tens of entries today; Phase 4+ autoresearch may record hundreds per run.
 **Trigger:** When `record_exclusion` calls dominate a per-run profile.
 **Suggested fix:** Cache verification results keyed on `(exclusion.id, exclusion.signature)` OR add a "skip re-verification on append" fast path.
@@ -305,6 +343,7 @@ At CWE-1400 expansion scale (41 agents × ~5-7k tokens prompt each + all code), 
 ### T9-I2 (record_exclusion path) — Atomic write in `learning.py`
 **Source:** Phase 3a PR#1 punchlist (commit `27d147d`)
 **File:** `src/screw_agents/learning.py` `record_exclusion` write
+**Phase-4 readiness:** `nice-to-have` — atomic write on single-record path; race window is small
 **Note:** CLI write paths (`cli/migrate_exclusions.py`, `cli/validate_exclusion.py`) already use `tmp.write_text + os.replace`. The `learning.py` `record_exclusion` path is the remaining non-atomic write.
 **Why deferred:** Single-record write; risk window is small at current scale.
 **Trigger:** When concurrent or high-frequency `record_exclusion` calls become possible.
@@ -313,6 +352,7 @@ At CWE-1400 expansion scale (41 agents × ~5-7k tokens prompt each + all code), 
 ### T10-I2 — Full-scan exclusion-load amplification
 **Source:** Phase 3a PR#1 punchlist (commit `27d147d`)
 **File:** `src/screw_agents/engine.py` `assemble_full_scan` / `assemble_domain_scan`
+**Phase-4 readiness:** `nice-to-have` — exclusion-load amplification; perf only
 **Why deferred:** Both methods call `assemble_scan` in a list comprehension; each iteration reloads exclusions independently. For an N-agent full scan, that's N×(parse+verify) where 1 would suffice. Task 10's I1 fix halved per-iteration cost but didn't touch per-scan amplification.
 **Trigger:** When full-scan latency becomes user-visible (Phase 4 autoresearch loop or large project benchmarks).
 **Suggested fix:** Scan-scoped cache at `assemble_full_scan` / `assemble_domain_scan` level — load exclusions once, pass through `assemble_scan` via an optional `_preloaded_exclusions` parameter (~15 lines).
@@ -324,6 +364,7 @@ At CWE-1400 expansion scale (41 agents × ~5-7k tokens prompt each + all code), 
 ### T6-M1 — TOCTOU race on `load_config` stub creation
 **Source:** Phase 3a PR#1 punchlist (commit `27d147d`)
 **File:** `src/screw_agents/trust.py` `load_config` stub-write block
+**Phase-4 readiness:** `phase-7-scoped` — TOCTOU only possible under multi-process load_config
 **Why deferred:** Single-process CLI is safe; concurrent `load_config` calls can only happen in multi-process MCP server.
 **Trigger:** Phase 7 multi-process MCP server work.
 **Suggested fix:** Use `os.open(path, O_CREAT | O_EXCL | O_WRONLY)` for atomic stub creation.
@@ -331,6 +372,7 @@ At CWE-1400 expansion scale (41 agents × ~5-7k tokens prompt each + all code), 
 ### T6-M4 — `load_config` `@lru_cache` with staleness invalidation
 **Source:** Phase 3a PR#1 punchlist (commit `27d147d`)
 **File:** `src/screw_agents/trust.py` `load_config`
+**Phase-4 readiness:** `phase-7-scoped` — load_config caching only matters under Phase 7 request volume
 **Why deferred:** Each call re-reads the file; fine for single-scan CLI; per-request disk hit in Phase 7 MCP server.
 **Trigger:** Phase 7 MCP server profiling.
 **Suggested fix:** `@lru_cache` keyed on `project_root` with mtime-based invalidation hook.
@@ -338,6 +380,7 @@ At CWE-1400 expansion scale (41 agents × ~5-7k tokens prompt each + all code), 
 ### T9-I1 — Concurrent `record_exclusion` race condition
 **Source:** Phase 3a PR#1 punchlist (commit `27d147d`)
 **File:** `src/screw_agents/learning.py` `record_exclusion`
+**Phase-4 readiness:** `phase-7-scoped` — concurrent record_exclusion race needs multi-process MCP
 **Why deferred:** Two concurrent calls both compute the same `next_seq` — second write overwrites the first. Single-process CLI never sees this.
 **Trigger:** Phase 7 multi-process MCP risk surface.
 **Suggested fix:** Wrap read-modify-write in `fcntl.flock` on a sibling `.lock` file. Lower-cost alternative: document the limitation in the docstring as "Not safe for concurrent invocation — external serialization required."
@@ -350,6 +393,7 @@ At CWE-1400 expansion scale (41 agents × ~5-7k tokens prompt each + all code), 
 **Source:** X1-M1 PR#9 T6 quality review, 2026-04-17 (gap pre-existing, not introduced by T6)
 **File:** `plugins/screw/agents/screw-injection.md` (and any future domain orchestrators)
 **Priority:** Medium — determinism regression, not a correctness bug.
+**Phase-4 readiness:** `nice-to-have` — determinism regression, not correctness; Phase 4 copes without
 
 **Why deferred:** Single-agent orchestrators like `plugins/screw/agents/screw-sqli.md` carry the full finding-object JSON schema + field-population rules (line_start precision, verbatim CWE/OWASP copy, severity/confidence guidance). Domain orchestrators (currently just `screw-injection.md`, more will land in Phase 3b) delegate analysis to the per-agent prompts via `prompts[agent_name]` but don't carry an output-contract schema themselves. Two LLM sessions analyzing the same code under `/screw:injection` may produce differently-formatted findings (different field coverage, different severity interpretations). Pre-existing gap — not introduced by X1-M1. Worth addressing before Phase 3b multiplies the number of domain orchestrators (copy-paste amplifies the gap).
 
@@ -366,6 +410,7 @@ At CWE-1400 expansion scale (41 agents × ~5-7k tokens prompt each + all code), 
 ### T10-M1 — `additionalProperties: false` on tool input schemas (PARTIAL SHIPPED PR #6)
 **Source:** Phase 3a PR#1 punchlist (commit `27d147d`)
 **File:** `src/screw_agents/engine.py` `list_tool_definitions` (and all sibling tool schemas)
+**Phase-4 readiness:** `nice-to-have` — PARTIAL shipped in PR #6 for the 6 new tools; remaining project-wide audit is schema-tightening polish, not blocker
 **Why deferred:** None of the existing Phase 2+ tools set this. Adding it to `verify_trust` alone would be inconsistent — this is a project-wide tightening that needs a dedicated polish commit covering all tools.
 
 **Partial shipped:** PR #6 T22 applied `additionalProperties: false` to the 6 new MCP tools shipped in this PR (`stage_adaptive_script`, `promote_staged_script`, `reject_staged_script`, `sweep_stale_staging`, `list_adaptive_scripts`, `remove_adaptive_script`) — locked by regression test `test_tool_definitions_pr6_new_tools_reject_additional_properties` in commit `43cdabe`. The project-wide audit of pre-Phase-3b tool schemas (scan_*, accumulate_findings, finalize_scan_results, record_exclusion, etc.) remains deferred.
@@ -376,6 +421,7 @@ At CWE-1400 expansion scale (41 agents × ~5-7k tokens prompt each + all code), 
 ### T16-M1 — Typed sub-models for `PatternSuggestion.evidence` / `DirectorySuggestion.evidence`
 **Source:** Phase 3a PR#2 Task 16 quality review (commit `bb3b7a0`)
 **File:** `src/screw_agents/models.py`
+**Phase-4 readiness:** `nice-to-have` — typed evidence sub-models polish
 **Why deferred:** Plan prescribes `dict[str, Any]`. Task 17/18/19 populate different evidence keys per feature, so typed sub-models need at least 2 variants. Deferring until the evidence-dict keys stabilize across Tasks 17–19 + Task 23 MCP output.
 **Trigger:** When the MCP wire format for `aggregate_learning` is frozen (end of PR#2) OR when a downstream consumer breaks because of an evidence-key typo.
 **Suggested fix:** Introduce `PatternEvidence` and `DirectoryEvidence` BaseModels; update aggregation.py to construct them; update tests. Enforces construction-time validation of evidence keys.
@@ -383,6 +429,7 @@ At CWE-1400 expansion scale (41 agents × ~5-7k tokens prompt each + all code), 
 ### T16-M2 — `generated_at: datetime` migration across all timestamp fields
 **Source:** Phase 3a PR#2 Task 16 quality review (commit `bb3b7a0`)
 **File:** `src/screw_agents/models.py` (`FPReport.generated_at`, `Exclusion.created`, and any future timestamp fields)
+**Phase-4 readiness:** `nice-to-have` — datetime migration consistency pass
 **Why deferred:** Task 16 inherits the str-convention from `Exclusion.created` (PR#1). Changing `FPReport.generated_at` alone would fragment the convention. A coordinated migration pass benefits from being one commit.
 **Trigger:** When a malformed-timestamp bug surfaces, OR during a formatter-polish commit that already touches timestamp handling.
 **Suggested fix:** Change all timestamp fields from `str` to `datetime`; add `model_config = ConfigDict(json_encoders={datetime: lambda v: v.strftime("%Y-%m-%dT%H:%M:%SZ")})` or use Pydantic v2's native json mode serializer; update tests that assert on string-literal timestamps.
@@ -390,6 +437,7 @@ At CWE-1400 expansion scale (41 agents × ~5-7k tokens prompt each + all code), 
 ### T16-M3 — `cwe: str` regex constraint consistency pass
 **Source:** Phase 3a PR#2 Task 16 quality review (commit `bb3b7a0`)
 **File:** all models with `cwe: str` fields — `FPPattern`, `PatternSuggestion`, `DirectorySuggestion` (wait — `DirectorySuggestion` has no `cwe` field; only `FPPattern` and `PatternSuggestion`), `ExclusionFinding`, `FindingClassification`
+**Phase-4 readiness:** `nice-to-have` — CWE regex constraint consistency
 **Why deferred:** Today any string is accepted (e.g., `"CWE89"` and `"CWE-89"` both pass). Normalization drift is possible. Fix needs a coordinated pass across all `cwe` fields to avoid one-model-at-a-time inconsistency.
 **Trigger:** When CWE-normalization drift actually bites (first mismatched comparison), OR during the T16-M2 timestamp migration (same scope of coordinated-model-constraint work).
 **Suggested fix:** Apply `Field(pattern=r"^CWE-\d+$")` uniformly to every `cwe: str` field. Update tests that construct CWE values.
@@ -397,6 +445,7 @@ At CWE-1400 expansion scale (41 agents × ~5-7k tokens prompt each + all code), 
 ### T16-M4 — Max-length constraints on FPReport list fields
 **Source:** Phase 3a PR#2 Task 16 quality review (commit `bb3b7a0`)
 **File:** `src/screw_agents/models.py` `FPReport`, `FPPattern`
+**Phase-4 readiness:** `nice-to-have` — model-layer max_length bounds; aggregation caps already protect the path
 **Why deferred:** Aggregation (Task 19) already caps `top_fp_patterns` to `_FP_REPORT_TOP_N = 10` and `example_reasons` to `[:5]`. Model-layer max_length would be redundant belt-and-suspenders. Deferring until a bypass surfaces (e.g., a different aggregation caller that doesn't cap).
 **Trigger:** When a non-aggregation caller constructs FPReport (e.g., Phase 4 autoresearch) and evidence shows unbounded lists reaching the model layer.
 **Suggested fix:** Add `Field(max_length=N)` to `top_fp_patterns`, `example_reasons`, `evidence.files_affected`.
@@ -404,6 +453,7 @@ At CWE-1400 expansion scale (41 agents × ~5-7k tokens prompt each + all code), 
 ### T17-M1 — Cap `files_affected` list size in `aggregate_pattern_confidence`
 **Source:** Phase 3a PR#2 Task 17 quality review (commit `9c6ec7e`)
 **File:** `src/screw_agents/aggregation.py` `aggregate_pattern_confidence`
+**Phase-4 readiness:** `nice-to-have` — files_affected cap; unbounded-growth polish
 **Why deferred:** A bucket with hundreds of matching files produces a `PatternSuggestion.evidence.files_affected` list containing all of them — unbounded growth proportional to FP-marked files. Aggregation is the producer, so the cap belongs here, but real-world bucket sizes in current usage are small. Related to T16-M4 (model-layer bounds); the caller-side cap is complementary.
 **Trigger:** When a project with many FPs-per-pattern makes the emitted report unwieldy (subagent truncates, Markdown renderer stalls), OR during the T16-M4 bounds pass.
 **Suggested fix:** Truncate `files_affected` to the top 20 lexicographically and emit an `evidence["files_affected_truncated"]: True` + `"files_affected_total": len(group)` fields when truncation occurs.
@@ -411,6 +461,7 @@ At CWE-1400 expansion scale (41 agents × ~5-7k tokens prompt each + all code), 
 ### T18-M1 — Multi-level directory grouping for `aggregate_directory_suggestions`
 **Source:** Phase 3a PR#2 Task 18 quality review (commit `ce0773e`)
 **File:** `src/screw_agents/aggregation.py` `aggregate_directory_suggestions`
+**Phase-4 readiness:** `nice-to-have` — multi-level directory grouping UX polish
 **Why deferred:** Current algorithm buckets by FIRST path component only — a repo with most files under `src/` collapses into one giant `src/` bucket, obliterating the "concentration" signal for sub-directories like `src/vendor/` or `src/services/`. The plan explicitly specifies first-segment grouping in §7.2 ("All 12 findings under `test/` were marked FP"), so the coarse granularity is by design for the initial release. Deferring the design question until user feedback shows whether sub-directory granularity is actually needed.
 **Trigger:** User reports saying "the suggestion is too coarse — my whole src/ collapsed" OR Phase 4 autoresearch needs finer-grained signal.
 **Suggested fix:** Extend signature with `granularity: Literal["top", "full"] = "top"` parameter. When `"full"`, use `os.path.dirname(file) + "/"` as the top_dir. Update tests to cover both modes. Or: emit suggestions at multiple granularities and let the subagent choose.
@@ -418,6 +469,7 @@ At CWE-1400 expansion scale (41 agents × ~5-7k tokens prompt each + all code), 
 ### T18-m1 — Sanitize `reason_distribution` keys in subagent render (Task 21 concern)
 **Source:** Phase 3a PR#2 Task 18 quality review (commit `ce0773e`)
 **File:** `plugins/screw/agents/screw-learning-analyst.md` (Task 21 subagent prompt)
+**Phase-4 readiness:** `nice-to-have` — render-layer sanitization; shipped via T21-m1 render-layer escape already
 **Why deferred:** The `evidence["reason_distribution"]` dict carries user-controlled reason strings as keys. They reach the rendered Markdown via the subagent. Task 18 doesn't sanitize at the data layer (reason is semantically text, not a code-pattern). The correct layer for escape-handling is the subagent prompt — instruct the LLM to render reasons as inline code (backticks) or truncate/escape.
 **Trigger:** Task 21 implementation OR during the first real-world subagent run if a reason contains Markdown-structural characters.
 **Suggested fix:** In `screw-learning-analyst.md`, add rule: "When rendering `evidence.reason_distribution` keys, wrap each reason in backticks to prevent Markdown injection from user-controlled exclusion-reason text."
@@ -425,6 +477,7 @@ At CWE-1400 expansion scale (41 agents × ~5-7k tokens prompt each + all code), 
 ### T19-N1 — Parameterize `aggregate_fp_report` `scope` and tuning constants
 **Source:** Phase 3a PR#2 Task 19 quality review (commit `156508c`)
 **File:** `src/screw_agents/aggregation.py` `aggregate_fp_report`
+**Phase-4 readiness:** `nice-to-have` — aggregate_fp_report parameterization
 **Why deferred:** Currently `scope` is hardcoded `"project"` and `_FP_REPORT_TOP_N=10` / `_FP_REPORT_MIN_COUNT=3` / `_FP_REPORT_MAX_REASONS=5` are module constants. Phase 4 autoresearch may want `"global"` scope (cross-project rollups), and different consumers may want different top-N caps (Phase 4 per-agent vs. display per-report). Adding parameters now without a known consumer shape would be speculative; the FPReport model already supports `Literal["project", "global"]`.
 **Trigger:** Phase 4 autoresearch implementation, OR when Task 20's MCP tool gets a second consumer that needs different tuning.
 **Suggested fix:** Add `*, scope: Literal["project", "global"] = "project", top_n: int | None = None, min_count: int | None = None, max_reasons: int | None = None` kwargs — defaults fall through to the module constants.
@@ -432,6 +485,7 @@ At CWE-1400 expansion scale (41 agents × ~5-7k tokens prompt each + all code), 
 ### T-PLUGIN-M1 — Marketplace packaging: publish `screw-agents` to PyPI + plugin-scoped `.mcp.json`
 **Source:** Phase 3a PR#2 plugin-namespace restructure (commit `31bac3a`)
 **File:** `pyproject.toml`, `plugins/screw/.mcp.json` (to be created), `.mcp.json` (at repo root, project-scoped — may be removed once plugin-scoped path is live)
+**Phase-4 readiness:** `nice-to-have` — marketplace packaging; blocks external distribution not Phase 4
 **Why deferred:** Today `.mcp.json` at repo root declares the MCP server as `uv run screw-agents serve --transport stdio`. That command only works when `pyproject.toml` is reachable (i.e., when Claude Code's cwd is the repo root). For marketplace distribution, Claude Code copies the plugin to `~/.claude/plugins/cache/...`, which does NOT include `pyproject.toml` — the server command would fail. The fix requires publishing `screw-agents` to PyPI and rewriting the MCP command to use `uvx screw-agents serve`, which works from anywhere.
 **Trigger:** Before the first marketplace submission (Phase 7+ typical timing, but earlier if someone wants external users to install the plugin without cloning the repo).
 **Suggested fix:**
@@ -444,6 +498,7 @@ At CWE-1400 expansion scale (41 agents × ~5-7k tokens prompt each + all code), 
 ### T-PLUGIN-M2 — Rename `screw-research` / `screw-review` skills to drop the redundant `screw-` prefix
 **Source:** Phase 3a PR#2 plugin-namespace restructure (audit)
 **File:** `plugins/screw/skills/screw-research/SKILL.md`, `plugins/screw/skills/screw-review/SKILL.md`, plus 33 files referencing these names (domains/*.yaml fixtures, docs, plans).
+**Phase-4 readiness:** `nice-to-have` — skill-name prefix cleanup; cosmetic
 **Why deferred:** After the plugin-namespace fix, skill invocations are `/screw:screw-research` and `/screw:screw-review` — the `screw-` prefix is redundant because the plugin namespace already provides it. Renaming to `/screw:research` and `/screw:review` is cleaner, but the skill names appear in ~33 tracked files (domain YAMLs, plans, PRD, PHASE_*.md, DECISIONS.md, KNOWLEDGE_SOURCES.md, benchmark fixtures). Out of scope for PR#2's namespace cleanup; deserves a dedicated rename commit with its own audit pass.
 **Trigger:** Any of: (a) a dedicated polish commit before the first marketplace submission, (b) a user-visible redundancy complaint, (c) alongside T-PLUGIN-M1.
 **Suggested fix:**
@@ -456,6 +511,7 @@ At CWE-1400 expansion scale (41 agents × ~5-7k tokens prompt each + all code), 
 ### T21-m1 — Server-side reason backtick-wrapping in `aggregation.py`
 **Source:** Phase 3a PR#2 round-trip test (commits `c468041` + `41bd19f`), 2026-04-16
 **File:** `src/screw_agents/aggregation.py` (`aggregate_directory_suggestions`, `aggregate_fp_report`), `plugins/screw/agents/screw-learning-analyst.md`
+**Phase-4 readiness:** `nice-to-have` — render-layer escape shipped; server-side pre-wrap is defense-in-depth
 **Why deferred:** T18-m1's subagent prompt rule (backtick-wrap reason strings from `evidence.reason_distribution` keys + `FPPattern.example_reasons`) was tightened to MANDATORY framing with negative examples during PR#2 (commit `41bd19f`). Observed behavior: Opus 4.6 renders reasons with backticks; Opus 4.7 renders them with double-quotes (partial adherence). Prompt-level enforcement can't deterministically control cross-model LLM output. The correct defense is structural: aggregation.py emits pre-wrapped reason strings, eliminating LLM discretion from the Markdown-injection boundary. Current state is not a vulnerability — fixture reasons are benign strings — but the defense is preventive against future attacker-influenced reasons.
 **Trigger:** (a) Before PR#3 work starts is natural (same file, no merge conflicts), OR (b) when a reason string in the wild contains Markdown-structural characters that visibly leak through the report.
 **Suggested fix:**
@@ -468,6 +524,7 @@ At CWE-1400 expansion scale (41 agents × ~5-7k tokens prompt each + all code), 
 ### T21-m2 — Server-side trust-notice rendering
 **Source:** Phase 3a PR#2 round-trip test (commits `c468041` + `41bd19f`), 2026-04-16
 **File:** `src/screw_agents/engine.py` `aggregate_learning`, `plugins/screw/agents/screw-learning-analyst.md`
+**Phase-4 readiness:** `nice-to-have` — trust-notice structural rendering polish
 **Why deferred:** The trust-notice block in the subagent prompt is a 4-line template the LLM is supposed to output verbatim when `quarantine_count > 0`. Observed behavior: Opus 4.6 renders it cleanly; Opus 4.7 paraphrases (drops `⚠`, drops bold, truncates the `screw-agents migrate-exclusions` sentence). Tightening the prompt rule to "render character-for-character" (commit `41bd19f`) didn't fully pin down 4.7's behavior. Same class of issue as T21-m1 — prompt adherence is not a security boundary. The core fact (quarantine count > 0) IS communicated; only template fidelity drifts. Structural fix: have `aggregate_learning` include a pre-rendered `trust_notice_markdown` field when `quarantine_count > 0`, which the subagent outputs verbatim (LLM-generated → LLM-copied; less drift).
 **Trigger:** Alongside T21-m1 (same file, same design pattern, same follow-up PR is natural).
 **Suggested fix:**
@@ -479,6 +536,7 @@ At CWE-1400 expansion scale (41 agents × ~5-7k tokens prompt each + all code), 
 ### T16-N1 — `AggregateReport.generated_at` convenience field
 **Source:** Phase 3a PR#2 Task 16 quality review (commit `bb3b7a0`)
 **File:** `src/screw_agents/models.py` `AggregateReport`
+**Phase-4 readiness:** `nice-to-have` — convenience timestamp field
 **Why deferred:** `FPReport.generated_at` is already present; the wrapper doesn't need its own. Adding one now is YAGNI until a consumer actually demands a single authoritative timestamp for the whole report.
 **Trigger:** When a consumer of `aggregate_learning` output (MCP caller, markdown formatter, etc.) needs a wrapper-level timestamp and can't satisfy it via `fp_report.generated_at`.
 **Suggested fix:** Add `generated_at: str` (matching the inner FPReport convention pre-T16-M2, or `datetime` post-T16-M2) populated by `ScanEngine.aggregate_learning`.
@@ -486,6 +544,7 @@ At CWE-1400 expansion scale (41 agents × ~5-7k tokens prompt each + all code), 
 ### T21-m3 — Pydantic validator guard on `ExclusionInput.reason`
 **Source:** Phase 3a PR#3 Task 0a (T21-m1) fix-up review, 2026-04-16
 **File:** `src/screw_agents/models.py` `ExclusionInput.reason`
+**Phase-4 readiness:** `nice-to-have` — pydantic validator guard; belt-and-suspenders on top of render escape
 **Why deferred:** T21-m1's fix-up added a render-layer escape for backticks in `src/screw_agents/aggregation.py::_escape_reason_for_code_span`. Belt-and-suspenders would add a Pydantic validator on `ExclusionInput.reason` that rejects or strips backticks at storage time — guaranteeing every path that persists an exclusion carries a safe reason, not just the aggregation rendering path. Deferring because (a) the render-layer fix is already load-bearing for the current consumer, (b) storage-layer validation is a separate design decision (reject vs strip vs warn) that deserves its own PR, (c) existing exclusions-YAML data may contain backticks and would need migration.
 **Trigger:** When a second consumer of `ExclusionInput.reason` renders to Markdown (e.g., Phase 3b adaptive-script rejection reasons piped through the same FP report — see `PHASE_3B_PLAN.md` Task 3b-18), OR when a data audit shows wild backticks in exclusions.yaml, OR during a dedicated data-integrity polish commit.
 **Suggested fix:**
@@ -497,6 +556,7 @@ At CWE-1400 expansion scale (41 agents × ~5-7k tokens prompt each + all code), 
 **Source:** Phase 3a X1-M1 round-trip testing (PR #9, 2026-04-17)
 **File:** `plugins/screw/agents/screw-injection.md` (Step 3 critical rules), and other orchestrators if the pattern spreads
 **Priority:** **Low** — UX annoyance, not a correctness issue
+**Phase-4 readiness:** `nice-to-have` — UX polish; doesn't affect Phase 4 correctness
 
 **Why deferred:** Final round-trip showed the subagent making 3 × `accumulate_findings` calls (one per agent batch), each carrying a cumulative findings payload. Each call required user confirmation with a "wall of text" approval prompt. The current `screw-injection.md` prompt explicitly permits multiple accumulate calls ("You MAY call this multiple times"). Narrowing to "prefer ONE accumulate call at the end with all findings" would reduce tool-call approvals from 4-6 to 2 in typical scans.
 
@@ -518,6 +578,7 @@ At CWE-1400 expansion scale (41 agents × ~5-7k tokens prompt each + all code), 
 **Source:** Phase 3b PR #4 Task 11 quality review (commit `da24076`), 2026-04-18
 **File:** `tests/test_adaptive_executor.py`
 **Priority:** Medium (Layer 3 integration untested end-to-end)
+**Phase-4 readiness:** `nice-to-have` — E2E signature-path test; Phase 4 has its own signing tests in autoresearch scaffolding
 
 **Why deferred:** The executor's Layer 3 signature verification
 (`verify_script(source, meta, config)`) is currently covered only via the
@@ -549,6 +610,7 @@ OR when a regression in `trust.verify_script` integration is suspected.
 **Source:** Phase 3b PR #4 Task 11 quality review (commit `da24076`), 2026-04-18
 **File:** `src/screw_agents/adaptive/executor.py` `_is_stale` + `src/screw_agents/models.py` `AdaptiveScriptMeta`
 **Priority:** Low (current semantic is acceptable Phase 3b default)
+**Phase-4 readiness:** `nice-to-have` — require_all_target_patterns flag; autoresearch can opt in if needed
 
 **Why deferred:** `_is_stale` currently returns False as soon as ANY
 target_pattern matches at least one call site in the project. A script
@@ -577,6 +639,7 @@ because partial target_patterns are out-of-date, OR when autoresearch
 **Source:** Phase 3b PR #4 Task 11 quality review (commit `da24076`), 2026-04-18
 **File:** `src/screw_agents/adaptive/executor.py`
 **Priority:** Low (code polish, not functional)
+**Phase-4 readiness:** `nice-to-have` — MetadataError wrapper for meta-load failures; shipped via T7-T13 in PR #6 already
 
 **Why deferred:** `execute_script` currently propagates raw `yaml.YAMLError`
 (from `yaml.safe_load(meta_path.read_text(...))`) and raw
@@ -614,6 +677,7 @@ surface meta-load errors cleanly to the subagent caller.
 **Source:** Phase 3b PR #5 Task 16 implementation, 2026-04-19
 **File:** `src/screw_agents/gap_signal.py`, `src/screw_agents/engine.py`
 **Priority:** Medium (Phase 4 refinement)
+**Phase-4 readiness:** `nice-to-have` — server-side context-required match detection; Phase 4 autoresearch scaffolding has its own pattern-match telemetry
 
 **What's shipped now:** Subagent LLMs call `record_context_required_match` when they investigate a `severity: context-required` pattern and decide not to emit a finding. The scan engine has no independent way to detect context-required matches; it trusts the LLM's self-report. This closes the adaptive E2E loop but puts the onus on the subagent prompt (T18) to be disciplined.
 
@@ -629,6 +693,7 @@ surface meta-load errors cleanly to the subagent caller.
 **Source:** Phase 3b PR #5 Task 16 implementation, 2026-04-19
 **File:** `src/screw_agents/staging.py`
 **Priority:** Low (deferred unless cross-session analytics prove useful)
+**Phase-4 readiness:** `nice-to-have` — multi-session context-required correlation; analytics layer, not Phase 4 surface
 
 **What's shipped now:** `context_required_matches.json` is strictly per-session. Each scan's matches are consumed at finalize and deleted. There's no cross-session retention or correlation.
 
@@ -812,6 +877,7 @@ the project-wide audit of pre-Phase-3b tool schemas remains deferred.
 ### BACKLOG-PR6-01 — Nested `TargetGap` TypedDict inside `PendingApproval.target_gap`
 **Source:** Phase 3b PR #6 T1 Opus re-review (I-opus-4), 2026-04-21
 **File:** `src/screw_agents/models.py` — `PendingApproval` TypedDict
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** Cosmetic typing improvement; no runtime impact. `target_gap: dict` with an inline comment documenting shape (`{type, file, line, agent}`) works at runtime but skips static type checking. The rest of `models.py` uses nested TypedDicts/BaseModels consistently — this is one departure.
 **Trigger:** Next polish pass touching `models.py`, OR before Phase 4 autoresearch if it consumes `target_gap` programmatically and wants static guarantees.
 **Suggested approach:** Define `class TargetGap(TypedDict): type: str; file: str; line: int; agent: str` and change `target_gap: dict` to `target_gap: TargetGap`. Update test-fixture dicts to conform.
@@ -820,6 +886,7 @@ the project-wide audit of pre-Phase-3b tool schemas remains deferred.
 ### BACKLOG-PR6-02 — Nested TypedDicts for `StaleStagingReport.scripts_removed` and `.tampered_preserved`
 **Source:** Phase 3b PR #6 T1 Opus re-review (I-opus-5), 2026-04-21
 **File:** `src/screw_agents/models.py` — `StaleStagingReport` TypedDict
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** Same as BACKLOG-PR6-01. `list[dict]` with a trailing shape comment compiles but doesn't enforce keys. These fields are the return shape for `sweep_stale_staging` landing in T6; typed shape matters when CLI or autoresearch consumes the report.
 **Trigger:** T6 implementation (`sweep_stale_staging` engine method) — natural point to tighten since the code producing these dicts is being written.
 **Suggested approach:** Define `class RemovedScriptEntry(TypedDict)` with `script_name, session_id, reason, age_days` and `class TamperedPreservedEntry(TypedDict)` with `script_name, session_id, evidence_path, age_days`. Change the two `list[dict]` fields to use these types.
@@ -828,6 +895,7 @@ the project-wide audit of pre-Phase-3b tool schemas remains deferred.
 ### BACKLOG-PR6-03 — Rollback test asserts meta_tmp cleanup
 **Source:** Phase 3b PR #6 T1 Opus re-review (M-opus-1), 2026-04-21
 **File:** `tests/test_adaptive_staging.py` — `test_write_staged_files_rolls_back_py_on_meta_failure`
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** Test coverage gap. The rollback loop in `write_staged_files` iterates `(meta_tmp, py_path)`, but the test only asserts `.py` absence. `meta_tmp` cleanup is load-bearing for disk-state hygiene on restart. Currently verified empirically but not asserted in the test.
 **Trigger:** Next test-coverage sweep.
 **Suggested approach:** Add two assertions to the existing rollback test:
@@ -840,6 +908,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-04 — UTF-8 / CRLF / long-content round-trip test for staging.py
 **Source:** Phase 3b PR #6 T1 Opus re-review (M-opus-2), 2026-04-21
 **File:** `tests/test_adaptive_staging.py`
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** Current `test_read_staged_files_returns_str_roundtrip` uses pure-ASCII content. A unicode / CRLF / long-content round-trip would guard against someone swapping `Path.write_text(encoding="utf-8")` for a lossy encoder or forgetting the explicit encoding argument.
 **Trigger:** Next test-coverage sweep.
 **Suggested approach:** Add a test that writes a source containing unicode (`"# café\nprint('ünîcôdé')\n"`), CRLF line endings, and content >PIPE_BUF (e.g., 8KB), then reads back and asserts byte-identical.
@@ -848,6 +917,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-05 — Valid-edge-cases test writes into same dir across iterations
 **Source:** Phase 3b PR #6 T1 Opus re-review (M-opus-3), 2026-04-21
 **File:** `tests/test_adaptive_staging.py` — `test_write_staged_files_accepts_valid_script_name_edge_cases`
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** Minor test quality — the test writes 4 names sequentially into the same `session_id` dir. `os.replace` is overwrite-atomic so the test passes, but it doesn't fully test iteration independence. Refactoring to parametrize or separate tmp_path per iteration would make the test cleaner.
 **Trigger:** Next test-coverage sweep.
 **Estimated scope:** ~5 LOC refactor.
@@ -855,6 +925,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-06 — `staging.py` module docstring event-type list scope clarification
 **Source:** Phase 3b PR #6 T1 Opus re-review (M-opus-4), 2026-04-21
 **File:** `src/screw_agents/adaptive/staging.py` — module-level docstring (lines 1-32)
+**Phase-4 readiness:** `retire` — cosmetic/docstring-wording polish — trigger unlikely to fire
 **Why deferred:** The docstring lists registry event types (`staged`, `promoted`, `rejected`, `tamper_detected`, `swept`, etc.) as if registry-write is part of this module. T1 only provides `resolve_registry_path`; append/query land in T3, sweep in T6. A one-line note ("Event-type catalog listed here for reference; append/read lands in T3, sweep in T6") would prevent reader confusion.
 **Trigger:** Next docstring polish pass OR after T3 lands (when the module actually implements registry write — the event-type list would then be authoritative).
 **Estimated scope:** 1-2 line docstring clarification.
@@ -862,6 +933,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-07 — `test_public_api_count_is_under_29` function-name / assertion inconsistency
 **Source:** Phase 3b PR #6 T2 Opus re-review (M-2), 2026-04-21
 **File:** `tests/test_adaptive_public_api.py`
+**Phase-4 readiness:** `retire` — cosmetic/docstring-wording polish — trigger unlikely to fire
 **Why deferred:** Function `test_public_api_count_is_under_29` asserts `public_count <= 28` (mathematically equivalent for integers but visually jarring). Docstring says "Over 28 is a red flag." Rename to `test_public_api_count_is_at_most_28` OR change assertion to `< 29` for consistency.
 **Trigger:** Next test-hygiene sweep.
 **Estimated scope:** 1-line rename or assertion style change.
@@ -869,6 +941,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-08 — `adaptive/__init__.py` stale "under 25 exports" docstring
 **Source:** Phase 3b PR #6 T2 Opus re-review (M-3), 2026-04-21
 **File:** `src/screw_agents/adaptive/__init__.py`
+**Phase-4 readiness:** `retire` — cosmetic/docstring-wording polish — trigger unlikely to fire
 **Why deferred:** Module docstring claims "under 25 exports" but `EXPECTED_PUBLIC_API` curated set has 18 entries; total `dir(adaptive)` after T1+T2 is 28 (18 curated + 10 internal submodule bindings). Docstring has been drifting since T18a added `signing`; T1 + T2 each added a submodule without refreshing the claim.
 **Trigger:** Next docstring polish pass OR whenever editing `adaptive/__init__.py`.
 **Suggested replacement:** "(18 curated exports in EXPECTED_PUBLIC_API; total `dir(adaptive)` includes ~10 internal submodule bindings)".
@@ -878,6 +951,7 @@ assert list(stage_dir.iterdir()) == []
 **Source:** Phase 3b PR #6 design, 2026-04-20
 **File:** `src/screw_agents/adaptive/staging.py` + new compaction CLI
 **Priority:** Low — append-only JSONL; size stays manageable at current scale.
+**Phase-4 readiness:** `phase-7-scoped` — registry compaction trigger fires only at large scale (>10MB or >1yr); single-process screw-agents unlikely to hit it
 **Trigger:** registry exceeds 10 MB OR oldest entry exceeds 1 year OR audit performance becomes noticeable.
 **Suggested fix:** `screw-agents compact-registry` CLI that archives old entries to `.screw/local/pending-approvals-archive/YYYY-MM.jsonl`; keep signatures preserved.
 
@@ -885,6 +959,7 @@ assert list(stage_dir.iterdir()) == []
 **Source:** Phase 3b PR #6 design; Claude Code guide confirmed feasible 2026-04-20
 **File:** new `plugins/screw/skills/adaptive-mode/SKILL.md`; per-agent frontmatter in `plugins/screw/agents/screw-{sqli,cmdi,ssti,xss}.md`
 **Priority:** Medium — byte-identical duplication across 4 files is painful when edited. Investigated in PR #6; Claude Code's `skills:` frontmatter preloads skill content into subagent context at startup — architecturally feasible.
+**Phase-4 readiness:** `nice-to-have` — shared-prompt skill refactor; byte-identical duplication test catches drift today
 **Trigger:** next T18b prompt edit that hits drift, OR after PR #6 demonstrates the byte-identity test has caught drifts in practice.
 **Suggested fix:** extract the ~300-line Step 3.5d section to a skill entry; list the skill in each per-agent `skills:` frontmatter. Prototype to verify the preload order preserves the prompt's intended position in the subagent's context.
 
@@ -892,6 +967,7 @@ assert list(stage_dir.iterdir()) == []
 **Source:** I2 edge case (PR #6)
 **File:** `src/screw_agents/adaptive/lint.py`
 **Priority:** Low — requires attribute-access analysis; common case covered by I2.
+**Phase-4 readiness:** `nice-to-have` — aliased-import lint edge case; common case covered by I2
 **Trigger:** a real adaptive script uses aliased imports + accesses a non-existent attribute, OR a user reports lint-pass-then-execute-fail.
 **Suggested fix:** extend AST walker to track `import X as Y` bindings and validate `Y.attr` against `screw_agents.adaptive.__all__`.
 
@@ -899,6 +975,7 @@ assert list(stage_dir.iterdir()) == []
 **Source:** Phase 3b PR #6 design Q6; rejected Level 3 during brainstorm
 **File:** TBD — would add `review_markdown_sha256` to registry entries
 **Priority:** Low — only if threat model escalates (e.g., future UI auto-populates reviews). Current source-hash binding closes the realistic attacker path.
+**Phase-4 readiness:** `nice-to-have` — Level 3 review-markdown hash binding; explicitly rejected at brainstorm — trigger is threat-model escalation
 **Trigger:** threat-model change making source-only binding insufficient.
 **Suggested fix:** TBD (would require `review_markdown_sha256` field in staging registry entries + `promote_staged_script` re-verification against the review markdown displayed to the user).
 
@@ -906,12 +983,14 @@ assert list(stage_dir.iterdir()) == []
 **Source:** Phase 3b PR #6 design Q4; Option D preserved the direct-sign wrapper for this consumer.
 **File:** `src/screw_agents/engine.py::sign_adaptive_script` (already in place); Phase 4 autoresearch module (not yet written)
 **Priority:** Phase 4 work (not standalone)
+**Phase-4 readiness:** `nice-to-have` — Phase 4 autoresearch builds this hook itself; tracked BY Phase 4 build, not blocker to starting Phase 4
 **Trigger:** Phase 4 autoresearch scaffolding needs a programmatic script-signing path after automated review.
 **Suggested approach:** existing `engine.sign_adaptive_script` is already the right API; Phase 4's autoresearch module uses it directly after its own review produces approved source + meta. BACKLOG-PR6-22 (`sign_adaptive_script` retirement / C1-closure migration) is the counter-force — retiring the direct-sign tool BEFORE Phase 4 wires in would break this path. Sequencing: Phase 4 lands first, THEN PR6-22 retirement can proceed with the autoresearch module as the test-bed consumer.
 
 ### BACKLOG-PR6-14 — `append_registry_entry` `fsync` omission rationale
 **Source:** Phase 3b PR #6 T3 Opus re-review (M1), 2026-04-21
 **File:** `src/screw_agents/adaptive/staging.py` — `append_registry_entry`
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** Current `os.write` is followed by `os.close` with no `os.fsync`. On a power-loss between write and kernel flush, the registry entry is lost. The staged `.py` + `.meta.yaml` remain, so T6 sweep reconciles — but the contract isn't documented in the function docstring. Either add `os.fsync(fd)` before close (perf cost, correct for forensic audit log) OR document the sweep-reconciles rationale.
 **Trigger:** When deployment moves beyond single-process dev workflow, OR when a forensic incident requires stronger durability.
 **Suggested fix:** Add a one-line comment and optionally `os.fsync(fd)` before `os.close(fd)`. If adding fsync, mirror the same call pattern in any future registry writers (promote, reject, sweep).
@@ -920,6 +999,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-15 — `session_id_short = session_id[:12]` magic number
 **Source:** Phase 3b PR #6 T3 Opus re-review (M2), 2026-04-21
 **File:** `src/screw_agents/engine.py` — `stage_adaptive_script`
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** The 12-char prefix is chosen to match the review header display format (plan spec §3.1). Code has no comment explaining the choice. Future reader wonders "why 12".
 **Trigger:** Next docstring polish pass OR when the review header format changes.
 **Suggested fix:** Add a one-line comment: `# 12 chars = display-friendly session prefix for the T18b review header`.
@@ -928,6 +1008,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-16 — Collision check ignores meta content
 **Source:** Phase 3b PR #6 T3 Opus re-review (M3), 2026-04-21
 **File:** `src/screw_agents/engine.py` — `stage_adaptive_script` collision-check
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** Idempotency check compares source `sha256` only. If source matches but meta differs, the existing meta file is silently overwritten. Defensible (only source bytes get signed and executed) but a caller expecting meta-divergence to be an error may be surprised.
 **Trigger:** If a user reports surprising re-stage behavior when they changed meta but kept source, OR a security reviewer flags this as a tamper channel.
 **Suggested fix:** Either (a) document the behavior explicitly in the docstring: "Meta differences are silently overwritten on re-stage; only source bytes participate in the collision check." — OR (b) hash `(source, meta_yaml)` together for the collision check (stricter, but breaks idempotency when callers legitimately update meta).
@@ -936,6 +1017,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-17 — `staging.py` module docstring event-type list is forward-looking
 **Source:** Phase 3b PR #6 T3 Opus re-review (M4), 2026-04-21
 **File:** `src/screw_agents/adaptive/staging.py` — module docstring
+**Phase-4 readiness:** `retire` — cosmetic/docstring-wording polish — trigger unlikely to fire
 **Why deferred:** The docstring enumerates 7 event types (`staged`, `promoted`, `promoted_via_fallback`, `promoted_confirm_stale`, `rejected`, `tamper_detected`, `swept`). At commit `a568f56`, only `staged` has a producer. T4 adds `promoted` variants + `tamper_detected`; T5 adds `rejected`; T6 adds `swept`. A reader confused by the gap would be helped by "(T3 produces: staged; T4-T6 produce the rest)".
 **Trigger:** After T6 ships (when all producers exist) OR next docstring polish pass.
 **Suggested fix:** Either add the scope-clarifying comment, or wait until T6 when the comment becomes authoritative.
@@ -944,6 +1026,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-18 — Parametrize redundant slash cases
 **Source:** Phase 3b PR #6 T3 Opus re-review (M5), 2026-04-21
 **File:** `tests/test_adaptive_staging.py` — `test_stage_adaptive_script_rejects_threat_session_ids`
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** Parametrize includes both `"../etc/passwd"` and `"foo/bar"` — both exercise the slash character-class rejection. Harmless duplication (each would catch a regression independently). Could be consolidated to one slash test OR kept as both (each represents a distinct threat model: traversal attempt vs generic path separator).
 **Trigger:** Next test-hygiene sweep.
 **Estimated scope:** 1-line parametrize removal OR 2-line rationale comment clarifying why both.
@@ -951,6 +1034,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-19 — `confirm_sha_prefix` entropy (8 hex chars = 32 bits)
 **Source:** Phase 3b PR #6 T4 pre-audit (C2), 2026-04-21
 **File:** `src/screw_agents/engine.py` — `promote_staged_script` fallback path
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** The fallback-path confirmation phrase uses `script_sha256[:8]` (8 hex chars = 32 bits of entropy). Birthday-collision attack threshold is ~65,536 attempts. Not exploitable in practice — the UX is "user already typed approve {name} once; now re-typing a modified phrase" and the attacker must also overwrite the staging .py with matching source. But 32-bit entropy on a security-relevant confirmation is light.
 **Trigger:** Next security-review sweep of the approve flow, OR if a real-world incident suggests the fallback path needs stronger confirmation.
 **Suggested fix:** raise to 12 hex chars (48 bits, ~17M attempts for birthday) OR use a longer prefix (16 chars = 64 bits). Test + prompt text + docstring update + ~5 LOC.
@@ -959,6 +1043,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-20 — `invalid_staged_meta` does not write TAMPERED marker
 **Source:** Phase 3b PR #6 T4 pre-audit (C5), 2026-04-21
 **File:** `src/screw_agents/engine.py` — `promote_staged_script` invalid-meta branch
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** When `yaml.safe_load(meta_yaml)` fails (line ~2151-2157), promote returns `invalid_staged_meta` but does NOT touch the filesystem — no TAMPERED marker, no audit event. A tampered meta is arguably the same class of threat as a tampered .py (both invalidate the staging contract), so asymmetric treatment is defensible but not obviously correct.
 **Trigger:** If an attacker is observed targeting .meta.yaml specifically (rather than .py), OR next trust-path threat-model refresh.
 **Suggested fix:** on `yaml.YAMLError`, touch a `.METATAMPERED` marker + append a `meta_tampered` (or reuse `tamper_detected` with an evidence_type field) audit event. Same forensic-preservation pattern as the sha-mismatch tamper path.
@@ -967,6 +1052,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-21 — Fallback-path UX: reviewer-responsibility disclaimer
 **Source:** Phase 3b PR #6 T4 Opus re-review (I-opus-3), 2026-04-21
 **File:** `src/screw_agents/engine.py` — `promote_staged_script` fallback-path error message
+**Phase-4 readiness:** `retire` — cosmetic/docstring-wording polish — trigger unlikely to fire
 **Why deferred:** The `fallback_required` response message hands the user the sha prefix and instructs them to paste it back. A user who did not personally review the staged bytes can copy-paste their way to a confirm. This is a design tradeoff (Q3 spec accepted) rather than a vulnerability, but the UX should explicitly name the reviewer's responsibility.
 **Trigger:** Next UX polish pass on the approve-flow slash commands, OR if a user reports confusion / a post-incident review flags the UX.
 **Suggested fix:** append to the fallback message body: "You are confirming the staging bytes' sha matches what you reviewed at stage time. If you did not personally review these bytes, run `reject` instead."
@@ -975,6 +1061,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-22 — `sign_adaptive_script` retirement / C1-closure migration
 **Source:** Phase 3b PR #6 T4 Opus re-review (I-opus-2), 2026-04-21
 **File:** `src/screw_agents/engine.py` — `sign_adaptive_script`; `src/screw_agents/server.py` dispatcher; `plugins/screw/agents/screw-{sqli,cmdi,ssti,xss}.md` subagent prompts
+**Phase-4 readiness:** `nice-to-have` — sign_adaptive_script retirement; post-Phase-4 — retiring BEFORE Phase 4 wires in the autoresearch hook would break that path
 **Why deferred:** T4 closed C1 for the staged-path approve flow via `promote_staged_script`. The direct `sign_adaptive_script` MCP tool still accepts `source` / `meta` arguments — the regeneration vector at the MCP boundary. Fully closing C1 requires: (a) migrating subagent prompts to always use stage→promote, (b) retiring or dev-gating the direct-sign path, (c) updating the autoresearch hook (BACKLOG-PR6-13) to the staged path as well.
 **Trigger:** After subagent prompt migrations ship (T15-T17), AND autoresearch scaffolding uses staged path.
 **Suggested approach:** Phased retirement — (1) add deprecation warning to `sign_adaptive_script` responses pointing to the staged path; (2) remove from default tool set, keep as `screw-agents migrate-sign` CLI for legacy flows; (3) eventually delete.
@@ -983,6 +1070,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-23 — Tamper-path `append_registry_entry` failure handling
 **Source:** Phase 3b PR #6 T4 Opus re-review (I-opus-5), 2026-04-21
 **File:** `src/screw_agents/engine.py` — `promote_staged_script` tamper branch
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** If `append_registry_entry(tamper_entry)` fails (filesystem error) during tamper handling, the marker file is touched but the audit event is missing, and the `ValueError` escapes before the caller receives the tamper-detected error-dict. Tamper path is rare but critical; slightly more resilient surface is defensible.
 **Trigger:** If a real-world incident shows a tamper case followed by a registry-write failure leaving ops with incomplete forensic evidence, OR next trust-path polish pass.
 **Suggested fix:** wrap `append_registry_entry(tamper_entry)` in try/except ValueError; log the append failure (stderr / warn) but still return the tamper-detected error-dict with marker path.
@@ -991,6 +1079,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-24 — Promoted-audit append failure rationale comment
 **Source:** Phase 3b PR #6 T4 Opus re-review (I-opus-4), 2026-04-21
 **File:** `src/screw_agents/engine.py` — `promote_staged_script` success path (after sign + delete)
+**Phase-4 readiness:** `retire` — cosmetic/docstring-wording polish — trigger unlikely to fire
 **Why deferred:** The final `append_registry_entry(promoted_entry)` at the end of promote is intentionally NOT wrapped — filesystem errors escape loud for ops to see. But the symmetry with the Step 8 swallowed-delete comment would help future readers; add an explicit comment documenting the choice.
 **Trigger:** Next docstring polish pass.
 **Suggested fix:** add a 3-line comment: "Step 9: append promoted audit event. If this raises, the sign already succeeded (custom-scripts is ground truth); the missing audit entry is recoverable by reconciling custom-scripts/ against the registry. We do NOT swallow here — ops needs to see the filesystem error loudly."
@@ -999,6 +1088,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-25 — Lazy imports style consistency in `promote_staged_script`
 **Source:** Phase 3b PR #6 T4 Opus re-review (I-opus-6), 2026-04-21
 **File:** `src/screw_agents/engine.py` — `promote_staged_script` method body
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** `promote_staged_script` imports `yaml`, `datetime`, and staging/signing helpers inside the method body. Other engine methods (e.g., `stage_adaptive_script` as implemented in T3) keep these at module scope. Style inconsistency; not a correctness issue. No circular-import concern visible.
 **Trigger:** Next readability polish pass, OR if a contributor trips over the inconsistent style.
 **Suggested fix:** hoist lazy imports to module scope; verify no circular imports introduced.
@@ -1007,6 +1097,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-26 — Future-dated `staged_at` test coverage
 **Source:** Phase 3b PR #6 T4 Opus re-review (I-opus-8), 2026-04-21
 **File:** `tests/test_adaptive_staging.py`
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** No test for clock-skew: `staged_at` in the future. Current behavior: `age` is negative; `age > timedelta(hours=24)` is False; staleness check is skipped; promote succeeds. Not a security concern (negative age means "staged recently"), but the behavior should be documented by a test.
 **Trigger:** Next test-coverage sweep.
 **Suggested fix:** add `test_promote_future_staged_at_proceeds_without_stale_error` asserting the promote path proceeds cleanly when `staged_at` is in the future.
@@ -1015,6 +1106,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-27 — `confirm_stale` schema `default` key
 **Source:** Phase 3b PR #6 T4 Opus re-review (I-opus-9), 2026-04-21
 **File:** `src/screw_agents/engine.py` — `promote_staged_script` tool schema
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** Tool schema does not include `"default": false` for `confirm_stale`; method implementation defaults to False; dispatcher reads `args.get("confirm_stale", False)`. Functionally correct but not self-documenting from the schema alone.
 **Trigger:** Next schema polish pass OR T22 additionalProperties sweep (if it also audits default keys).
 **Suggested fix:** add `"default": false` to the `confirm_stale` schema block.
@@ -1023,6 +1115,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-28 — `promote_staged_script` method-length refactor
 **Source:** Phase 3b PR #6 T4 Opus re-review (I-opus-10), 2026-04-21
 **File:** `src/screw_agents/engine.py` — `promote_staged_script` (~340 LOC)
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** Method is long. The staleness check (~60 LOC), fallback path (~40 LOC), and primary/tamper branch (~40 LOC) are distinct phases and could extract cleanly into `_check_staleness`, `_resolve_via_fallback`, `_handle_tamper` private helpers. This would simplify unit-testing those branches in isolation. The method IS readable as written, but a refactor would aid maintainability.
 **Trigger:** Next readability polish pass, OR if a future T5/T6/T7 task touches the same method and the size becomes a merge-conflict risk.
 **Suggested fix:** extract three private helpers; update tests to exercise them directly where helpful; preserve public signature.
@@ -1031,6 +1124,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-29 — `adaptive_prompts.json` tmp-file naming uses `with_suffix`
 **Source:** Phase 3b PR #6 T5 pre-audit (N1), 2026-04-21
 **File:** `src/screw_agents/engine.py` — `reject_staged_script`
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** The tmp file for atomic JSON write uses `prompts_path.with_suffix(".json.tmp")`. Works correctly for `.json` (single-suffix), but inconsistent with T1's string-concat tmp-naming discipline (locked in to avoid the `.meta.yaml` double-suffix bug). Defensive consistency would prefer `prompts_path.parent / f"{prompts_path.name}.tmp"`.
 **Trigger:** Next consistency-polish pass touching engine.py tmp-write sites.
 **Suggested fix:** replace `with_suffix` with string-concat form.
@@ -1039,6 +1133,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-30 — Silent swallow of `adaptive_prompts.json` write failures lacks impact comment
 **Source:** Phase 3b PR #6 T5 pre-audit (N2), 2026-04-21
 **File:** `src/screw_agents/engine.py` — `reject_staged_script`
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** The `try/except (PermissionError, OSError): pass` around the `adaptive_prompts.json` update is documented as "best-effort; not critical to the reject flow's correctness". True, but what IS lost: T18b decline-tracking for this specific target — the scan may re-propose the same script next run. Comment should spell out the user-visible impact so an operator reading the code understands what gets skipped on filesystem failure.
 **Trigger:** Next readability polish pass.
 **Suggested fix:** expand the comment to "best-effort; on failure, T18b decline-tracking for this target is lost — the target may be re-proposed on next scan. Reject succeeds regardless since the audit entry in pending-approvals.jsonl already recorded the decision."
@@ -1047,6 +1142,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-31 — No test for rejecting a script already in promoted lifecycle state
 **Source:** Phase 3b PR #6 T5 pre-audit (N4), 2026-04-21
 **File:** `tests/test_adaptive_staging.py`
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** `reject_staged_script` operates only on staging files — it doesn't check registry lifecycle. If a script was already promoted but staging files somehow exist (shouldn't happen in practice per T4's `delete_staged_files` cleanup, but possible after sweep race or hand-edit), reject would still delete staging and emit a `rejected` event. This is semantically ambiguous ("you promoted AND rejected?") but benign — reject acts on stage state, not on custom-scripts. Worth a test documenting the behavior.
 **Trigger:** Next test-hygiene sweep OR if an incident surfaces unexpected post-promote reject behavior.
 **Suggested fix:** add `test_reject_after_promote_is_noop_on_custom_scripts` — promote a script, manually re-plant staging files, reject, assert staging is deleted AND custom-scripts artifact is untouched.
@@ -1055,6 +1151,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-32 — Local `import json` shadows module-level `_json` alias
 **Source:** Phase 3b PR #6 T5 Opus re-review (B-T5-1), 2026-04-21
 **File:** `src/screw_agents/engine.py` — `reject_staged_script` (and possibly `promote_staged_script`)
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** engine.py imports `json as _json` at module top (line 13) to avoid shadowing. `reject_staged_script` does a local `import json` inside the method body. Functionally correct (Python resolves local binding), but inconsistent with module style.
 **Trigger:** Next engine.py style consistency pass.
 **Suggested fix:** drop the local `import json`; rely on module-level `_json`; rename uses.
@@ -1063,6 +1160,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-33 — Happy-path reject test missing full schema assertion
 **Source:** Phase 3b PR #6 T5 Opus re-review (B-T5-3), 2026-04-21
 **File:** `tests/test_adaptive_staging.py` — `test_reject_staged_script_deletes_files_and_audits`
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** Test asserts `rej["reason"]` but not `rejected_at`, `schema_version`, `script_name`, `session_id`. `validate_pending_approval` catches absence at write-time, so absence would fail elsewhere — but explicit schema assertions are cheap regression insurance.
 **Trigger:** Next test-hygiene sweep.
 **Estimated scope:** ~5 LOC.
@@ -1070,6 +1168,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-34 — Extract decline-tracking update into private helper
 **Source:** Phase 3b PR #6 T5 Opus re-review (B-T5-4), 2026-04-21
 **File:** `src/screw_agents/engine.py` — `reject_staged_script`
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** The ~20-line block that updates `adaptive_prompts.json` is a self-contained concern ("remember this script was declined so it's not re-proposed"). Extracting to `_record_decline_in_prompts_file(project_root, script_name)` would shorten the main method and co-locate the best-effort policy.
 **Trigger:** Next readability polish pass OR when T18b gets its own module.
 **Estimated scope:** ~25 LOC refactor.
@@ -1077,6 +1176,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-35 — No test for fresh-stage-between-rejects corner case
 **Source:** Phase 3b PR #6 T5 Opus re-review (B-T5-5), 2026-04-21
 **File:** `tests/test_adaptive_staging.py`
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** If between first and second reject, a fresh stage happens with same `(script_name, session_id)`, second reject would delete the FRESH stage. Semantically correct ("reject acts on whatever is currently staged for that name+session") but not tested.
 **Trigger:** Next test-hygiene sweep.
 **Suggested fix:** add `test_reject_after_fresh_restage_deletes_fresh_stage` — stage, reject, stage again, reject again, assert the second fresh stage is deleted and two `rejected` audit events appear.
@@ -1085,6 +1185,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-36 — `invalid_session_id` error-dict omits helper-readable `session_id` field
 **Source:** Phase 3b PR #6 T5 Opus re-review (minor observation), 2026-04-21
 **File:** `src/screw_agents/engine.py` — `reject_staged_script`, `stage_adaptive_script`, `promote_staged_script`
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** Error dicts for invalid session_id include the rejected value in `message` but not as a dedicated `session_id` field. Callers pattern-matching on `response["session_id"]` get KeyError on error paths. Minor UX.
 **Trigger:** Next error-taxonomy polish pass.
 **Suggested fix:** include `session_id` (or `rejected_session_id` if the raw one is ugly) as a dedicated field on the error dict. Apply uniformly across T3/T4/T5 error paths.
@@ -1093,6 +1194,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-37 — `sweep_stale` inline walk vs `fallback_walk_for_script` helper
 **Source:** Phase 3b PR #6 T6 pre-audit (N1), 2026-04-21
 **File:** `src/screw_agents/adaptive/staging.py` — `sweep_stale` + `fallback_walk_for_script`
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** `sweep_stale` uses inline `staging_root.iterdir()` + per-session `adapt_dir.glob("*.py")` walk. T3 added `fallback_walk_for_script(project_root, *, script_name)` for promote's fallback path. Different semantics (per-script lookup vs all-scripts scan), so direct reuse doesn't fit, but a shared `walk_all_staging` helper could consolidate the iteration pattern if a third consumer appears.
 **Trigger:** If a T25+ task introduces a third iterator over `.screw/staging/**`.
 **Suggested fix:** extract `walk_all_staging(project_root) -> Iterator[tuple[session_id, py_path]]`; use from sweep_stale; leave fallback_walk_for_script's per-script optimization intact.
@@ -1101,6 +1203,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-38 — Use `ScrewConfig.staging_max_age_days` field instead of raw YAML read
 **Source:** Phase 3b PR #6 T6 pre-audit (N2), 2026-04-21
 **File:** `src/screw_agents/engine.py` — `_read_staging_max_age_days`
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** T4-part-2 (I1) added `ScrewConfig.staging_max_age_days: int = Field(default=14, ge=1, le=365)` to the Pydantic schema. T6's `_read_staging_max_age_days` reads raw YAML via `yaml.safe_load` + `.get()` as fallback (symmetric with T4's `_read_stale_staging_hours`). Could route through `load_config(project_root)` → Pydantic validation → then fall back to raw YAML only if Pydantic fails. Gives schema-validated default path.
 **Trigger:** Next config-read polish pass; or when T6 behavior surprises a user due to silent schema bypass.
 **Suggested fix:** attempt `load_config(project_root).staging_max_age_days`; on ValidationError or config absence, fall back to current raw-YAML path.
@@ -1109,6 +1212,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-39 — `sweep_stale` does not preserve TAMPERED files past max_age_days explicitly
 **Source:** Phase 3b PR #6 T6 pre-audit follow-up, 2026-04-21
 **File:** `src/screw_agents/adaptive/staging.py` — `sweep_stale` + `_classify_sweep_reason`
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** Current logic: if TAMPERED marker exists AND age < max_age_days, preserve (report in tampered_preserved). If age >= max_age_days, fall through and sweep. This treats tamper evidence as "expires eventually". A stronger stance: tamper files NEVER auto-sweep; require explicit operator action (e.g., `screw-agents forensics-acknowledge <session> <script>`).
 **Trigger:** If a post-incident review shows the auto-sweep expired useful forensic evidence, OR during Phase 4+ forensic-tooling work.
 **Suggested fix:** add `force_sweep_tampered: bool = False` kwarg to `sweep_stale_staging`; default False means tampered files NEVER swept regardless of age.
@@ -1117,6 +1221,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-40 — `_read_staging_max_age_days` exception breadth asymmetric with T4
 **Source:** Phase 3b PR #6 T6 Opus review (M-T6-1), 2026-04-21
 **File:** `src/screw_agents/engine.py` — `_read_staging_max_age_days`
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** T6's helper catches `(PermissionError, OSError, ValueError)`. T4's sibling `_read_stale_staging_hours` catches `(ValueError, TypeError, OSError, yaml.YAMLError)`. Malformed YAML in T6's helper will crash sweep instead of falling back to 14.
 **Trigger:** Next config-read polish pass.
 **Suggested fix:** broaden to match T4's exception tuple; consolidate to a shared `_read_config_int(key, default, lo, hi)` helper.
@@ -1125,6 +1230,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-41 — Orphaned TAMPERED marker when .py missing
 **Source:** Phase 3b PR #6 T6 Opus review (M-T6-2 / M-T6-9), 2026-04-21
 **File:** `src/screw_agents/adaptive/staging.py` — `sweep_stale`
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** If `.py` is deleted but `.TAMPERED` marker remains (crash mid-sweep, manual user delete), sweep's `glob("*.py")` never iterates → marker never cleaned up → session dir pinned as non-empty forever.
 **Trigger:** Observed in production OR when session-dir cleanup becomes a reliability concern.
 **Suggested fix:** after the per-script loop, glob `"*.TAMPERED"` and unlink any orphans whose corresponding `.py` is absent.
@@ -1133,6 +1239,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-42 — `sessions_scanned` counter has no test coverage
 **Source:** Phase 3b PR #6 T6 Opus review (M-T6-3), 2026-04-21
 **File:** `tests/test_adaptive_staging.py` — sweep test suite
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** The `sessions_scanned` field is returned in every sweep response but no test asserts it. Silent regression potential.
 **Trigger:** Next test-hygiene sweep.
 **Suggested fix:** extend an existing sweep test to stage in 3 sessions and assert `response["sessions_scanned"] == 3`.
@@ -1141,6 +1248,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-43 — No positive test for `swept` event shape
 **Source:** Phase 3b PR #6 T6 Opus review (M-T6-4), 2026-04-21
 **File:** `tests/test_adaptive_staging.py`
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** Dry-run test asserts registry UNCHANGED (negative case). No test verifies the real-path `swept` entry has all required fields per `_REQUIRED_FIELDS_BY_EVENT["swept"]`.
 **Trigger:** Next test-hygiene sweep.
 **Suggested fix:** add `test_sweep_appends_well_formed_swept_event` — reads JSONL tail after sweep, asserts event has {event, script_name, session_id, swept_at, sweep_reason, schema_version}.
@@ -1149,6 +1257,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-44 — No test for tampered+expired→sweep transition
 **Source:** Phase 3b PR #6 T6 Opus review (M-T6-5), 2026-04-21
 **File:** `tests/test_adaptive_staging.py`
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** `test_sweep_preserves_tampered_files` covers `age=10d, max=14d → preserve`. The spec path `tamper_detected + age >= max → swept (marker removed)` is implemented but unverified.
 **Trigger:** Next test-hygiene sweep.
 **Suggested fix:** stage → mark TAMPERED → age to 30d → sweep with max=14d → assert .py + marker both gone + `swept` event with reason `stale_orphan`.
@@ -1157,6 +1266,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-45 — No test for `completed_orphan` path
 **Source:** Phase 3b PR #6 T6 Opus review (M-T6-6), 2026-04-21
 **File:** `tests/test_adaptive_staging.py`
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** `_TERMINAL_EVENTS` classifier returns `completed_orphan` when registry has promoted/rejected/swept event but staging files are still present. Defensive-GC claim unverified by tests.
 **Trigger:** Next test-hygiene sweep.
 **Suggested fix:** construct the mocked partial state (promote, then replant staging files), run sweep with large max_age_days, assert files swept with reason `completed_orphan`.
@@ -1165,6 +1275,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-46 — Outer `staging_root.iterdir()` not snapshotted
 **Source:** Phase 3b PR #6 T6 Opus review (M-T6-7), 2026-04-21
 **File:** `src/screw_agents/adaptive/staging.py` — `sweep_stale`
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** Inner loop uses `list(adapt_dir.glob("*.py"))` defensively. Outer loop is a raw generator. Current code only mutates the CURRENT session_dir, which CPython os.scandir handles, but asymmetric defense is a readability smell.
 **Trigger:** Next readability polish pass.
 **Suggested fix:** wrap outer iteration in `list(staging_root.iterdir())` for symmetry.
@@ -1173,6 +1284,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-47 — `sweep_stale` length (~120 LOC) refactor candidate
 **Source:** Phase 3b PR #6 T6 Opus review (M-T6-8), 2026-04-21
 **File:** `src/screw_agents/adaptive/staging.py` — `sweep_stale`
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** Function is long. The per-script inner block could extract to `_process_staging_script(...)` returning `(removed | preserved | None)`. Simplifies unit-testing those branches in isolation.
 **Trigger:** Next readability polish pass, OR when a future task touches `sweep_stale` and the size becomes a merge-conflict risk.
 **Estimated scope:** ~30 LOC refactor.
@@ -1180,6 +1292,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-48 — Session with only TAMPERED marker (no .py) not cleaned
 **Source:** Phase 3b PR #6 T6 Opus review (M-T6-9), 2026-04-21
 **File:** `src/screw_agents/adaptive/staging.py` — `sweep_stale`
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** Edge case where `.py` unlink succeeded but marker unlink failed (or user manually deleted `.py`). Marker never cleaned up, session dir never removed. Related to BACKLOG-PR6-41 but distinct scenario.
 **Trigger:** Post-incident review OR M-PR6-41 implementation (both fixed together).
 **Estimated scope:** bundled with BACKLOG-PR6-41.
@@ -1187,6 +1300,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-50 — `except Exception` inside `_check_stale` (verbatim-lift of pre-T7 code)
 **Source:** Phase 3b PR #6 T7 Opus spec review (M2), 2026-04-22
 **File:** `src/screw_agents/adaptive/executor.py:260` (relocated from `cli/adaptive_cleanup.py:249` in T7)
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** The per-pattern `find_calls` call is wrapped in `except Exception:` to tolerate tree-sitter parse failures on any single file without failing the whole stale-check. Plan §T7 mandated verbatim lift (no behavioral changes during the move). Narrowing to a specific tree-sitter exception class is a follow-up concern that belongs with the broader T3-M1 narrow-exception work, not the move itself.
 **Trigger:** Next adaptive-exception sweep OR when `find_calls` grows richer error types worth distinguishing.
 **Estimated scope:** ~3 LOC (narrow the except; add a test that a single tree-sitter failure doesn't derail siblings).
@@ -1194,6 +1308,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-51 — `test_adaptive_cleanup.py` module docstring drift
 **Source:** Phase 3b PR #6 T8 Opus code-review (M1), 2026-04-22
 **File:** `tests/test_adaptive_cleanup.py:1-15`
+**Phase-4 readiness:** `retire` — cosmetic/docstring-wording polish — trigger unlikely to fire
 **Why deferred:** Module header docstring still says "Tests for the adaptive_cleanup listing + removal backend (T21)" and lists the T21 remove coverage shape ("both-present happy path, not-found, partial-state recovery"). Does not mention the T8-era confirmation-gate and delete_failed tests, nor the migration from `cli.adaptive_cleanup` → `engine`. Class-level docstring for `TestRemoveAdaptiveScript` WAS updated; only the module header was missed. Cosmetic — no behavior impact.
 **Trigger:** Next docs pass in this file, OR when someone touching this file reads the header and notices the drift.
 **Estimated scope:** ~5 LOC (rewrite the module docstring to reflect T8's shape).
@@ -1201,6 +1316,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-52 — Asymmetric filesystem assertion in `test_remove_cleans_up_partial_state_py_only`
 **Source:** Phase 3b PR #6 T8 Opus code-review (M2), 2026-04-22
 **File:** `tests/test_adaptive_cleanup.py` — `test_remove_cleans_up_partial_state_py_only`
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** Py-only variant asserts only `not (script_dir / "lonely.py").exists()`. The sibling meta-only variant asserts both "not meta.exists()" and no-other-side-present. Adding `assert not (script_dir / "lonely.meta.yaml").exists()` to the py-only test would make the sibling pair diff-grep-comparable. Currently vacuous (meta never existed), so not a correctness concern.
 **Trigger:** Next test-polish pass, OR if a future change introduces leftover-meta risk in the py-only path.
 **Estimated scope:** 1 LOC (add the symmetric negative assertion).
@@ -1208,6 +1324,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-53 — `_load_adaptive_all()` no-spec / no-origin failure paths are untested
 **Source:** Phase 3b PR #6 T10 Opus spec review (Minor 1), 2026-04-22
 **File:** `src/screw_agents/adaptive/lint.py:96-120` — `_load_adaptive_all` helper
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** The defensive `frozenset()` return paths at `lint.py:107-108` (no spec) and `lint.py:120` (no `__all__` assign found) are not exercised by any test. A corrupted `screw_agents/adaptive/__init__.py` or a transient import-system failure would cause `_load_adaptive_all()` to return empty, and every adaptive import would then fail `unknown_symbol`. Existing `test_lint_accepts_valid_script` acts as a downstream canary (it would fail if the helper returns empty unexpectedly), so this is low-risk. A dedicated test (monkeypatch `importlib.util.find_spec` to return None, verify `frozenset()`) would pin the failure-closed contract explicitly.
 **Trigger:** Next lint-polish pass OR if a future change touches `_load_adaptive_all()`.
 **Estimated scope:** ~10 LOC (1 test function with monkeypatch + cache_clear + assertion).
@@ -1215,6 +1332,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-54 — Star-import UX via `unknown_symbol` rule is slightly misleading
 **Source:** Phase 3b PR #6 T10 Opus reviews (spec Minor 2, quality edge-cases item 5), 2026-04-22
 **File:** `src/screw_agents/adaptive/lint.py:226-242` — `unknown_symbol` rule
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** `from screw_agents.adaptive import *` produces `alias.name == "*"`, which is not in `__all__`, so the rule emits `"'*' is not exported from screw_agents.adaptive. Valid names: ..."`. The rejection is correct (star imports are not a legitimate idiom in adaptive scripts), but the error message phrasing is minor-awkward — a user seeing it might expect a dedicated `disallowed_star` rule. Behavioral correctness is not affected.
 **Trigger:** Next lint-message-UX pass OR if a user surfaces confusion about the `'*'` message.
 **Estimated scope:** ~5 LOC (add a guard before the symbol loop: if `alias.name == "*"`, emit a dedicated `disallowed_star` rule instead).
@@ -1222,6 +1340,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-55 — `@lru_cache(maxsize=1)` on `_load_adaptive_all` may surprise future monkeypatch tests
 **Source:** Phase 3b PR #6 T10 Opus reviews (spec Minor 3, quality focus-2), 2026-04-22
 **File:** `src/screw_agents/adaptive/lint.py:96` — `@lru_cache(maxsize=1)` decorator
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** Cache-for-process means a future test that monkeypatches `screw_agents.adaptive.__all__` (or mocks `importlib.util.find_spec`) after `_load_adaptive_all()` has already been called will see stale data. No current test does this, so no live issue. Tests that need fresh state must call `_load_adaptive_all.cache_clear()` explicitly. Worth documenting in the helper's docstring.
 **Trigger:** When a future test needs dynamic `__all__` manipulation, OR on next lint-helper docstring pass.
 **Estimated scope:** ~2 LOC (add a comment in the helper docstring noting the cache-clear requirement for mutation tests).
@@ -1229,6 +1348,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-56 — Module docstring doesn't list the new `unknown_symbol` rule
 **Source:** Phase 3b PR #6 T10 Opus code-review (Minor 1), 2026-04-22
 **File:** `src/screw_agents/adaptive/lint.py:7-38` — "Forbidden constructs" section of the module docstring
+**Phase-4 readiness:** `retire` — cosmetic/docstring-wording polish — trigger unlikely to fire
 **Why deferred:** The docstring enumerates forbidden constructs inline (e.g., `forbidden_name`, `forbidden_dunder_*`, etc.), but does NOT explicitly call out the new `unknown_symbol` rule. The existing parenthetical at `lint.py:10` "(with only allowlist-approved names)" became enforced rather than aspirational after T10. A future auditor has to read `_check_node` to discover the `unknown_symbol` rule. A one-line addition under "Forbidden constructs" (e.g. `- Importing any name from screw_agents.adaptive that is not in __all__ (rule=unknown_symbol)`) would close the gap.
 **Trigger:** Next lint-docstring pass.
 **Estimated scope:** 2 LOC (one bullet in the docstring).
@@ -1236,6 +1356,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-57 — `_load_adaptive_all()` handles only `ast.Assign`, not `ast.AugAssign`
 **Source:** Phase 3b PR #6 T10 Opus code-review (Minor 2), 2026-04-22
 **File:** `src/screw_agents/adaptive/lint.py:112` — `_load_adaptive_all()` helper AST walk
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** If a future maintainer appends to `__all__` via `__all__ += [...]` or `__all__.append(...)` instead of a single `__all__ = [...]` assignment, those names are silently ignored by the helper → every such appended import would fail `unknown_symbol` (failure-closed — safe, but surprising). Current `adaptive/__init__.py:65` uses a single assignment; this is a latent constraint, not a live bug. Fix options: (a) walk `ast.AugAssign` as well; (b) add a comment in `adaptive/__init__.py` warning future editors to keep `__all__` as a single assignment.
 **Trigger:** Next lint-helper-polish pass OR if `adaptive/__init__.py` grows enough that multi-statement `__all__` assembly becomes tempting.
 **Estimated scope:** ~5 LOC for option (a); 1 LOC for option (b).
@@ -1243,6 +1364,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-58 — Asymmetric alias assertion in `test_execute_stderr_empty_on_success`
 **Source:** Phase 3b PR #6 T11 Opus spec review (Minor 1), 2026-04-22
 **File:** `tests/test_adaptive_executor.py` — `test_execute_stderr_empty_on_success`
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** The failure-path test (`test_execute_surfaces_stderr_on_nonzero_return`) asserts `result["stderr"] == result["sandbox_result"]["stderr"]` — the alias-consistency check that protects against a future dual-decode bug. The success-path test asserts `result["stderr"] == ""` AND `result["sandbox_result"]["returncode"] == 0` but NOT the symmetric alias equality. Because both positions are emitted from the same `stderr_str` local (`engine.py:311, 316`), drift cannot occur without a code change; the gap is immaterial. The ripple-fix in `test_execute_adaptive_script_tool.py:80` already asserts `result["sandbox_result"]["stderr"] == ""` on success, so coverage exists — it's just not co-located with the dedicated success test.
 **Trigger:** Next test-polish pass; negligible priority.
 **Estimated scope:** 1 LOC (add `assert result["stderr"] == result["sandbox_result"]["stderr"]` alongside the existing `""` check).
@@ -1250,6 +1372,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-59 — Inaccurate required-fields comment in `test_executor_wraps_validation_error_as_metadata_error`
 **Source:** Phase 3b PR #6 T12 Opus spec + quality reviews (both flagged), 2026-04-22
 **File:** `tests/test_adaptive_executor.py` — `test_executor_wraps_validation_error_as_metadata_error` (around line 838)
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** Inline comment says required fields include `description` and `target_patterns`, but those have defaults in `AdaptiveScriptMeta` (`description: str = ""`, `target_patterns: list[str] = []` at `models.py:497-498`). Actual required-and-missing set is `created, created_by, domain, sha256`. Comment inaccuracy only — test behavior is unaffected (ValidationError fires on whichever required field is missing first). Test actually provides only `name: test-yaml-002`, so missing-required list is larger than comment suggests but the validation error is guaranteed either way.
 **Trigger:** Next test-comment polish pass, OR if `AdaptiveScriptMeta` schema changes (e.g., `description` becomes required) and the comment's accidentally-right prediction breaks.
 **Estimated scope:** 1 LOC (rewrite the comment to name only `created, created_by, domain, sha256`).
@@ -1257,6 +1380,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-60 — Missing inline comment explaining `meta_raw or {}` fallback in `_load_meta`
 **Source:** Phase 3b PR #6 T12 Opus code-review (Minor 2), 2026-04-22
 **File:** `src/screw_agents/adaptive/executor.py:94` — `_load_meta` helper
+**Phase-4 readiness:** `retire` — cosmetic/docstring-wording polish — trigger unlikely to fire
 **Why deferred:** `AdaptiveScriptMeta(**(meta_raw or {}))` defensively handles the `None` return from `yaml.safe_load("")` (empty file or only-comments YAML). Without the `or {}` fallback, `AdaptiveScriptMeta(**None)` would raise `TypeError` instead of the expected `ValidationError` — bypassing the `MetadataError` wrapper and emitting a bare stack trace. A one-line comment would make the defensive intent explicit for future maintainers: `# empty / only-comments YAML → None → {} → ValidationError on required fields`.
 **Trigger:** Next executor-docstring polish pass.
 **Estimated scope:** 1 LOC (inline comment at the `or {}` site).
@@ -1264,6 +1388,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-61 — Coverage parity: add non-UTF-8 tests for `find_imports` and `find_class_definitions`
 **Source:** Phase 3b PR #6 T13 Opus code-review (Minor 1), 2026-04-22
 **File:** `tests/test_adaptive_ast_walker.py`
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** T13 narrowed `except Exception` to `except FileNotFoundError` in all 3 ast_walker helpers (`find_calls`, `find_imports`, `find_class_definitions`), but only `find_calls` has a dedicated non-UTF-8 regression test (`test_find_calls_raises_on_non_utf8_source`). A future regression that restores `except Exception` in `find_imports` or `find_class_definitions` would go undetected by the automated suite — though it'd be textually obvious in code review. The 3 sites share byte-for-byte identical try/except shape, so mechanical parity via 2 more tests (or parametrization over all 3 helpers) would close the gap cleanly.
 **Trigger:** Next test-hardening pass on adaptive/. Low priority — the 3-way textual identity provides strong implicit coverage.
 **Estimated scope:** ~20 LOC (2 sibling tests, or 1 parametrize wrapper).
@@ -1271,6 +1396,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-62 — `execute_script` Raises docstring doesn't mention `UnicodeDecodeError` post-T13
 **Source:** Phase 3b PR #6 T13 Opus code-review (Minor 2), 2026-04-22
 **File:** `src/screw_agents/adaptive/executor.py:148-154` — `execute_script` docstring
+**Phase-4 readiness:** `retire` — cosmetic/docstring-wording polish — trigger unlikely to fire
 **Why deferred:** Post-T13, `_is_stale` (which `execute_script` calls at `:191`) propagates UnicodeDecodeError from `find_calls` when the target project contains a non-UTF-8 `.py` file. The `execute_script` Raises clause currently lists LintFailure / HashMismatch / SignatureFailure / MetadataError but NOT UnicodeDecodeError. This is a documentation gap: the behavior (surfacing the error) is intended per T13's "surface, don't swallow" philosophy; only the docstring is stale. A real-world concern would be a Python-2 codebase with `# -*- coding: latin-1 -*-` declarations — scanning that project would now hard-fail rather than silently skip. Speculative concern until reported; no change to behavior proposed here.
 **Trigger:** Next executor-docstring polish pass, OR if a user reports unexpected UnicodeDecodeError from `execute_adaptive_script`.
 **Estimated scope:** 1 LOC docstring line (`UnicodeDecodeError: project contains a file that fails UTF-8 decoding`). If behavior change is later wanted (graceful degradation via `errors="replace"` in `project.read_file`), that's a larger task — not in this entry's scope.
@@ -1278,6 +1404,7 @@ assert list(stage_dir.iterdir()) == []
 ### BACKLOG-PR6-63 — Section banner style inconsistency in `test_adaptive_executor.py`
 **Source:** Phase 3b PR #6 T14 Opus code-review (Minor 1), 2026-04-22
 **File:** `tests/test_adaptive_executor.py:851` — T14 section banner
+**Phase-4 readiness:** `retire` — cosmetic/docstring-wording polish — trigger unlikely to fire
 **Why deferred:** T14 uses a single-line banner `# --- Task 14 — T11-N1 E2E signature-path regression ---` while Tasks 11 and 12 use a three-line boxed format:
 ```python
 # -------------------------------------------------------------------------
@@ -1291,6 +1418,7 @@ Purely visual drift, no correctness impact. Cosmetic polish.
 ### BACKLOG-PR6-64 — `test_execute_adaptive_script_rejects_tampered_signature` uses bare `pytest.raises(SignatureFailure)` rather than tight match
 **Source:** Phase 3b PR #6 T14 Opus code-review (Minor 2), 2026-04-22
 **File:** `tests/test_adaptive_executor.py:~1013` — T14 Layer 3 tamper test
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** T14's Layer 3 tamper test uses `pytest.raises(SignatureFailure)` bare, while the pre-existing Layer 3 test at `test_adaptive_executor.py:665` uses `pytest.raises(SignatureFailure, match="signature invalid or content mismatch")` — a tight match string pinning the specific failure reason. Bare form would false-pass if the signature path ever started raising a different `SignatureFailure` reason (e.g., missing-public-key, wrong-version). The pre-existing line-628 test already locks the tight match, so T14's bare form doesn't regress overall coverage; it just doesn't tighten further. Defense-in-depth opportunity.
 **Trigger:** Next test-precision polish, OR if a signature-path regression surfaces a different failure mode that slips past the bare `pytest.raises`.
 **Estimated scope:** 1 LOC (add `match="signature invalid or content mismatch"` or the current engine-wrapped equivalent to the `pytest.raises` call).
@@ -1298,6 +1426,7 @@ Purely visual drift, no correctness impact. Cosmetic polish.
 ### BACKLOG-PR6-67 — Stale `sign_adaptive_script` reference in test-file comment
 **Source:** Phase 3b PR #6 T17 Opus spec review (Minor 2), 2026-04-22
 **File:** `tests/test_adaptive_subagent_prompts.py:306`
+**Phase-4 readiness:** `retire` — cosmetic/docstring-wording polish — trigger unlikely to fire
 **Why deferred:** A regex-documentation test comment still says "matches `sign_adaptive_script` validation". Factually accurate (the regex lives in `adaptive/signing.py` which `sign_adaptive_script` calls), but post-T17 the direct-call tool is absent from all 5 LLM-flow subagent frontmatters. A future reviewer might reasonably rewrite the comment as "matches `adaptive/signing.py` validation" for clarity, since the test now operates on the server-internal validation not the tool name. Pure cosmetic; no behavior impact.
 **Trigger:** Next test-docs polish pass.
 **Estimated scope:** 1 LOC comment rewrite.
@@ -1305,6 +1434,7 @@ Purely visual drift, no correctness impact. Cosmetic polish.
 ### BACKLOG-PR6-68 — Orchestrator body names only 4/7 adaptive tools (prose clarity)
 **Source:** Phase 3b PR #6 T17 Opus code-review (Minor 2), 2026-04-22
 **File:** `plugins/screw/agents/screw-injection.md` — Step 2.5 prose (around lines 165-171)
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** The orchestrator's frontmatter carries 7 adaptive tools (record_context_required_match, detect_coverage_gaps, lint, stage, promote, reject, execute) but the body only names 4 by tool name (record_context_required_match, detect_coverage_gaps, stage_adaptive_script, accumulate_findings) — those with orchestrator-specific meta (domain field, session ID reuse). promote/reject/execute/lint are covered via delegation to per-agent Step 3.5d. Reviewer's suggestion: a one-line pointer like "per-agent Step 3.5d names the full tool sequence used in-flow" would preempt reader confusion about why only 4/7 are named. Not a defect (delegation is the design); style suggestion.
 **Trigger:** Next orchestrator-prose polish pass.
 **Estimated scope:** ~2 LOC (one sentence added near line 167).
@@ -1312,6 +1442,7 @@ Purely visual drift, no correctness impact. Cosmetic polish.
 ### BACKLOG-PR6-66 — Orchestrator body-vs-frontmatter symmetry guard (forward-looking)
 **Source:** Phase 3b PR #6 T17 Opus code-review (Minor 1), 2026-04-22
 **File:** `plugins/screw/agents/screw-injection.md` + `tests/test_adaptive_subagent_prompts.py`
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** T17 lifted the `sign_adaptive_script NOT in tools` negative guard to cover the orchestrator, but `test_adaptive_section_references_all_required_mcp_tools` intentionally does NOT apply the positive tool-presence assertion to the orchestrator body (rationale documented inline: orchestrator Step 2.5 delegates to per-agent Step 3.5d rather than naming every tool verbatim). Currently the orchestrator body names 4/7 adaptive tools (the ones with orchestrator-specific meta: `stage_adaptive_script.meta`, `record_context_required_match`, `detect_coverage_gaps`, `accumulate_findings`). Latent risk: if a future edit removes a tool from the orchestrator's frontmatter but keeps body prose referencing it (pointing readers at a tool the orchestrator can't call), no current test catches that drift. Inherent to the delegation pattern — not actionable for this PR.
 **Trigger:** If the orchestrator body grows more detailed OR if body-frontmatter drift becomes a recurring regression type.
 **Estimated scope:** ~20 LOC (targeted test that greps orchestrator body for `mcp__screw-agents__<tool>` mentions and cross-checks each appears in frontmatter; invert the per-agent symmetry direction).
@@ -1319,6 +1450,7 @@ Purely visual drift, no correctness impact. Cosmetic polish.
 ### BACKLOG-PR6-65 — Subagent session-id lookup relies on LLM-driven JSONL parsing
 **Source:** Phase 3b PR #6 T15+T16 Opus spec review (Minor 1), 2026-04-22
 **File:** `plugins/screw/agents/screw-{sqli,cmdi,ssti,xss}.md` — Step 3.5d-I (resume-from-approval branch, around line 449 in each)
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** The promote path requires the subagent to look up `session_id` by reading `.screw/local/pending-approvals.jsonl` with the `Read` tool and picking the MOST-RECENT entry where `script_name == {script_name}` AND `event == "staged"`. This implicitly trusts the LLM to correctly implement "walk JSONL lines, filter by predicate, take last match" — not pick line 1, not pick an earlier `staged` event when there's been a re-stage, etc. The `promote_staged_script` server tool has diagnostic fallbacks: `fallback_required` / `staging_not_found` return `recovered_prefix` so the subagent can re-prompt the user, and `fallback_sha_mismatch` rejects a mismatched prefix. So the LLM lookup is guard-railed at the server, but a server-side `lookup_session_id(script_name)` tool would remove the trust-the-LLM link entirely. Hardening opportunity, not a live bug.
 **Trigger:** Next adaptive-flow hardening pass, OR if user reports a "wrong session_id" promote failure that traces to subagent mis-parsing.
 **Estimated scope:** ~30 LOC (new engine helper `engine.lookup_most_recent_staged_session(project_root, script_name)` + MCP tool registration + test + prose update in the 4 subagent markdown files replacing the `Read` instruction with the new tool call).
@@ -1326,6 +1458,7 @@ Purely visual drift, no correctness impact. Cosmetic polish.
 ### BACKLOG-PR6-69 — Slash-command argument-description style drift across `plugins/screw/commands/`
 **Source:** Phase 3b PR #6 T19 Opus code-review (Minor, Category A), 2026-04-23
 **File:** `plugins/screw/commands/adaptive-cleanup.md` (Stale-sweep action's Arguments subsection) + `plugins/screw/commands/scan.md` (Arguments section)
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** `scan.md` documents CLI args with a **bold-name** convention: `**--thoroughness** (optional, default \`standard\`): \`standard\` or \`deep\` ...`. T19's new `adaptive-cleanup.md` uses inline-code names instead: `- \`--max-age-days N\` (optional): override the threshold in days.`. `learn-report.md` takes a more narrative form again (no formal Arguments section at all). The three styles coexist today so T19 did NOT violate any committed precedent — but when the plugin grows more slash commands, reviewers will keep choosing whichever style matches the nearest commit. A single house-style pass (probably standardizing on `scan.md`'s **bold-name** + default-value-in-backticks form) would preempt the bikeshed. Style-only; no behavior or correctness impact.
 **Trigger:** Next slash-command docs polish pass, OR when a 4th slash command is added and the drift becomes visible.
 **Estimated scope:** ~6 LOC (rewrite the two CLI args in adaptive-cleanup.md's `stale` action to match scan.md's bold-name convention). If learn-report.md is also normalized, add ~10 LOC there.
@@ -1333,6 +1466,7 @@ Purely visual drift, no correctness impact. Cosmetic polish.
 ### BACKLOG-PR6-70 — `<if dry_run:>` pseudo-template syntax in `stale` render block may be mis-copied as literal output
 **Source:** Phase 3b PR #6 T19 Opus code-review (Minor, Category A), 2026-04-23
 **File:** `plugins/screw/commands/adaptive-cleanup.md` — the "Render as" fenced block inside the Stale-sweep action (around lines 164-176)
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** The render template uses `<if dry_run:>` (angle-bracket pseudo-template) and `<session_id>/<script_name>` (angle-bracket placeholders) inside the same fenced block. Context makes it clear these are template conditionals/placeholders, not literal output — the quality reviewer explicitly noted "Not ambiguous enough to be Important (context makes it clear)". But an operator quickly skimming the block could plausibly copy the `<if dry_run:>` line verbatim into a bug report, muddying the trace. A less-ambiguous convention (e.g., `# if dry_run:` comment-style prefix, or moving the conditional outside the fenced block) would eliminate the ambiguity at ~2 LOC cost. Pure cosmetic; no operational defect.
 **Trigger:** Next slash-command rendering-template polish pass.
 **Estimated scope:** ~2 LOC (either change `<if dry_run:>` to `# if dry_run:` inside the block, or lift the dry-run conditional above/below the block as prose).
@@ -1340,6 +1474,7 @@ Purely visual drift, no correctness impact. Cosmetic polish.
 ### BACKLOG-PR6-71 — Parametrize test IDs include Path repr (verbose in CI logs)
 **Source:** Phase 3b PR #6 T20 Opus code-review (Minor 1, Category A), 2026-04-23
 **File:** `tests/test_adaptive_subagent_prompts.py` — 12 `@pytest.mark.parametrize("agent,path", sorted(_PER_AGENT_FILES.items()))` decorator sites (lines ~408, 414, 420, 426, 436, 442, 452, 460, 471, 489, 497, 506 — one per new test added in T20)
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** Parametrizing over `dict.items()` yields test IDs that include the Path stringification — e.g. `[cmdi-<absolute-path>]` instead of `[cmdi]`. The second parameter is fully determined by the first (`_PER_AGENT_FILES["cmdi"]` is unique), so the Path contributes zero signal to the test ID but makes CI output noisier. Cleaner forms: (a) parametrize over `sorted(_PER_AGENT_FILES)` (keys only) and look up the path inside with `_PER_AGENT_FILES[agent]`, or (b) add `ids=lambda v: v if isinstance(v, str) else None` to the decorator to drop Path values from IDs. `pytest -k 'cmdi'` filtering works correctly today so this is log-verbosity polish only.
 **Trigger:** Next test-polish pass, OR when CI log readability becomes a friction point.
 **Estimated scope:** ~12 LOC (rewrite 12 decorators to the keys-only form and add `path = _PER_AGENT_FILES[agent]` as the first line of each function body).
@@ -1347,6 +1482,7 @@ Purely visual drift, no correctness impact. Cosmetic polish.
 ### BACKLOG-PR6-72 — `adaptive.__all__` "18 entries" docstring claim can drift silently
 **Source:** Phase 3b PR #6 T20 Opus code-review (Minor 2, Category A), 2026-04-23
 **File:** `tests/test_adaptive_subagent_prompts.py::test_adaptive_prompt_lists_all_adaptive_exports` (docstring, around line 477-486)
+**Phase-4 readiness:** `retire` — cosmetic/docstring-wording polish — trigger unlikely to fire
 **Why deferred:** The test's docstring says "At PR #6 HEAD `adaptive.__all__` has 18 entries; this test auto-tracks any additions so the prompt stays in sync with the public surface." The test body iterates `__all__` dynamically so it remains correct as the export set grows — but the docstring's hardcoded "18" would drift silently. Two hardening options: (a) remove the count from the docstring (simpler, no belt-and-suspenders), or (b) add `assert len(adaptive_pkg.__all__) == 18` inside the test as a canary — a new export would fail the canary, forcing the maintainer to (1) update the agent prompt to include the new name, (2) update the test's expected count. Option (b) turns a silent docstring drift into a loud test failure. Marco's call on whether the belt-and-suspenders check is worth the minor maintenance friction.
 **Trigger:** Next test-docs polish pass, OR if a new `adaptive/` public function is added (which would drift the docstring silently and the review should catch the opportunity then).
 **Estimated scope:** 1-2 LOC (option (a) removes the count; option (b) adds a 1-line length assertion).
@@ -1354,6 +1490,7 @@ Purely visual drift, no correctness impact. Cosmetic polish.
 ### BACKLOG-PR6-73 — `accumulated_count == 1` diagnostic check dropped at T21 Step 4
 **Source:** Phase 3b PR #6 T21 Opus code-review (Minor A1, Category A), 2026-04-23
 **File:** `tests/test_adaptive_workflow_staged.py::test_full_adaptive_workflow_with_staging_composition` — Step 4 accumulate_findings call (around line 97)
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** T22's E2E test at `tests/test_adaptive_workflow.py:198` asserts `acc_response["accumulated_count"] == 1` in addition to the session_id echo. T21 only asserts the session_id threading. `accumulated_count` catches a regression where `accumulate_findings` silently no-ops the append even though it returns a valid session id — a subtle diagnostic angle T22 carries but T21 skipped (because the plan skeleton itself omitted the count). Low cost (~1 LOC), distinct angle on accumulator behavior.
 **Trigger:** Next T21 diagnostic-tightening pass, OR if a silent-accumulator regression surfaces in another task.
 **Estimated scope:** 1 LOC (`assert acc_response["accumulated_count"] == 1` after the existing session_id assert at line 97).
@@ -1361,6 +1498,7 @@ Purely visual drift, no correctness impact. Cosmetic polish.
 ### BACKLOG-PR6-74 — `acc2["accumulated_count"] >= 2` diagnostic check dropped at T21 Step 15
 **Source:** Phase 3b PR #6 T21 Opus code-review (Minor A2, Category A), 2026-04-23
 **File:** `tests/test_adaptive_workflow_staged.py::test_full_adaptive_workflow_with_staging_composition` — Step 15 accumulate second call (around line 234)
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** T22's Step 10 at `tests/test_adaptive_workflow.py:369` asserts `acc2["accumulated_count"] >= 2`, proving BOTH the YAML finding AND the adaptive-script finding landed in the session buffer pre-finalize. T21's Step 15 only asserts session_id threading. If the executor regresses to zero findings but Step 14's `>= 1` bound slips past, Step 16's `summary.total == 1` still passes (1 = YAML alone) — the merge-collapsed-2→1 evidence chain is lost. T22's Review I4 inline comment calls this out.
 **Trigger:** Next T21 diagnostic-tightening pass, OR if a silent-merge regression surfaces.
 **Estimated scope:** 1 LOC (`assert acc2["accumulated_count"] >= 2`).
@@ -1368,6 +1506,7 @@ Purely visual drift, no correctness impact. Cosmetic polish.
 ### BACKLOG-PR6-75 — `match_response["matches_recorded"] == 1` diagnostic check dropped at T21 Step 3
 **Source:** Phase 3b PR #6 T21 Opus code-review (Minor A3, Category A), 2026-04-23
 **File:** `tests/test_adaptive_workflow_staged.py::test_full_adaptive_workflow_with_staging_composition` — Step 3 record_context_required_match call (around line 85)
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** T22 at `tests/test_adaptive_workflow.py:155` asserts `match_response["matches_recorded"] == 1` — confirms the idempotent-dedup key actually recorded the match rather than returning a valid session id with zero effect. T21 only captures `session_id` from the response. Deferring hides a potential silent no-op regression in `record_context_required_match`. Low cost, high diagnostic value.
 **Trigger:** Next T21 diagnostic-tightening pass, OR if `record_context_required_match` surfaces a no-op bug.
 **Estimated scope:** 1 LOC (`assert match_response["matches_recorded"] == 1` after the existing `session_id = match_response["session_id"]` extraction).
@@ -1375,6 +1514,7 @@ Purely visual drift, no correctness impact. Cosmetic polish.
 ### BACKLOG-PR6-76 — `l` loop variable (E741) in registry list comprehensions at T21 Steps 10 + 13
 **Source:** Phase 3b PR #6 T21 Opus code-review (Minor A4, Category A), 2026-04-23
 **File:** `tests/test_adaptive_workflow_staged.py::test_full_adaptive_workflow_with_staging_composition` — list comprehensions at approximately lines 176 and 211
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** Both Step 10 and Step 13 use `[json.loads(l) for l in registry.read_text().splitlines() if l.strip()]`. PEP 8 / flake8 E741 flags `l` as ambiguous (visually indistinguishable from `1` or uppercase `I`). T22 does not have this pattern (T22 does not touch the registry directly). Trivial fix: rename to `line` or `raw`. Pure style; no behavior impact.
 **Trigger:** Next test-style polish pass, OR if ruff/flake8 is added to CI with E741 enabled.
 **Estimated scope:** 2-4 LOC (rename `l` → `line` at 2 list-comprehension sites).
@@ -1382,6 +1522,7 @@ Purely visual drift, no correctness impact. Cosmetic polish.
 ### BACKLOG-PR6-77 — Step 17 `trust_status["script_quarantine_count"] == 0` bare assert lacks failure message
 **Source:** Phase 3b PR #6 T21 Opus code-review (Minor A5, Category A), 2026-04-23
 **File:** `tests/test_adaptive_workflow_staged.py::test_full_adaptive_workflow_with_staging_composition` — Step 17 verify_trust assertion (around line 244)
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** If this assert fails with `script_quarantine_count == 1`, the bare form tells the reader nothing about why. T22's Step 12 at `tests/test_adaptive_workflow.py:466` has a multi-line failure message explaining the T20 signing-round-trip regression pathway (verify_script sees a quarantined script → sign-side canonical bytes drifted from verify-side → check PR #6 T2 consolidation points). T21 exercises the same T20 surface through a different approach path (promote rather than direct sign), so the same diagnostic guidance is relevant. Pure diagnostic polish; catches nothing new but makes breakage-pinpointing faster.
 **Trigger:** Next T21 diagnostic-tightening pass, OR if a trust-count regression surfaces and the bare assert impedes root-cause analysis.
 **Estimated scope:** 4-6 LOC (add a multi-line failure message to the existing assert; copy-adapt from T22:466-472).
@@ -1389,6 +1530,7 @@ Purely visual drift, no correctness impact. Cosmetic polish.
 ### BACKLOG-PR6-78 — Diagnostic-message convention drift between adjacent tool-schema tests
 **Source:** Phase 3b PR #6 T22 Opus code-review (Minor, Category A), 2026-04-23
 **File:** `tests/test_engine.py` — `test_tool_definitions_json_schema_valid` (lines 100-107, bare asserts) vs `test_tool_definitions_pr6_new_tools_reject_additional_properties` (lines 110-144, asserts with diagnostic messages)
+**Phase-4 readiness:** `nice-to-have` — PR #6 Opus re-review polish — cosmetic / test-coverage / ergonomics
 **Why deferred:** The new T22 test carries assertion messages naming the specific tool and invariant that regressed (e.g., `"Tool {tool['name']!r} input_schema missing additionalProperties: false (T10-M1 partial regressed)"`). The adjacent baseline test uses bare asserts (no message) for `schema["type"] == "object"` / `"properties" in schema` / `target` presence. Broader file convention is majority-bare (3 of 13 asserts carry messages). The divergence IS principled — the baseline test is broad-coverage "something's off" surfacing, while the new test locks a tighter invariant and benefits from diagnostic messages for CI failure readability. But style consistency across adjacent tool-schema tests matters for future maintainers. Option (a): retrofit the baseline test with diagnostic messages (closes the gap). Option (b): document the divergence with an inline comment (lower cost, accepts the difference).
 **Trigger:** Next test-diagnostic polish pass, OR if a baseline schema assertion fails in CI and the bare form makes root-cause analysis harder.
 **Estimated scope:** Option (a) ~3 LOC (add messages to 3 asserts in `test_tool_definitions_json_schema_valid`); Option (b) ~2 LOC (inline comment explaining the intentional divergence).
