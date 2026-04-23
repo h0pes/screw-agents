@@ -51,7 +51,7 @@
 | Per-agent truncations | screw-sqli/cmdi/ssti/xss.md — truncate adaptive Step 3.5 at Step 3.5d-D; add structured JSON return; frontmatter cleanup | 4 × −325 = −1300 |
 | Orchestrator truncation | screw-injection.md — truncate Step 2.5 similarly; add structured JSON return; frontmatter cleanup | −55 |
 | File deletion | screw-full-review.md (second nested-dispatch instance; Option A fold+delete per spec §4.3) | −124 |
-| Test updates | tests/test_adaptive_subagent_prompts.py — 11 polarity flips + ~9 new assertions for scan.md orchestration + 1 file-absence assertion | +45 |
+| Test updates | tests/test_adaptive_subagent_prompts.py — 2 polarity-flip rewrites (frontmatter + adaptive-section refs) + 9 deletions (8 parametrized × 4 agents = 32 cases + 1 non-parametrized = 33 cases) + 8 new test functions for scan.md orchestration (one of which is the file-absence assertion) | +45 |
 | Cross-plan updates | DEFERRED_BACKLOG (BACKLOG-C2-01 → Shipped), PROJECT_STATUS (Phase 4 blocker count 5 → 4) | ~+20 doc lines |
 | **Total** | | **~−1,230 LOC, +9 tests (net assertion count)** |
 
@@ -73,7 +73,7 @@
 | `plugins/screw/agents/screw-ssti.md` | Byte-identical to sqli modulo agent name. |
 | `plugins/screw/agents/screw-xss.md` | Byte-identical to sqli modulo agent name. |
 | `plugins/screw/agents/screw-injection.md` | Truncate Step 2.5c delegation paragraph (the per-gap pipeline delegation → per-agent Step 3.5d A-K); replace with "apply sub-steps A through E". REMOVE Step 3b (finalize). ADD new Step 4 "Return structured payload" with orchestrator-specific `scan_subagent: "screw-injection"` + `scan_metadata.agent_names: ["sqli","cmdi","ssti","xss"]`. Frontmatter: same removals as per-agent. |
-| `tests/test_adaptive_subagent_prompts.py` | Flip 11 polarity assertions (per-agent files must NOT reference stage/promote/reject/execute/Task/reviewer). Delete ~7 parametrized tests obsoleted (sha256 prefix render, stderr render, retention notice, plugin-namespaced reviewer, bare-reviewer negative, stage/promote/reject contains). Add ~9 new assertions for scan.md orchestration (see T1 body). Add 1 file-absence assertion (screw-full-review.md does not exist). |
+| `tests/test_adaptive_subagent_prompts.py` | Rewrite 2 polarity assertions (frontmatter tool-surface + adaptive-section tool-references — per-agent files must NOT reference stage/promote/reject/execute/Task/reviewer). Delete 9 obsolete tests (8 parametrized × 4 agents = 32 cases + 1 non-parametrized = 33 cases total: sha256 prefix render, stderr render, retention notice, plugin-namespaced reviewer, bare-reviewer negative, stage/promote/reject contains, execute-invocation-omits-session_id). Add 8 new test functions for scan.md orchestration (see T1 body; one of the 8 is the screw-full-review.md file-absence assertion). |
 
 ### Deleted (1 file)
 
@@ -150,7 +150,7 @@ Expected: entry visible; "Phase 3b-C2" heading visible.
 **Files:**
 - Modify: `tests/test_adaptive_subagent_prompts.py` (1 file)
 
-**Rationale:** Per TDD + plan-discipline: write the target assertions FIRST so the test suite goes red, then T2–T6 walk the implementation to green. This task updates all 20 assertion changes in one coherent test-file edit. Expected end-state: ~10 assertions still green (stable properties like 15-layer stack reference, prompt-injection fence, import allowlist), ~15 assertions RED because scan.md + per-agent files haven't been updated yet, 1 assertion RED because screw-full-review.md still exists.
+**Rationale:** Per TDD + plan-discipline: write the target assertions FIRST so the test suite goes red, then T2–T6 walk the implementation to green. This task performs 2 polarity-flip rewrites, 9 deletions, and 8 new test-function additions in one coherent test-file edit. Expected end-state: 24 tests still green (stable properties like 15-layer stack reference, prompt-injection fence, import allowlist, Option D isolation), 10 tests RED (2 rewritten polarity tests + 8 new scan.md orchestrator tests — one of which is the file-absence assertion for screw-full-review.md).
 
 **Precedent:** Phase 3b PR #6 (squash `fa2f42a`) added the Option D isolation guard `test_adaptive_prompt_does_not_reference_sign_adaptive_script`. T1 must PRESERVE that assertion as-is — it's C1 closure, unchanged by C2.
 
@@ -482,13 +482,13 @@ Run: `uv run pytest tests/test_adaptive_subagent_prompts.py -v 2>&1 | tail -40`
 
 Expected: most newly-added + flipped assertions FAIL (scan.md doesn't have the content yet; per-agent files still reference stage/promote/reject/execute). A few assertions PASS (stable ones from step 7 + the existing preserved ones). No Python syntax/import errors in the test file.
 
-Expected approximate failure count: ~20 failing assertions. This is the target RED state.
+Expected empirical failure count: 10 failing test functions (2 rewritten polarity tests + 8 new scan.md orchestrator tests). This is the target RED state.
 
 - [ ] **Step 10: Run full pytest to verify no other suite is broken**
 
 Run: `uv run pytest -q 2>&1 | tail -5`
 
-Expected: only `tests/test_adaptive_subagent_prompts.py` has failures. Count approximate: `~20 failed, ~930 passed, 8 skipped`. Any failure outside test_adaptive_subagent_prompts.py is a regression — fix before proceeding.
+Expected: only `tests/test_adaptive_subagent_prompts.py` has failures. Empirically after T1 the count is `10 failed, 907 passed, 8 skipped` (10 failing test functions rather than ~20 individual assertions — many rewrites consolidated per-agent parametrized cases into single non-parametrized functions). Any failure outside test_adaptive_subagent_prompts.py is a regression — fix before proceeding.
 
 - [ ] **Step 11: Commit**
 
