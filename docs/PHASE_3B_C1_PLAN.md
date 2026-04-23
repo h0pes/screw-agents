@@ -5569,6 +5569,20 @@ git add plugins/screw/commands/adaptive-cleanup.md
 git commit -m "feat(phase3b-c1): rewrite adaptive-cleanup slash cmd to use MCP tools (T19, I6)"
 ```
 
+**T19 Opus 4.7 re-review (2026-04-23):** Spec review APPROVED. Quality review APPROVED. **0 Critical / 0 Important / 4 Minor (2 Category A, 2 Category B per review)**. All 6 plan-fix grep assertions passed; scan.md line 71's forward-reference to `/screw:adaptive-cleanup stale` resolves valid at T19 HEAD; I-T18-quality-1 closed.
+
+- **I-T18-quality-1 resolved**: scan.md:71 references `/screw:adaptive-cleanup stale` and claims "default 14-day threshold". adaptive-cleanup.md now documents the literal `stale` subcommand (not renamed) with 14-day default (engine reads `.screw/config.yaml::staging_max_age_days`, falls back to 14 per `engine.py:98`). No scan.md edit required. The two files are internally consistent at T19 HEAD.
+
+- **Plan-fixes applied pre-dispatch (commit `5fe57d7`)**: PA-T19-1..7 — MCP call syntax (function-call form from `screw-sqli.md:329`), frontmatter `name:` preserved, compact-block list UX kept (not 3-column table), two distinct "stale" concepts disambiguated at top-of-file + per-action, stale-detection-semantic section preserved verbatim under `list`, case-insensitive "yes" confirmation kept, `max_age_days=None` resolution prose tightened to reference config-first fallback. Additional Step 2 grep assertions (6 total: 3 negative + 3 positive) locked in self-verification.
+
+- **Quality-review Category-A Minors (2)**: tracked as BACKLOG-PR6-69 and BACKLOG-PR6-70 per the T17-correction taxonomy rule — Category A cosmetic polish gets a backlog entry even when low-impact.
+
+- **Spec + quality Category-B Minors (2)**: reviewer explicitly "no action". No backlog entries per the Category-A/B/C framework.
+
+Score since T7: **11 tasks 0-Important / 1 task 1-Important (T14) / 1 task 1-Important transient-to-T19 (T18, now resolved)**. Pre-audit budget held the 0-Important target across the task.
+
+T19 commits: `2b9ead6` (implementer rewrite). Plan-fix precursor: `5fe57d7`. Pre-audit surfaced 7 plan-fixes before dispatch; implementer produced a skeleton-exact deliverable with zero deviations on first pass.
+
 ---
 
 ### Task 20: Format-Smoke Test Extensions
