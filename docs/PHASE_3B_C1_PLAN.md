@@ -6230,69 +6230,51 @@ T22 commit: `43cdabe` (+37 lines — new function `test_tool_definitions_pr6_new
 
 ## Phase H — Docs + Plan Sync (T23-T24)
 
-### Task 23: Sync `docs/PHASE_3B_PLAN.md` with PR #6 Section
+### Task 23: Pointer paragraph in `docs/PHASE_3B_PLAN.md` for PR #6 follow-up
 
 **Files:**
 - Modify: `docs/PHASE_3B_PLAN.md`
 
-- [ ] **Step 1: Add a new top-level section after "PR #5 Exit Checklist"**
+**Rationale (revised 2026-04-23, pre-audit PA-T23-R):** The original plan prescribed adding a full `## PR #6: C1 Staging Architecture + I1-I6 Polish` section to `PHASE_3B_PLAN.md` with per-task summaries mirroring PR #4/PR #5. That was drafted before `PHASE_3B_C1_PLAN.md` existed as the authoritative PR #6 plan. Today the two plans would duplicate ~150 lines of content and drift over time. `PHASE_3B_PLAN.md` formally ended at "`*End of Phase 3b implementation plan.*`" when PR #5 shipped 2026-04-20; PR #6 is a C1 follow-up with its own plan file.
 
-Structure:
+**Revised scope (Option 2 from pre-audit, accepted by Marco 2026-04-23):** append a single ~3-5 line pointer paragraph to `PHASE_3B_PLAN.md` right before the final `*End of Phase 3b implementation plan.*` line (or immediately after it, as a post-marker addendum — implementer chooses based on readability). The pointer tells a future reader browsing `PHASE_3B_PLAN.md` alone that a PR #6 follow-up exists and names the authoritative plan file. Zero content duplication; single source of truth preserved.
+
+- [ ] **Step 1: Append the pointer paragraph**
+
+Locate the existing closing marker (`*End of Phase 3b implementation plan.*` around line 5790) and insert the pointer IMMEDIATELY BEFORE it so the closing marker still terminates the doc cleanly:
 
 ```markdown
-## PR #6: C1 Staging Architecture + I1-I6 Polish
+## Post-Phase-3b Follow-Up: PR #6 (C1 Staging Architecture)
 
-> **SHIPPED NOTE (PR #6 complete, 2026-XX-XX):** [to be filled post-merge
-> with commit SHA and a summary of shipped tasks T0-T27, test count delta,
-> manual round-trip validation result.]
+PR #5's round-trip validation surfaced a C1 trust-invariant regression (the
+approve path regenerated source bytes after the human review, so the signed
+artifact could differ from what was reviewed). PR #6 is the follow-up that
+closes C1 architecturally by introducing a staging→promote flow where the
+bytes the user reviews are the bytes that get signed, plus I1-I6 polish and
+5 adjacent backlog items bundled for coherent delivery.
 
-Scope: close the C1 trust-invariant violation surfaced by PR #5's
-round-trip (approve path regenerated source after approval). Bundle I1-I6
-polish items and 5 adjacent backlog items whose overlapping file sets
-make single-PR delivery cleaner than separate ones. See
-`docs/specs/2026-04-20-phase-3b-c1-staging-design.md` for the consolidated
-design and `docs/PHASE_3B_C1_PLAN.md` for the task breakdown.
-
-**Test count: 771 → 820+ (exact count TBD post-merge)**
-
-### Task 0: Worktree setup
-### Task 1: New adaptive/staging.py module
-### Task 2: Extract _sign_script_bytes shared helper (Option D refactor)
-### Task 3: stage_adaptive_script MCP tool
-### Task 4: promote_staged_script MCP tool — the C1 fix
-### Task 5: reject_staged_script MCP tool
-### Task 6: sweep_stale_staging MCP tool (absorbs T-STAGING-ORPHAN-GC)
-### Task 7: Promote list_adaptive_scripts to engine + MCP
-### Task 8: Promote remove_adaptive_script to engine + MCP
-### Task 9: Delete cli/adaptive_cleanup.py + migrate T22
-### Task 10: I2 — lint validates adaptive.__all__ symbols
-### Task 11: I3 — sandbox stderr surfacing
-### Task 12: T11-N2 — MetadataError wrapper
-### Task 13: T3-M1 — narrow exceptions in ast_walker
-### Task 14: T11-N1 — E2E signature-path regression test
-### Task 15: Rewrite screw-sqli.md Step 3.5d with staging flow
-### Task 16: Copy Step 3.5d byte-identical to cmdi/ssti/xss
-### Task 17: Orchestrator ref updates (screw-injection.md)
-### Task 18: scan.md staging-flow docs
-### Task 19: Rewrite /screw:adaptive-cleanup slash command
-### Task 20: Format-smoke test extensions (+12 assertions × 4 files)
-### Task 21: New integration test — tests/test_adaptive_workflow_staged.py
-### Task 22: additionalProperties: false on new PR #6 tools (T10-M1 partial)
-### Task 23: Cross-plan sync (this file update)
-### Task 24: DEFERRED_BACKLOG updates (move Shipped, append BACKLOG-PR6-09..13 to existing 01..08)
-
-## PR #6 Exit Checklist
-[mirrors the Exit Checklist in PHASE_3B_C1_PLAN.md]
+The authoritative plan lives at `docs/PHASE_3B_C1_PLAN.md` (28 tasks T0-T27,
+~6500 lines). This PHASE_3B_PLAN.md intentionally does NOT duplicate that
+content — the C1 plan is the single source of truth for PR #6.
 ```
 
-Each task gets a brief (3-5 line) summary mirroring the SHIPPED NOTE style used by PR #5's sections. Full detail stays in PHASE_3B_C1_PLAN.md.
+- [ ] **Step 2: Verify the insertion is tidy**
 
-- [ ] **Step 2: Commit**
+```bash
+# Expect: the pointer section appears BEFORE the final "*End of..." marker
+tail -15 docs/PHASE_3B_PLAN.md
+```
+
+The `*End of Phase 3b implementation plan.*` marker should still be the final content line (it now terminates the doc including the PR #6 pointer).
+
+- [ ] **Step 3: Commit**
 
 ```bash
 git add docs/PHASE_3B_PLAN.md
-git commit -m "sync(phase3b): add PR #6 section to PHASE_3B_PLAN (T23)"
+git commit -m "sync(phase3b): pointer to PHASE_3B_C1_PLAN.md for PR #6 follow-up (T23)"
 ```
+
+**Why not add the pointer after the End-marker:** the end-marker is a structural close. Content after it reads like an appendix that's been tacked on, which is contextually what this is — but the pointer is materially part of the Phase 3b narrative (it tells the reader "the story continues at this other file"). Placing it BEFORE the end-marker integrates it into the main flow rather than treating PR #6 as an afterthought stapled on. The implementer may pick either placement; the pre-audit preference is "before the end-marker".
 
 ---
 
