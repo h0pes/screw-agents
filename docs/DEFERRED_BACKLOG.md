@@ -133,12 +133,12 @@ Entries already in `## Shipped` / `## Shipped (PR #6)` do NOT carry this tag —
 
 | Tag | Count | Key entries |
 |---|---|---|
-| `blocker` | 5 | T-FULL-P1 (scan_full scale), T19-M1 / T19-M2 / T19-M3 (SARIF + CSV + exclusion semantics consumed by Phase 4 autoresearch output), BACKLOG-PR6-22 (sign_adaptive_script retirement / C1 full closure) |
+| `blocker` | 4 | T-FULL-P1 (scan_full scale), T19-M1 / T19-M2 / T19-M3 (SARIF + CSV + exclusion semantics consumed by Phase 4 autoresearch output) |
 | `nice-to-have` | 90 | Performance, ergonomics, determinism polish; majority of PR6-01..78 cosmetic entries; sandbox hardening (Phase 3c) |
 | `phase-7-scoped` | 5 | T6-M1, T6-M4, T9-I1 (multi-process concurrency); T8-Sec2 (preexec thread-safety); BACKLOG-PR6-09 (registry compaction at scale) |
 | `retire` | 14 | Trust-layer T4-M6 + T1-M1 (flagged for Marco review — triggers repeatedly not fired) + 12 PR6-* cosmetic/docstring entries whose files are unlikely to be revisited |
 
-**Phase 4 gate:** the `blocker` count must drop to 0 before Phase 4's step 4.0 (D-01 Rust benchmark corpus) can start. Current blockers: T-FULL-P1, T19-M1/M2/M3, BACKLOG-PR6-22. T-FULL-P1 (paginate `scan_full` + agent-relevance filter — Phase 4 autoresearch uses it in volume at 41-agent expansion); T19-M1/M2/M3 (SARIF / CSV / exclusion-semantics of merged findings — Phase 4 FP-learning loop consumes these); BACKLOG-PR6-22 (direct-sign MCP tool retirement — must land before Phase 4's autoresearch module is designed against the direct-sign API, preventing future migration debt). See `docs/PROJECT_STATUS.md` §"Phase 4 Prerequisites (hard gates)" for scheduling + estimated scope.
+**Phase 4 gate:** the `blocker` count must drop to 0 before Phase 4's step 4.0 (D-01 Rust benchmark corpus) can start. Current blockers: T-FULL-P1, T19-M1/M2/M3. T-FULL-P1 (paginate `scan_full` + agent-relevance filter — Phase 4 autoresearch uses it in volume at 41-agent expansion); T19-M1/M2/M3 (SARIF / CSV / exclusion-semantics of merged findings — Phase 4 FP-learning loop consumes these). See `docs/PROJECT_STATUS.md` §"Phase 4 Prerequisites (hard gates)" for scheduling + estimated scope.
 
 ---
 
@@ -762,7 +762,7 @@ because partial target_patterns are out-of-date, OR when autoresearch
 
 **Scope shipped:** 9 files touched. `plugins/screw/commands/scan.md` full rewrite (97 → 480 lines, chain-subagents orchestrator with `confirm-high` phrase grammar per spec §4.2 D2). 4 per-agent subagents (sqli/cmdi/ssti/xss) truncated 600 → ~414 lines with byte-identical adaptive sections modulo agent name (enforced by `test_adaptive_section_identical_modulo_agent_name`). Orchestrator `screw-injection.md` truncated 231 → ~222 lines. `screw-full-review.md` deleted (second nested-dispatch instance, Option A fold+delete per spec §4.3). `plugins/screw/skills/screw-review/SKILL.md` routing row rewritten to redirect broad/full-scan intents to `/screw:scan full`. `tests/test_adaptive_subagent_prompts.py` updated with 9 new scan.md orchestration assertions + 1 file-absence test (net 22 test functions post-T1). Zero engine changes. Final test state: 918 passed / 8 skipped / 10 warnings (baseline preserved + 7 new assertions GREEN).
 
-**Phase-4 impact:** hard prereq count drops 5 → 4. Remaining Phase-4 blockers: D-01 (Rust benchmark corpus), T-FULL-P1 (paginate scan_full), T19-M1/M2/M3 (SARIF/CSV surface polish), BACKLOG-PR6-22 (`sign_adaptive_script` retirement).
+**Phase-4 impact:** hard prereq count drops 5 → 4. Remaining Phase-4 blockers: D-01 (Rust benchmark corpus), T-FULL-P1 (paginate scan_full), T19-M1/M2/M3 (SARIF/CSV surface polish), BACKLOG-PR6-22 (`sign_adaptive_script` retirement). *(Post-scripsum: BACKLOG-PR6-22 subsequently resolved on branch `retire-sign-adaptive-script`, 2026-04-24 — prereq count now 3.)*
 
 **Process lessons captured:** see `BACKLOG-C2-PROC-PA-TRUNCATION-SCOPE` under "Phase 3b-C2 T4 review minors" — pre-audits for truncation tasks must simulate the actual test extraction range, not just the truncated region (surfaced by 4 stale-ref issues in T4 that the pre-audit missed). See also `BACKLOG-C2-M-QR-T1-M4` for the commit-message-template-during-plan-amendment lesson.
 
@@ -1141,7 +1141,17 @@ assert list(stage_dir.iterdir()) == []
 **Suggested fix:** append to the fallback message body: "You are confirming the staging bytes' sha matches what you reviewed at stage time. If you did not personally review these bytes, run `reject` instead."
 **Estimated scope:** ~5 LOC message text change + 1 format-smoke test assertion update.
 
-### BACKLOG-PR6-22 — `sign_adaptive_script` retirement / C1-closure migration
+### BACKLOG-PR6-22 — `sign_adaptive_script` retirement / C1-closure migration — **RESOLVED 2026-04-24**
+**Shipped on branch:** `retire-sign-adaptive-script` (merge commit TBD on merge).
+**What shipped:** (1) `engine.sign_adaptive_script` method deleted, (2) the matching tool descriptor removed from `_tool_descriptors()`, (3) the MCP dispatcher entry in `server.py::_dispatch_tool` removed, (4) `adaptive/signing.py` docstrings updated to reflect the single remaining caller (`promote_staged_script` via `_sign_script_bytes`), (5) `tests/test_sign_adaptive_script.py` and `tests/test_adaptive_workflow.py` deleted (the latter was fully subsumed by `tests/test_adaptive_workflow_staged.py` which is a strict superset), (6) the delegation test `test_sign_adaptive_script_delegates_to_sign_script_bytes` removed from `tests/test_adaptive_signing.py`, (7) `tests/test_adaptive_executor.py::signed_script_setup` fixture migrated from the direct-sign path to stage→promote (identical session_id/script_name/source/meta), (8) incidental stale pointer comments updated in `cli/validate_script.py` and two test files. Test suite: 918 → 898 passed, 8 skipped; zero regressions. Net diff ≈ -1295 / +38 LOC.
+
+**Design commitment preserved:** the negative-assertion isolation guards in `tests/test_adaptive_subagent_prompts.py` (`"sign_adaptive_script" not in …`) were intentionally left in place as layered defense — they now trivially pass but catch any future LLM-flow prompt that reintroduces the string.
+
+**Phase 4 commitment:** BACKLOG-PR6-13 (Phase 4 autoresearch module) MUST be built against `stage_adaptive_script` → `promote_staged_script`. There is no direct-sign path to bind to.
+
+---
+
+**Historical entry (original deferral, for audit trail):**
 **Source:** Phase 3b PR #6 T4 Opus re-review (I-opus-2), 2026-04-21
 **File:** `src/screw_agents/engine.py` — `sign_adaptive_script`; `src/screw_agents/server.py` dispatcher; `plugins/screw/agents/screw-{sqli,cmdi,ssti,xss}.md` subagent prompts
 **Phase-4 readiness:** `blocker` — architectural closure of C1; must be resolved before Phase 4's autoresearch module (BACKLOG-PR6-13) is designed against the direct-sign API

@@ -139,17 +139,6 @@ def _dispatch_tool(
             wall_clock_s=args.get("wall_clock_s", 30),
         )
 
-    # --- Phase 3b T18a: sign_adaptive_script (approve-path) ---
-
-    if name == "sign_adaptive_script":
-        return engine.sign_adaptive_script(
-            project_root=Path(args["project_root"]),
-            script_name=args["script_name"],
-            source=args["source"],
-            meta=args["meta"],
-            session_id=args["session_id"],
-        )
-
     # --- Phase 3b T3: stage_adaptive_script (C1 staging-path) ---
 
     if name == "stage_adaptive_script":

@@ -18,7 +18,7 @@ Items explicitly deferred from earlier phases that must be completed in later ph
 
 ---
 
-## Current Phase: Phase 3b PR #6 merged — Phase 3b-C2 immediately next
+## Current Phase: Phase 3b closed — Phase 4 prereq sweep in progress
 
 Architecture and product design is **complete** (PRD v0.4.3). Phases 0 / 0.5 / 1 / 1.7 / 2 all **complete**. **Phase 3a** is **complete** — PR #6-#9 series merged 2026-04-16/17. **Phase 3b (Adaptive Analysis & Learning Refinement)** is in progress:
 - **PR #4 (#10)** merged 2026-04-18 — adaptive-script executor pipeline + Layer 1 lint + Layer 5 sandbox + MCP tool.
@@ -26,9 +26,10 @@ Architecture and product design is **complete** (PRD v0.4.3). Phases 0 / 0.5 / 1
 - **PR #6 (#12)** merged 2026-04-23 (squash `fa2f42a`) — C1 staging architecture + I1-I6 polish. Test count 771 → 942 (+171). **C1 ENGINE-LAYER CLOSURE VERIFIED** via T21 E2E exit gate (`tests/test_adaptive_workflow_staged.py`); Step 11 sha256 + Step 12 read-and-compare both pass on bwrap sandbox.
   - **Post-merge finding (2026-04-23):** manual round-trip validation revealed that Claude Code's subagents cannot dispatch other subagents (nested Task dispatch unsupported per [official docs](https://code.claude.com/docs/en/sub-agents)). PR #6's T15-T17 prompt design assumed scan subagents could invoke `screw:screw-script-reviewer` for Layer 0d — architecturally incorrect. Result: `--adaptive` silently degraded to YAML-only (nothing reached `stage_adaptive_script`). **Addressed by Phase 3b-C2** (see next bullet).
 - **Phase 3b-C2 (branch `phase-3b-c2-nested-dispatch-fix`)** merged 2026-04-24 — nested-dispatch fix. `/screw:scan` rewritten as main-session chain-subagents orchestrator: scan subagents now do scan + generate + lint, return structured JSON `pending_reviews` to main; main session owns reviewer dispatch, staging, `verify_trust` advisory-loud check (new spec §4.7 D7), promote, execute, accumulate, finalize. 4 per-agent subagents (sqli/cmdi/ssti/xss) truncated to byte-identical clones modulo agent name; `screw-full-review.md` deleted (second nested-dispatch instance, Option A fold+delete). Verified by T10 live round-trip: `stage_adaptive_script` reached from main, end-to-end adaptive flow works. Test count 942 → 918 passed (33 parametrized cases deleted + 9 new scan.md assertions). Adaptive mode is production-ready.
+- **BACKLOG-PR6-22 (branch `retire-sign-adaptive-script`)** merged 2026-04-24 — full C1 closure at the MCP boundary. `engine.sign_adaptive_script` method + tool descriptor + dispatcher entry deleted; the direct-sign path no longer exists for programmatic consumers. `tests/test_sign_adaptive_script.py` and `tests/test_adaptive_workflow.py` deleted (the latter fully subsumed by the staged E2E); `test_adaptive_executor.py::signed_script_setup` migrated to stage→promote; `adaptive/signing.py` docstrings updated. Phase 4's autoresearch module (BACKLOG-PR6-13) now has no direct-sign path to bind to — it MUST use `stage_adaptive_script` → `promote_staged_script`. Test suite: 918 → 898 passed, 8 skipped; zero regressions. Phase 4 blocker count drops 4 → 3.
 - **Phase 3c (sandbox hardening sweep)** — deferred; see DEFERRED_BACKLOG §Phase 3c.
 
-Gates G1-G4 pass. **Phase 4 (Autoresearch) is gated on D-01 + T-FULL-P1 + T19-M1/M2/M3 + BACKLOG-PR6-22 — see §"Phase 4 Prerequisites (hard gates)" below.**
+Gates G1-G4 pass. **Phase 4 (Autoresearch) is gated on D-01 + T-FULL-P1 + T19-M1/M2/M3 — see §"Phase 4 Prerequisites (hard gates)" below.**
 
 ### What's Done
 
@@ -417,7 +418,7 @@ Structured as a dependency graph with three parallel tracks converging at smoke 
 | Phase 3a | Prompt infrastructure (trust, learning aggregation, plugin-namespace, core-prompt dedup) | **Complete** (PR #6-#9 series, merged 2026-04-16/17) |
 | **Phase 3b** | **Adaptive Analysis & Learning Refinement** | **In-flight** — PR #4 (#10) + PR #5 (#11) merged 2026-04-18/20; PR #6 branch `phase-3b-c1-staging`, T0-T23 complete, merge pending T26 |
 | Phase 3c | Sandbox hardening sweep (seccomp filter + thread-safety + dedup) | **Deferred** — see `docs/DEFERRED_BACKLOG.md` §"Phase 3c (sandbox hardening follow-ups)" |
-| Phase 4 | Autoresearch & Self-Improvement — step 4.0 is D-01 (hard gate) | **Pending**, hard-gated on D-01 + T-FULL-P1 + T19-M1/M2/M3 + BACKLOG-PR6-22 (see "Phase 4 Prerequisites" below) |
+| Phase 4 | Autoresearch & Self-Improvement — step 4.0 is D-01 (hard gate) | **Pending**, hard-gated on D-01 + T-FULL-P1 + T19-M1/M2/M3 (see "Phase 4 Prerequisites" below) |
 | Phase 5 | Multi-LLM Challenger System | Pending |
 | Phase 6 | Agent Expansion & Ecosystem | Pending |
 | Phase 7 | screw.nvim Integration (scan commands, review-before-import, exclusions) | Pending |
@@ -447,12 +448,7 @@ Phase 4 (Autoresearch & Self-Improvement) cannot start until the following are i
 **Status:** Pipeline validated (PR #3, 2026-04-11), full run + threshold optimization DEFERRED to Phase 4 autoresearch loop
 **Why gating:** Not a hard blocker to STARTING Phase 4 — autoresearch IS the threshold-tuning loop. But the benchmark run feeds D-01's corpus. Sequenced inside Phase 4, not before.
 
-### BACKLOG-PR6-22 — `sign_adaptive_script` retirement / C1 full closure
-**Status:** DEFERRED (tagged `blocker` in DEFERRED_BACKLOG.md §Phase-4 Readiness Triage)
-**Why gating:** PR #6's C1 closure covers the LLM-flow surface (subagents route via stage→promote; direct-sign tool is absent from all 5 adaptive-mode subagent frontmatters post-T17). But `engine.sign_adaptive_script` remains exposed server-side as a supervised tool for programmatic consumers. Today it has zero real callers — Phase 4's autoresearch module (BACKLOG-PR6-13) will be the first. Retiring the direct-sign API NOW (before autoresearch is designed against it) prevents the regeneration vector from acquiring a live consumer and forcing a future migration PR.
-**Estimated scope:** ~50 LOC (delete `engine.sign_adaptive_script`, update `server.py::_dispatch_tool`, update the 1 or 2 remaining test files that exercise the direct path). Plus design-discipline that Phase 4's autoresearch module is built against stage→promote from day 1.
-
-**When returning to Phase 4:** Re-read ADR-014 + `docs/research/benchmark-tier4-rust-modern.md`. Audit `docs/DEFERRED_BACKLOG.md` §"Phase-4 Readiness Triage" for any `blocker` entries added since this doc was refreshed. Update the counts + D-01 / T-FULL-P1 / BACKLOG-PR6-22 status before starting step 4.0.
+**When returning to Phase 4:** Re-read ADR-014 + `docs/research/benchmark-tier4-rust-modern.md`. Audit `docs/DEFERRED_BACKLOG.md` §"Phase-4 Readiness Triage" for any `blocker` entries added since this doc was refreshed. Update the counts + D-01 / T-FULL-P1 / T19-M* status before starting step 4.0.
 
 ---
 

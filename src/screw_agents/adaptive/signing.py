@@ -5,8 +5,9 @@ used by two entry points:
 
 1. ``screw_agents.cli.validate_script.run_validate_script`` — the CLI
    path for re-signing existing quarantined scripts.
-2. ``screw_agents.engine.ScanEngine.sign_adaptive_script`` — the MCP
-   tool path for signing fresh scripts after human approval.
+2. ``screw_agents.engine.ScanEngine.promote_staged_script`` — the MCP
+   tool path for signing bytes that were previously staged via
+   ``stage_adaptive_script`` and reviewed by the human.
 
 Both paths MUST produce byte-identical canonical bytes to what the
 executor's Layer 3 verification canonicalizes on read. The routing
@@ -23,10 +24,9 @@ fixture). The trust.py split (DEFERRED_BACKLOG T4-M6) remains deferred
 — adaptive-specific signing helpers have a cleaner architectural home
 here than in lower-level trust.py.
 
-T2 (Phase 3b C1): ``_sign_script_bytes`` added as the shared signing core
-used by both ``sign_adaptive_script`` (direct path) and the upcoming
-``promote_staged_script`` (T4 staged path).  Engine's ``sign_adaptive_script``
-delegates entirely to this helper after its own collision / config checks.
+``_sign_script_bytes`` is the shared signing core invoked by the engine's
+staged-promote path; it remains authoritative for the byte-for-byte
+canonicalization contract enforced at Layer 3 verification.
 """
 
 from __future__ import annotations
@@ -154,10 +154,9 @@ def _sign_script_bytes(
     """Shared signing core — write + sign a fresh adaptive script to disk.
 
     Used by:
-    - ``ScanEngine.sign_adaptive_script`` (direct/approve path, T18a).
-    - ``ScanEngine.promote_staged_script`` (staged path, T4) — not yet
-      implemented; this helper is extracted now to avoid a follow-on
-      refactor when T4 lands.
+    - ``ScanEngine.promote_staged_script`` (staged path, T4) — called
+      after the human reviewer approves staged bytes and promote signs
+      those bytes, with sha256 verification enforcing the C1 invariant.
 
     Performs ALL filesystem work and key operations: name validation,
     collision check, config load, key load, fingerprint match, meta
