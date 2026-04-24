@@ -24,11 +24,11 @@ Architecture and product design is **complete** (PRD v0.4.3). Phases 0 / 0.5 / 1
 - **PR #4 (#10)** merged 2026-04-18 — adaptive-script executor pipeline + Layer 1 lint + Layer 5 sandbox + MCP tool.
 - **PR #5 (#11)** merged 2026-04-20 — adaptive workflow (D1+D2 gap detection, trust-path signing, cleanup). Surfaced C1 + I1-I6.
 - **PR #6 (#12)** merged 2026-04-23 (squash `fa2f42a`) — C1 staging architecture + I1-I6 polish. Test count 771 → 942 (+171). **C1 ENGINE-LAYER CLOSURE VERIFIED** via T21 E2E exit gate (`tests/test_adaptive_workflow_staged.py`); Step 11 sha256 + Step 12 read-and-compare both pass on bwrap sandbox.
-  - **★ Post-merge finding (2026-04-23): Phase 3b-C2 required before adaptive-mode is usable.** The manual round-trip validation revealed that Claude Code's subagents cannot dispatch other subagents (nested Task dispatch unsupported per [official docs](https://code.claude.com/docs/en/sub-agents)). PR #6's T15-T17 prompt design assumed scan subagents could invoke `screw:screw-script-reviewer` for Layer 0d — architecturally incorrect. Result: `--adaptive` silently degrades to YAML-only (nothing reaches `stage_adaptive_script`). **C1's engine closure still holds** (no regeneration vector because nothing gets staged), but the end-to-end LLM flow is inert. Fix tracked as `BACKLOG-C2-01` in DEFERRED_BACKLOG.md §IMMEDIATE — pure prompt refactor (~300-400 LOC markdown across 5 files + test updates), zero engine changes. Target: 1 focused session.
-- **PR #7 (Phase 3b-C2) — IMMEDIATELY NEXT.** Rewrite `/screw:scan` slash command to orchestrate the adaptive flow from the main session (chain-subagents pattern per Claude Code docs): main → scan subagent → script-reviewer subagent → stage → user approval → promote → execute. Simplifies per-agent subagents (Step 3.5 truncates at "return script + metadata"). After PR #7 merges, adaptive mode is production-ready.
+  - **Post-merge finding (2026-04-23):** manual round-trip validation revealed that Claude Code's subagents cannot dispatch other subagents (nested Task dispatch unsupported per [official docs](https://code.claude.com/docs/en/sub-agents)). PR #6's T15-T17 prompt design assumed scan subagents could invoke `screw:screw-script-reviewer` for Layer 0d — architecturally incorrect. Result: `--adaptive` silently degraded to YAML-only (nothing reached `stage_adaptive_script`). **Addressed by Phase 3b-C2** (see next bullet).
+- **Phase 3b-C2 (branch `phase-3b-c2-nested-dispatch-fix`)** merged 2026-04-24 — nested-dispatch fix. `/screw:scan` rewritten as main-session chain-subagents orchestrator: scan subagents now do scan + generate + lint, return structured JSON `pending_reviews` to main; main session owns reviewer dispatch, staging, `verify_trust` advisory-loud check (new spec §4.7 D7), promote, execute, accumulate, finalize. 4 per-agent subagents (sqli/cmdi/ssti/xss) truncated to byte-identical clones modulo agent name; `screw-full-review.md` deleted (second nested-dispatch instance, Option A fold+delete). Verified by T10 live round-trip: `stage_adaptive_script` reached from main, end-to-end adaptive flow works. Test count 942 → 918 passed (33 parametrized cases deleted + 9 new scan.md assertions). Adaptive mode is production-ready.
 - **Phase 3c (sandbox hardening sweep)** — deferred; see DEFERRED_BACKLOG §Phase 3c.
 
-Gates G1-G4 pass. **Phase 4 (Autoresearch) is gated on PR #7 (C2 fix) + D-01 + T-FULL-P1 + T19-M1/M2/M3 + BACKLOG-PR6-22 — see §"Phase 4 Prerequisites (hard gates)" below.**
+Gates G1-G4 pass. **Phase 4 (Autoresearch) is gated on D-01 + T-FULL-P1 + T19-M1/M2/M3 + BACKLOG-PR6-22 — see §"Phase 4 Prerequisites (hard gates)" below.**
 
 ### What's Done
 
@@ -427,12 +427,6 @@ Structured as a dependency graph with three parallel tracks converging at smoke 
 ## Phase 4 Prerequisites (hard gates)
 
 Phase 4 (Autoresearch & Self-Improvement) cannot start until the following are in place:
-
-### ★ BACKLOG-C2-01 — Phase 3b-C2: nested subagent dispatch fix (IMMEDIATELY NEXT PR)
-**Status:** IN FLIGHT — discovered post-merge PR #6 on 2026-04-23 during manual round-trip
-**Why gating:** PR #6's engine-layer C1 closure verified, but the LLM-flow prompt architecture assumed Claude Code subagents can dispatch other subagents via Task. [Official docs confirm nested dispatch is unsupported](https://code.claude.com/docs/en/sub-agents) ("Subagents cannot spawn other subagents"). Result: scan subagents can't invoke `screw:screw-script-reviewer` for Layer 0d, `stage_adaptive_script` is never called, `--adaptive` silently degrades to YAML-only. Adaptive mode is non-functional in live Claude Code sessions until the `/screw:scan` slash command is rewritten as the orchestrator (chain-subagents pattern per Claude Code docs). **Phase 4 autoresearch requires a working end-to-end adaptive flow** — so C2 is a hard prerequisite.
-**Estimated scope:** ~300-400 LOC markdown across 5 files (scan.md orchestrator rewrite + Step 3.5 simplification in 4 per-agent subagents + orchestrator + test assertion updates). Zero engine changes. Target: 1 focused session (≤4h active work).
-**Tracking:** `docs/DEFERRED_BACKLOG.md` §"IMMEDIATE — Phase 3b-C2", entry BACKLOG-C2-01.
 
 ### D-01 — Rust benchmark corpus from RustSec (Deferred Obligations)
 **Status:** DEFERRED since Phase 0.5

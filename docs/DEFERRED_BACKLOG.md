@@ -4,63 +4,6 @@
 
 ---
 
-## ★ IMMEDIATE — Phase 3b-C2 (nested subagent dispatch fix) — discovered post-merge 2026-04-23
-
-PR #6's manual round-trip validation surfaced a critical end-to-end regression that static review could not catch. C1's engine-layer closure holds; the LLM-flow integration is broken pending Phase 3b-C2.
-
-### BACKLOG-C2-01 — Nested subagent dispatch unsupported: adaptive Layer 0d cannot fire from scan subagent
-**Phase-4 readiness:** `blocker` — highest priority; **Phase 3b-C2 must land before any Phase 4 work begins**
-**Source:** Phase 3b PR #6 post-merge manual round-trip (squash `fa2f42a`), 2026-04-23
-**Discovery:** `claude --plugin-dir /home/marco/Programming/AI/screw-agents/plugins/screw` launched from `/tmp/screw-roundtrip-qb/`; ran `/screw:scan sqli src/ --adaptive` on seeded QueryBuilder fixture. The `screw:screw-sqli` subagent ran scan → accumulate_findings → record_context_required_match → detect_coverage_gaps → lint_adaptive_script correctly, then failed to invoke `Task(subagent_type="screw:screw-script-reviewer", ...)` at Step 3.5d/F. Runtime output: *"Layer 0d semantic review could not be invoked from the subagent's toolset — so nothing was staged, signed, or executed."* Graceful degradation path fired per prompt design (line 322 of `screw-sqli.md`), producing YAML-only output + "manual look" suggestions.
-
-**Root cause (definitive, official docs):** Claude Code's architecture explicitly forbids nested subagent dispatch:
-> *"Subagents cannot spawn other subagents. If your workflow requires nested delegation, use Skills or chain subagents from the main conversation."*
-> — [code.claude.com/docs/en/sub-agents, line 711](https://code.claude.com/docs/en/sub-agents)
-
-The Task tool is unavailable (or allowlist-restricted to empty) inside subagent context to prevent infinite nesting. Phase 3b T15-T17 prompt design assumed the scan subagent could dispatch the review subagent — architecturally incorrect vs Claude Code's design. The 24 Opus review cycles during PR #6 execution reviewed STATIC prompt content; T21 E2E test bypasses subagent dispatch by calling engine methods via Python. Nothing in review actually ran the full `main → subagent → nested-subagent` dispatch chain. The Phase 2 E2E notes memory flagged "subagent nesting limit" and this was not treated as a blocking discovery for PR #6's design — a process failure.
-
-**What is NOT broken** (C2 can build on this foundation):
-- C1 engine-layer closure — T21 exit gate still passes; `promote_staged_script(source-less, reads-from-staging, sha256-verified)` is correct.
-- Full staging + signing + sandbox infrastructure.
-- YAML scan path end-to-end (round-trip produced correct CWE-89 at dao.py:8 with full data-flow analysis).
-- Coverage-gap detection (4 gaps correctly identified).
-- All 942 unit + integration tests.
-- The `screw:screw-script-reviewer` subagent itself (unchanged — only WHERE it gets dispatched from needs to change).
-
-**What IS broken:** end-to-end `--adaptive` flow in live Claude Code sessions. `stage_adaptive_script` is never called from the LLM path. Feature silently degrades to YAML-only. Adaptive-mode is NOT production-ready.
-
-**Fix — architecturally idiomatic pattern (Phase 3b-C2):** chain subagents from main session per [sub-agents#chain-subagents](https://code.claude.com/docs/en/sub-agents#chain-subagents) (the code-reviewer-then-optimizer pattern in the docs is the direct template). Rewrite the `/screw:scan` slash command prompt to become the orchestrator:
-
-1. Main session dispatches scan subagent (`screw:screw-sqli` or orchestrator) with scope/target/--adaptive flag.
-2. Scan subagent does scan + generation + lint, then **returns** `{ findings, pending_reviews: [{gap, script, rationale}] }` to main session. No more Layer 0d / stage / promote / execute calls inside the subagent.
-3. Main session loops over `pending_reviews`:
-   - Dispatches `screw:screw-script-reviewer` (fresh context — security property preserved) with script + rationale. Returns `SemanticReviewReport` JSON.
-   - If review verdict passes filters: main session calls `stage_adaptive_script` MCP tool directly.
-   - Main session shows 5-section review to user, waits for `approve <name>` / `reject <name>`.
-   - On approve: main session calls `promote_staged_script` → `execute_adaptive_script` → `accumulate_findings` (script-produced findings merged).
-   - On reject: main session calls `reject_staged_script`.
-4. Main session calls `finalize_scan_results`.
-
-**Context-isolation security property preserved:** each subagent invocation gets a fresh context window. Scan subagent doesn't see review subagent's output and vice versa. The only difference from the original design is WHO initiates the review dispatch — main session, not the scan subagent.
-
-**Engine layer (Python code): ZERO changes.** MCP tools, staging, signing, T21 exit gate all stay untouched.
-
-**Files to modify (5 markdown + 1 test):**
-- `plugins/screw/commands/scan.md` — rewrite as orchestrator (MAIN WORK; ~150 LOC)
-- `plugins/screw/agents/screw-{sqli,cmdi,ssti,xss}.md` — simplify Step 3.5: truncate at "return script + metadata" (byte-identical across 4 files modulo agent name; ~30 LOC delta each)
-- `plugins/screw/agents/screw-injection.md` — simplify Step 2.5 orchestrator similarly
-- `tests/test_adaptive_subagent_prompts.py` — assertion updates: scan subagents no longer reference stage/promote/reject/execute; new assertions for slash command prompt's orchestration flow
-
-**Subagent tool lists change:** scan subagents lose `mcp__screw-agents__stage_adaptive_script`, `promote_staged_script`, `reject_staged_script`, `execute_adaptive_script` (those move to main-session invocation). They keep lint, record_context_required_match, detect_coverage_gaps, accumulate_findings, finalize_scan_results.
-
-**Estimated scope:** ~300-400 LOC markdown + ~50 LOC test assertion updates. **Target: 1 focused session** (brainstorm + spec + plan + implement + review + round-trip re-validation in ≤4 hours active work, not 2-3 days).
-
-**Trigger:** IMMEDIATELY as the next PR after PR #6 close-out (T26 Steps 11-12 + T27 memory). Blocks `--adaptive` production use. Blocks Phase 4 (autoresearch requires end-to-end adaptive-mode working).
-
-**Round-trip evidence captured 2026-04-23:** fixture `/tmp/screw-roundtrip-qb/src/dao.py`; observed 1 CWE-89 critical finding at line 8, 4 coverage gaps identified, "Adaptive mode — halted before staging" graceful-degradation message; no files written to `.screw/staging/` or `.screw/custom-scripts/` — confirming C1 closure property (the regeneration vector doesn't fire because nothing reaches the signing layer).
-
----
-
 ## Phase 3b-C2 T1-review minors + coverage gaps (discovered 2026-04-23)
 
 Non-blocking minors and spec-coverage gaps surfaced during T1 (pre-update assertions) spec + quality review rounds. All are safe to defer past C2 merge; each has a natural resolution point.
@@ -803,6 +746,25 @@ because partial target_patterns are out-of-date, OR when autoresearch
 **Suggested approach:** New `.screw/learning/context_required_history.yaml` written at finalize (mirroring the `exclusions.yaml` stable-artifact pattern), one `ScanEngine.aggregate_context_required_patterns` method for chronic-gap reporting, never auto-deleted.
 
 **Estimated scope:** ~100 LOC + 5 tests. Small. Can be implemented independently of autoresearch when/if the use case materializes.
+
+---
+
+## Shipped (Phase 3b-C2 — nested-dispatch fix, 2026-04-24)
+
+### BACKLOG-C2-01 — Nested subagent dispatch unsupported: adaptive Layer 0d cannot fire from scan subagent
+**Shipped in:** Phase 3b-C2 PR (`phase-3b-c2-nested-dispatch-fix` branch; merge commit TBD on merge)
+**Source:** Phase 3b PR #6 post-merge manual round-trip (squash `fa2f42a`), 2026-04-23
+**Root cause:** Claude Code architecture forbids nested subagent dispatch (sub-agents.md:711: *"Subagents cannot spawn other subagents"*). Phase 3b PR #6's T15-T17 prompt design had scan subagents calling `Task(subagent_type="screw:screw-script-reviewer", ...)` at Step 3.5d/F — architecturally blocked. Result in live Claude Code sessions: `--adaptive` silently degraded to YAML-only; `stage_adaptive_script` never reached from LLM path.
+
+**Fix landed:** `/screw:scan` rewritten as the main-session chain-subagents orchestrator per [sub-agents#chain-subagents](https://code.claude.com/docs/en/sub-agents#chain-subagents). Scan subagents now do scan + generate + lint, emit a structured JSON `pending_reviews` payload, and return to main. Main session parses the JSON and owns all post-generation flow: reviewer dispatch (permitted main → subagent hop), `stage_adaptive_script`, `verify_trust` (advisory-loud per new spec §4.7 D7), `promote_staged_script`, `execute_adaptive_script`, `accumulate_findings`, `finalize_scan_results`.
+
+**Verified via T10 live round-trip (2026-04-24):** `/screw:scan sqli src/ --adaptive` against `/tmp/screw-roundtrip-qb` fixture produced 2 pending_reviews, main session dispatched the reviewer subagent, called `stage_adaptive_script` twice, called `verify_trust` per-review, composed 5-section reviews, processed both approve + reject phrases, ran through promote → execute → accumulate on the approve path, and called `reject_staged_script` on the reject path. Binary fix signal (main → `stage_adaptive_script`) observed.
+
+**Scope shipped:** 9 files touched. `plugins/screw/commands/scan.md` full rewrite (97 → 480 lines, chain-subagents orchestrator with `confirm-high` phrase grammar per spec §4.2 D2). 4 per-agent subagents (sqli/cmdi/ssti/xss) truncated 600 → ~414 lines with byte-identical adaptive sections modulo agent name (enforced by `test_adaptive_section_identical_modulo_agent_name`). Orchestrator `screw-injection.md` truncated 231 → ~222 lines. `screw-full-review.md` deleted (second nested-dispatch instance, Option A fold+delete per spec §4.3). `plugins/screw/skills/screw-review/SKILL.md` routing row rewritten to redirect broad/full-scan intents to `/screw:scan full`. `tests/test_adaptive_subagent_prompts.py` updated with 9 new scan.md orchestration assertions + 1 file-absence test (net 22 test functions post-T1). Zero engine changes. Final test state: 918 passed / 8 skipped / 10 warnings (baseline preserved + 7 new assertions GREEN).
+
+**Phase-4 impact:** hard prereq count drops 5 → 4. Remaining Phase-4 blockers: D-01 (Rust benchmark corpus), T-FULL-P1 (paginate scan_full), T19-M1/M2/M3 (SARIF/CSV surface polish), BACKLOG-PR6-22 (`sign_adaptive_script` retirement).
+
+**Process lessons captured:** see `BACKLOG-C2-PROC-PA-TRUNCATION-SCOPE` under "Phase 3b-C2 T4 review minors" — pre-audits for truncation tasks must simulate the actual test extraction range, not just the truncated region (surfaced by 4 stale-ref issues in T4 that the pre-audit missed). See also `BACKLOG-C2-M-QR-T1-M4` for the commit-message-template-during-plan-amendment lesson.
 
 ---
 
