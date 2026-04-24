@@ -2094,6 +2094,7 @@ Chain-subagents pattern per sub-agents.md:683-689. Main session (scan.md) become
 - 4 per-agent files truncated (sqli/cmdi/ssti/xss)
 - 1 orchestrator file truncated (injection)
 - 1 file deleted (screw-full-review.md — Option A fold+delete)
+- 1 skill file updated (`plugins/screw/skills/screw-review/SKILL.md` routing + §3 refactor per T3 Option A)
 - 1 test file updated (20 assertion changes)
 - 2 doc files updated (BACKLOG + STATUS)
 
