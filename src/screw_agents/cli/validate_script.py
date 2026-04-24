@@ -231,7 +231,7 @@ def run_validate_script(
     # must be set before canonical JSON is computed. The returned dict is
     # what gets canonicalized AND what gets written to disk. Delegates to the
     # shared helper in `adaptive/signing.py` so this CLI path, the MCP
-    # `sign_adaptive_script` tool, and the test_adaptive_executor fixture
+    # `promote_staged_script` tool, and the test_adaptive_executor fixture
     # can never drift.
     meta_for_persist = build_signed_script_meta(
         meta_raw=meta_raw,

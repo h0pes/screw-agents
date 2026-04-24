@@ -503,7 +503,7 @@ def _build_signed_script_fixture(
     Generates an ephemeral Ed25519 keypair, writes the public key into
     `.screw/config.yaml`'s `script_reviewers`, and signs the meta via the
     shared `build_signed_script_meta` helper — guaranteeing the fixture,
-    the `validate-script` CLI, and the `sign_adaptive_script` MCP tool
+    the `validate-script` CLI, and the `promote_staged_script` MCP tool
     can never drift. Returns ``(script_path, meta_path, project_root)``.
     """
     from cryptography.hazmat.primitives.asymmetric.ed25519 import (
@@ -887,12 +887,20 @@ def signed_script_setup(tmp_path: Path):
         "target_patterns": [],  # plan-fix #7: full round-trip, not stale sentinel
     }
 
-    r = engine.sign_adaptive_script(
+    # BACKLOG-PR6-22: direct sign path retired; use stage -> promote.
+    stage_r = engine.stage_adaptive_script(
         project_root=project,
         script_name="test-sig-e2e",
         source=source,
         meta=meta,
         session_id="t14-sess",  # plan-fix #2: required string
+    )
+    assert stage_r["status"] == "staged"
+
+    r = engine.promote_staged_script(
+        project_root=project,
+        script_name="test-sig-e2e",
+        session_id="t14-sess",
     )
     assert r["status"] == "signed"
 

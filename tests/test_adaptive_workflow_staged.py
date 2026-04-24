@@ -1,9 +1,10 @@
 """End-to-end integration test for the PR #6 staged adaptive-workflow.
 
-Mirrors tests/test_adaptive_workflow.py (T22) but substitutes the staging
-flow (stage -> review -> approve -> promote) for the direct sign_adaptive_script
-path. Asserts the C1 invariant: the source bytes seen at stage time are
-byte-identical to the signed artifact at custom-scripts/ post-promote.
+Exercises the full stage -> review -> approve -> promote flow across
+every MCP tool and engine method a real subagent invokes when a user
+runs ``/screw:scan sqli --adaptive``. Asserts the C1 invariant: the
+source bytes seen at stage time are byte-identical to the signed
+artifact at custom-scripts/ post-promote.
 
 If this test breaks, the C1 architectural closure has regressed — the
 regeneration-after-approval vulnerability may have reopened.
@@ -25,14 +26,14 @@ pytestmark = pytest.mark.skipif(
 
 
 def test_full_adaptive_workflow_with_staging_composition(tmp_path: Path) -> None:
-    """PR #6 exit gate: full composition with stage -> promote substituting
-    for direct sign.
+    """PR #6 exit gate: full composition of the adaptive stage -> promote
+    workflow.
 
-    The 18 steps mirror T22's composition order (identical seed fixture,
-    identical YAML finding, identical adaptive script, identical gap-signal
-    expectations); only Steps 8 and 11 are different — they substitute
-    stage_adaptive_script + promote_staged_script for T22's direct
-    sign_adaptive_script path.
+    The 18 steps cover: trust-init, coverage-gap detection, hand-written
+    adaptive script, lint, stage, registry audit, promote (with C1
+    invariant lock), executor round-trip, accumulate + finalize with
+    merge + Sources-line, verify_trust active count, per-script stale
+    listing.
 
     Breakage diagnosis: the FIRST failing assertion pins the regressing
     integration boundary. If Step 12's invariant fails
@@ -178,9 +179,9 @@ def test_full_adaptive_workflow_with_staging_composition(tmp_path: Path) -> None
     assert len(staged_entries) == 1
     assert staged_entries[0]["script_sha256"] == stage_response["script_sha256"]
 
-    # Step 11: **NEW — promote_staged_script** (the C1 fix).
-    # Mirrors T22's sign_adaptive_script assertions (session_id + sha256)
-    # plus the C1-specific promoted_via_fallback guard.
+    # Step 11: promote_staged_script — sign + persist the staged bytes.
+    # Asserts session_id threading, sha256 match against the staged
+    # bytes, and the C1-specific promoted_via_fallback guard.
     promote_response = engine.promote_staged_script(
         project_root=project, script_name="qb-check", session_id=session_id,
     )

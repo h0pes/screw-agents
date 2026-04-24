@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
-from typing import Any
 
 import pytest
 import yaml
@@ -128,7 +127,7 @@ def test_sign_script_bytes_is_defined_in_signing_module() -> None:
     """Locking: _sign_script_bytes lives in adaptive.signing, not engine.
 
     If this test breaks, the Option D refactor has regressed — the shared
-    helper got moved back inline into engine.sign_adaptive_script.
+    helper got moved back inline into engine.promote_staged_script.
     """
     from screw_agents.adaptive import signing
 
@@ -136,75 +135,6 @@ def test_sign_script_bytes_is_defined_in_signing_module() -> None:
         "_sign_script_bytes missing from adaptive/signing.py — "
         "Option D shared helper regressed"
     )
-
-
-def test_sign_adaptive_script_delegates_to_sign_script_bytes(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Option D delegation: sign_adaptive_script MUST call _sign_script_bytes.
-
-    Mocks _sign_script_bytes, asserts engine.sign_adaptive_script calls it
-    with the same inputs and returns its result.
-
-    PYTHON SEMANTICS NOTE: engine.py uses ``from screw_agents.adaptive.signing
-    import _sign_script_bytes`` which binds the name in engine.py's namespace
-    at import time. Monkey-patching ``signing._sign_script_bytes`` does NOT
-    redirect engine's already-captured reference. The correct patch target
-    is engine's own reference (``engine_module._sign_script_bytes``). Do NOT
-    "simplify" this back to patching ``signing``.
-    """
-    import screw_agents.engine as engine_module
-    from screw_agents.engine import ScanEngine
-
-    call_log: dict[str, Any] = {"called": False, "kwargs": None}
-
-    def fake_helper(**kwargs: Any) -> dict[str, Any]:
-        call_log["called"] = True
-        call_log["kwargs"] = kwargs
-        return {
-            "status": "signed",
-            "message": f"Signed adaptive script {kwargs['script_name']} (mock).",
-            "script_path": str(
-                kwargs["project_root"]
-                / ".screw"
-                / "custom-scripts"
-                / f"{kwargs['script_name']}.py"
-            ),
-            "meta_path": str(
-                kwargs["project_root"]
-                / ".screw"
-                / "custom-scripts"
-                / f"{kwargs['script_name']}.meta.yaml"
-            ),
-            "signed_by": "mock@example.com",
-            "sha256": "a" * 64,
-            "session_id": kwargs.get("session_id"),
-        }
-
-    monkeypatch.setattr(engine_module, "_sign_script_bytes", fake_helper)
-
-    project = tmp_path / "project"
-    project.mkdir()
-    engine = ScanEngine.from_defaults()
-
-    result = engine.sign_adaptive_script(
-        project_root=project,
-        script_name="test-script",
-        source="print('hi')\n",
-        meta={
-            "name": "test-script",
-            "created": "2026-04-20T00:00:00Z",
-            "created_by": "me@example.com",
-            "domain": "injection-input-handling",
-            "description": "test",
-            "target_patterns": ["foo.bar"],
-        },
-        session_id="sess-abc",
-    )
-
-    assert call_log["called"]
-    assert call_log["kwargs"]["script_name"] == "test-script"
-    assert result["status"] == "signed"
 
 
 def test_sign_script_bytes_canonical_bytes_stable(tmp_path: Path) -> None:
