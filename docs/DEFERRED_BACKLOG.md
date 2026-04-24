@@ -1596,3 +1596,81 @@ Purely visual drift, no correctness impact. Cosmetic polish.
 **Why deferred:** The new T22 test carries assertion messages naming the specific tool and invariant that regressed (e.g., `"Tool {tool['name']!r} input_schema missing additionalProperties: false (T10-M1 partial regressed)"`). The adjacent baseline test uses bare asserts (no message) for `schema["type"] == "object"` / `"properties" in schema` / `target` presence. Broader file convention is majority-bare (3 of 13 asserts carry messages). The divergence IS principled — the baseline test is broad-coverage "something's off" surfacing, while the new test locks a tighter invariant and benefits from diagnostic messages for CI failure readability. But style consistency across adjacent tool-schema tests matters for future maintainers. Option (a): retrofit the baseline test with diagnostic messages (closes the gap). Option (b): document the divergence with an inline comment (lower cost, accepts the difference).
 **Trigger:** Next test-diagnostic polish pass, OR if a baseline schema assertion fails in CI and the bare form makes root-cause analysis harder.
 **Estimated scope:** Option (a) ~3 LOC (add messages to 3 asserts in `test_tool_definitions_json_schema_valid`); Option (b) ~2 LOC (inline comment explaining the intentional divergence).
+
+---
+
+## Phase 3b-C2 T2-review minors + observational items (discovered 2026-04-24)
+
+Non-blocking minors and observational items surfaced during T2 (scan.md rewrite) spec + quality review rounds on commit `e7a33d2`. All are safe to defer past C2 merge; each has a natural resolution point. Partial resolution shipped in the T2 fix-up (Bucket A); this section tracks what was consciously deferred (Bucket C).
+
+### BACKLOG-C2-M-QR-T2-M1 — Wide-line D1/D2 gap-vocabulary definition at scan.md:149
+**Phase-readiness:** `non-blocker` — readability polish; no semantic impact
+**Source:** T2 review-triage round (spec + quality reviews on commit `e7a33d2`), 2026-04-24
+
+**Why deferred:** The single prose line defining D1 / D2 gap types in Step 3 is approximately 700 characters wide, mixing gap.type values, gap.evidence keys, and parenthetical field lists. In rendered terminal views with narrow wrap settings, the line becomes visually dense and hard to scan. A 2-bullet rewrite (D1 on one bullet, D2 on another, each with its evidence-field list) would improve readability without changing meaning. The current inline form is defensible because the two definitions sit beside each other, but the density is worth tracking.
+
+**Remediation sketch:** Next scan.md readability pass: rewrite the "Gap-type vocabulary" sentence at line ~149 as two bullets: `- **D1** (`gap.type == "context_required"`): ...` / `- **D2** (`gap.type == "unresolved_sink"`): ...`. ~3 LOC net change. No test impact (phrases already locked by `test_scan_md_phrase_grammar_locked`).
+
+### BACKLOG-C2-M-QR-T2-M2 — Pipe-separator render on narrow terminals (scan.md:262)
+**Phase-readiness:** `non-blocker` — readability polish; no semantic impact
+**Source:** T2 review-triage round (spec + quality reviews on commit `e7a33d2`), 2026-04-24
+
+**Why deferred:** The review-template header line `**Staged:** {staged_at}  |  **Session:** `{session_id_short}`  |  **SHA256:** `{script_sha256_prefix}`` uses two pipe separators (with surrounding spaces) on a single line. On narrow terminal widths the line wraps unpredictably, and the pipe-as-separator convention is uncommon enough in markdown reviews that a bullet form (3 short bullets) would be clearer. The current form is deliberate to keep the header compact when it fits, so this is readability-only.
+
+**Remediation sketch:** Next readability pass: consider converting the header triple to three bullets (`- **Staged:** ...` / `- **Session:** ...` / `- **SHA256:** ...`). No behavioral change. Verify no locked-phrase test asserts the pipe-separator form before rewriting.
+
+### BACKLOG-C2-M-QR-T2-M3 — Stage-meta dict literal mixes angle-bracket pseudocode with `.get()` f-string
+**Phase-readiness:** `non-blocker` — readability polish; no semantic impact
+**Source:** T2 review-triage round (spec + quality reviews on commit `e7a33d2`), 2026-04-24
+
+**Why deferred:** The `stage_adaptive_script` call at scan.md:203-204 uses `f"Evidence: {pending_review.gap.evidence.get('method') or pending_review.gap.evidence.get('pattern') or 'see gap.evidence'}."` — an executable-looking Python f-string with chained `.get()` fallbacks — inside a block otherwise written in angle-bracket pseudocode (`<absolute project root>`, `<derived from pending_review.gap.agent>`, etc.). The style mix is jarring for a reader who expects either pure pseudocode OR pure Python. No correctness issue — the intent is clear either way.
+
+**Remediation sketch:** Next readability pass: either (a) convert the f-string to pseudocode (`<gap.evidence.method if D2 else gap.evidence.pattern, else "see gap.evidence">`) for consistency with surrounding lines, or (b) convert the surrounding angle-bracket pseudocode to Python f-strings. Option (a) is lower-risk. ~2 LOC.
+
+### BACKLOG-C2-M-QR-T2-M4 — Step 5 item 6 quoted-string offers vs imperative style
+**Phase-readiness:** `non-blocker` — stylistic inconsistency; cosmetic
+**Source:** T2 review-triage round (spec + quality reviews on commit `e7a33d2`), 2026-04-24
+
+**Why deferred:** Step 5 item 6 offers: `"Apply a fix?", "Mark a finding as false positive?", "Run another agent?"` — three quoted question strings. Elsewhere scan.md uses imperative phrasing for user-facing prompts (e.g., "Type `approve {script_name}` to promote...", "END turn; await user's re-attempt"). The quoted-question form is a minor style outlier; replacing with imperative directives ("Offer to apply a fix, mark a false positive, or run another agent.") would match house style. Cosmetic only.
+
+**Remediation sketch:** Next readability pass: rewrite item 6 as one imperative sentence. No test impact.
+
+### BACKLOG-C2-M-QR-T2-M5 — Ambiguous-response counter has no upper bound on LLM turn-count memory
+**Phase-readiness:** `non-blocker` — observational; precedent-consistent behavior
+**Source:** T2 review-triage round (spec + quality reviews on commit `e7a33d2`), 2026-04-24
+
+**Why deferred:** Step 3e's "ambiguous response" branch says: *"ask ONCE... On a second ambiguous response: treat as REJECT."* This assumes the main-session LLM reliably tracks a 1-turn counter across messages. If the LLM loses count across long conversations (e.g., context compression mid-flow), it could re-ask ambiguity prompts indefinitely. The precedent at `plugins/screw/agents/screw-sqli.md:432-438` has the same "ask once → reject on second" property and has shipped in PR #6 without observed issue, so the pattern is acceptable as-is. Worth tracking because a future T10 round-trip could expose the drift in a long-running adaptive session.
+
+**Remediation sketch:** No immediate action. If T10 round-trip or future production traffic shows ambiguity-loop drift: either (a) encode the counter in the prompt more explicitly (e.g., "your previous message also asked for clarification — treat any remaining ambiguity as REJECT"), or (b) move the ambiguity state to MCP-server-side (session-scoped counter). Option (b) is more invasive; option (a) is prompt-only.
+
+### BACKLOG-C2-M-SR-T2-M1 — scan.md:244 mentions `validate-script` not in spec §4.7 banner template
+**Phase-readiness:** `non-blocker` — additive; consistency-tracking
+**Source:** T2 review-triage round (spec + quality reviews on commit `e7a33d2`), 2026-04-24
+
+**Why deferred:** The Step 3c.5 loud banner in scan.md:244 includes `Resolve scripts with \`screw-agents validate-script <name>\`.` Spec §4.7 banner template (line 419) only mentions `validate-exclusion` / `migrate-exclusions` — it does not list `validate-script`. The implementer-authored addition is reasonable (scripts CAN be quarantined too, and the banner's script_quarantine_count field motivates the CLI hint), but it extends beyond what the spec literally prescribes. Semantic fidelity is intact (the banner is about trust state, and script-validate IS the trust-resolve tool for scripts). Consistency tracking for a future spec refresh.
+
+**Remediation sketch:** Next spec-refresh pass: either (a) update spec §4.7 banner template (line 419) to include `validate-script` (align spec to implementation), or (b) drop the `validate-script` line from scan.md:244 (align implementation to spec). Option (a) is preferred since the CLI hint is genuinely useful when scripts ARE quarantined. ~1 LOC either way.
+
+### BACKLOG-C2-M-SR-T2-M3 — "--adaptive flag IS the user consent" wording is implementer-authored
+**Phase-readiness:** `non-blocker` — cosmetic; semantic fidelity intact
+**Source:** T2 review-triage round (spec + quality reviews on commit `e7a33d2`), 2026-04-24
+
+**Why deferred:** scan.md:39-41 declares `The --adaptive flag IS the user consent.` This literal sentence does not appear in the plan or spec — it is an implementer-authored gloss added during the T2 rewrite to reinforce spec §4.3 D3 (consent-bundled-in-flag model). The wording is accurate and supports the right mental model, but future readers tracing the plan→implementation chain may spend time looking for the exact phrase. Low cost to track; decide later whether to (a) promote the wording into the plan / spec verbatim, or (b) replace with a phrasing that more closely mirrors spec §4.3 D3's language.
+
+**Remediation sketch:** Next plan/spec coherence pass: either (a) add the "--adaptive flag IS the user consent" sentence verbatim to PHASE_3B_C2_PLAN.md's user-consent discussion so scan.md is a literal echo, or (b) soften scan.md's wording to mirror spec §4.3 D3 more directly. Cosmetic only.
+
+### BACKLOG-C2-W3 — Structural `{if}`/`{endif}` count-balance assertion missing
+**Phase-readiness:** `non-blocker` — test-coverage gap; caught by T10 round-trip only today
+**Source:** T2 review-triage round (spec + quality reviews on commit `e7a33d2`), 2026-04-24
+
+**Why deferred:** scan.md uses `{if <predicate>:}` / `{endif}` pseudo-directive pairs in the 5-section review template to indicate conditional rendering. A future edit that drops one `{endif}` (or adds an unmatched `{if}`) would silently degrade the rendered review without any existing test catching it — `test_scan_md_phrase_grammar_locked` asserts phrase presence, not structural balance. The balance IS verified end-to-end in the T10 live round-trip, but that is a manual gate. An automated assertion would be cheap and catch the class of drift.
+
+**Remediation sketch:** Add a new test in `tests/test_adaptive_subagent_prompts.py` that greps scan.md body for `{if ` occurrences (prefix with space to avoid matching `{if:}` or inline references) and `{endif}` occurrences and asserts `count(if) == count(endif)`. ~6 LOC. Place it adjacent to `test_scan_md_phrase_grammar_locked`. Post-C2 T2 commit `e7a33d2` baseline is 3 `{if}` / 3 `{endif}` after the Bucket A fix-up (was 3 / 2 before — the bare comma-style directive had no `{endif}` partner), so the test would have caught the pre-fix-up asymmetry.
+
+### BACKLOG-C2-W4 — Step 1b fenced-block wrapper adds no value over plain prose
+**Phase-readiness:** `non-blocker` — observational; cosmetic
+**Source:** T2 review-triage round (spec + quality reviews on commit `e7a33d2`), 2026-04-24
+
+**Why deferred:** scan.md:83-114 (Step 1b: Full-scope fan-out) wraps mixed prose + pseudocode in a single fenced block using triple-backtick without language tag. The fence does not add syntactic value — the content mixes prose explanations, markdown tables, and Python-like pseudocode — and arguably makes the block less approachable (prose inside a code fence renders as monospace without word-wrap). Removing the outer fence and letting the prose flow naturally (with the inner Task() pseudocode remaining in its own inner fence) would improve readability. No behavioral impact.
+
+**Remediation sketch:** Next readability pass: unwrap Step 1b's outer fence. Keep the inner `Task(...)` block fenced (if such an inner fence exists) but move the surrounding prose to flat paragraphs. Verify no locked-phrase test asserts the outer-fence form. ~4-6 LOC net (delete two fence lines, reflow interior).
