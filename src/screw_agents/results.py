@@ -148,7 +148,10 @@ def render_and_write(
         Dict with keys:
             - files_written: dict[str, str] -- format name → file path
             - summary: dict -- total, suppressed, active, by_severity counts
-            - exclusions_applied: list[dict] -- finding_id + exclusion_ref pairs
+            - exclusions_applied: list[dict] -- each entry has finding_id,
+              exclusion_ref, and matched_via_agent (the source agent whose
+              exclusion triggered the suppression; for unmerged findings
+              or primary-agent matches this equals finding.agent)
             - trust_status: dict -- 4-field trust verification counts
               (matches :meth:`ScanEngine.verify_trust` shape)
 
@@ -205,22 +208,43 @@ def render_and_write(
     exclusions_applied: list[dict[str, str]] = []
 
     for finding in findings:
-        matches = match_exclusions(
-            exclusions,
-            file=finding.location.file,
-            line=finding.location.line_start,
-            code=finding.location.code_snippet or "",
-            agent=finding.agent,
-            function=finding.location.function,
-        )
-        if matches:
+        # T19-M2 (2026-04-24): per-source exclusion matching. Iterate
+        # primary agent first, then merged_from_sources in emitted
+        # order. First match wins (deterministic, audit-friendly).
+        # See DEFERRED_BACKLOG.md §T19-M2 for the pre-existing limitation
+        # this addresses (primary-only matching silently missed merged
+        # findings where user's exclusion targeted a non-primary source).
+        candidate_agents: list[str] = [finding.agent]
+        if finding.merged_from_sources:
+            candidate_agents.extend(
+                s.agent for s in finding.merged_from_sources
+            )
+
+        matched_agent: str | None = None
+        matched_ref: str | None = None
+        for candidate in candidate_agents:
+            matches = match_exclusions(
+                exclusions,
+                file=finding.location.file,
+                line=finding.location.line_start,
+                code=finding.location.code_snippet or "",
+                agent=candidate,
+                function=finding.location.function,
+            )
+            if matches:
+                matched_agent = candidate
+                matched_ref = matches[0].id
+                break
+
+        if matched_ref is not None:
             finding.triage.excluded = True
-            finding.triage.exclusion_ref = matches[0].id
+            finding.triage.exclusion_ref = matched_ref
             finding.triage.status = "suppressed"
             suppressed_count += 1
             exclusions_applied.append({
                 "finding_id": finding.id,
-                "exclusion_ref": matches[0].id,
+                "exclusion_ref": matched_ref,
+                "matched_via_agent": matched_agent,
             })
 
     # Create .screw/ directory structure. Wrap NotADirectoryError (when

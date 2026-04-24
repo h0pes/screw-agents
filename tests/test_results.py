@@ -221,6 +221,53 @@ class TestRenderAndWriteExclusions:
         }
         (learning_dir / "exclusions.yaml").write_text(yaml.dump(data))
 
+    def _setup_exclusions_multi(self, tmp_path, entries):
+        """Write multiple exclusions to ``.screw/learning/exclusions.yaml``.
+
+        ``entries``: list of dicts, each with keys:
+          - ``id`` (str, unique)
+          - ``agent`` (str)
+          - ``file`` (str)
+          - ``line`` (int)
+          - ``cwe`` (str)
+          - ``scope_type`` (str) — ``"exact_line"`` | ``"file"`` | ``"directory"`` | ...
+          - ``scope_kwargs`` (dict) — e.g. ``{"path": "dao.py"}``
+
+        Mirrors ``_setup_exclusion``'s config-file + unsigned-warn setup so
+        the trust pipeline does NOT quarantine the entries (T19-M2 tests
+        exercise broadened per-source matching; signing is out of scope).
+        """
+        screw_dir = tmp_path / ".screw"
+        screw_dir.mkdir(exist_ok=True)
+        (screw_dir / "config.yaml").write_text(
+            "version: 1\n"
+            "exclusion_reviewers: []\n"
+            "script_reviewers: []\n"
+            "legacy_unsigned_exclusions: warn\n"
+        )
+        learning_dir = screw_dir / "learning"
+        learning_dir.mkdir(exist_ok=True)
+        exclusions_list = []
+        for e in entries:
+            exclusions_list.append({
+                "id": e["id"],
+                "created": "2026-04-24T10:00:00Z",
+                "agent": e["agent"],
+                "finding": {
+                    "file": e["file"],
+                    "line": e["line"],
+                    "code_pattern": "(any)",
+                    "cwe": e["cwe"],
+                },
+                "reason": "T19-M2 test fixture",
+                "scope": {"type": e["scope_type"], **e["scope_kwargs"]},
+                "times_suppressed": 0,
+                "last_suppressed": None,
+            })
+        (learning_dir / "exclusions.yaml").write_text(
+            yaml.dump({"exclusions": exclusions_list})
+        )
+
     def test_file_scope_suppresses_all_findings_in_file(
         self, tmp_path, finding_sqli, finding_sqli_line30
     ):
@@ -374,6 +421,135 @@ class TestRenderAndWriteExclusions:
         data = json.loads(Path(json_file).read_text())
         assert data[0]["triage"]["excluded"] is False
         assert data[0]["triage"]["exclusion_ref"] is None
+
+    # ------------------------------------------------------------------
+    # T19-M2: per-source exclusion matching for merged findings
+    # ------------------------------------------------------------------
+
+    def test_matched_via_agent_carries_primary_agent_for_unmerged(
+        self, tmp_path
+    ):
+        """T19-M2: an unmerged finding suppressed by its own agent's exclusion
+        carries matched_via_agent = finding.agent in exclusions_applied.
+        """
+        self._setup_exclusion(tmp_path, "exact_line", path="dao.py")
+        finding = _make_finding_dict(
+            finding_id="f1", agent="sqli", file="dao.py",
+            line_start=42, cwe="CWE-89", severity="high",
+            description="unmerged SQLi finding",
+        )
+        result = render_and_write(
+            project_root=tmp_path, findings_raw=[finding],
+            agent_names=["sqli"],
+        )
+        assert result["summary"]["suppressed"] == 1
+        assert result["exclusions_applied"] == [{
+            "finding_id": "f1",
+            "exclusion_ref": "fp-2026-04-11-001",
+            "matched_via_agent": "sqli",
+        }]
+
+    def test_merged_finding_primary_exclusion_match_wins(self, tmp_path):
+        """T19-M2: when both the primary AND a merged source have matching
+        exclusions, the PRIMARY's match wins (deterministic primary-first).
+        """
+        self._setup_exclusions_multi(tmp_path, [
+            {"id": "exc-sqli", "agent": "sqli",
+             "file": "dao.py", "line": 42, "cwe": "CWE-89",
+             "scope_type": "exact_line", "scope_kwargs": {"path": "dao.py"}},
+            {"id": "exc-adaptive", "agent": "adaptive_script:qb-check",
+             "file": "dao.py", "line": 42, "cwe": "CWE-89",
+             "scope_type": "exact_line", "scope_kwargs": {"path": "dao.py"}},
+        ])
+        # Two findings at same (file, line_start, cwe) => merge inside
+        # render_and_write. sqli (high) vs adaptive (medium) => sqli
+        # wins primary on severity.
+        yaml_finding = _make_finding_dict(
+            finding_id="f-yaml", agent="sqli", file="dao.py",
+            line_start=42, cwe="CWE-89", severity="high",
+            description="YAML SQLi",
+        )
+        adaptive_finding = _make_finding_dict(
+            finding_id="f-adapt", agent="adaptive_script:qb-check",
+            file="dao.py", line_start=42, cwe="CWE-89", severity="medium",
+            description="adaptive SQLi",
+        )
+        result = render_and_write(
+            project_root=tmp_path,
+            findings_raw=[yaml_finding, adaptive_finding],
+            agent_names=["sqli"],
+        )
+        assert result["summary"]["suppressed"] == 1
+        # Primary-first: sqli's exc-sqli must win, NOT exc-adaptive.
+        assert len(result["exclusions_applied"]) == 1
+        applied = result["exclusions_applied"][0]
+        assert applied["exclusion_ref"] == "exc-sqli"
+        assert applied["matched_via_agent"] == "sqli"
+
+    def test_merged_finding_source_exclusion_suppresses(self, tmp_path):
+        """T19-M2: a merged finding whose PRIMARY agent has no matching
+        exclusion but whose MERGED SOURCE does, is still suppressed with
+        matched_via_agent = the source agent.
+        """
+        # Only exclusion is on adaptive_script:qb-check; primary sqli has
+        # no matching exclusion.
+        self._setup_exclusions_multi(tmp_path, [
+            {"id": "exc-adaptive", "agent": "adaptive_script:qb-check",
+             "file": "dao.py", "line": 42, "cwe": "CWE-89",
+             "scope_type": "exact_line", "scope_kwargs": {"path": "dao.py"}},
+        ])
+        yaml_finding = _make_finding_dict(
+            finding_id="f-yaml", agent="sqli", file="dao.py",
+            line_start=42, cwe="CWE-89", severity="high",
+            description="YAML SQLi",
+        )
+        adaptive_finding = _make_finding_dict(
+            finding_id="f-adapt", agent="adaptive_script:qb-check",
+            file="dao.py", line_start=42, cwe="CWE-89", severity="medium",
+            description="adaptive SQLi",
+        )
+        result = render_and_write(
+            project_root=tmp_path,
+            findings_raw=[yaml_finding, adaptive_finding],
+            agent_names=["sqli"],
+        )
+        # Merged finding (primary=sqli after severity comparison) is
+        # suppressed via the adaptive-source exclusion.
+        assert result["summary"]["suppressed"] == 1
+        assert len(result["exclusions_applied"]) == 1
+        applied = result["exclusions_applied"][0]
+        assert applied["exclusion_ref"] == "exc-adaptive"
+        assert applied["matched_via_agent"] == "adaptive_script:qb-check"
+
+    def test_merged_finding_no_source_match_remains_active(self, tmp_path):
+        """T19-M2: if NEITHER primary NOR any merged source has a matching
+        exclusion, the merged finding is NOT suppressed.
+        """
+        # Exclusion is on an unrelated agent — neither primary (sqli) nor
+        # source (adaptive_script:qb-check) matches.
+        self._setup_exclusions_multi(tmp_path, [
+            {"id": "exc-unrelated", "agent": "xss",
+             "file": "dao.py", "line": 42, "cwe": "CWE-89",
+             "scope_type": "exact_line", "scope_kwargs": {"path": "dao.py"}},
+        ])
+        yaml_finding = _make_finding_dict(
+            finding_id="f-yaml", agent="sqli", file="dao.py",
+            line_start=42, cwe="CWE-89", severity="high",
+            description="YAML SQLi",
+        )
+        adaptive_finding = _make_finding_dict(
+            finding_id="f-adapt", agent="adaptive_script:qb-check",
+            file="dao.py", line_start=42, cwe="CWE-89", severity="medium",
+            description="adaptive SQLi",
+        )
+        result = render_and_write(
+            project_root=tmp_path,
+            findings_raw=[yaml_finding, adaptive_finding],
+            agent_names=["sqli"],
+        )
+        assert result["summary"]["suppressed"] == 0
+        assert result["summary"]["active"] == 1  # merged to 1 finding
+        assert result["exclusions_applied"] == []
 
 
 class TestRenderAndWriteTrustStatus:
