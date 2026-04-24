@@ -465,63 +465,50 @@ fall back to the primary agent via ruleId + tool driver."
 **Files:**
 - Modify: `src/screw_agents/formatter.py` `_CSV_COLUMNS` (around line 82) + `format_csv` loop (line 126-139)
 - Modify: `src/screw_agents/results.py:156` (default formats)
-- Test: `tests/test_formatter.py` + `tests/test_results.py`
+- Modify: `tests/test_csv_format.py` — there is a **mirror constant** `_EXPECTED_COLUMNS` at line 18-22 that MUST be kept in sync with `_CSV_COLUMNS`. The header-assertion at line 30 (`rows[0] == _EXPECTED_COLUMNS`) will fail otherwise. The existing zip-based tests at lines 39, 60, 72 silently drop the new column if the mirror isn't updated — update it.
+- New tests: add to `tests/test_csv_format.py` (dedicated CSV test file; has the appropriate imports + `_make_finding` re-export pattern from `test_formatter.py`).
+- D7 test: add to `tests/test_results.py` (near existing `render_and_write` tests).
 
-**Pre-audit focus:** confirm `_CSV_COLUMNS` is the single source of column order (no other file mirrors it). Confirm `_sanitize_csv_cell` exists at line ~93-98 and is the right place to wrap the new cell. Grep for any existing CSV consumer test that counts columns explicitly — those need updating.
+**Pre-audit verified:** `tests/test_csv_format.py` exists with 109 lines. `_EXPECTED_COLUMNS` at line 18-22 is the test-side mirror. Four sites depend on it: line 30 (positional header assertion — WILL BREAK if not updated), lines 39/60/72 (`dict(zip(_EXPECTED_COLUMNS, rows[1]))` — zip truncates silently; update to exercise the new column). `_sanitize_csv_cell` is at formatter.py line 93-98 and IS the right wrapper for the new cell.
 
 - [ ] **Step 1: Write failing test for CSV merged row (merged finding)**
 
-Append to the SARIF test file (or wherever CSV tests live — `grep -rln "format_csv" tests/`):
+Append to **`tests/test_csv_format.py`** (the dedicated CSV test file). Use the file-idiomatic `_make_finding` helper (re-imported from `tests.test_formatter` at line 15) and the file's existing import style. Place the new test AFTER the last existing test:
 
 ```python
-def test_csv_merged_finding_has_populated_merged_sources_column() -> None:
+def test_format_csv_merged_finding_populates_merged_sources_column():
     """A merged Finding's CSV row must carry a `"; "`-joined merged_sources
-    cell in the last column; unmerged findings emit an empty last cell.
+    cell in the last column; unmerged findings emit an empty last cell
+    (T19-M1 D4).
     """
-    from screw_agents.formatter import format_csv, _CSV_COLUMNS
-    from screw_agents.models import (
-        Finding, FindingLocation, FindingClassification,
-        FindingAnalysis, FindingRemediation, MergedSource,
-    )
-    import csv
-    import io
+    from screw_agents.models import MergedSource
 
-    merged = Finding(
+    merged = _make_finding(
         id="f1",
-        agent="sqli",
-        domain="injection-input-handling",
-        timestamp="2026-04-24T00:00:00Z",
-        location=FindingLocation(file="dao.py", line_start=13),
-        classification=FindingClassification(
-            cwe="CWE-89", cwe_name="SQL Injection",
-            severity="high", confidence="medium",
-        ),
-        analysis=FindingAnalysis(description="test"),
-        remediation=FindingRemediation(recommendation="test"),
         merged_from_sources=[
             MergedSource(agent="adaptive_script:qb-check", severity="high"),
             MergedSource(agent="xss", severity="medium"),
         ],
     )
-    unmerged = merged.model_copy(update={"id": "f2", "merged_from_sources": None})
+    unmerged = _make_finding(id="f2", merged_from_sources=None)
 
-    csv_text = format_csv([merged, unmerged])
-    rows = list(csv.reader(io.StringIO(csv_text)))
+    out = format_csv([merged, unmerged])
+    rows = list(csv.reader(io.StringIO(out)))
 
-    # Header must include merged_sources as LAST column
+    # Header must include merged_sources as the LAST column.
     assert rows[0][-1] == "merged_sources"
-    # Merged row: last cell is "; "-joined
+    # Merged row: last cell is "; "-joined "<agent> (<severity>)".
     assert rows[1][-1] == "adaptive_script:qb-check (high); xss (medium)"
-    # Unmerged row: last cell is empty
+    # Unmerged row: last cell is empty.
     assert rows[2][-1] == ""
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
 ```
-uv run pytest tests/test_formatter.py::test_csv_merged_finding_has_populated_merged_sources_column -v
+uv run pytest tests/test_csv_format.py::test_format_csv_merged_finding_populates_merged_sources_column -v
 ```
-Expected: FAIL (column not yet present, or assertion mismatch).
+Expected: FAIL (column not yet present; header will still be 12 cols + `rows[0][-1] == "exclusion_ref"` instead of `"merged_sources"`).
 
 - [ ] **Step 3: Append column to `_CSV_COLUMNS`**
 
@@ -575,12 +562,33 @@ In `src/screw_agents/formatter.py::format_csv` at the `writer.writerow([...])` c
         ])
 ```
 
-- [ ] **Step 5: Run test to verify it passes**
+- [ ] **Step 5: Run test to verify new test passes; confirm mirror-drift**
 
 ```
-uv run pytest tests/test_formatter.py::test_csv_merged_finding_has_populated_merged_sources_column -v
+uv run pytest tests/test_csv_format.py -v 2>&1 | tail -30
 ```
-Expected: PASS.
+
+Expected: `test_format_csv_merged_finding_populates_merged_sources_column` PASSES. `test_format_csv_empty_findings` (at line 25) FAILS because `rows[0]` is now 13 columns but `_EXPECTED_COLUMNS` is still 12 — the positional assertion `rows[0] == _EXPECTED_COLUMNS` fails. This is the expected mirror-drift signal.
+
+- [ ] **Step 5b: Update `_EXPECTED_COLUMNS` mirror in `tests/test_csv_format.py`**
+
+At line 18-22 of `tests/test_csv_format.py`, extend the constant to include the new column:
+
+```python
+_EXPECTED_COLUMNS = [
+    "id", "file", "line", "cwe", "cwe_name", "agent",
+    "severity", "confidence", "description", "code_snippet",
+    "excluded", "exclusion_ref", "merged_sources",
+]
+```
+
+- [ ] **Step 5c: Re-run to verify both pass**
+
+```
+uv run pytest tests/test_csv_format.py -v 2>&1 | tail -20
+```
+
+Expected: all tests in `tests/test_csv_format.py` PASS (original 4-5 tests + the new merged-column test). The zip-based dict-builders at lines 39/60/72 now correctly include `merged_sources` key (defaulting to empty string for unmerged fixtures).
 
 - [ ] **Step 6: Write failing test for D7 — CSV in default formats**
 
@@ -659,7 +667,7 @@ Expected: 902 passed, 8 skipped (baseline +3 from T19-M1 SARIF + M1 CSV merged +
 - [ ] **Step 11: Commit**
 
 ```bash
-git add src/screw_agents/formatter.py src/screw_agents/results.py tests/test_formatter.py tests/test_results.py
+git add src/screw_agents/formatter.py src/screw_agents/results.py tests/test_csv_format.py tests/test_results.py
 git commit -m "T19-M1 (CSV) + D7: add merged_sources column; include CSV in defaults
 
 T19-M1: _CSV_COLUMNS appends merged_sources column (last position; positional
