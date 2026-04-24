@@ -1689,3 +1689,27 @@ Non-blocking minors surfaced during T3 (screw-full-review.md deletion + SKILL.md
 **Why deferred:** Post-I1 fix-up (commit `4b92add`), the broad row now reads "See §3 redirect" (matches cell-width of the other 5 dispatch rows). The original QR-T3-M2 concern (broad row ~4× wider than other rows, breaks table-scan pattern) is resolved BY the I1 fix-up — the long prose moved to §3. Filing this entry for audit trail completeness only; no remaining action.
 
 **Remediation sketch:** Closed by I1 fix-up. No further work needed.
+
+---
+
+## Phase 3b-C2 T4 pre-audit minors (discovered 2026-04-24)
+
+Non-blocking minors surfaced during T4 (per-agent screw-sqli.md truncation) pre-audit on commit `cc52906`. Both items are observational and fold into a future scan.md polish PR.
+
+### BACKLOG-C2-M-PA-T4-M1 — pending_review entries lack explicit session_id; implicit top-level enrichment
+
+**Phase-readiness:** `non-blocker`
+**Source:** T4 pre-audit (Marco-approved deferral 2026-04-24)
+
+**Why deferred:** T4 pre-audit found that the prescribed pending_review schema at plan line 1203-1222 omits per-entry `session_id`, but scan.md's Step 3 references `pending_review.session_id` in 4 places (scan.md line 205/360/384/413). Spec §5.1 confirms session_id is top-level only, not per-entry. The implication: scan.md's parser must implicitly enrich each pending_review with the top-level session_id at parse time. Works, but the implicit-enrichment step isn't documented in scan.md Step 2.
+
+**Remediation sketch:** Two options for a future polish PR — (a) T4/T5/T6/T7 re-land with explicit per-entry session_id duplication at emit time (simpler scan.md), OR (b) scan.md Step 2 adds an explicit "enrich each pending_review.session_id from top-level session_id" instruction. Option (b) is cheaper; fold into a scan.md-polish PR alongside the other T2 deferred minors.
+
+### BACKLOG-C2-M-PA-T4-M2 — scan-subagent Step 5 return JSON emits keys scan.md doesn't consume
+
+**Phase-readiness:** `non-blocker`
+**Source:** T4 pre-audit (Marco-approved deferral 2026-04-24)
+
+**Why deferred:** Plan's prescribed new Step 5 return JSON (plan lines 1269-1284) includes `adaptive_quota_note` and `blocklist_skipped_gaps` keys. Grep on scan.md (post-T2) shows zero consumer references for either. The keys are informational, carried for possible future main-session surfacing (e.g., summary of quota exhaustion events or blocklist skips), but currently dead payload.
+
+**Remediation sketch:** Either (a) wire into scan.md Step 5 summary (one extra section for each) to surface to the user, OR (b) drop the keys from per-agent Step 5 JSON and remove the corresponding spec §5.1 entries. Option (a) preserves information flow and matches the spec's intent; do it alongside the scan.md polish PR referenced by PA-T4-M1.
