@@ -1674,3 +1674,18 @@ Non-blocking minors and observational items surfaced during T2 (scan.md rewrite)
 **Why deferred:** scan.md:83-114 (Step 1b: Full-scope fan-out) wraps mixed prose + pseudocode in a single fenced block using triple-backtick without language tag. The fence does not add syntactic value — the content mixes prose explanations, markdown tables, and Python-like pseudocode — and arguably makes the block less approachable (prose inside a code fence renders as monospace without word-wrap). Removing the outer fence and letting the prose flow naturally (with the inner Task() pseudocode remaining in its own inner fence) would improve readability. No behavioral impact.
 
 **Remediation sketch:** Next readability pass: unwrap Step 1b's outer fence. Keep the inner `Task(...)` block fenced (if such an inner fence exists) but move the surrounding prose to flat paragraphs. Verify no locked-phrase test asserts the outer-fence form. ~4-6 LOC net (delete two fence lines, reflow interior).
+
+---
+
+## Phase 3b-C2 T3-review minors (discovered 2026-04-24)
+
+Non-blocking minors surfaced during T3 (screw-full-review.md deletion + SKILL.md routing) spec + quality review rounds on commit `474647e`. The T3 fix-up (commit `4b92add`) resolved the actionable ones; this section tracks the remainder for audit trail.
+
+### BACKLOG-C2-M-QR-T3-M2 — SKILL.md broad-row cell is cognitively wider than other rows
+
+**Phase-readiness:** `non-blocker`
+**Source:** T3 quality review on commit `474647e` (Marco-approved deferral 2026-04-24)
+
+**Why deferred:** Post-I1 fix-up (commit `4b92add`), the broad row now reads "See §3 redirect" (matches cell-width of the other 5 dispatch rows). The original QR-T3-M2 concern (broad row ~4× wider than other rows, breaks table-scan pattern) is resolved BY the I1 fix-up — the long prose moved to §3. Filing this entry for audit trail completeness only; no remaining action.
+
+**Remediation sketch:** Closed by I1 fix-up. No further work needed.
