@@ -567,22 +567,27 @@ def test_scan_md_contains_full_scope_list_domains_branch() -> None:
 
 
 def test_scan_md_verifies_trust_before_promote() -> None:
-    """Post-C2 spec §7 (trust-path): main session MUST verify the staged
-    script's signed fingerprint (via `verify_trust` MCP tool) BEFORE calling
-    `promote_staged_script`. If scan.md doesn't document the `verify_trust`
-    step, the main-session LLM won't perform the check, allowing a
-    trust-path-compromised script to promote — defeating the C1 (PR #6)
-    Option D signing isolation guarantee.
+    """Post-C2 spec §4.7 D7 (per-review trust re-check): main session calls
+    `verify_trust` AFTER stage and BEFORE compose-review. Non-zero quarantine
+    counts surface a loud banner before the user sees the 5-section review.
 
-    This carries the C1 trust-path precedent forward to C2's main-session
-    orchestrator: signing happens at stage time (inside MCP engine),
-    verification happens at promote time (main-session responsibility, post-C2).
+    This is advisory-loud, NOT fail-closed — promote_staged_script remains
+    the cryptographic gate via its internal tamper_detected check
+    (engine.py:509-588). verify_trust reports ENVIRONMENT state
+    (script_quarantine_count, exclusion_quarantine_count); promote's check
+    validates THIS SPECIFIC staged script. The two are complementary.
+
+    This assertion locks the ordering invariant: first `verify_trust` reference
+    in scan.md MUST precede the last `promote_staged_script` reference — so the
+    main-session LLM cannot skip the per-review environmental advisory.
     """
     _, body = _parse_subagent_file(_SCAN_COMMAND_FILE)
     assert "verify_trust" in body, (
-        "scan.md missing verify_trust reference — spec §7 requires main "
-        "session to verify signed fingerprint before promote "
-        "(security: C1 Option D isolation guarantee rides on this check)"
+        "scan.md missing verify_trust reference — spec §4.7 D7: main session "
+        "must call verify_trust between stage and promote for per-review "
+        "environmental trust advisory "
+        "(security: per-review environment visibility; promote's "
+        "tamper_detected is the cryptographic gate)"
     )
     # Ordering smoke: first verify_trust mention must precede the LAST
     # promote_staged_script mention. Not a strict proof of correct sequencing
@@ -596,5 +601,5 @@ def test_scan_md_verifies_trust_before_promote() -> None:
     assert first_verify < last_promote, (
         "scan.md's first verify_trust reference comes AFTER the last "
         "promote_staged_script reference — ordering suggests verify_trust "
-        "isn't instructed before promote (spec §7 violated)"
+        "isn't instructed before promote (spec §4.7 D7 violated)"
     )
