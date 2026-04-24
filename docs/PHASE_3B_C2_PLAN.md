@@ -1124,7 +1124,7 @@ See docs/PHASE_3B_C2_PLAN.md Task 3 + spec §4.3 D3."
 **Files:**
 - Modify: `plugins/screw/agents/screw-sqli.md` (600 → ~405 lines)
 
-**Rationale:** Apply spec §6.2 truncation plan. The scan subagent retains scan + Step 3.5 preamble + Steps 3.5a (record_context_required_match) + 3.5b (detect_coverage_gaps) + 3.5c (Layer 0f quota) + 3.5d-A (Layer 0e blocklist) + 3.5d-B (derive script_name) + 3.5d-C (Layers 0a-c generation prompt) + 3.5d-D (generate + hash6) + 3.5d-E (Layer 1 lint). Everything AFTER 3.5d-E (Step 3.5d-F through 3.5d-K + old Step 4 + Step 5) gets replaced by a streamlined "emit pending_review entry + return structured payload" block.
+**Rationale:** Apply spec §6.2 truncation plan. The scan subagent retains scan + Step 3.5 preamble + Steps 3.5a (record_context_required_match) + 3.5b (detect_coverage_gaps) + 3.5c (Layer 0f quota) + 3.5d-A (Layer 0e blocklist) + 3.5d-B (derive script_name) + 3.5d-C (Layers 0a-c generation prompt) + 3.5d-D (generate + hash6) + 3.5d-E (Layer 1 lint). Everything AFTER 3.5d-E (Step 3.5d-F through 3.5d-K + old Step 4 + Step 5) gets replaced by a streamlined "emit pending_review entry + return structured payload" block, then returns a structured JSON payload per spec §5.1. Step 2.5 (new) describes preserved-range coherence fixes required by the test's extraction range — see spec §6.2.
 
 **Precedent:** T5/T6/T7 will apply this exact same truncation to cmdi/ssti/xss — the existing test `test_adaptive_section_identical_modulo_agent_name` enforces byte-identical content modulo agent name.
 
@@ -1157,6 +1157,26 @@ Removed (moved to scan.md main session):
 - `mcp__screw-agents__execute_adaptive_script`
 - `mcp__screw-agents__finalize_scan_results`
 - `Task`
+
+- [ ] **Step 2.5: Fix stale references in the preserved range**
+
+The `test_adaptive_section_per_agent_references_only_required_tools` test extracts content from `### Step 3.5: Adaptive Mode` through the next `### Step` heading — this range includes the preserved 3.5a-E steps AND the new 3.5d-F (nested inside). Several preserved-range references became stale once Steps 3.5d-F-K + old Step 4/5 are deleted. Fix these IN the preserved range before Step 3 deletes the old content:
+
+**2.5.1 — Qualify `accumulate_findings` to `mcp__screw-agents__accumulate_findings`** in Step 3.5a prose (approximately line 112 of pre-T4 file). Required by the test: the fully-qualified token must appear inside the adaptive section; post-truncation the old Step 4's qualified reference is gone.
+
+**2.5.2 — Remove stale `screw:screw-script-reviewer` reference from Step 3.5d-D Regenerate-once policy** (approximately line 273 of pre-T4 file). Post-C2 the scan subagent never dispatches the reviewer; the bullet describes impossible state. Rephrase to retain the lint-failure handling semantics without referring to the (main-session-only) reviewer.
+
+**2.5.3 — Rewrite stale "Step 4a / Step 4b" navigation language in Step 3.5b** (3 sites, approximately lines 120, 126, 132 of pre-T4 file). Post-truncation Step 4 is not split. Rewrite to reference the current single "Step 4: Persist YAML findings" and Step 5 return.
+
+**2.5.4 — Line 87 "proceed to Step 4 (Persist Results)" → "proceed to Step 4 (Persist YAML findings)".** One-word fix matching the new Step 4 heading.
+
+**2.5.5 — Line 89 stale scope narrative ("generates, reviews, approves, signs, executes").** Rewrite to clarify scan subagent owns only generate+lint; main session orchestrator owns review/approve/sign/execute.
+
+**2.5.6 — Line 285 stale "5-section review" reference in Step 3.5d-E.** The subagent no longer composes the review. Rewrite to reference pending_review flow to main session.
+
+**2.5.7 — Wire `blocklist_skipped_gaps` accumulator in Step 3.5d-A.** Step 5 return JSON emits this list but no producer populated it pre-fix-up. Append `{file, line, matched_string}` on blocklist hit before "Move to next gap".
+
+These edits are mechanically required by post-truncation coherence (not scope creep). The T4 pre-audit missed them because it scoped grep only to the truncation range (lines 298-600), not to the test's extraction range. The BACKLOG-C2-PROC-PA-TRUNCATION-SCOPE DEFERRED_BACKLOG entry documents this process-improvement takeaway for T5/T6/T7 pre-audits.
 
 - [ ] **Step 3: Delete old Step 3.5d-F through old Step 5 (through end of file)**
 
