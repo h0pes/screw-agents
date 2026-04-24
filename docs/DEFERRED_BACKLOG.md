@@ -133,12 +133,12 @@ Entries already in `## Shipped` / `## Shipped (PR #6)` do NOT carry this tag —
 
 | Tag | Count | Key entries |
 |---|---|---|
-| `blocker` | 4 | T-FULL-P1 (scan_full scale), T19-M1 / T19-M2 / T19-M3 (SARIF + CSV + exclusion semantics consumed by Phase 4 autoresearch output) |
+| `blocker` | 1 | T-FULL-P1 (scan_full scale) |
 | `nice-to-have` | 90 | Performance, ergonomics, determinism polish; majority of PR6-01..78 cosmetic entries; sandbox hardening (Phase 3c) |
 | `phase-7-scoped` | 5 | T6-M1, T6-M4, T9-I1 (multi-process concurrency); T8-Sec2 (preexec thread-safety); BACKLOG-PR6-09 (registry compaction at scale) |
 | `retire` | 14 | Trust-layer T4-M6 + T1-M1 (flagged for Marco review — triggers repeatedly not fired) + 12 PR6-* cosmetic/docstring entries whose files are unlikely to be revisited |
 
-**Phase 4 gate:** the `blocker` count must drop to 0 before Phase 4's step 4.0 (D-01 Rust benchmark corpus) can start. Current blockers: T-FULL-P1, T19-M1/M2/M3. T-FULL-P1 (paginate `scan_full` + agent-relevance filter — Phase 4 autoresearch uses it in volume at 41-agent expansion); T19-M1/M2/M3 (SARIF / CSV / exclusion-semantics of merged findings — Phase 4 FP-learning loop consumes these). See `docs/PROJECT_STATUS.md` §"Phase 4 Prerequisites (hard gates)" for scheduling + estimated scope.
+**Phase 4 gate:** the `blocker` count must drop to 0 before Phase 4's step 4.0 (D-01 Rust benchmark corpus) can start. Current blocker: **T-FULL-P1** (paginate `scan_full` + agent-relevance filter — Phase 4 autoresearch uses it in volume at 41-agent expansion). See `docs/PROJECT_STATUS.md` §"Phase 4 Prerequisites (hard gates)" for scheduling + estimated scope.
 
 ---
 
@@ -264,7 +264,13 @@ need a fix that would have to be applied in two places.
 
 ## Phase 4+ (autoresearch / scale)
 
-### T19-M1 — Surface `merged_from_sources` in SARIF and CSV output
+### T19-M1 — Surface `merged_from_sources` in SARIF and CSV output — **RESOLVED 2026-04-24**
+**Shipped on branch:** `phase-4-prep-t19m` (merge commit TBD on merge).
+**What shipped:** SARIF `_sarif_result` emits `properties.mergedFromSources` (a list of `{agent, severity}` dicts via `MergedSource.model_dump()`) when `finding.merged_from_sources` is non-None; unmerged findings emit no properties bag. CSV `_CSV_COLUMNS` appended `merged_sources` as the last column (positional parsers reading by index up to the old 12-column count remain unaffected); merged rows emit `"; "`-joined `"<agent> (<severity>)"` strings, unmerged rows emit empty string; `_sanitize_csv_cell` guards against spreadsheet-formula injection. D7 companion: `write_scan_results` default formats list flipped from `["json", "markdown"]` to `["json", "markdown", "csv"]` (project_csv_output memory).
+
+---
+
+**Historical entry (original deferral, for audit trail):**
 **Source:** Phase 3b T19 (commit `bff35b5`, 2026-04-19)
 **File:** `src/screw_agents/formatter.py` `_format_sarif` + `format_csv`
 **Priority:** Low — Markdown + JSON are the primary structured paths and both surface the field.
@@ -293,7 +299,13 @@ need a fix that would have to be applied in two places.
 
 **Estimated scope:** ~30 LOC + 2 tests (one SARIF assertion, one CSV assertion). Trivial.
 
-### T19-M2 — Per-source exclusion matching for merged findings
+### T19-M2 — Per-source exclusion matching for merged findings — **RESOLVED 2026-04-24**
+**Shipped on branch:** `phase-4-prep-t19m` (merge commit TBD on merge).
+**What shipped:** `render_and_write`'s match loop now iterates candidate agents in deterministic primary-first order: `[finding.agent, *(s.agent for s in finding.merged_from_sources)]`. First match wins; the finding is suppressed; `matched_via_agent` records which candidate fired. `exclusions_applied` entries gain the new `matched_via_agent` key (backward-compatible extension; existing consumers using `isinstance` / `len()` / `== []` are unaffected). `match_exclusions` primitive unchanged — broadening happens at the caller level only. 4 regression tests cover: unmerged (matched_via_agent=primary), merged-primary-wins-deterministic, merged-source-match, merged-no-match-active. Security posture per spec §5 T-SEC-1: intended suppression broadening; NO false-positive introduction; deterministic audit-friendly order.
+
+---
+
+**Historical entry (original deferral, for audit trail):**
 **Phase-4 readiness:** `blocker` — Phase 4 FP-learning correlates exclusions against merged findings — per-source matching is correctness-critical
 
 **Source:** Phase 3b T19 quality review, 2026-04-19
@@ -351,7 +363,13 @@ represent per-source suppression?).
 iteration helper + 3 regression tests. Medium complexity due to the
 exclusions_applied schema extension.
 
-### T19-M3 — Structured `merged_from_sources` format (list[str] → list[dict])
+### T19-M3 — Structured `merged_from_sources` format (list[str] → list[dict]) — **RESOLVED 2026-04-24**
+**Shipped on branch:** `phase-4-prep-t19m` (merge commit TBD on merge).
+**What shipped:** New `MergedSource(BaseModel)` with `agent: str` + `severity: str` (models.py). `Finding.merged_from_sources` field migrated from `list[str] | None` to `list[MergedSource] | None`. `_merge_findings_augmentatively` (results.py) emits structured objects instead of formatted strings. Markdown renderer (formatter.py:430-432) formats on the fly via generator expression, preserving byte-identical output. Pre-existing semantic preserved: list contains ALL bucket entries in input order, INCLUDING the primary's own detection. Severity strings preserve INPUT CASE verbatim (capitalization round-trip test at test_results.py:822). 3 list-literal test assertions updated (lines 654, 729, 822); 4 docstring wordings refreshed; `is None` assertions and Markdown-string assertions untouched (type-agnostic). `test_models.py`: +1 test for MergedSource roundtrip.
+
+---
+
+**Historical entry (original deferral, for audit trail):**
 **Phase-4 readiness:** `blocker` — structured `merged_from_sources` format is the schema Phase 4 autoresearch reads
 
 **Source:** Phase 3b T19 quality review, 2026-04-19
@@ -762,7 +780,7 @@ because partial target_patterns are out-of-date, OR when autoresearch
 
 **Scope shipped:** 9 files touched. `plugins/screw/commands/scan.md` full rewrite (97 → 480 lines, chain-subagents orchestrator with `confirm-high` phrase grammar per spec §4.2 D2). 4 per-agent subagents (sqli/cmdi/ssti/xss) truncated 600 → ~414 lines with byte-identical adaptive sections modulo agent name (enforced by `test_adaptive_section_identical_modulo_agent_name`). Orchestrator `screw-injection.md` truncated 231 → ~222 lines. `screw-full-review.md` deleted (second nested-dispatch instance, Option A fold+delete per spec §4.3). `plugins/screw/skills/screw-review/SKILL.md` routing row rewritten to redirect broad/full-scan intents to `/screw:scan full`. `tests/test_adaptive_subagent_prompts.py` updated with 9 new scan.md orchestration assertions + 1 file-absence test (net 22 test functions post-T1). Zero engine changes. Final test state: 918 passed / 8 skipped / 10 warnings (baseline preserved + 7 new assertions GREEN).
 
-**Phase-4 impact:** hard prereq count drops 5 → 4. Remaining Phase-4 blockers: D-01 (Rust benchmark corpus), T-FULL-P1 (paginate scan_full), T19-M1/M2/M3 (SARIF/CSV surface polish), BACKLOG-PR6-22 (`sign_adaptive_script` retirement). *(Post-scripsum: BACKLOG-PR6-22 subsequently resolved on branch `retire-sign-adaptive-script`, 2026-04-24 — prereq count now 3.)*
+**Phase-4 impact:** hard prereq count drops 5 → 4. Remaining Phase-4 blockers: D-01 (Rust benchmark corpus), T-FULL-P1 (paginate scan_full), T19-M1/M2/M3 (SARIF/CSV surface polish), BACKLOG-PR6-22 (`sign_adaptive_script` retirement). *(Post-scripsum: BACKLOG-PR6-22 resolved on branch `retire-sign-adaptive-script`, 2026-04-24 → prereq count 3. T19-M1/M2/M3 resolved on branch `phase-4-prep-t19m`, 2026-04-24 → Phase-4 `blocker` tag count now 1 — only T-FULL-P1 remains; D-01 is Phase 4 step 4.0 itself.)*
 
 **Process lessons captured:** see `BACKLOG-C2-PROC-PA-TRUNCATION-SCOPE` under "Phase 3b-C2 T4 review minors" — pre-audits for truncation tasks must simulate the actual test extraction range, not just the truncated region (surfaced by 4 stale-ref issues in T4 that the pre-audit missed). See also `BACKLOG-C2-M-QR-T1-M4` for the commit-message-template-during-plan-amendment lesson.
 
