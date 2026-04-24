@@ -51,6 +51,7 @@
 | Per-agent truncations | screw-sqli/cmdi/ssti/xss.md — truncate adaptive Step 3.5 at Step 3.5d-D; add structured JSON return; frontmatter cleanup | 4 × −325 = −1300 |
 | Orchestrator truncation | screw-injection.md — truncate Step 2.5 similarly; add structured JSON return; frontmatter cleanup | −55 |
 | File deletion | screw-full-review.md (second nested-dispatch instance; Option A fold+delete per spec §4.3) | −124 |
+| Skill routing | screw-review/SKILL.md — rewrite broad/full routing row to user-education redirect + refactor §3 "Delegate" (T3 expansion, Option A Marco-approved) | +2 |
 | Test updates | tests/test_adaptive_subagent_prompts.py — 2 polarity-flip rewrites (frontmatter + adaptive-section refs) + 9 deletions (8 parametrized × 4 agents = 32 cases + 1 non-parametrized = 33 cases) + 9 new test functions for scan.md orchestration (1 file-absence + 1 Option S trust-path added in fix-up + 7 orchestration) | +45 |
 | Cross-plan updates | DEFERRED_BACKLOG (BACKLOG-C2-01 → Shipped), PROJECT_STATUS (Phase 4 blocker count 5 → 4) | ~+20 doc lines |
 | **Total** | | **~−1,230 LOC, +9 tests (net assertion count)** |
@@ -63,7 +64,7 @@
 
 ### Created (0 files)
 
-### Modified (7 files)
+### Modified (8 files)
 
 | Path | What changes |
 |---|---|
@@ -74,6 +75,7 @@
 | `plugins/screw/agents/screw-xss.md` | Byte-identical to sqli modulo agent name. |
 | `plugins/screw/agents/screw-injection.md` | Truncate Step 2.5c delegation paragraph (the per-gap pipeline delegation → per-agent Step 3.5d A-K); replace with "apply sub-steps A through E". REMOVE Step 3b (finalize). ADD new Step 4 "Return structured payload" with orchestrator-specific `scan_subagent: "screw-injection"` + `scan_metadata.agent_names: ["sqli","cmdi","ssti","xss"]`. Frontmatter: same removals as per-agent. |
 | `tests/test_adaptive_subagent_prompts.py` | Rewrite 2 polarity assertions (frontmatter tool-surface + adaptive-section tool-references — per-agent files must NOT reference stage/promote/reject/execute/Task/reviewer). Delete 9 obsolete tests (8 parametrized × 4 agents = 32 cases + 1 non-parametrized = 33 cases total: sha256 prefix render, stderr render, retention notice, plugin-namespaced reviewer, bare-reviewer negative, stage/promote/reject contains, execute-invocation-omits-session_id). Add 9 new test functions for scan.md orchestration (see T1 body; one is the screw-full-review.md file-absence assertion, one is the Option S trust-path assertion added in fix-up). |
+| `plugins/screw/skills/screw-review/SKILL.md` | T3 expansion (Option A, Marco-approved). Rewrite the broad/full-scan routing row (was: dispatch `screw-full-review`) to a user-education redirect pointing at `/screw:scan full` — main-session orchestration required post-C2; skills cannot fan out to multiple domains without the forbidden nested-dispatch pattern. Refactor §3 "Delegate" heading to "Delegate (or redirect)" with two branches (specific/domain rows dispatch; broad/full row responds verbatim, no dispatch). |
 
 ### Deleted (1 file)
 
@@ -1057,6 +1059,7 @@ See docs/PHASE_3B_C2_PLAN.md Task 2."
 
 **Files:**
 - Delete: `plugins/screw/agents/screw-full-review.md`
+- Modify: `plugins/screw/skills/screw-review/SKILL.md` (update routing table row for broad/full-scan intents + refactor "Delegate" section per Option A scope expansion)
 
 **Rationale:** screw-full-review.md contains a second instance of the nested-subagent-dispatch anti-pattern (it dispatches `screw-injection` and future domain orchestrators via the Agent tool — architecturally blocked per sub-agents.md:324). Spec §4.3 D3 Option A: fold its logic into scan.md's `full` branch (done in T2 Step 1b) and delete the file.
 
@@ -1073,6 +1076,7 @@ grep -rn "screw-full-review\|screw:screw-full-review" plugins/ docs/ tests/ CLAU
 
 Expected: references in:
 - `plugins/screw/commands/scan.md` (post-T2: the dispatch table row `| full | screw-full-review |` should be GONE from T2's rewrite; verify zero matches in scan.md)
+- `plugins/screw/skills/screw-review/SKILL.md` — PRE-C2: routed broad/full-scan intents to `screw-full-review`. T3 expansion updates this row per Option A (user-education redirect to `/screw:scan full`) in the SAME commit that deletes the subagent file.
 - `docs/AGENT_CATALOG.md` line 24: "Full-review orchestrator | 1" — this is a doc count reference; update in T9 cross-plan sync if needed
 - `docs/DEFERRED_BACKLOG.md` — historical notes (acceptable)
 - `docs/PHASE_3B_C1_PLAN.md` — historical reference (read-only, acceptable)
