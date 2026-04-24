@@ -107,9 +107,11 @@ class TestRenderAndWrite:
             agent_names=["sqli"],
         )
         files = result["files_written"]
-        assert len(files) == 2
+        # T19-M1 D7 (2026-04-24): default formats now ["json", "markdown", "csv"].
+        assert len(files) == 3
         assert "json" in files
         assert "markdown" in files
+        assert "csv" in files
         json_file = files["json"]
         md_file = files["markdown"]
         assert Path(json_file).exists()
@@ -160,7 +162,8 @@ class TestRenderAndWrite:
         )
         assert result["summary"]["total"] == 0
         assert result["summary"]["active"] == 0
-        assert len(result["files_written"]) == 2  # still writes empty report
+        # T19-M1 D7 (2026-04-24): default formats now ["json", "markdown", "csv"].
+        assert len(result["files_written"]) == 3  # still writes empty report
 
     def test_scan_metadata_passed_through(self, tmp_path, finding_sqli):
         result = render_and_write(
@@ -972,3 +975,40 @@ class TestRenderAndWriteMerge:
         findings_json = json.loads(Path(result["files_written"]["json"]).read_text())
         assert len(findings_json) == 1
         assert findings_json[0]["merged_from_sources"] is None
+
+
+def test_render_and_write_default_formats_includes_csv(tmp_path: Path) -> None:
+    """write_scan_results with formats=None must write a .csv file alongside
+    .json + .md (D7: T19-M1 default-format flip).
+    """
+    project = tmp_path / "project"
+    project.mkdir()
+
+    finding = {
+        "id": "f1",
+        "agent": "sqli",
+        "domain": "injection-input-handling",
+        "timestamp": "2026-04-24T00:00:00Z",
+        "location": {"file": "dao.py", "line_start": 13},
+        "classification": {
+            "cwe": "CWE-89", "cwe_name": "SQL Injection",
+            "severity": "high", "confidence": "medium",
+        },
+        "analysis": {"description": "test"},
+        "remediation": {"recommendation": "test"},
+    }
+
+    result = render_and_write(
+        project_root=project,
+        findings_raw=[finding],
+        agent_names=["sqli"],
+        scan_metadata={"target": "dao.py", "timestamp": "2026-04-24T00:00:00Z"},
+        formats=None,  # exercise the default
+    )
+
+    assert "csv" in result["files_written"], (
+        f"default formats list must include csv; got "
+        f"{list(result['files_written'].keys())}"
+    )
+    assert "json" in result["files_written"]
+    assert "markdown" in result["files_written"]

@@ -157,7 +157,7 @@ def render_and_write(
             not accessible due to permissions (T6-I2).
     """
     if formats is None:
-        formats = ["json", "markdown"]
+        formats = ["json", "markdown", "csv"]  # T19-M1 D7 (2026-04-24)
     # Parse findings via Pydantic
     findings = [Finding(**f) for f in findings_raw]
 

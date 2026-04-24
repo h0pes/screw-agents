@@ -83,6 +83,7 @@ _CSV_COLUMNS = [
     "id", "file", "line", "cwe", "cwe_name", "agent",
     "severity", "confidence", "description", "code_snippet",
     "excluded", "exclusion_ref",
+    "merged_sources",  # T19-M1 (2026-04-24): structured-list joined by "; "
 ]
 
 
@@ -123,6 +124,12 @@ def format_csv(findings: list[Finding], scan_metadata: dict[str, Any] | None = N
             excluded = str(f.triage.excluded)
             exclusion_ref = f.triage.exclusion_ref or ""
 
+        merged_sources_cell = ""
+        if f.merged_from_sources:
+            merged_sources_cell = "; ".join(
+                f"{s.agent} ({s.severity})" for s in f.merged_from_sources
+            )
+
         writer.writerow([
             f.id,
             f.location.file,
@@ -136,6 +143,7 @@ def format_csv(findings: list[Finding], scan_metadata: dict[str, Any] | None = N
             _sanitize_csv_cell(f.location.code_snippet or ""),
             excluded,
             _sanitize_csv_cell(exclusion_ref),
+            _sanitize_csv_cell(merged_sources_cell),  # T19-M1
         ])
 
     return buf.getvalue()

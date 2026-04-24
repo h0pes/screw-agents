@@ -146,7 +146,8 @@ class TestAccumulateFinalizeTools:
             "scan_metadata": {"target": "src/api.py"},
         })
         assert "files_written" in result
-        assert set(result["files_written"].keys()) == {"json", "markdown"}
+        # T19-M1 D7 (2026-04-24): default formats now ["json", "markdown", "csv"].
+        assert set(result["files_written"].keys()) == {"json", "markdown", "csv"}
         assert result["summary"]["total"] == 1
         assert (tmp_path / ".screw" / "findings").is_dir()
         assert (tmp_path / ".screw" / ".gitignore").exists()
