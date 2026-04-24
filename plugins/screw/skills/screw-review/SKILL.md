@@ -30,15 +30,17 @@ Based on the user's request, decide which subagent to dispatch:
 | Specific vulnerability: "template injection", "SSTI" | `screw-ssti` |
 | Specific vulnerability: "XSS", "cross-site scripting" | `screw-xss` |
 | Domain: "injection vulnerabilities", "input validation" | `screw-injection` |
-| Broad: "security review", "security audit", "full scan" | `screw-full-review` |
+| Broad: "security review", "security audit", "full scan" | Respond: *"Broad/full scans use `/screw:scan full` (main-session orchestration required post-C2 architecture — skills can only dispatch one subagent, but full-scope fan-out needs `list_domains` + per-domain dispatch which lives in the slash command). Either run `/screw:scan full` directly, or specify a domain (`injection`) or agent (`sqli`, `cmdi`, `ssti`, `xss`) for targeted scanning."* |
 
 ### 2. Check for Existing Findings
 
 Before dispatching, check if `.screw/findings/` contains recent reports for the same target and agent. If a report exists from the current day, mention it: "There's already a scan from today — want me to re-scan or would you like to review the existing report?"
 
-### 3. Delegate
+### 3. Delegate (or redirect)
 
-Dispatch the chosen subagent via the Agent tool. Pass along the user's target description so the subagent can interpret it.
+For specific-vulnerability and domain rows: dispatch the chosen subagent via the Agent tool. Pass along the user's target description so the subagent can interpret it.
+
+For the broad/full row: do NOT dispatch. Respond with the user-education message verbatim from the table row above; wait for the user's follow-up.
 
 ### 4. Summarize
 
