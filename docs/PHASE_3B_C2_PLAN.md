@@ -1851,7 +1851,7 @@ Write `/tmp/screw-roundtrip-qb/.mcp.json`:
         "--project",
         "/home/marco/Programming/AI/screw-agents",
         "screw-agents",
-        "serve-stdio"
+        "serve"
       ],
       "env": {}
     }
@@ -1945,8 +1945,8 @@ WAIT for Marco to confirm all 4 sanity checks pass.
 In the claude session, run: `/screw:scan sqli src/`
 
 Expected:
-- 3 CWE-89 findings produced (dao.py lines 7, 8, 9 — all unresolved execute)
-- No coverage-gap detection (non-adaptive skips)
+- 1 CWE-89 finding at the user-tainted `qb.execute(f"...{user_id}")` line. NOT 3 — the sqli YAML heuristic correctly requires user-input flow; hardcoded SQL literals on the other 2 lines are safe and not flagged (this is correct security behavior, previously mis-predicted by the plan)
+- No coverage-gap detection (non-adaptive mode skips Step 3.5 entirely — the "no gaps required deep analysis" message in the scan summary is a consequence of `--adaptive` not being passed, not an independent claim)
 - `.screw/findings/<session>/` written with JSON + Markdown
 - No staging activity (no `.screw/staging/` or `.screw/custom-scripts/` writes)
 
