@@ -4,16 +4,10 @@ description: SQL injection security reviewer — detects CWE-89 vulnerabilities 
 tools:
   - mcp__screw-agents__scan_sqli
   - mcp__screw-agents__accumulate_findings
-  - mcp__screw-agents__finalize_scan_results
   - mcp__screw-agents__record_exclusion
   - mcp__screw-agents__record_context_required_match
   - mcp__screw-agents__detect_coverage_gaps
   - mcp__screw-agents__lint_adaptive_script
-  - mcp__screw-agents__stage_adaptive_script
-  - mcp__screw-agents__promote_staged_script
-  - mcp__screw-agents__reject_staged_script
-  - mcp__screw-agents__execute_adaptive_script
-  - Task
   - Read
   - Glob
   - Grep
@@ -115,7 +109,7 @@ mcp__screw-agents__record_context_required_match({
 })
 ```
 
-The first call with `session_id: null` returns a fresh `session_id` in its response. Pass that SAME `session_id` to every subsequent `record_context_required_match` call AND to `accumulate_findings` AND to `detect_coverage_gaps`.
+The first call with `session_id: null` returns a fresh `session_id` in its response. Pass that SAME `session_id` to every subsequent `record_context_required_match` call AND to `mcp__screw-agents__accumulate_findings` AND to `detect_coverage_gaps`.
 
 **Why this matters:** `detect_coverage_gaps` reads these recorded matches to produce the D1 coverage-gap signal. Without this instrumentation, D1 never fires, and adaptive mode only sees D2 (unresolved-sink) gaps. Skipping this step means silently degrading the coverage-gap signal.
 
@@ -273,13 +267,9 @@ text was not valid Python across 2 attempts."
 
 Other failure modes do NOT retry:
 - `lint_adaptive_script` status `"fail"` (lint violations) → proceed to
-  Step F and the human review; the violations are surfaced in the
-  5-section review (Section 3) for the human to weigh. Lint fail is
-  INFORMATIVE, not a retry trigger.
-- `screw:screw-script-reviewer` invocation returning malformed JSON or
-  invocation failure → treat this gap as failed-review and skip to the
-  next gap. Do NOT guess the JSON shape. Do NOT regenerate — the review
-  layer is downstream of generation.
+  Step F and emit the pending_review entry with the lint report attached;
+  the violations are surfaced to the main session for the human to weigh.
+  Lint fail is INFORMATIVE, not a retry trigger.
 
 ##### E. Layer 1 — Pre-approval AST lint
 
@@ -295,303 +285,115 @@ Response has `status`: `"pass"` | `"fail"` | `"syntax_error"`.
 - `"fail"` → proceed to Step F but note the violations in the 5-section review — the human may reject based on lint alone. Do NOT auto-regenerate on lint fail; the violations are informative for the human reviewer.
 - `"pass"` → proceed to Step F.
 
-##### F. Layer 0d — Semantic review via `screw:screw-script-reviewer` subagent
+##### F. Size-cap safety check + emit pending_review entry
 
-Invoke the `screw:screw-script-reviewer` subagent via the `Task` tool (the `screw:` prefix is the plugin namespace — required so the Task dispatcher resolves the correct subagent in plugin-loaded contexts):
+**Pre-emission size cap (relocated from old Step 3.5d-H pre-render check):**
+If `len(source.splitlines()) > 400`, do NOT emit the script source to main
+session (it would dominate the 5-section review surface and may be an LLM
+resource-exhaustion symptom). Instead append a pending_review entry with
+`generation_status: "script_too_large"` and omit `script_source`. Main
+session surfaces the per-gap failure to the user without showing the
+pathological script. Continue to next gap.
 
-```
-Task tool invocation:
-  subagent_type: "screw:screw-script-reviewer"
-  description: "Layer 0d semantic review of generated adaptive script for {gap.file}:{gap.line}"
-  prompt: |
-    ## Rationale
-    {the exact rationale you constructed in Step C — same text}
+A legitimate adaptive script is 50–150 lines; anything over 400 is either
+the LLM losing focus or target-code attempting to inflate the review
+surface. This check is defense-in-depth (Layer 5 sandbox still bounds
+actual execution, but keeping the gate here means HIGH-risk review
+surfaces never reach the user's attention).
 
-    ## Script source
-    <the generated script source, verbatim, as received>
-```
+Otherwise, after Step E's lint returns `pass` (or `fail` with violations to
+surface; continue to F either way — lint failures are INFORMATIVE, not retry
+triggers), build a `pending_review` dict per the schema spec
+(docs/specs/2026-04-23-phase-3b-c2-nested-dispatch-fix-design.md §5.1):
 
-The subagent returns ONLY a JSON object validated against `SemanticReviewReport` (see `src/screw_agents/models.py` around line 482–490). Parse it:
-
-- `risk_score`: `"low"` | `"medium"` | `"high"`
-- `flagged_patterns`: list of strings
-- `unusual_imports`: list of strings
-- `control_flow_summary`: string
-- `estimated_runtime_ms`: integer
-
-If the subagent invocation fails or returns malformed JSON, treat this gap as failed-review and skip to the next gap. Do NOT guess the JSON shape — a malformed review is a security signal, not a nuisance.
-
-##### G. Stage the script for human review
-
-Before presenting the 5-section review, STAGE the generated script so that the approval flow reads the exact bytes you generated (no regeneration after respawn). The stage tool returns a sha256 prefix and a short session ID that must appear in the review header — the human can visually verify the staged content matches what they expect at approve time.
-
-```
-mcp__screw-agents__stage_adaptive_script({
-  "project_root": "<absolute project root>",
-  "script_name": "{script_name}",
-  "source": "<exact source string from Step D>",
-  "meta": {
-    "name": "{script_name}",
-    "created": "<current ISO8601 timestamp>",
-    "created_by": "<script_reviewers[0].email from .screw/config.yaml>",
-    "domain": "injection-input-handling",
-    "description": "Generated for {gap.type} gap at {gap.file}:{gap.line}. Evidence: {short summary of gap.evidence}.",
-    "target_patterns": [
-      "<inferred: gap.evidence.method if D2, or gap.evidence.pattern if D1>"
-    ]
+```json
+{
+  "gap": {
+    "type": "<gap.type>",
+    "file": "<gap.file>",
+    "line": <gap.line>,
+    "agent": "sqli",
+    "evidence": <gap.evidence>
   },
-  "session_id": "<same session_id from Step 3.5a>",
-  "target_gap": {
-    "type": "{gap.type}",
-    "file": "{gap.file}",
-    "line": {gap.line},
-    "agent": "sqli"
-  }
-})
+  "script_name": "<computed in Step 3.5d-B>",
+  "script_source": "<the generated source from Step 3.5d-D, verbatim>",
+  "rationale": "<your rationale from Step 3.5d-C, prose-formatted>",
+  "lint_report": {
+    "status": "<pass|fail|syntax_error from Step 3.5d-E>",
+    "violations": [<violations list from the lint response, or empty>]
+  },
+  "fence_token": "<32-hex token from Step 3.5d-C>",
+  "generation_status": "ok"
+}
 ```
 
-Expected response on `status == "staged"`:
-- `stage_path`: absolute path to `.screw/staging/{session_id}/adaptive-scripts/{script_name}.py`
-- `script_sha256`: 64-char hex digest of the staged file
-- `script_sha256_prefix`: first 8 hex chars (used in review header)
-- `session_id_short`: first 12 chars of session_id (used in review header)
-- `staged_at`: ISO8601 timestamp (used in review header)
+Append this dict to an in-memory `pending_reviews: list[dict]` variable that
+you maintain across the per-gap loop. On generation failures (Step 3.5d-D
+syntax error after retry, fence collision, name-regex failure, or the
+400-line size cap in this step above), emit an entry with `generation_status`
+set to the appropriate failure code (`"syntax_error_after_retry"`,
+`"fence_collision"`, `"invalid_name"`, `"script_too_large"`) and omit
+`script_source` — main session will surface the failure to the user.
 
-Capture `script_sha256_prefix`, `session_id_short`, and `staged_at` — they go into Step H's review header.
+Do NOT call any of the staging, promote, reject, execute, or finalize MCP tools. Do NOT dispatch the Layer 0d reviewer subagent. The main session orchestrator (`/screw:scan`) handles all post-generation flow (reviewer dispatch, staging, 5-section review, approve/reject, promote + execute + accumulate).
 
-If the response `status != "staged"`:
-- `invalid_script_name`: abort this gap with the reported message.
-- `invalid_session_id`: this indicates a bug in Step 3.5a's session setup; abort the entire adaptive flow and surface to user.
-- `stage_name_collision`: the existing stage has DIFFERENT content. Regenerate the script from scratch (retry-once policy) and re-stage. If the second stage also collides, abort this gap.
-- Any other error → show the message to the user and abort this gap.
+Increment Layer 0f quota counter: `scripts_generated_this_session += 1`.
+Move to next gap.
 
-##### H. Present 5-section review to human + await approval
+### Step 4: Persist YAML findings
 
-**Pre-render size check:** Before composing the review, verify the
-generated script is not pathologically large. If `len(source.splitlines())
-> 400`, abort the gap: "Adaptive generation produced an implausibly
-large script ({N} lines, cap is 400). Skipping gap for safety. The
-target code may be attempting to inflate the review surface."
-
-A legitimate adaptive script is 50-150 lines; anything over 400 is
-either the LLM losing focus or a target-code resource-exhaustion attempt.
-Do NOT show the script to the user in this case — skipping avoids
-Section 4 becoming the dominant view and the reviewer losing focus on
-Sections 1-3.
-
-Compose ONE markdown message to the user containing EXACTLY the header and five sections below. The header carries the trust-relevant metadata from the stage response — the user can visually verify the session and sha prefix match what they expect.
-
-```markdown
-## Adaptive script review — awaiting approval
-
-**Script:** `{script_name}`
-**Staged:** {staged_at}  |  **Session:** `{session_id_short}`  |  **SHA256:** `{script_sha256_prefix}`
-
-### 1. Rationale
-{your rationale from Step C, prose-formatted}
-
-### 2. Semantic reviewer (Layer 0d)
-- **Risk:** {semantic_report.risk_score} (low/medium/high)
-- **Control flow:** {semantic_report.control_flow_summary}
-- **Estimated runtime:** {semantic_report.estimated_runtime_ms}ms
-- **Flagged patterns:**
-  {bullet list of semantic_report.flagged_patterns, OR "_none_" if empty}
-- **Unusual imports:**
-  {bullet list of semantic_report.unusual_imports, OR "_none_" if empty}
-
-### 3. AST lint (Layer 1)
-- **Status:** {lint_report.status}
-- **Violations:**
-  {bullet list of "line N: {rule} — {message}" for each violation, OR "_none_" on pass}
-  {if status=="syntax_error", show details field as a single indented block}
-
-### 4. Script content (sha256 prefix `{script_sha256_prefix}`)
-
-```python
-<full generated script source>
-```
-
-### 5. Your decision
-
-Type **`approve {script_name}`** to promote the staged script, sign it, write it to `.screw/custom-scripts/`, and execute.
-Type **`reject {script_name} <optional reason>`** to discard the staging.
-
-If the staging is stale (>24h old), you'll be prompted to confirm with:
-  `approve {script_name} confirm-stale`
-If the approval registry has been lost, you'll be prompted to re-confirm the sha prefix with:
-  `approve {script_name} confirm-{script_sha256_prefix}`
-```
-
-**Then END your turn.** The main Claude Code session will show your review to the user and, after they type their approval or rejection, respawn you with the approval context. Do NOT proceed to Step I, J, or K until the user responds with a matching approve/reject line.
-
-The approve/reject line MUST contain THIS `{script_name}` exactly. If the
-user types `approve` or `reject` with a DIFFERENT script_name (e.g.,
-residual from a previous gap in the same session), treat as ambiguous
-per the rule below. Same-verb-different-name is NOT a clean approval or
-rejection of the current pending script.
-
-If the user's response is ambiguous (neither a clean `approve
-{script_name}` NOR a clean `reject {script_name}`, including cases where
-the script_name is missing or wrong), ask ONCE for clarification:
-"Ambiguous response. Type `approve {script_name}` or `reject
-{script_name} <optional reason>`." On a second ambiguous response, treat
-as REJECT (bias toward safety) and move to the next gap.
-
-##### I. On approve (`approve {script_name}` [resume-from-approval branch])
-
-This branch runs when the main session respawns you with an approval phrase. The staging was written by a PRIOR turn of this subagent — the exact source is on disk at the stage path. You do NOT regenerate; you promote.
-
-Parse the approval phrase:
-- Bare: `approve {script_name}` → normal promote (no confirm flags)
-- `approve {script_name} confirm-stale` → set `confirm_stale: true`
-- `approve {script_name} confirm-{8hex}` → set `confirm_sha_prefix: "{8hex}"` (8 lowercase hex chars)
-
-Look up the `session_id` for this staging by reading `.screw/local/pending-approvals.jsonl` with the `Read` tool: find the MOST-RECENT entry where `script_name == {script_name}` and `event == "staged"`. The entry's `session_id` field is what you pass below.
-
-If the registry file is missing or the lookup returns nothing AND the user did NOT include `confirm-<prefix>`, the `promote_staged_script` tool will return `fallback_required`. Surface that error to the user with the recovered prefix from the tool response and stop — the user re-approves with the prefix in hand.
-
-Call `promote_staged_script`:
-
-```
-mcp__screw-agents__promote_staged_script({
-  "project_root": "<absolute project root>",
-  "script_name": "{script_name}",
-  "session_id": "<session_id from registry lookup>",
-  "confirm_stale": <true | false>,
-  "confirm_sha_prefix": "<8hex or null>"
-})
-```
-
-Expected response on `status == "signed"`:
-- `script_path`: absolute path to `.screw/custom-scripts/{script_name}.py`
-- `meta_path`: absolute path to `.screw/custom-scripts/{script_name}.meta.yaml`
-- `signed_by`: reviewer email resolved via Model A fingerprint matching
-- `sha256`: 64-char hex digest (must match the prefix shown in the review header)
-- `session_id`: same session_id echoed back
-- `promoted_via_fallback`: `true` if the fallback-prefix path was used; `false` otherwise
-
-Error handling (render the tool's message verbatim for each; these are not free-form prose):
-
-- `staging_not_found`: the staging was cleaned up or the `script_name`/`session_id` combination never staged. Surface: "The staged approval for `{script_name}` was not found. Please re-run the scan." Abort this gap.
-- `tamper_detected`: LOUDLY SURFACE. The sha256 of the staged file does NOT match what was recorded at stage time. Render the tool's message verbatim (it names the expected vs actual sha prefixes and the evidence path). Abort this gap. Do NOT attempt to retry. The user must re-run from scratch and investigate.
-- `stale_staging`: staging is older than the staleness threshold (default 24h). Re-prompt the user: "The staging for `{script_name}` is {hours_old}h old (threshold {threshold_hours}h). If you still want to proceed, type: `approve {script_name} confirm-stale`. Otherwise, re-run the scan for a fresh review."
-- `fallback_required`: registry missing. Re-prompt: "The approval registry was not found. The staged file's sha256 prefix is `{recovered_prefix}`. Re-type: `approve {script_name} confirm-{recovered_prefix}` to proceed, or re-run the scan."
-- `fallback_sha_mismatch`: prefix in phrase doesn't match the recovered staged file. Surface: "The confirmation prefix you typed does not match the staged file. Please re-run the scan." Abort.
-- `invalid_lifecycle_state`: the most-recent registry event for this script_name is not `staged` (e.g., already `rejected`). Surface verbatim; abort this gap.
-- `custom_scripts_collision`: a signed script with this name already exists at `.screw/custom-scripts/`. Surface and abort (content-binding makes this a rare re-stage edge case).
-
-On `status == "signed"`, proceed to Step K.
-
-##### J. On reject (`reject {script_name} <optional reason>` [resume-from-rejection branch])
-
-Parse the rejection phrase; extract any free-text reason after the `{script_name}` token.
-
-Look up `session_id` as in Step I (registry MOST-RECENT `staged` event for this script_name).
-
-Call `reject_staged_script`:
-
-```
-mcp__screw-agents__reject_staged_script({
-  "project_root": "<absolute project root>",
-  "script_name": "{script_name}",
-  "session_id": "<session_id from registry lookup>",
-  "reason": "<free-text reason or null>"
-})
-```
-
-Success: `status == "rejected"` OR `status == "already_rejected"` (the reject tool is idempotent; both are acceptable). The tool records the rejection event in `.screw/local/pending-approvals.jsonl` for audit; you do NOT write anything else to disk.
-
-Note: T18b does NOT persist cross-scan rejection state. A rejected gap will regenerate a new script on the next scan. Phase 4+ autoresearch may add persistent rejection memory via a new mechanism (not scoped here).
-
-After a successful reject, move to the next gap.
-
-##### K. Execute the signed script
-
-After Step I's `promote_staged_script` returns `status == "signed"`, execute the signed script:
-
-```
-mcp__screw-agents__execute_adaptive_script({
-  "project_root": "<absolute project root>",
-  "script_name": "{script_name}",
-  "wall_clock_s": 30
-})
-```
-
-The response contains `stdout`, `stderr`, `returncode`, `findings` (list of dicts matching the Finding schema), `status`, `killed_by_timeout`, etc.
-
-On success (`status == "ok"` and `returncode == 0`):
-
-- If `findings` is non-empty, accumulate them:
+Call `accumulate_findings` with your YAML findings (the findings you produced
+in Step 2 before any adaptive-mode work) — using the same session_id from
+Step 3.5a's first `record_context_required_match` call (or null if Step 3.5a
+was not executed):
 
 ```
 mcp__screw-agents__accumulate_findings({
-  "project_root": "<absolute project root>",
-  "findings_chunk": [<adaptive findings from execute_adaptive_script response>],
-  "session_id": "<same session_id>"
+  "project_root": "<same project root as Step 1>",
+  "findings_chunk": [<your YAML findings from Step 2>],
+  "session_id": "<session_id from Step 3.5a, or null>"
 })
 ```
 
-- Increment `scripts_generated_this_session += 1`. Brief user confirmation: "Adaptive script `{script_name}` promoted, executed, and produced {N} finding(s). Continuing to next gap." (or "Continuing to finalize" if this was the last gap).
+The response contains `session_id` (server generates one on first call). Save
+it — Step 5's structured return needs it.
 
-On failure (`status == "sandbox_failure"` or `returncode != 0`), render the failure diagnostic to the user in this exact shape:
+**Do NOT call finalize_scan_results.** Main session owns the finalize call so
+it can consolidate findings across adaptive script executions with your YAML
+findings in the same session.
 
-~~~markdown
-**Adaptive script `{script_name}` execution failed**
+### Step 5: Return structured payload to main session
 
-Return code: {returncode}
-Wall clock: {wall_clock_s}s
-Killed by timeout: {killed_by_timeout}
+END your turn by emitting ONE fenced JSON code block with the following
+structure. Emit NOTHING after the fenced block — the main session parses the
+LAST fenced JSON block.
 
-Standard error output:
-```
-{result["stderr"]}
-```
-
-The script is retained at `.screw/custom-scripts/{script_name}.py` for your inspection. Run `/screw:adaptive-cleanup remove {script_name}` to clear it.
-~~~
-
-Do NOT accumulate findings from a failed execution. Proceed to the next gap (do NOT abort the entire adaptive flow on a single script failure; other gaps may succeed).
-
-After all gaps in the list have been processed (or quota hit), proceed to Step 4.
-
-### Step 4: Persist Results — MANDATORY
-
-**You MUST persist findings via the accumulate + finalize protocol — this is not optional.** Two tool calls, in order:
-
-```
-// Step 4a: stage the findings
-const acc = await mcp__screw-agents__accumulate_findings({
-  "project_root": "<same project root as step 1>",
-  "findings_chunk": [<your complete findings array>],
-  // If Step 3.5a was executed (adaptive mode engaged AND any context_required
-  // heuristic was recorded), pass the session_id returned by 3.5a's FIRST
-  // record_context_required_match call. This keeps D1 recordings and
-  // accumulated findings in the SAME session so detect_coverage_gaps can
-  // see both. If Step 3.5a was not executed (adaptive off, or no dropped
-  // context_required matches to record), pass null and the server opens
-  // a fresh session.
-  "session_id": <session_id from Step 3.5a's first record_context_required_match response, OR null if Step 3.5a was not executed>
-})
-
-// Step 4b: finalize (renders + writes reports + cleans staging)
-await mcp__screw-agents__finalize_scan_results({
-  "project_root": "<same project root as step 1>",
-  "session_id": acc.session_id,
-  "agent_names": ["sqli"],
-  "scan_metadata": { "target": "<what was scanned>", "timestamp": "<ISO8601>" }
-})
+```json
+{
+  "schema_version": 1,
+  "scan_subagent": "screw-sqli",
+  "session_id": "<session_id from Step 4's accumulate_findings response>",
+  "trust_status": <trust_status dict from Step 1 scan response>,
+  "yaml_findings_accumulated": <count of YAML findings persisted in Step 4>,
+  "adaptive_mode_engaged": <true if Step 3.5 executed, else false>,
+  "adaptive_quota_note": <null or Layer 0f quota exhausted message from Step 3.5c>,
+  "pending_reviews": [<pending_review entries built in Step 3.5d-F, in order>],
+  "blocklist_skipped_gaps": [<gaps skipped by Step 3.5d-A Layer 0e blocklist, with file/line/matched_string>],
+  "scan_metadata": {
+    "target": "<what was scanned, human-readable>",
+    "target_spec": <target spec dict>,
+    "timestamp": "<ISO8601>"
+  }
+}
 ```
 
-The two-call pattern separates incremental persistence (`accumulate_findings` — safe to call multiple times, merges by finding.id) from final rendering (`finalize_scan_results` — call ONCE; applies exclusion matching, writes JSON + Markdown (+ optional SARIF/CSV), caches the result). The call is idempotent: if you accidentally invoke it twice with the same session_id, the second call returns the same cached result without re-rendering, so duplicate calls are safe. "Exactly once" is still the intended protocol. `finalize_scan_results` returns `files_written` (paths to JSON + Markdown reports), `summary` (counts by severity, suppressed vs active), and `exclusions_applied` (which findings were suppressed by existing FP exclusions).
+On non-adaptive scans (user did NOT pass `--adaptive`, OR `.screw/config.yaml`
+has `adaptive: false` and no `--adaptive` override), the `pending_reviews`
+list is empty and `adaptive_mode_engaged` is false — main session skips the
+adaptive review loop.
 
-### Step 5: Present Summary and Offer Follow-Up
-
-Using the scan response (Step 1) and `finalize_scan_results` response (Step 4b):
-1. Tell the user: finding count, severity breakdown, key highlights
-2. **MANDATORY**: if trust_status had non-zero quarantine counts (from Step 3), include the trust-verification line(s) described there as the FIRST item after the finding-count summary. Never skip — this is the load-bearing user-visibility surface for trust issues.
-3. Reference the written report files from `files_written`
-4. Mention any suppressed findings from `exclusions_applied`
-5. Offer: "Apply a fix?", "Mark a finding as false positive?", "Run another agent?"
+After emitting the fenced JSON, END your turn. Do not compose any conversational
+response, any summary, any follow-up offer — main session owns those.
 
 ## Confidence Calibration
 
