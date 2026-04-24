@@ -44,7 +44,7 @@
 | Category | Items | Net LOC |
 |---|---|---|
 | M3 schema migration | New `MergedSource` model; `Finding.merged_from_sources` type change; merge-fn emit update; Markdown renderer format-on-fly | +25 / -10 |
-| M3 test sweep | ~16 assertion sites in `test_results.py` updated to structured objects | +30 / -10 |
+| M3 test sweep | 3 list-literal assertions in `test_results.py` updated to `MergedSource` objects (lines 654, 729, 822); 1 error-message at line 827; 4 docstring wordings at lines 536, 594, 621, 943; `is None` assertions unchanged | +20 / -8 |
 | M1 SARIF | `_sarif_result` conditional `properties.mergedFromSources` emission + 1 new test | +12 |
 | M1 CSV | `_CSV_COLUMNS` appended column + `format_csv` loop cell + 2 new tests | +20 |
 | D7 CSV default flip | `formats = ["json", "markdown"]` → `["json", "markdown", "csv"]` + 1 new test | +8 / -1 |
@@ -68,7 +68,7 @@
 | `src/screw_agents/results.py` | `_merge_findings_augmentatively` (line 103): emit `MergedSource(...)` objects instead of formatted strings. `render_and_write` (lines 200-220): iterate `candidate_agents` (primary + sources), call `match_exclusions` per candidate, break on first match, record `matched_via_agent`. Extend `exclusions_applied.append(...)` shape with `matched_via_agent` key. Flip `formats = ["json", "markdown"]` → `["json", "markdown", "csv"]` at line 156. Update the module-level docstring comments (lines 55, 64, 163) to describe the new shape. |
 | `src/screw_agents/formatter.py` | Markdown renderer (lines 430-431): format `", ".join(f"{s.agent} ({s.severity})" for s in f.merged_from_sources)` inline. `_CSV_COLUMNS`: append `"merged_sources"`. `format_csv` loop: emit `"; "`-joined formatted cell (empty string for unmerged), wrapped in `_sanitize_csv_cell`. `_sarif_result`: if `finding.merged_from_sources` is non-None, add `result["properties"] = {"mergedFromSources": [s.model_dump() for s in finding.merged_from_sources]}`. |
 | `src/screw_agents/learning.py` | **NO CHANGES** — `match_exclusions` signature + behavior unchanged. Per-source broadening is orchestrated at `results.py`, NOT in the matching primitive. |
-| `tests/test_results.py` | Update 16 assertion sites to expect `MergedSource` objects instead of `list[str]`. Rewrite helper (if any) that constructed expected values. Update docstring at line 536 + 621 to describe structured shape. |
+| `tests/test_results.py` | Update 3 list-literal assertions (lines 654, 729, 822) to expect `MergedSource` objects. Update 1 error message (line 827) whose format depends on the list shape. Update 4 docstring wordings (lines 536, 594, 621, 943) to describe the new shape. `is None` assertions (lines 608, 684, 969) are type-agnostic — NO CHANGE. Markdown `**Sources:**` assertions (lines 870, 927, 939, 964) query rendered strings — NO CHANGE. Add `from screw_agents.models import MergedSource` to the existing import at line 17. |
 | `tests/test_formatter.py` (or equivalent) | Add 3 new tests: (a) SARIF merged finding carries `properties.mergedFromSources`; (b) CSV merged row has populated last column; (c) CSV unmerged row has empty last column. |
 | `tests/test_results.py` | Add 4 new M2 regression tests for per-source exclusion matching + `matched_via_agent` carry. Add 1 new D7 test: `write_scan_results(formats=None)` writes CSV by default. Total 5 new tests in this file. |
 | `docs/DEFERRED_BACKLOG.md` | Mark T19-M1/M2/M3 entries as **RESOLVED 2026-04-24** with branch/commit reference (per BACKLOG-PR6-22 precedent). Update blocker-count table (line ~136) from 3 → 2. Update `blocker` entries list to drop T19-M1/M2/M3. |
@@ -94,7 +94,7 @@
 
 - [ ] **Step 1: Write failing test for `MergedSource` roundtrip**
 
-Add to `tests/test_models.py` (or `tests/test_results.py` if a models test file doesn't exist — locate via `ls tests/test_*models*.py`):
+Add to `tests/test_models.py` (the file already exists; 842 lines). Append the new test function at the end of the file, preserving the existing 2-blank-line separator between top-level functions:
 
 ```python
 def test_merged_source_roundtrip_via_model_dump() -> None:
@@ -120,11 +120,20 @@ Insert immediately BEFORE `class Finding(BaseModel):` (currently at line 385):
 class MergedSource(BaseModel):
     """A source agent + severity pair in a merged finding's provenance list.
 
-    Populated in `Finding.merged_from_sources` when augmentative merge
-    collapses multiple scan-source detections of the same
-    (file, line_start, cwe) tuple into a single primary finding. The
-    primary's own agent/severity are carried by its top-level fields;
-    this model describes the OTHER detections in the bucket.
+    Populated as entries in `Finding.merged_from_sources` when
+    augmentative merge collapses multiple scan-source detections of the
+    same `(file, line_start, cwe)` tuple into a single primary finding.
+
+    The list contains ALL bucket entries in input order, INCLUDING the
+    primary's own detection — consumers iterating the list see the
+    complete provenance without needing to separately append the primary.
+    The primary's `agent` + `classification.severity` top-level fields
+    are therefore ALSO present as one `MergedSource` entry in the list;
+    the two surfaces are complementary.
+
+    Severity strings preserve input case verbatim (no lowercasing) —
+    see `tests/test_results.py:822` for the capitalization round-trip
+    assertion.
     """
 
     agent: str
@@ -142,11 +151,13 @@ Replace the existing line at `src/screw_agents/models.py:407`:
 with:
 
 ```python
-    # Phase 3b T19 / T19-M3 (2026-04-24): populated when this finding is the
-    # result of an augmentative merge across multiple scan sources. None for
-    # unmerged findings. Each entry is a MergedSource with the OTHER source's
-    # agent + severity (the primary's own agent/severity live on the top-level
-    # fields). Markdown renders a "**Sources:**" line on the fly;
+    # Phase 3b T19 / T19-M3 (2026-04-24): populated when this finding is
+    # the result of an augmentative merge across multiple scan sources.
+    # None for unmerged findings. Contains ALL bucket entries in input
+    # order (including the primary's own detection — the primary's
+    # agent + severity also appear as one MergedSource in this list;
+    # top-level `agent` + `classification.severity` carry the same
+    # information). Markdown renders a "**Sources:**" line on the fly;
     # JSON/SARIF consumers see structured {agent, severity} dicts via
     # model_dump.
     merged_from_sources: list[MergedSource] | None = None
@@ -161,19 +172,24 @@ Expected: PASS.
 
 - [ ] **Step 6: Update `_merge_findings_augmentatively` to emit `MergedSource`**
 
-In `src/screw_agents/results.py` around line 96-105, find the block that currently builds the `sources` list with string formatting and replace with structured construction. Look for `sources = [f"{s.agent} ({s.classification.severity})" for s in ...]` or equivalent; replace with:
+The current emission at `src/screw_agents/results.py:98-100` is (verbatim):
 
 ```python
-from screw_agents.models import MergedSource  # if not already imported at module top — hoist there
-
-# ... inside _merge_findings_augmentatively, where sources is built:
-sources = [
-    MergedSource(agent=s.agent, severity=s.classification.severity)
-    for s in bucket_after_primary  # use the actual variable name from the existing code
-]
+        sources = [
+            f"{f.agent} ({f.classification.severity})" for f in group
+        ]
 ```
 
-Hoist the `MergedSource` import to the module-level imports (near the top of `results.py`) rather than inline, for style consistency.
+Where `group` is the bucket list (NOT the post-primary subset — every entry in the bucket is in the source list, including the one promoted to primary). Replace with:
+
+```python
+        sources = [
+            MergedSource(agent=f.agent, severity=f.classification.severity)
+            for f in group
+        ]
+```
+
+Extend the existing module-level import at `src/screw_agents/results.py:20` from `from screw_agents.models import Finding` to `from screw_agents.models import Finding, MergedSource` (module-level style consistent with the rest of the file; no inline imports).
 
 - [ ] **Step 7: Update Markdown renderer to format on the fly**
 
@@ -201,46 +217,82 @@ uv run pytest tests/test_results.py -v 2>&1 | tail -60
 
 Expected: several assertion failures where tests expect `["sqli (high)", "adaptive_script:qb-check (high)"]` but now see `[MergedSource(agent="sqli", severity="high"), ...]`.
 
-- [ ] **Step 9: Sweep the 16 test_results.py assertion sites**
+- [ ] **Step 9: Sweep the `test_results.py` assertion + docstring sites**
 
-Update each of the following lines to use structured expectations:
+Running `grep -n "merged_from_sources" tests/test_results.py` returns exactly 11 hits. Process each:
 
-- Line ~608: `assert result[0].merged_from_sources is None` — NO CHANGE (None comparison is still valid).
-- Line ~621: docstring — update "agent1 (sev1)" → "MergedSource(agent=..., severity=...)" description.
-- Line ~654: change the expected list literal to:
+**Code changes required (3 sites, list-literal assertions):**
+
+- **Line ~654** — change the expected list literal from `list[str]` to `list[MergedSource]`. Current code (paraphrased):
   ```python
   assert merged.merged_from_sources == [
-      MergedSource(agent="sqli", severity="high"),
+      "sqli (medium)",
+      "adaptive_script:qb-check (high)",
+  ]
+  ```
+  becomes:
+  ```python
+  assert merged.merged_from_sources == [
+      MergedSource(agent="sqli", severity="medium"),
       MergedSource(agent="adaptive_script:qb-check", severity="high"),
   ]
   ```
-  (Confirm the actual expected agents + severities by reading the current assertion; preserve semantics.)
-- Line ~684: same pattern — `assert finding.merged_from_sources is None` unchanged.
-- Line ~729: same pattern as line 654 — convert list[str] literal to list[MergedSource].
-- Line ~822: same pattern.
-- Line ~827: error message string — update human text if it mentions "normalized" to reflect the structured shape.
-- Line ~870: Markdown assertion referencing `**Sources:**` line — NO CHANGE (renderer output unchanged).
-- Line ~927: Markdown assertion `"**Sources:** sqli (high), adaptive_script:qb-check (high)"` — NO CHANGE (renderer output unchanged).
-- Line ~939: `assert "**Sources:**" not in unique_section` — NO CHANGE.
-- Line ~942-943: docstring — update "list[str]" → "list[MergedSource]" description.
-- Line ~964: `assert "**Sources:**" not in md_content` — NO CHANGE.
-- Line ~969: `assert findings_json[0]["merged_from_sources"] is None` — NO CHANGE (None serializes as null regardless).
+  (Preserve the exact agent names + severities from the current assertion — read the file and copy verbatim, then switch type.)
+- **Line ~729** — same pattern; convert list[str] → list[MergedSource] preserving the existing agents + severities.
+- **Line ~822** — same pattern. This test enforces severity CASE preservation (e.g., `"High"` with capital H survives unchanged). Your replacement MUST preserve that: `MergedSource(agent="...", severity="High")` — do NOT lowercase the severity string.
 
-Required import at top of `tests/test_results.py`:
+**Related site (1, error-message formatting):**
+
+- **Line ~827** — the f-string error message interpolates `primary.merged_from_sources` into the failure text. Pydantic v2 BaseModel `__repr__` produces `MergedSource(agent='...', severity='...')` format; the error message will still be meaningful without edits. Read the f-string; if the expected vs actual comparison still prints usefully, leave unchanged. If the error text explicitly mentions the string format (e.g., "expected normalized list like `['agent (sev)']`"), rewrite to describe the structured shape.
+
+**Docstring wording updates (4 sites, no code changes):**
+
+- **Line ~536** — class-level or section docstring may describe the old string format. Update to mention `MergedSource` objects.
+- **Line ~594** — test-function docstring. Update to describe the new shape.
+- **Line ~621** — test-function docstring with example `"agent1 (sev1)"` → update example to `MergedSource(agent="agent1", severity="sev1")`.
+- **Line ~943** — test-function docstring referring to `list[str]` or string-format output. Update to mention `list[MergedSource]` / structured objects. The surrounding test asserts on the rendered MARKDOWN (line 927) or JSON null (line 969), which are type-agnostic — only the prose docstring needs updating.
+
+**Sites NOT requiring any changes (4 `is None` checks + 4 Markdown-renderer queries):**
+
+- Line ~608: `assert result[0].merged_from_sources is None` — unchanged.
+- Line ~684: `assert finding.merged_from_sources is None` — unchanged.
+- Line ~969: `assert findings_json[0]["merged_from_sources"] is None` — unchanged (None serializes as null regardless of type).
+- Lines ~870, ~927, ~939, ~964: `"**Sources:**" in md_content` / `not in md_content` / `"**Sources:** sqli (high), ..." in md_content` — these assert on RENDERED MARKDOWN strings, and the renderer's output is unchanged by M3 (Task 1 Step 7 updates the renderer to format on the fly, preserving the byte-identical `"sqli (high)"` substring).
+
+**Required import update** at `tests/test_results.py:17` (current: `from screw_agents.models import Finding`):
 
 ```python
-from screw_agents.models import Finding, MergedSource  # add MergedSource if absent
+from screw_agents.models import Finding, MergedSource
 ```
 
-- [ ] **Step 10: Update the two docstring references in `results.py`**
+- [ ] **Step 10: Update the `_merge_findings_augmentatively` docstring + `render_and_write` comment**
 
-Lines ~55, 64, 163 of `src/screw_agents/results.py` — wording update:
+The current docstring at `src/screw_agents/results.py:55-59` (verbatim) is:
 
-- Line ~55: "populated ``merged_from_sources`` list" → "populated ``merged_from_sources`` list (list of `MergedSource` objects)"
-- Line ~64: "``merged_from_sources = None``" — no wording change needed; still accurate.
-- Line ~163: "`merged_from_sources` populated" — no wording change needed; still accurate.
+```
+    2. Attaches a populated ``merged_from_sources`` list to the primary,
+       formatted as ``["<agent> (<severity>)", ...]`` for all sources in
+       the bucket (including the primary itself). Order follows the
+       ORIGINAL input order of the bucket, not sorted order — downstream
+       consumers see the natural insertion ordering.
+```
 
-Only line ~55 needs an actual edit. Verify by re-reading each comment after update.
+Replace with:
+
+```
+    2. Attaches a populated ``merged_from_sources`` list to the primary,
+       typed as ``list[MergedSource]`` where each entry carries an
+       ``agent`` + ``severity`` pair. The list includes ALL entries in
+       the bucket — the primary's own detection is also represented as
+       one ``MergedSource`` entry, so the list is the complete
+       provenance of this merged finding. Order follows the ORIGINAL
+       input order of the bucket, not sorted order — downstream
+       consumers see the natural insertion ordering.
+```
+
+Line 64 (`merged_from_sources = None`) — NO CHANGE (shape-agnostic).
+
+Line 163 (inline comment in `render_and_write`: "finding with `merged_from_sources` populated. Exclusion matching runs...") — NO CHANGE (shape-agnostic).
 
 - [ ] **Step 11: Run full test suite**
 
@@ -262,8 +314,11 @@ Propagates through _merge_findings_augmentatively (emit structured
 objects) and the Markdown renderer (format on the fly so the rendered
 Sources line is unchanged).
 
-test_results.py: 16 assertion sites updated to use structured
-expectations. Markdown + JSON output bytes unchanged.
+test_results.py: 3 list-literal assertions updated to use
+MergedSource objects (lines 654, 729, 822), plus docstring wording
+refreshes at 4 other sites. is-None assertions and Markdown-render
+assertions unchanged (type-agnostic). Rendered Markdown + JSON
+bytes unchanged.
 
 Prepares M1 (SARIF/CSV surface) and M2 (per-source exclusion matching)
 to iterate structured sources without string parsing."
