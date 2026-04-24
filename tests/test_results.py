@@ -14,7 +14,7 @@ import pytest
 import yaml
 from pathlib import Path
 
-from screw_agents.models import Finding
+from screw_agents.models import Finding, MergedSource
 from screw_agents.results import _merge_findings_augmentatively, render_and_write
 
 
@@ -533,7 +533,8 @@ class TestRenderAndWriteTrustStatus:
 # with `render_and_write`. The merge collapses findings that share
 # `(location.file, location.line_start, classification.cwe)` from multiple
 # scan sources (e.g., a YAML agent AND an adaptive script) into a single
-# primary finding with a populated `merged_from_sources` list.
+# primary finding with a populated `merged_from_sources` list typed as
+# `list[MergedSource]` (each entry a structured agent + severity pair).
 
 
 def _make_finding_dict(
@@ -591,7 +592,8 @@ class TestMergeFindingsAugmentatively:
         assert _merge_findings_augmentatively([]) == []
 
     def test_merge_single_finding_unchanged(self):
-        """Single finding passes through with `merged_from_sources = None`."""
+        """Single finding passes through with `merged_from_sources = None`
+        (no `list[MergedSource]` populated for unmerged findings)."""
         f = _make_finding(
             finding_id="f1",
             agent="sqli",
@@ -618,8 +620,9 @@ class TestMergeFindingsAugmentatively:
 
         Asserts:
         - Exactly 1 finding in output.
-        - `merged_from_sources == ["agent1 (sev1)", "agent2 (sev2)"]`
-          in INPUT order (not sorted).
+        - `merged_from_sources == [MergedSource(agent="agent1", severity="sev1"),
+          MergedSource(agent="agent2", severity="sev2")]` in INPUT order
+          (not sorted).
         - Primary's `agent` field matches the severity-winning agent.
         - Primary's `analysis.description` comes from the winning finding.
         """
@@ -652,8 +655,8 @@ class TestMergeFindingsAugmentatively:
         assert merged.analysis.description == "Adaptive detected same SQLi"
         # Source list preserves INPUT order (yaml first, adaptive second).
         assert merged.merged_from_sources == [
-            "sqli (medium)",
-            "adaptive_script:qb-check (high)",
+            MergedSource(agent="sqli", severity="medium"),
+            MergedSource(agent="adaptive_script:qb-check", severity="high"),
         ]
 
     def test_merge_different_cwe_not_merged(self):
@@ -727,9 +730,9 @@ class TestMergeFindingsAugmentatively:
         assert merged.analysis.description == "a says"
         # Source list preserves INPUT order: z first, a second, m third.
         assert merged.merged_from_sources == [
-            "z_agent (high)",
-            "a_agent (high)",
-            "m_agent (medium)",
+            MergedSource(agent="z_agent", severity="high"),
+            MergedSource(agent="a_agent", severity="high"),
+            MergedSource(agent="m_agent", severity="medium"),
         ]
 
     def test_merge_preserves_insertion_order_across_buckets(self):
@@ -820,8 +823,8 @@ class TestMergeFindingsAugmentatively:
         # sort_key function; it does not alter Finding fields or source-list
         # content.
         assert primary.merged_from_sources == [
-            "sqli (High)",
-            "adaptive_script:qb (low)",
+            MergedSource(agent="sqli", severity="High"),
+            MergedSource(agent="adaptive_script:qb", severity="low"),
         ], (
             f"Source list should preserve original severity strings (not "
             f"normalized), got {primary.merged_from_sources}"
@@ -940,7 +943,9 @@ class TestRenderAndWriteMerge:
 
     def test_render_and_write_unmerged_finding_has_no_sources_line(self, tmp_path):
         """Single finding (no merge) renders no `**Sources:**` line and
-        the JSON output carries `merged_from_sources: null`.
+        the JSON output carries `merged_from_sources: null` (the
+        `list[MergedSource]` field is None for unmerged findings; serializes
+        as JSON null regardless of element type).
         """
         f = _make_finding_dict(
             finding_id="f1",

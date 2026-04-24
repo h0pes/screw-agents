@@ -382,6 +382,29 @@ class ScrewConfig(BaseModel):
     staging_max_age_days: int = Field(default=14, ge=1, le=365)
 
 
+class MergedSource(BaseModel):
+    """A source agent + severity pair in a merged finding's provenance list.
+
+    Populated as entries in `Finding.merged_from_sources` when
+    augmentative merge collapses multiple scan-source detections of the
+    same `(file, line_start, cwe)` tuple into a single primary finding.
+
+    The list contains ALL bucket entries in input order, INCLUDING the
+    primary's own detection — consumers iterating the list see the
+    complete provenance without needing to separately append the primary.
+    The primary's `agent` + `classification.severity` top-level fields
+    are therefore ALSO present as one `MergedSource` entry in the list;
+    the two surfaces are complementary.
+
+    Severity strings preserve input case verbatim (no lowercasing) —
+    see `tests/test_results.py:822` for the capitalization round-trip
+    assertion.
+    """
+
+    agent: str
+    severity: str
+
+
 class Finding(BaseModel):
     """A single scan finding — the core output unit."""
 
@@ -395,16 +418,16 @@ class Finding(BaseModel):
     remediation: FindingRemediation
     triage: FindingTriage = FindingTriage()
 
-    # Phase 3b T19: populated when this finding is the result of an augmentative
-    # merge across multiple scan sources (e.g., a YAML agent AND an adaptive
-    # script detected the same vulnerability). None for unmerged findings.
-    # Each entry has the form "<agent-name> (<severity>)" — severity is included
-    # because different scanners may report different severities for the same
-    # finding. Downstream consumers can iterate to surface source attribution
-    # (Markdown renderer shows a "**Sources:**" line; SARIF/JSON preserve the
-    # structured list via `model_dump()`). SARIF + CSV rendering deferred to
-    # Phase 4+ (see DEFERRED_BACKLOG.md T19-M1).
-    merged_from_sources: list[str] | None = None
+    # Phase 3b T19 / T19-M3 (2026-04-24): populated when this finding is
+    # the result of an augmentative merge across multiple scan sources.
+    # None for unmerged findings. Contains ALL bucket entries in input
+    # order (including the primary's own detection — the primary's
+    # agent + severity also appear as one MergedSource in this list;
+    # top-level `agent` + `classification.severity` carry the same
+    # information). Markdown renders a "**Sources:**" line on the fly;
+    # JSON/SARIF consumers see structured {agent, severity} dicts via
+    # model_dump.
+    merged_from_sources: list[MergedSource] | None = None
 
 
 # ---------------------------------------------------------------------------

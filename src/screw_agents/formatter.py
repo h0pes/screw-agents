@@ -428,7 +428,9 @@ def _append_finding_detail(lines: list[str], f: Finding) -> None:
     # Format: "agent1 (severity1), agent2 (severity2), ..." — severity shown
     # because different scanners may report different severities.
     if f.merged_from_sources:
-        sources_str = ", ".join(f.merged_from_sources)
+        sources_str = ", ".join(
+            f"{s.agent} ({s.severity})" for s in f.merged_from_sources
+        )
         lines.append(f"**Sources:** {sources_str}")
         lines.append("")
 

@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from screw_agents.formatter import format_csv, format_findings
 from screw_agents.learning import load_exclusions, match_exclusions
-from screw_agents.models import Finding
+from screw_agents.models import Finding, MergedSource
 
 if TYPE_CHECKING:
     from screw_agents.registry import AgentRegistry
@@ -53,10 +53,13 @@ def _merge_findings_augmentatively(findings: list[Finding]) -> list[Finding]:
        > low > info > unknown), then alphabetical agent name ascending, then
        first-in-input order (Python stable sort).
     2. Attaches a populated ``merged_from_sources`` list to the primary,
-       formatted as ``["<agent> (<severity>)", ...]`` for all sources in the
-       bucket (including the primary itself). Order follows the ORIGINAL
-       input order of the bucket, not sorted order — downstream consumers
-       see the natural insertion ordering.
+       typed as ``list[MergedSource]`` where each entry carries an
+       ``agent`` + ``severity`` pair. The list includes ALL entries in
+       the bucket — the primary's own detection is also represented as
+       one ``MergedSource`` entry, so the list is the complete
+       provenance of this merged finding. Order follows the ORIGINAL
+       input order of the bucket, not sorted order — downstream
+       consumers see the natural insertion ordering.
     3. Returns exactly one :class:`Finding` per ``(file, line_start, cwe)``
        bucket.
 
@@ -96,7 +99,8 @@ def _merge_findings_augmentatively(findings: list[Finding]) -> list[Finding]:
         # not from sorted order — this gives downstream consumers the
         # natural ordering they'd expect from insertion.
         sources = [
-            f"{f.agent} ({f.classification.severity})" for f in group
+            MergedSource(agent=f.agent, severity=f.classification.severity)
+            for f in group
         ]
 
         merged.append(
