@@ -48,13 +48,13 @@
 | Category | Items | Net LOC |
 |---|---|---|
 | scan.md rewrite | Main-session orchestrator; argument parsing + single-scope + domain-scope + full-scope branches; subagent-return JSON parsing; adaptive review loop (reviewer dispatch → stage → 5-section → approve/reject → promote/execute/accumulate); finalize; summary | +180 (97 → 277) |
-| Per-agent truncations | screw-sqli/cmdi/ssti/xss.md — truncate adaptive Step 3.5 at Step 3.5d-D; add structured JSON return; frontmatter cleanup | 4 × −325 = −1300 |
+| Per-agent truncations | screw-sqli/cmdi/ssti/xss.md — truncate adaptive Step 3.5 at Step 3.5d-E; add structured JSON return; frontmatter cleanup | 4 × ~−195 = ~−780 |
 | Orchestrator truncation | screw-injection.md — truncate Step 2.5 similarly; add structured JSON return; frontmatter cleanup | −55 |
 | File deletion | screw-full-review.md (second nested-dispatch instance; Option A fold+delete per spec §4.3) | −124 |
 | Skill routing | screw-review/SKILL.md — rewrite broad/full routing row to user-education redirect + refactor §3 "Delegate" (T3 expansion, Option A Marco-approved) | +2 |
 | Test updates | tests/test_adaptive_subagent_prompts.py — 2 polarity-flip rewrites (frontmatter + adaptive-section refs) + 9 deletions (8 parametrized × 4 agents = 32 cases + 1 non-parametrized = 33 cases) + 9 new test functions for scan.md orchestration (1 file-absence + 1 Option S trust-path added in fix-up + 7 orchestration) | +45 |
 | Cross-plan updates | DEFERRED_BACKLOG (BACKLOG-C2-01 → Shipped), PROJECT_STATUS (Phase 4 blocker count 5 → 4) | ~+20 doc lines |
-| **Total** | | **~−1,230 LOC, +9 tests (net assertion count)** |
+| **Total** | | **~−710 LOC, +9 tests (net assertion count)** |
 
 **Target:** 942 passed → **~918 passed, 8 skipped**. Math: 8 parametrized tests × 4 agent instances = 32 parametrized cases deleted + 1 non-parametrized (`test_execute_adaptive_script_invocation_omits_session_id`) = 33 cases removed. 9 new non-parametrized tests added (8 from T1 step 8 + 1 Option S trust-path from fix-up). Net: 942 − 33 + 9 = 918. Recount during T9 if mismatch.
 
@@ -69,7 +69,7 @@
 | Path | What changes |
 |---|---|
 | `plugins/screw/commands/scan.md` | Full rewrite as main-session orchestrator. Sections 1 (arg parse), 1b (full-scope fan-out), 2 (parse subagent return), 3 (adaptive review loop a–f), 4 (finalize), 5 (summary). Contains ALL post-generation flow: reviewer dispatch, staging, 5-section review composition, approve/reject phrase grammar (including `confirm-high` per spec D2), promote + execute + accumulate MCP calls. |
-| `plugins/screw/agents/screw-sqli.md` | Truncate adaptive Step 3.5 after Step 3.5d-E (retains scan + Steps 3.5a–c + Steps 3.5d-A through 3.5d-E inclusive). Remove Steps 3.5d-F through 3.5d-K + old Step 4 + old Step 5 + Confidence Calibration. ADD new Step 3.5d-F "Emit pending_review entry", new Step 4 "Persist YAML findings", new Step 5 "Return structured payload", re-append the "## Confidence Calibration" block at end. Relocate the 400-line size cap from old 3.5d-H into new Step 3.5d-D so the safety check survives truncation. Frontmatter: remove `Task`, `stage_adaptive_script`, `promote_staged_script`, `reject_staged_script`, `execute_adaptive_script`, `finalize_scan_results`. |
+| `plugins/screw/agents/screw-sqli.md` | Truncate adaptive Step 3.5 after Step 3.5d-E (retains scan + Steps 3.5a–c + Steps 3.5d-A through 3.5d-E inclusive). Remove Steps 3.5d-F through 3.5d-K + old Step 4 + old Step 5 + Confidence Calibration. ADD new Step 3.5d-F "Emit pending_review entry", new Step 4 "Persist YAML findings", new Step 5 "Return structured payload", re-append the "## Confidence Calibration" block at end. Relocate the 400-line size cap from old 3.5d-H into the new Step 3.5d-F (pre-emission gate before pending_review emit) so the safety check survives truncation. Frontmatter: remove `Task`, `stage_adaptive_script`, `promote_staged_script`, `reject_staged_script`, `execute_adaptive_script`, `finalize_scan_results`. |
 | `plugins/screw/agents/screw-cmdi.md` | Byte-identical to sqli modulo agent name (the existing test `test_adaptive_section_identical_modulo_agent_name` enforces this). |
 | `plugins/screw/agents/screw-ssti.md` | Byte-identical to sqli modulo agent name. |
 | `plugins/screw/agents/screw-xss.md` | Byte-identical to sqli modulo agent name. |
@@ -1122,7 +1122,7 @@ See docs/PHASE_3B_C2_PLAN.md Task 3 + spec §4.3 D3."
 ### Task 4: Truncate `plugins/screw/agents/screw-sqli.md`
 
 **Files:**
-- Modify: `plugins/screw/agents/screw-sqli.md` (600 → ~275 lines)
+- Modify: `plugins/screw/agents/screw-sqli.md` (600 → ~405 lines)
 
 **Rationale:** Apply spec §6.2 truncation plan. The scan subagent retains scan + Step 3.5 preamble + Steps 3.5a (record_context_required_match) + 3.5b (detect_coverage_gaps) + 3.5c (Layer 0f quota) + 3.5d-A (Layer 0e blocklist) + 3.5d-B (derive script_name) + 3.5d-C (Layers 0a-c generation prompt) + 3.5d-D (generate + hash6) + 3.5d-E (Layer 1 lint). Everything AFTER 3.5d-E (Step 3.5d-F through 3.5d-K + old Step 4 + Step 5) gets replaced by a streamlined "emit pending_review entry + return structured payload" block.
 
@@ -1229,10 +1229,7 @@ set to the appropriate failure code (`"syntax_error_after_retry"`,
 `"fence_collision"`, `"invalid_name"`, `"script_too_large"`) and omit
 `script_source` — main session will surface the failure to the user.
 
-Do NOT call stage_adaptive_script. Do NOT dispatch screw:screw-script-reviewer.
-Do NOT call promote/execute/reject/finalize. The main session orchestrator
-(/screw:scan) handles all post-generation flow (reviewer dispatch, staging,
-5-section review, approve/reject, promote + execute + accumulate).
+Do NOT call any of the staging, promote, reject, execute, or finalize MCP tools. Do NOT dispatch the Layer 0d reviewer subagent. The main session orchestrator (`/screw:scan`) handles all post-generation flow (reviewer dispatch, staging, 5-section review, approve/reject, promote + execute + accumulate).
 
 Increment Layer 0f quota counter: `scripts_generated_this_session += 1`.
 Move to next gap.
@@ -1302,7 +1299,7 @@ response, any summary, any follow-up offer — main session owns those.
 - [ ] **Step 5: Verify the truncation is correct**
 
 Run: `wc -l plugins/screw/agents/screw-sqli.md`
-Expected: ~275 lines (down from 600).
+Expected: ~405 lines (down from 600, ≈−195 LOC — the appended Step 3.5d-F + Step 4 + Step 5 + retained Confidence Calibration block add ~115 lines; frontmatter tool-list removal saves ~6 lines).
 
 Run: `grep -c "stage_adaptive_script\|promote_staged_script\|reject_staged_script\|execute_adaptive_script\|screw-script-reviewer\|Task tool" plugins/screw/agents/screw-sqli.md`
 Expected: 0.
@@ -1339,7 +1336,7 @@ See docs/PHASE_3B_C2_PLAN.md Task 4."
 ### Task 5: Replicate sqli truncation to `screw-cmdi.md`
 
 **Files:**
-- Modify: `plugins/screw/agents/screw-cmdi.md` (600 → ~275 lines)
+- Modify: `plugins/screw/agents/screw-cmdi.md` (600 → ~405 lines)
 
 **Rationale:** The 4 per-agent files must stay byte-identical modulo agent name (`test_adaptive_section_identical_modulo_agent_name`). Apply T4's truncation with `sqli` → `cmdi` substitution. The other existing differences (CWE-78 vs CWE-89, domain knowledge text, confidence calibration) are outside the adaptive section and stay.
 
@@ -1441,7 +1438,7 @@ See docs/PHASE_3B_C2_PLAN.md Task 5."
 ### Task 6: Replicate sqli truncation to `screw-ssti.md`
 
 **Files:**
-- Modify: `plugins/screw/agents/screw-ssti.md` (600 → ~275 lines)
+- Modify: `plugins/screw/agents/screw-ssti.md` (600 → ~405 lines)
 
 - [ ] **Step 1: Confirm current ssti.md size**
 
@@ -1522,7 +1519,7 @@ See docs/PHASE_3B_C2_PLAN.md Task 6."
 ### Task 7: Replicate sqli truncation to `screw-xss.md`
 
 **Files:**
-- Modify: `plugins/screw/agents/screw-xss.md` (600 → ~275 lines)
+- Modify: `plugins/screw/agents/screw-xss.md` (600 → ~405 lines)
 
 - [ ] **Step 1: Confirm current xss.md size**
 
@@ -2058,10 +2055,10 @@ Run: `git diff main..HEAD --stat`
 
 Expected to see changes in:
 - `plugins/screw/commands/scan.md` (+180)
-- `plugins/screw/agents/screw-sqli.md` (−325)
-- `plugins/screw/agents/screw-cmdi.md` (−325)
-- `plugins/screw/agents/screw-ssti.md` (−325)
-- `plugins/screw/agents/screw-xss.md` (−325)
+- `plugins/screw/agents/screw-sqli.md` (~−195)
+- `plugins/screw/agents/screw-cmdi.md` (~−195)
+- `plugins/screw/agents/screw-ssti.md` (~−195)
+- `plugins/screw/agents/screw-xss.md` (~−195)
 - `plugins/screw/agents/screw-injection.md` (−55)
 - `plugins/screw/agents/screw-full-review.md` (deleted)
 - `tests/test_adaptive_subagent_prompts.py` (+45)
