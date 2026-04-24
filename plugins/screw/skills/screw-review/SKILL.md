@@ -30,7 +30,7 @@ Based on the user's request, decide which subagent to dispatch:
 | Specific vulnerability: "template injection", "SSTI" | `screw-ssti` |
 | Specific vulnerability: "XSS", "cross-site scripting" | `screw-xss` |
 | Domain: "injection vulnerabilities", "input validation" | `screw-injection` |
-| Broad: "security review", "security audit", "full scan" | Respond: *"Broad/full scans use `/screw:scan full` (main-session orchestration required post-C2 architecture — skills can only dispatch one subagent, but full-scope fan-out needs `list_domains` + per-domain dispatch which lives in the slash command). Either run `/screw:scan full` directly, or specify a domain (`injection`) or agent (`sqli`, `cmdi`, `ssti`, `xss`) for targeted scanning."* |
+| Broad: "security review", "security audit", "full scan" | See §3 redirect |
 
 ### 2. Check for Existing Findings
 
@@ -40,7 +40,13 @@ Before dispatching, check if `.screw/findings/` contains recent reports for the 
 
 For specific-vulnerability and domain rows: dispatch the chosen subagent via the Agent tool. Pass along the user's target description so the subagent can interpret it.
 
-For the broad/full row: do NOT dispatch. Respond with the user-education message verbatim from the table row above; wait for the user's follow-up.
+For the broad/full row: do NOT dispatch. Respond to the user with this message verbatim:
+
+> Full scans require `/screw:scan full` (skills dispatch a single subagent, but full-scope coverage needs orchestration across multiple domain agents). Either run `/screw:scan full` directly, or specify a domain (`injection`) or agent (`sqli`, `cmdi`, `ssti`, `xss`) for a targeted scan.
+
+Rationale (do not include in user output): the screw-agents plugin enforces a chain-subagents pattern (sub-agents.md:683-689) where multi-agent fan-out lives in the main-session slash command (`scan.md` Step 1b), not in a skill. The skill's role is narrow intent routing; broad intents require the slash command.
+
+Wait for the user's follow-up after printing the message.
 
 ### 4. Summarize
 
