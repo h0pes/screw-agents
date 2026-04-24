@@ -114,6 +114,65 @@ Non-blocking minors and spec-coverage gaps surfaced during T1 (pre-update assert
 
 ---
 
+## Phase 3b-C2 T4 review minors (discovered 2026-04-24)
+
+Non-blocking minors and one pre-audit process lesson surfaced during T4 (sqli.md adaptive-flow truncation) spec + quality review rounds. The 5 Important + 1 Minor content issues were resolved inline in the T4 fix-up commit; these 4 remaining minors + 1 process lesson are deferred.
+
+### BACKLOG-C2-M-QR-T4-M2 — MCP tool name qualification inconsistency in screw-sqli.md
+**Phase-4 readiness:** `non-blocker` — style/consistency polish; no correctness impact
+**Source:** Phase 3b-C2 T4 quality review, 2026-04-24 (QR-T4-M2)
+**File:** `plugins/screw/agents/screw-sqli.md` (post-T4 fix-up; mirrors to cmdi/ssti/xss after T5/T6/T7)
+
+**Why deferred:** The `mcp__screw-agents__accumulate_findings` reference in Step 4 is fully-qualified because the adaptive-section test (`test_adaptive_section_per_agent_references_only_required_tools`) requires the qualified token to appear inside the extracted adaptive range. Other MCP tool references in prose (`record_context_required_match`, `detect_coverage_gaps`, `lint_adaptive_script`) appear unqualified in surrounding text for readability. Defensible as-is (single site is mechanically required; others don't affect the test), but inconsistent; a polish PR could unify qualification style (either qualify all prose references, or confine the qualified form to the code fence and keep prose unqualified).
+
+**Remediation sketch:** Pick a style rule ("all prose references unqualified; code-fence references fully-qualified" is the less-churn option) and apply consistently across sqli/cmdi/ssti/xss subagent markdown in one pass.
+
+**Estimated scope:** ~12 LOC across 4 files.
+
+### BACKLOG-C2-M-QR-T4-M3 — Trailing newline missing at end of screw-sqli.md
+**Phase-4 readiness:** `non-blocker` — POSIX-text hygiene; purely cosmetic
+**Source:** Phase 3b-C2 T4 quality review, 2026-04-24 (QR-T4-M3)
+**File:** `plugins/screw/agents/screw-sqli.md`
+
+**Why deferred:** The file ends on a content line with no trailing LF (`wc -l` reports 414 instead of 415 post-fix-up). POSIX text-file convention is to terminate with a newline; most editors add one automatically on save. Cosmetic only; `pytest`, git, and the plugin loader don't care. Fix alongside any future sqli.md touch that already opens the file.
+
+**Remediation sketch:** Add a single trailing LF; no test expectation changes. Ideally combined with T5/T6/T7 clone operations (the clone source can be re-terminated then cloned) or any subsequent sqli.md content edit.
+
+**Estimated scope:** 1 byte per file × 4 files.
+
+### BACKLOG-C2-M-QR-T4-M4 — Commit b8f6c74 did not name 2 judgment-call deviations
+**Phase-4 readiness:** `non-blocker` — process lesson; no code remediation
+**Source:** Phase 3b-C2 T4 quality review, 2026-04-24 (QR-T4-M4)
+**File:** Historical — commit `b8f6c74` (truncate screw-sqli.md adaptive flow)
+
+**Why deferred:** Per `feedback_plan_sync_on_deviation` spirit (plan and code coherent at merge time; deviations named in commit messages), the T4 truncation commit made 2 defensible judgment calls not surfaced in the commit message: (a) removed a stale `screw:screw-script-reviewer` bullet from preserved Step 3.5d-D that described impossible post-C2 state; (b) qualified `accumulate_findings` to `mcp__screw-agents__accumulate_findings` in Step 3.5a to preserve the adaptive-section test invariant. Both are correct decisions; not calling them out weakens the audit trail. Historical commit cannot be rewritten (pushed, immutable). Process record for future truncation commits.
+
+**Remediation sketch:** None. Documented to preserve the lesson: when executing a truncation task, any edit outside the explicitly-enumerated truncation range (preserved-range fixes, test-coupled qualifications) MUST be named in the commit message alongside the in-scope changes.
+
+### BACKLOG-C2-M-QR-T4-C1 — Line 91 "approval surface" framing borderline confusing
+**Phase-4 readiness:** `non-blocker` — clarity polish; post-C2 readability sweep
+**Source:** Phase 3b-C2 T4 quality review, 2026-04-24 (QR-T4-C1)
+**File:** `plugins/screw/agents/screw-sqli.md` line ~91 (and mirrored files post-T5/T6/T7)
+
+**Why deferred:** The `--adaptive` interactive-consent paragraph describes the approval surface from the system-wide perspective ("the human can type `approve <name>` or `reject <name>` in response to the 5-section review"). Accurate for the overall adaptive flow, but borderline confusing when read by a freshly-respawned scan subagent — because THIS subagent never sees the review surface (main session composes it). A clarity pass could qualify as *"…review that the main session will present"* or restructure the paragraph to separate "user-facing behavior" from "this subagent's role" more crisply.
+
+**Remediation sketch:** One-sentence edit in a future clarity pass; apply to sqli/cmdi/ssti/xss uniformly.
+
+**Estimated scope:** ~4 LOC across 4 files.
+
+### BACKLOG-C2-PROC-PA-TRUNCATION-SCOPE — Pre-audit must simulate test extraction range, not truncation range
+**Phase-4 readiness:** `non-blocker` — pre-audit process improvement; propagate to T5/T6/T7 pre-audit discipline
+**Source:** Phase 3b-C2 T4 fix-up retrospective, 2026-04-24
+**File:** Pre-audit skill / checklist (process doc; no code file to edit)
+
+**Why deferred:** The T4 pre-audit scoped its grep-and-review effort to the truncation range (lines 298-600 of the pre-T4 file — the content being deleted-and-replaced). The `test_adaptive_section_per_agent_references_only_required_tools` test, however, extracts content from `### Step 3.5: Adaptive Mode` through the next `### Step` heading — the FULL adaptive section, including the preserved 3.5a-E steps. Four stale-reference issues (QR-T4-I1/I2/I3/I4 + SR-T4-M2) slipped past the pre-audit because the preserved range was assumed coherent when it was not (several references became stale once the new Step 4 structure landed).
+
+**Remediation sketch:** Expand the standard pre-audit checklist for truncation tasks to include a `sed -n '<step-start>,<step-end>p'` test-extraction simulation covering the full range the target test walks, not just the truncated-then-appended region. Apply this discipline to T5/T6/T7 pre-audits (cmdi/ssti/xss clones) — even though the clones are byte-identical to sqli modulo agent name, the pre-audit should verify the clone source is clean (which it now is post-T4 fix-up) and that the cloned agent name doesn't interact badly with preserved-range prose. Also apply to any future Phase 3b+ truncation task.
+
+**Estimated scope:** ~5 lines added to the pre-audit checklist; zero code change.
+
+---
+
 ## Phase-4 Readiness Triage
 
 Every active backlog entry below carries a `**Phase-4 readiness:**` tag with one of:
