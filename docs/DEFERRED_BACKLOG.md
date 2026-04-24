@@ -4,60 +4,115 @@
 
 ---
 
-## ★ IMMEDIATE — Phase 3b-C2 (nested subagent dispatch fix) — discovered post-merge 2026-04-23
+## Phase 3b-C2 T1-review minors + coverage gaps (discovered 2026-04-23)
 
-PR #6's manual round-trip validation surfaced a critical end-to-end regression that static review could not catch. C1's engine-layer closure holds; the LLM-flow integration is broken pending Phase 3b-C2.
+Non-blocking minors and spec-coverage gaps surfaced during T1 (pre-update assertions) spec + quality review rounds. All are safe to defer past C2 merge; each has a natural resolution point.
 
-### BACKLOG-C2-01 — Nested subagent dispatch unsupported: adaptive Layer 0d cannot fire from scan subagent
-**Phase-4 readiness:** `blocker` — highest priority; **Phase 3b-C2 must land before any Phase 4 work begins**
-**Source:** Phase 3b PR #6 post-merge manual round-trip (squash `fa2f42a`), 2026-04-23
-**Discovery:** `claude --plugin-dir /home/marco/Programming/AI/screw-agents/plugins/screw` launched from `/tmp/screw-roundtrip-qb/`; ran `/screw:scan sqli src/ --adaptive` on seeded QueryBuilder fixture. The `screw:screw-sqli` subagent ran scan → accumulate_findings → record_context_required_match → detect_coverage_gaps → lint_adaptive_script correctly, then failed to invoke `Task(subagent_type="screw:screw-script-reviewer", ...)` at Step 3.5d/F. Runtime output: *"Layer 0d semantic review could not be invoked from the subagent's toolset — so nothing was staged, signed, or executed."* Graceful degradation path fired per prompt design (line 322 of `screw-sqli.md`), producing YAML-only output + "manual look" suggestions.
+### BACKLOG-C2-M-SR-T1-M2 — Schema-key subset (5 of §5.1's 10 / §6.1's 7)
+**Phase-4 readiness:** `non-blocker` — test-quality polish; no correctness impact on C2 ship path
+**Source:** Phase 3b-C2 T1 spec review, 2026-04-23 (SR-T1-M2)
+**File:** `tests/test_adaptive_subagent_prompts.py::test_scan_md_contains_subagent_return_schema_keys`
 
-**Root cause (definitive, official docs):** Claude Code's architecture explicitly forbids nested subagent dispatch:
-> *"Subagents cannot spawn other subagents. If your workflow requires nested delegation, use Skills or chain subagents from the main conversation."*
-> — [code.claude.com/docs/en/sub-agents, line 711](https://code.claude.com/docs/en/sub-agents)
+**Why deferred:** The test asserts 5 of spec §5.1's 10 top-level keys (`pending_reviews`, `session_id`, `trust_status`, `scan_subagent`, `scan_metadata`). This is defensible per plan step 8 intent — the 5-key set matches the "consumed-by-main" subset from §6.1's pseudocode — but the defensive-parse guard in §6.1 validates 7 keys (adding `schema_version`, `yaml_findings_accumulated`, `adaptive_mode_engaged`). The current 5-key assertion leaves 2 validated keys unasserted, weakening the coupling between §6.1's guard and the prompt surface. T2 author may choose whether expanding to the 7-key set buys better drift protection.
 
-The Task tool is unavailable (or allowlist-restricted to empty) inside subagent context to prevent infinite nesting. Phase 3b T15-T17 prompt design assumed the scan subagent could dispatch the review subagent — architecturally incorrect vs Claude Code's design. The 24 Opus review cycles during PR #6 execution reviewed STATIC prompt content; T21 E2E test bypasses subagent dispatch by calling engine methods via Python. Nothing in review actually ran the full `main → subagent → nested-subagent` dispatch chain. The Phase 2 E2E notes memory flagged "subagent nesting limit" and this was not treated as a blocking discovery for PR #6's design — a process failure.
+**Remediation sketch:** In T2 (scan.md rewrite) or immediately after, decide between (a) keeping the 5-key minimal set as "what main parses" (documenting the rationale in the docstring), or (b) expanding to §6.1's 7 validated keys. If (b), also close BACKLOG-C2-M-QR-T1-M5 in the same edit.
 
-**What is NOT broken** (C2 can build on this foundation):
-- C1 engine-layer closure — T21 exit gate still passes; `promote_staged_script(source-less, reads-from-staging, sha256-verified)` is correct.
-- Full staging + signing + sandbox infrastructure.
-- YAML scan path end-to-end (round-trip produced correct CWE-89 at dao.py:8 with full data-flow analysis).
-- Coverage-gap detection (4 gaps correctly identified).
-- All 942 unit + integration tests.
-- The `screw:screw-script-reviewer` subagent itself (unchanged — only WHERE it gets dispatched from needs to change).
+**Estimated scope:** ~5 LOC test + docstring clarification.
 
-**What IS broken:** end-to-end `--adaptive` flow in live Claude Code sessions. `stage_adaptive_script` is never called from the LLM path. Feature silently degrades to YAML-only. Adaptive-mode is NOT production-ready.
+### BACKLOG-C2-M-QR-T1-M4 — Commit-message template vs immutable commit inconsistency
+**Phase-4 readiness:** `non-blocker` — process lesson; no code fix needed
+**Source:** Phase 3b-C2 T1 quality review, 2026-04-23 (QR-T1-M4)
+**File:** `docs/PHASE_3B_C2_PLAN.md` Step 11 (historical pattern only)
 
-**Fix — architecturally idiomatic pattern (Phase 3b-C2):** chain subagents from main session per [sub-agents#chain-subagents](https://code.claude.com/docs/en/sub-agents#chain-subagents) (the code-reviewer-then-optimizer pattern in the docs is the direct template). Rewrite the `/screw:scan` slash command prompt to become the orchestrator:
+**Why deferred:** When a plan is amended mid-task (as commit `ab884c4` adjusted T1 counts after `176f7ac` shipped), embedded commit-message templates in the plan should also update so a future implementer following the plan literally doesn't re-introduce stale language into a NEW commit. In this case, the historical commit `176f7ac` cannot be rewritten (already pushed, immutable), and the plan was updated in the T1 fix-up to match reality. No further action needed — this entry is a process record, not an actionable fix.
 
-1. Main session dispatches scan subagent (`screw:screw-sqli` or orchestrator) with scope/target/--adaptive flag.
-2. Scan subagent does scan + generation + lint, then **returns** `{ findings, pending_reviews: [{gap, script, rationale}] }` to main session. No more Layer 0d / stage / promote / execute calls inside the subagent.
-3. Main session loops over `pending_reviews`:
-   - Dispatches `screw:screw-script-reviewer` (fresh context — security property preserved) with script + rationale. Returns `SemanticReviewReport` JSON.
-   - If review verdict passes filters: main session calls `stage_adaptive_script` MCP tool directly.
-   - Main session shows 5-section review to user, waits for `approve <name>` / `reject <name>`.
-   - On approve: main session calls `promote_staged_script` → `execute_adaptive_script` → `accumulate_findings` (script-produced findings merged).
-   - On reject: main session calls `reject_staged_script`.
-4. Main session calls `finalize_scan_results`.
+**Remediation sketch:** None. Documented here to preserve the lesson: whenever amending a plan that contains literal commit-message templates, sync both (plan text AND template block) in the same edit.
 
-**Context-isolation security property preserved:** each subagent invocation gets a fresh context window. Scan subagent doesn't see review subagent's output and vice versa. The only difference from the original design is WHO initiates the review dispatch — main session, not the scan subagent.
+### BACKLOG-C2-M-QR-T1-M5 — Schema-key docstring substring-match caveat
+**Phase-4 readiness:** `non-blocker` — docstring polish; folds into BACKLOG-C2-M-SR-T1-M2 if that is resolved
+**Source:** Phase 3b-C2 T1 quality review, 2026-04-23 (QR-T1-M5)
+**File:** `tests/test_adaptive_subagent_prompts.py::test_scan_md_contains_subagent_return_schema_keys`
 
-**Engine layer (Python code): ZERO changes.** MCP tools, staging, signing, T21 exit gate all stay untouched.
+**Why deferred:** The test uses plain substring matching (`key in body`). A key name could appear in an unrelated example snippet inside scan.md (e.g., an illustrative JSON fragment that isn't the real §5.1 schema). Docstring should note this weakness so future readers don't mistake the test for a strict schema validator. Low-value alone; best folded into the schema-key expansion in BACKLOG-C2-M-SR-T1-M2.
 
-**Files to modify (5 markdown + 1 test):**
-- `plugins/screw/commands/scan.md` — rewrite as orchestrator (MAIN WORK; ~150 LOC)
-- `plugins/screw/agents/screw-{sqli,cmdi,ssti,xss}.md` — simplify Step 3.5: truncate at "return script + metadata" (byte-identical across 4 files modulo agent name; ~30 LOC delta each)
-- `plugins/screw/agents/screw-injection.md` — simplify Step 2.5 orchestrator similarly
-- `tests/test_adaptive_subagent_prompts.py` — assertion updates: scan subagents no longer reference stage/promote/reject/execute; new assertions for slash command prompt's orchestration flow
+**Remediation sketch:** Add one sentence to the test docstring: "Substring-match; does not validate the keys appear in the authoritative §5.1 schema block rather than an example snippet — stronger matching would require parsing scan.md's fenced blocks. Considered acceptable at format-smoke scope." Ideally combined with the §6.1 7-key expansion.
 
-**Subagent tool lists change:** scan subagents lose `mcp__screw-agents__stage_adaptive_script`, `promote_staged_script`, `reject_staged_script`, `execute_adaptive_script` (those move to main-session invocation). They keep lint, record_context_required_match, detect_coverage_gaps, accumulate_findings, finalize_scan_results.
+### BACKLOG-C2-GAP-SPEC-5-3 — Spec §5.3 defensive-parse (schema_version mismatch) not asserted
+**Phase-4 readiness:** `non-blocker` — coverage gap at the prompt-format-smoke layer; runtime path is T10 / engine-pytest territory
+**Source:** Phase 3b-C2 T1 spec review, 2026-04-23 (GAP-SPEC-5-3)
+**File:** `tests/test_adaptive_subagent_prompts.py` (candidate home) OR engine-level test in a future PR
 
-**Estimated scope:** ~300-400 LOC markdown + ~50 LOC test assertion updates. **Target: 1 focused session** (brainstorm + spec + plan + implement + review + round-trip re-validation in ≤4 hours active work, not 2-3 days).
+**Why deferred:** Spec §5.3 requires the main session to reject / downgrade scan-subagent returns whose `schema_version` does not match the version main expects — a defensive parse to catch drift between engine schema versions and scan-subagent emit templates. Prompt-format-smoke tests lock structure only; they cannot verify the main session actually rejects an older-version payload at runtime. The T10 live round-trip is the natural acceptance check, supplemented by an engine-level pytest that injects a bad `schema_version`.
 
-**Trigger:** IMMEDIATELY as the next PR after PR #6 close-out (T26 Steps 11-12 + T27 memory). Blocks `--adaptive` production use. Blocks Phase 4 (autoresearch requires end-to-end adaptive-mode working).
+**Remediation sketch:** Either (a) add T10 E2E acceptance criterion "inject schema_version='0.0-fake' into a mocked subagent return; verify scan.md downgrades to YAML-only + logs a warning"; or (b) add an engine-level integration test once a dedicated entrypoint exists for the main-session parse loop (post-C2 refactor may expose it).
 
-**Round-trip evidence captured 2026-04-23:** fixture `/tmp/screw-roundtrip-qb/src/dao.py`; observed 1 CWE-89 critical finding at line 8, 4 coverage gaps identified, "Adaptive mode — halted before staging" graceful-degradation message; no files written to `.screw/staging/` or `.screw/custom-scripts/` — confirming C1 closure property (the regeneration vector doesn't fire because nothing reaches the signing layer).
+### BACKLOG-C2-GAP-SPEC-6-1 — Spec §6.1 sequential approve/reject invariant not asserted
+**Phase-4 readiness:** `non-blocker` — prompt-level smoke can't cover; T10 or future integration test territory
+**Source:** Phase 3b-C2 T1 spec review, 2026-04-23 (GAP-SPEC-6-1)
+**File:** `tests/test_adaptive_subagent_prompts.py` (not the right home) OR T10 E2E / future integration test
+
+**Why deferred:** Spec §6.1 requires main-session review loop to process pending_reviews one-at-a-time (no batch `approve all`; each approval promotes → executes → accumulates before proceeding to the next). Prompt-format-smoke cannot assert runtime ordering; asserting the NEGATIVE ("no batch language") is too brittle (any informal list in prose trips it). Live round-trip is the right surface.
+
+**Remediation sketch:** Add T10 E2E acceptance criterion "stage 2 scripts in one adaptive turn; verify main session prompts user for approval on #1 before staging #2 is accessible" (exact UX wording per implementer). Alternatively, once a mock-harness exists for main-session orchestration, pytest can assert the call order on stubbed MCP tools.
+
+---
+
+## Phase 3b-C2 T4 review minors (discovered 2026-04-24)
+
+Non-blocking minors and one pre-audit process lesson surfaced during T4 (sqli.md adaptive-flow truncation) spec + quality review rounds. The 5 Important + 1 Minor content issues were resolved inline in the T4 fix-up commit; these 4 remaining minors + 1 process lesson are deferred.
+
+### BACKLOG-C2-M-QR-T4-M2 — MCP tool name qualification inconsistency in screw-sqli.md
+**Phase-4 readiness:** `non-blocker` — style/consistency polish; no correctness impact
+**Source:** Phase 3b-C2 T4 quality review, 2026-04-24 (QR-T4-M2)
+**File:** `plugins/screw/agents/screw-sqli.md` (post-T4 fix-up; mirrors to cmdi/ssti/xss after T5/T6/T7)
+
+**Why deferred:** The `mcp__screw-agents__accumulate_findings` reference in Step 4 is fully-qualified because the adaptive-section test (`test_adaptive_section_per_agent_references_only_required_tools`) requires the qualified token to appear inside the extracted adaptive range. Other MCP tool references in prose (`record_context_required_match`, `detect_coverage_gaps`, `lint_adaptive_script`) appear unqualified in surrounding text for readability. Defensible as-is (single site is mechanically required; others don't affect the test), but inconsistent; a polish PR could unify qualification style (either qualify all prose references, or confine the qualified form to the code fence and keep prose unqualified).
+
+**Remediation sketch:** Pick a style rule ("all prose references unqualified; code-fence references fully-qualified" is the less-churn option) and apply consistently across sqli/cmdi/ssti/xss subagent markdown in one pass.
+
+**Estimated scope:** ~12 LOC across 4 files.
+
+### BACKLOG-C2-M-QR-T4-M3 — Trailing newline missing at end of screw-sqli.md
+**Phase-4 readiness:** `non-blocker` — POSIX-text hygiene; purely cosmetic
+**Source:** Phase 3b-C2 T4 quality review, 2026-04-24 (QR-T4-M3)
+**File:** `plugins/screw/agents/screw-sqli.md`
+
+**Why deferred:** The file ends on a content line with no trailing LF (`wc -l` reports 414 instead of 415 post-fix-up). POSIX text-file convention is to terminate with a newline; most editors add one automatically on save. Cosmetic only; `pytest`, git, and the plugin loader don't care. Fix alongside any future sqli.md touch that already opens the file.
+
+**Remediation sketch:** Add a single trailing LF; no test expectation changes. Ideally combined with T5/T6/T7 clone operations (the clone source can be re-terminated then cloned) or any subsequent sqli.md content edit.
+
+**Estimated scope:** 1 byte per file × 4 files.
+
+### BACKLOG-C2-M-QR-T4-M4 — Commit b8f6c74 did not name 2 judgment-call deviations
+**Phase-4 readiness:** `non-blocker` — process lesson; no code remediation
+**Source:** Phase 3b-C2 T4 quality review, 2026-04-24 (QR-T4-M4)
+**File:** Historical — commit `b8f6c74` (truncate screw-sqli.md adaptive flow)
+
+**Why deferred:** Per `feedback_plan_sync_on_deviation` spirit (plan and code coherent at merge time; deviations named in commit messages), the T4 truncation commit made 2 defensible judgment calls not surfaced in the commit message: (a) removed a stale `screw:screw-script-reviewer` bullet from preserved Step 3.5d-D that described impossible post-C2 state; (b) qualified `accumulate_findings` to `mcp__screw-agents__accumulate_findings` in Step 3.5a to preserve the adaptive-section test invariant. Both are correct decisions; not calling them out weakens the audit trail. Historical commit cannot be rewritten (pushed, immutable). Process record for future truncation commits.
+
+**Remediation sketch:** None. Documented to preserve the lesson: when executing a truncation task, any edit outside the explicitly-enumerated truncation range (preserved-range fixes, test-coupled qualifications) MUST be named in the commit message alongside the in-scope changes.
+
+### BACKLOG-C2-M-QR-T4-C1 — Line 91 "approval surface" framing borderline confusing
+**Phase-4 readiness:** `non-blocker` — clarity polish; post-C2 readability sweep
+**Source:** Phase 3b-C2 T4 quality review, 2026-04-24 (QR-T4-C1)
+**File:** `plugins/screw/agents/screw-sqli.md` line ~91 (and mirrored files post-T5/T6/T7)
+
+**Why deferred:** The `--adaptive` interactive-consent paragraph describes the approval surface from the system-wide perspective ("the human can type `approve <name>` or `reject <name>` in response to the 5-section review"). Accurate for the overall adaptive flow, but borderline confusing when read by a freshly-respawned scan subagent — because THIS subagent never sees the review surface (main session composes it). A clarity pass could qualify as *"…review that the main session will present"* or restructure the paragraph to separate "user-facing behavior" from "this subagent's role" more crisply.
+
+**Remediation sketch:** One-sentence edit in a future clarity pass; apply to sqli/cmdi/ssti/xss uniformly.
+
+**Estimated scope:** ~4 LOC across 4 files.
+
+### BACKLOG-C2-PROC-PA-TRUNCATION-SCOPE — Pre-audit must simulate test extraction range, not truncation range
+**Phase-4 readiness:** `non-blocker` — pre-audit process improvement; propagate to T5/T6/T7 pre-audit discipline
+**Source:** Phase 3b-C2 T4 fix-up retrospective, 2026-04-24
+**File:** Pre-audit skill / checklist (process doc; no code file to edit)
+
+**Why deferred:** The T4 pre-audit scoped its grep-and-review effort to the truncation range (lines 298-600 of the pre-T4 file — the content being deleted-and-replaced). The `test_adaptive_section_per_agent_references_only_required_tools` test, however, extracts content from `### Step 3.5: Adaptive Mode` through the next `### Step` heading — the FULL adaptive section, including the preserved 3.5a-E steps. Four stale-reference issues (QR-T4-I1/I2/I3/I4 + SR-T4-M2) slipped past the pre-audit because the preserved range was assumed coherent when it was not (several references became stale once the new Step 4 structure landed).
+
+**Remediation sketch:** Expand the standard pre-audit checklist for truncation tasks to include a `sed -n '<step-start>,<step-end>p'` test-extraction simulation covering the full range the target test walks, not just the truncated-then-appended region. Apply this discipline to T5/T6/T7 pre-audits (cmdi/ssti/xss clones) — even though the clones are byte-identical to sqli modulo agent name, the pre-audit should verify the clone source is clean (which it now is post-T4 fix-up) and that the cloned agent name doesn't interact badly with preserved-range prose. Also apply to any future Phase 3b+ truncation task.
+
+**Estimated scope:** ~5 lines added to the pre-audit checklist; zero code change.
 
 ---
 
@@ -691,6 +746,25 @@ because partial target_patterns are out-of-date, OR when autoresearch
 **Suggested approach:** New `.screw/learning/context_required_history.yaml` written at finalize (mirroring the `exclusions.yaml` stable-artifact pattern), one `ScanEngine.aggregate_context_required_patterns` method for chronic-gap reporting, never auto-deleted.
 
 **Estimated scope:** ~100 LOC + 5 tests. Small. Can be implemented independently of autoresearch when/if the use case materializes.
+
+---
+
+## Shipped (Phase 3b-C2 — nested-dispatch fix, 2026-04-24)
+
+### BACKLOG-C2-01 — Nested subagent dispatch unsupported: adaptive Layer 0d cannot fire from scan subagent
+**Shipped in:** Phase 3b-C2 PR (`phase-3b-c2-nested-dispatch-fix` branch; merge commit TBD on merge)
+**Source:** Phase 3b PR #6 post-merge manual round-trip (squash `fa2f42a`), 2026-04-23
+**Root cause:** Claude Code architecture forbids nested subagent dispatch (sub-agents.md:711: *"Subagents cannot spawn other subagents"*). Phase 3b PR #6's T15-T17 prompt design had scan subagents calling `Task(subagent_type="screw:screw-script-reviewer", ...)` at Step 3.5d/F — architecturally blocked. Result in live Claude Code sessions: `--adaptive` silently degraded to YAML-only; `stage_adaptive_script` never reached from LLM path.
+
+**Fix landed:** `/screw:scan` rewritten as the main-session chain-subagents orchestrator per [sub-agents#chain-subagents](https://code.claude.com/docs/en/sub-agents#chain-subagents). Scan subagents now do scan + generate + lint, emit a structured JSON `pending_reviews` payload, and return to main. Main session parses the JSON and owns all post-generation flow: reviewer dispatch (permitted main → subagent hop), `stage_adaptive_script`, `verify_trust` (advisory-loud per new spec §4.7 D7), `promote_staged_script`, `execute_adaptive_script`, `accumulate_findings`, `finalize_scan_results`.
+
+**Verified via T10 live round-trip (2026-04-24):** `/screw:scan sqli src/ --adaptive` against `/tmp/screw-roundtrip-qb` fixture produced 2 pending_reviews, main session dispatched the reviewer subagent, called `stage_adaptive_script` twice, called `verify_trust` per-review, composed 5-section reviews, processed both approve + reject phrases, ran through promote → execute → accumulate on the approve path, and called `reject_staged_script` on the reject path. Binary fix signal (main → `stage_adaptive_script`) observed.
+
+**Scope shipped:** 9 files touched. `plugins/screw/commands/scan.md` full rewrite (97 → 480 lines, chain-subagents orchestrator with `confirm-high` phrase grammar per spec §4.2 D2). 4 per-agent subagents (sqli/cmdi/ssti/xss) truncated 600 → ~414 lines with byte-identical adaptive sections modulo agent name (enforced by `test_adaptive_section_identical_modulo_agent_name`). Orchestrator `screw-injection.md` truncated 231 → ~222 lines. `screw-full-review.md` deleted (second nested-dispatch instance, Option A fold+delete per spec §4.3). `plugins/screw/skills/screw-review/SKILL.md` routing row rewritten to redirect broad/full-scan intents to `/screw:scan full`. `tests/test_adaptive_subagent_prompts.py` updated with 9 new scan.md orchestration assertions + 1 file-absence test (net 22 test functions post-T1). Zero engine changes. Final test state: 918 passed / 8 skipped / 10 warnings (baseline preserved + 7 new assertions GREEN).
+
+**Phase-4 impact:** hard prereq count drops 5 → 4. Remaining Phase-4 blockers: D-01 (Rust benchmark corpus), T-FULL-P1 (paginate scan_full), T19-M1/M2/M3 (SARIF/CSV surface polish), BACKLOG-PR6-22 (`sign_adaptive_script` retirement).
+
+**Process lessons captured:** see `BACKLOG-C2-PROC-PA-TRUNCATION-SCOPE` under "Phase 3b-C2 T4 review minors" — pre-audits for truncation tasks must simulate the actual test extraction range, not just the truncated region (surfaced by 4 stale-ref issues in T4 that the pre-audit missed). See also `BACKLOG-C2-M-QR-T1-M4` for the commit-message-template-during-plan-amendment lesson.
 
 ---
 
@@ -1543,3 +1617,120 @@ Purely visual drift, no correctness impact. Cosmetic polish.
 **Why deferred:** The new T22 test carries assertion messages naming the specific tool and invariant that regressed (e.g., `"Tool {tool['name']!r} input_schema missing additionalProperties: false (T10-M1 partial regressed)"`). The adjacent baseline test uses bare asserts (no message) for `schema["type"] == "object"` / `"properties" in schema` / `target` presence. Broader file convention is majority-bare (3 of 13 asserts carry messages). The divergence IS principled — the baseline test is broad-coverage "something's off" surfacing, while the new test locks a tighter invariant and benefits from diagnostic messages for CI failure readability. But style consistency across adjacent tool-schema tests matters for future maintainers. Option (a): retrofit the baseline test with diagnostic messages (closes the gap). Option (b): document the divergence with an inline comment (lower cost, accepts the difference).
 **Trigger:** Next test-diagnostic polish pass, OR if a baseline schema assertion fails in CI and the bare form makes root-cause analysis harder.
 **Estimated scope:** Option (a) ~3 LOC (add messages to 3 asserts in `test_tool_definitions_json_schema_valid`); Option (b) ~2 LOC (inline comment explaining the intentional divergence).
+
+---
+
+## Phase 3b-C2 T2-review minors + observational items (discovered 2026-04-24)
+
+Non-blocking minors and observational items surfaced during T2 (scan.md rewrite) spec + quality review rounds on commit `e7a33d2`. All are safe to defer past C2 merge; each has a natural resolution point. Partial resolution shipped in the T2 fix-up (Bucket A); this section tracks what was consciously deferred (Bucket C).
+
+### BACKLOG-C2-M-QR-T2-M1 — Wide-line D1/D2 gap-vocabulary definition at scan.md:149
+**Phase-readiness:** `non-blocker` — readability polish; no semantic impact
+**Source:** T2 review-triage round (spec + quality reviews on commit `e7a33d2`), 2026-04-24
+
+**Why deferred:** The single prose line defining D1 / D2 gap types in Step 3 is approximately 700 characters wide, mixing gap.type values, gap.evidence keys, and parenthetical field lists. In rendered terminal views with narrow wrap settings, the line becomes visually dense and hard to scan. A 2-bullet rewrite (D1 on one bullet, D2 on another, each with its evidence-field list) would improve readability without changing meaning. The current inline form is defensible because the two definitions sit beside each other, but the density is worth tracking.
+
+**Remediation sketch:** Next scan.md readability pass: rewrite the "Gap-type vocabulary" sentence at line ~149 as two bullets: `- **D1** (`gap.type == "context_required"`): ...` / `- **D2** (`gap.type == "unresolved_sink"`): ...`. ~3 LOC net change. No test impact (phrases already locked by `test_scan_md_phrase_grammar_locked`).
+
+### BACKLOG-C2-M-QR-T2-M2 — Pipe-separator render on narrow terminals (scan.md:262)
+**Phase-readiness:** `non-blocker` — readability polish; no semantic impact
+**Source:** T2 review-triage round (spec + quality reviews on commit `e7a33d2`), 2026-04-24
+
+**Why deferred:** The review-template header line `**Staged:** {staged_at}  |  **Session:** `{session_id_short}`  |  **SHA256:** `{script_sha256_prefix}`` uses two pipe separators (with surrounding spaces) on a single line. On narrow terminal widths the line wraps unpredictably, and the pipe-as-separator convention is uncommon enough in markdown reviews that a bullet form (3 short bullets) would be clearer. The current form is deliberate to keep the header compact when it fits, so this is readability-only.
+
+**Remediation sketch:** Next readability pass: consider converting the header triple to three bullets (`- **Staged:** ...` / `- **Session:** ...` / `- **SHA256:** ...`). No behavioral change. Verify no locked-phrase test asserts the pipe-separator form before rewriting.
+
+### BACKLOG-C2-M-QR-T2-M3 — Stage-meta dict literal mixes angle-bracket pseudocode with `.get()` f-string
+**Phase-readiness:** `non-blocker` — readability polish; no semantic impact
+**Source:** T2 review-triage round (spec + quality reviews on commit `e7a33d2`), 2026-04-24
+
+**Why deferred:** The `stage_adaptive_script` call at scan.md:203-204 uses `f"Evidence: {pending_review.gap.evidence.get('method') or pending_review.gap.evidence.get('pattern') or 'see gap.evidence'}."` — an executable-looking Python f-string with chained `.get()` fallbacks — inside a block otherwise written in angle-bracket pseudocode (`<absolute project root>`, `<derived from pending_review.gap.agent>`, etc.). The style mix is jarring for a reader who expects either pure pseudocode OR pure Python. No correctness issue — the intent is clear either way.
+
+**Remediation sketch:** Next readability pass: either (a) convert the f-string to pseudocode (`<gap.evidence.method if D2 else gap.evidence.pattern, else "see gap.evidence">`) for consistency with surrounding lines, or (b) convert the surrounding angle-bracket pseudocode to Python f-strings. Option (a) is lower-risk. ~2 LOC.
+
+### BACKLOG-C2-M-QR-T2-M4 — Step 5 item 6 quoted-string offers vs imperative style
+**Phase-readiness:** `non-blocker` — stylistic inconsistency; cosmetic
+**Source:** T2 review-triage round (spec + quality reviews on commit `e7a33d2`), 2026-04-24
+
+**Why deferred:** Step 5 item 6 offers: `"Apply a fix?", "Mark a finding as false positive?", "Run another agent?"` — three quoted question strings. Elsewhere scan.md uses imperative phrasing for user-facing prompts (e.g., "Type `approve {script_name}` to promote...", "END turn; await user's re-attempt"). The quoted-question form is a minor style outlier; replacing with imperative directives ("Offer to apply a fix, mark a false positive, or run another agent.") would match house style. Cosmetic only.
+
+**Remediation sketch:** Next readability pass: rewrite item 6 as one imperative sentence. No test impact.
+
+### BACKLOG-C2-M-QR-T2-M5 — Ambiguous-response counter has no upper bound on LLM turn-count memory
+**Phase-readiness:** `non-blocker` — observational; precedent-consistent behavior
+**Source:** T2 review-triage round (spec + quality reviews on commit `e7a33d2`), 2026-04-24
+
+**Why deferred:** Step 3e's "ambiguous response" branch says: *"ask ONCE... On a second ambiguous response: treat as REJECT."* This assumes the main-session LLM reliably tracks a 1-turn counter across messages. If the LLM loses count across long conversations (e.g., context compression mid-flow), it could re-ask ambiguity prompts indefinitely. The precedent at `plugins/screw/agents/screw-sqli.md:432-438` has the same "ask once → reject on second" property and has shipped in PR #6 without observed issue, so the pattern is acceptable as-is. Worth tracking because a future T10 round-trip could expose the drift in a long-running adaptive session.
+
+**Remediation sketch:** No immediate action. If T10 round-trip or future production traffic shows ambiguity-loop drift: either (a) encode the counter in the prompt more explicitly (e.g., "your previous message also asked for clarification — treat any remaining ambiguity as REJECT"), or (b) move the ambiguity state to MCP-server-side (session-scoped counter). Option (b) is more invasive; option (a) is prompt-only.
+
+### BACKLOG-C2-M-SR-T2-M1 — scan.md:244 mentions `validate-script` not in spec §4.7 banner template
+**Phase-readiness:** `non-blocker` — additive; consistency-tracking
+**Source:** T2 review-triage round (spec + quality reviews on commit `e7a33d2`), 2026-04-24
+
+**Why deferred:** The Step 3c.5 loud banner in scan.md:244 includes `Resolve scripts with \`screw-agents validate-script <name>\`.` Spec §4.7 banner template (line 419) only mentions `validate-exclusion` / `migrate-exclusions` — it does not list `validate-script`. The implementer-authored addition is reasonable (scripts CAN be quarantined too, and the banner's script_quarantine_count field motivates the CLI hint), but it extends beyond what the spec literally prescribes. Semantic fidelity is intact (the banner is about trust state, and script-validate IS the trust-resolve tool for scripts). Consistency tracking for a future spec refresh.
+
+**Remediation sketch:** Next spec-refresh pass: either (a) update spec §4.7 banner template (line 419) to include `validate-script` (align spec to implementation), or (b) drop the `validate-script` line from scan.md:244 (align implementation to spec). Option (a) is preferred since the CLI hint is genuinely useful when scripts ARE quarantined. ~1 LOC either way.
+
+### BACKLOG-C2-M-SR-T2-M3 — "--adaptive flag IS the user consent" wording is implementer-authored
+**Phase-readiness:** `non-blocker` — cosmetic; semantic fidelity intact
+**Source:** T2 review-triage round (spec + quality reviews on commit `e7a33d2`), 2026-04-24
+
+**Why deferred:** scan.md:39-41 declares `The --adaptive flag IS the user consent.` This literal sentence does not appear in the plan or spec — it is an implementer-authored gloss added during the T2 rewrite to reinforce spec §4.3 D3 (consent-bundled-in-flag model). The wording is accurate and supports the right mental model, but future readers tracing the plan→implementation chain may spend time looking for the exact phrase. Low cost to track; decide later whether to (a) promote the wording into the plan / spec verbatim, or (b) replace with a phrasing that more closely mirrors spec §4.3 D3's language.
+
+**Remediation sketch:** Next plan/spec coherence pass: either (a) add the "--adaptive flag IS the user consent" sentence verbatim to PHASE_3B_C2_PLAN.md's user-consent discussion so scan.md is a literal echo, or (b) soften scan.md's wording to mirror spec §4.3 D3 more directly. Cosmetic only.
+
+### BACKLOG-C2-W3 — Structural `{if}`/`{endif}` count-balance assertion missing
+**Phase-readiness:** `non-blocker` — test-coverage gap; caught by T10 round-trip only today
+**Source:** T2 review-triage round (spec + quality reviews on commit `e7a33d2`), 2026-04-24
+
+**Why deferred:** scan.md uses `{if <predicate>:}` / `{endif}` pseudo-directive pairs in the 5-section review template to indicate conditional rendering. A future edit that drops one `{endif}` (or adds an unmatched `{if}`) would silently degrade the rendered review without any existing test catching it — `test_scan_md_phrase_grammar_locked` asserts phrase presence, not structural balance. The balance IS verified end-to-end in the T10 live round-trip, but that is a manual gate. An automated assertion would be cheap and catch the class of drift.
+
+**Remediation sketch:** Add a new test in `tests/test_adaptive_subagent_prompts.py` that greps scan.md body for `{if ` occurrences (prefix with space to avoid matching `{if:}` or inline references) and `{endif}` occurrences and asserts `count(if) == count(endif)`. ~6 LOC. Place it adjacent to `test_scan_md_phrase_grammar_locked`. Post-C2 T2 commit `e7a33d2` baseline is 3 `{if}` / 3 `{endif}` after the Bucket A fix-up (was 3 / 2 before — the bare comma-style directive had no `{endif}` partner), so the test would have caught the pre-fix-up asymmetry.
+
+### BACKLOG-C2-W4 — Step 1b fenced-block wrapper adds no value over plain prose
+**Phase-readiness:** `non-blocker` — observational; cosmetic
+**Source:** T2 review-triage round (spec + quality reviews on commit `e7a33d2`), 2026-04-24
+
+**Why deferred:** scan.md:83-114 (Step 1b: Full-scope fan-out) wraps mixed prose + pseudocode in a single fenced block using triple-backtick without language tag. The fence does not add syntactic value — the content mixes prose explanations, markdown tables, and Python-like pseudocode — and arguably makes the block less approachable (prose inside a code fence renders as monospace without word-wrap). Removing the outer fence and letting the prose flow naturally (with the inner Task() pseudocode remaining in its own inner fence) would improve readability. No behavioral impact.
+
+**Remediation sketch:** Next readability pass: unwrap Step 1b's outer fence. Keep the inner `Task(...)` block fenced (if such an inner fence exists) but move the surrounding prose to flat paragraphs. Verify no locked-phrase test asserts the outer-fence form. ~4-6 LOC net (delete two fence lines, reflow interior).
+
+---
+
+## Phase 3b-C2 T3-review minors (discovered 2026-04-24)
+
+Non-blocking minors surfaced during T3 (screw-full-review.md deletion + SKILL.md routing) spec + quality review rounds on commit `474647e`. The T3 fix-up (commit `4b92add`) resolved the actionable ones; this section tracks the remainder for audit trail.
+
+### BACKLOG-C2-M-QR-T3-M2 — SKILL.md broad-row cell is cognitively wider than other rows
+
+**Phase-readiness:** `non-blocker`
+**Source:** T3 quality review on commit `474647e` (Marco-approved deferral 2026-04-24)
+
+**Why deferred:** Post-I1 fix-up (commit `4b92add`), the broad row now reads "See §3 redirect" (matches cell-width of the other 5 dispatch rows). The original QR-T3-M2 concern (broad row ~4× wider than other rows, breaks table-scan pattern) is resolved BY the I1 fix-up — the long prose moved to §3. Filing this entry for audit trail completeness only; no remaining action.
+
+**Remediation sketch:** Closed by I1 fix-up. No further work needed.
+
+---
+
+## Phase 3b-C2 T4 pre-audit minors (discovered 2026-04-24)
+
+Non-blocking minors surfaced during T4 (per-agent screw-sqli.md truncation) pre-audit on commit `cc52906`. Both items are observational and fold into a future scan.md polish PR.
+
+### BACKLOG-C2-M-PA-T4-M1 — pending_review entries lack explicit session_id; implicit top-level enrichment
+
+**Phase-readiness:** `non-blocker`
+**Source:** T4 pre-audit (Marco-approved deferral 2026-04-24)
+
+**Why deferred:** T4 pre-audit found that the prescribed pending_review schema at plan line 1203-1222 omits per-entry `session_id`, but scan.md's Step 3 references `pending_review.session_id` in 4 places (scan.md line 205/360/384/413). Spec §5.1 confirms session_id is top-level only, not per-entry. The implication: scan.md's parser must implicitly enrich each pending_review with the top-level session_id at parse time. Works, but the implicit-enrichment step isn't documented in scan.md Step 2.
+
+**Remediation sketch:** Two options for a future polish PR — (a) T4/T5/T6/T7 re-land with explicit per-entry session_id duplication at emit time (simpler scan.md), OR (b) scan.md Step 2 adds an explicit "enrich each pending_review.session_id from top-level session_id" instruction. Option (b) is cheaper; fold into a scan.md-polish PR alongside the other T2 deferred minors.
+
+### BACKLOG-C2-M-PA-T4-M2 — scan-subagent Step 5 return JSON emits keys scan.md doesn't consume
+
+**Phase-readiness:** `non-blocker`
+**Source:** T4 pre-audit (Marco-approved deferral 2026-04-24)
+
+**Why deferred:** Plan's prescribed new Step 5 return JSON (plan lines 1269-1284) includes `adaptive_quota_note` and `blocklist_skipped_gaps` keys. Grep on scan.md (post-T2) shows zero consumer references for either. The keys are informational, carried for possible future main-session surfacing (e.g., summary of quota exhaustion events or blocklist skips), but currently dead payload.
+
+**Remediation sketch:** Either (a) wire into scan.md Step 5 summary (one extra section for each) to surface to the user, OR (b) drop the keys from per-agent Step 5 JSON and remove the corresponding spec §5.1 entries. Option (a) preserves information flow and matches the spec's intent; do it alongside the scan.md polish PR referenced by PA-T4-M1.

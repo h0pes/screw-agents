@@ -1,24 +1,30 @@
-"""Format smoke tests for the `--adaptive` prompt surface in the 4 per-agent
-injection subagents, the injection orchestrator, and the `/screw:scan` command
-documentation.
+"""Format smoke tests for the `--adaptive` prompt surface.
+
+Post-C2 (Phase 3b-C2 Nested Subagent Dispatch Fix): the 4 per-agent injection
+subagents emit a structured pending_review payload and RETURN to main session;
+they DO NOT stage/promote/reject/execute scripts, DO NOT dispatch the
+screw:screw-script-reviewer subagent (nested dispatch is architecturally
+blocked — docs/en/sub-agents.md line 711). Post-generation flow (reviewer
+dispatch, staging, 5-section review, approve/reject, promote/execute/accumulate)
+lives in scan.md's main-session prompt.
 
 These tests are NOT semantic — they lock markdown structure and tool-surface
-presence so a future edit can't silently drop or weaken the adaptive-mode
-contract. Semantic behavior (actual generation / review flow) is validated by
-manual interactive testing and by T22's E2E integration test.
+absence (scan subagents) / presence (scan.md) so a future edit can't silently
+reintroduce the nested-dispatch pattern. Runtime dispatch correctness is
+validated by the live round-trip protocol in spec §8 — NOT by this file.
 
 Design decisions locked here:
 
-- The Adaptive Mode section MUST be byte-identical across the 4 per-agent
-  subagents modulo the agent-name substitution (sqli/cmdi/ssti/xss). A drift
-  in one agent's prompt is a regression — either intentional drift moves to
-  a shared prompt library, or it's a bug.
-- The orchestrator (screw-injection.md) has its OWN adaptive section because
-  it implements the shared Layer 0f quota across all 4 agents. Its wording
-  differs deliberately; we only check for presence of the section and its
-  shared-quota language.
-- The scan.md command doc MUST flag `--adaptive` as interactive-consent-only.
-  The flag itself IS the consent; CI must not pass it.
+- Per-agent subagent adaptive sections: byte-identical across the 4
+  modulo agent-name substitution. Drift is a regression.
+- The orchestrator (screw-injection.md) has its own adaptive section because
+  it implements the shared Layer 0f quota. We only check for section presence
+  and shared-quota language.
+- scan.md documents --adaptive flag + phrase grammar including confirm-high
+  (C2 UX friction for HIGH-risk scripts per spec §4.2 D2).
+- scan.md owns post-generation MCP tool calls (stage/promote/reject/execute);
+  per-agent + orchestrator files do NOT list these tools.
+- screw-full-review.md is DELETED (C2 Option A fold+delete per spec §4.3).
 """
 
 from __future__ import annotations
@@ -43,21 +49,38 @@ _ORCHESTRATOR_FILE = _AGENTS_DIR / "screw-injection.md"
 _SCAN_COMMAND_FILE = _COMMANDS_DIR / "scan.md"
 
 # Tools required in all 5 adaptive-mode subagent files (4 per-agent +
-# orchestrator). Post-C1 (PR #6 T15+T16+T17): every LLM-flow file uses the
-# staging tools (stage → promote → reject) instead of sign_adaptive_script
-# directly. The direct signing tool is retained on the server for non-LLM
-# callers (engine.py / adaptive/) but MUST NOT appear in any subagent's
-# tools/frontmatter or adaptive-section body prose (spec §3.2, Option D
-# isolation). T17 merged the previous per-agent/orchestrator split into a
-# single constant — the orchestrator now follows the same staging flow.
-_ADAPTIVE_MCP_TOOLS = [
+# orchestrator). Post-C2 (Phase 3b-C2): the scan subagents no longer
+# own the post-generation MCP surface. Stage/promote/reject/execute/Task
+# move to scan.md's main-session orchestrator (chain-subagents pattern
+# per sub-agents.md:683-689); they MUST NOT appear in per-agent or
+# orchestrator frontmatter or body.
+_ADAPTIVE_MCP_TOOLS_REQUIRED_PER_AGENT = [
     "mcp__screw-agents__record_context_required_match",
     "mcp__screw-agents__detect_coverage_gaps",
     "mcp__screw-agents__lint_adaptive_script",
+    "mcp__screw-agents__accumulate_findings",
+]
+
+_ADAPTIVE_MCP_TOOLS_FORBIDDEN_ON_PER_AGENT = [
     "mcp__screw-agents__stage_adaptive_script",
     "mcp__screw-agents__promote_staged_script",
     "mcp__screw-agents__reject_staged_script",
     "mcp__screw-agents__execute_adaptive_script",
+    "mcp__screw-agents__finalize_scan_results",
+    "Task",
+]
+
+# Tools required on scan.md (main session orchestrator) — the inverse of
+# _ADAPTIVE_MCP_TOOLS_FORBIDDEN_ON_PER_AGENT plus accumulate_findings +
+# finalize (main session owns the two-phase persist pattern post-C2).
+_ADAPTIVE_MCP_TOOLS_REQUIRED_ON_SCAN_MD = [
+    "mcp__screw-agents__stage_adaptive_script",
+    "mcp__screw-agents__promote_staged_script",
+    "mcp__screw-agents__reject_staged_script",
+    "mcp__screw-agents__execute_adaptive_script",
+    "mcp__screw-agents__accumulate_findings",
+    "mcp__screw-agents__finalize_scan_results",
+    "mcp__screw-agents__list_domains",
 ]
 
 
@@ -134,33 +157,31 @@ def test_adaptive_section_identical_modulo_agent_name() -> None:
 # ---- Test 3: tools frontmatter updated in all 5 subagent files --------------
 
 
-def test_tools_frontmatter_includes_adaptive_mcp_tools() -> None:
-    # Post-C1 (T17): all 5 adaptive-mode subagent files — 4 per-agent +
-    # the injection orchestrator — share the same tool surface. The
-    # negative assertion (sign_adaptive_script MUST NOT appear) now
-    # applies uniformly across all 5, lifting the Option D isolation
-    # guard to cover the orchestrator too.
+def test_tools_frontmatter_per_agent_positive_and_negative() -> None:
+    """Post-C2: scan subagents (per-agent + orchestrator) retain
+    record_context_required_match / detect_coverage_gaps / lint_adaptive_script
+    / accumulate_findings; MUST NOT list stage/promote/reject/execute /
+    finalize / Task (those moved to scan.md)."""
     all_files = {f"screw-{a}.md": p for a, p in _PER_AGENT_FILES.items()}
     all_files["screw-injection.md"] = _ORCHESTRATOR_FILE
     for name, path in all_files.items():
         frontmatter, _ = _parse_subagent_file(path)
         tools = frontmatter.get("tools", [])
         assert isinstance(tools, list), f"{name} tools must be a list"
-        for required in _ADAPTIVE_MCP_TOOLS:
+        for required in _ADAPTIVE_MCP_TOOLS_REQUIRED_PER_AGENT:
             assert required in tools, (
-                f"{name} tools frontmatter missing required adaptive MCP tool: "
-                f"{required}"
+                f"{name} tools frontmatter missing required tool: {required}"
             )
-        # Post-C1: LLM-flow files (per-agent + orchestrator) MUST NOT list
-        # sign_adaptive_script (direct-path tool is reserved for non-LLM
-        # callers). If this fails, the Option D isolation has regressed.
+        for forbidden in _ADAPTIVE_MCP_TOOLS_FORBIDDEN_ON_PER_AGENT:
+            assert forbidden not in tools, (
+                f"{name} tools frontmatter still lists forbidden tool: {forbidden} "
+                f"— Phase 3b-C2 moved this to scan.md's main-session orchestrator"
+            )
+        # Option D (C1) isolation guard stays — sign_adaptive_script reserved
+        # for non-LLM callers; not permitted in any LLM-flow file.
         assert "mcp__screw-agents__sign_adaptive_script" not in tools, (
-            f"{name} tools frontmatter still lists sign_adaptive_script — "
+            f"{name} tools frontmatter lists sign_adaptive_script — "
             f"Option D isolation regressed (spec §3.2)"
-        )
-        assert "Task" in tools, (
-            f"{name} tools frontmatter missing 'Task' "
-            f"(needed to invoke screw-script-reviewer for Layer 0d)"
         )
 
 
@@ -200,40 +221,44 @@ def test_scan_command_doc_documents_adaptive_flag() -> None:
     ), "scan.md must include the interactive-consent caveat for --adaptive"
 
 
-# ---- Test 6: adaptive section references all 5 new MCP tools + reviewer ----
+# ---- Test 6: per-agent adaptive sections reference only required tools -----
 
 
-def test_adaptive_section_references_all_required_mcp_tools() -> None:
-    required = set(_ADAPTIVE_MCP_TOOLS)
-    required.add("screw-script-reviewer")
+def test_adaptive_section_per_agent_references_only_required_tools() -> None:
+    """Post-C2: per-agent adaptive sections reference required tools;
+    MUST NOT reference stage/promote/reject/execute or the reviewer subagent
+    (those moved to scan.md)."""
+    required = set(_ADAPTIVE_MCP_TOOLS_REQUIRED_PER_AGENT)
+    forbidden = set(_ADAPTIVE_MCP_TOOLS_FORBIDDEN_ON_PER_AGENT) | {
+        "screw-script-reviewer",
+        "screw:screw-script-reviewer",
+    }
     for agent, path in _PER_AGENT_FILES.items():
         _, body = _parse_subagent_file(path)
         section = _extract_adaptive_section(body, "### Step 3.5: Adaptive Mode")
         for token in required:
             assert token in section, (
-                f"screw-{agent}.md adaptive section missing reference to `{token}`"
+                f"screw-{agent}.md adaptive section missing required: `{token}`"
             )
-        # Post-C1: LLM-flow section MUST NOT reference sign_adaptive_script
-        # (the direct-path tool). Option D isolation regression guard.
+        for token in forbidden:
+            assert token not in section, (
+                f"screw-{agent}.md adaptive section still references forbidden: "
+                f"`{token}` — Phase 3b-C2 moved it to scan.md orchestrator"
+            )
         assert "sign_adaptive_script" not in section, (
-            f"screw-{agent}.md adaptive section still references "
-            f"sign_adaptive_script — Option D isolation regressed "
-            f"(use stage + promote instead)"
+            f"screw-{agent}.md still references sign_adaptive_script — "
+            f"Option D isolation regressed"
         )
-
-    # Post-C1 (T17): the orchestrator's adaptive section MUST NOT reference
-    # sign_adaptive_script either — the same Option D isolation applies.
-    # Note: the orchestrator's Step 2.5 section delegates to per-agent
-    # Step 3.5d for the per-gap pipeline rather than listing every tool
-    # verbatim, so we only assert the negative guard here (no positive
-    # tool-presence check for the orchestrator body).
+    # Orchestrator: same negative guards; positive assertion is delegated to
+    # test_injection_orchestrator_has_adaptive_section for its own content.
     _, body = _parse_subagent_file(_ORCHESTRATOR_FILE)
     section = _extract_adaptive_section(body, "### Step 2.5: Adaptive Mode")
-    assert "sign_adaptive_script" not in section, (
-        "screw-injection.md adaptive section still references "
-        "sign_adaptive_script — Option D isolation regressed "
-        "(use stage + promote instead)"
-    )
+    for token in forbidden:
+        assert token not in section, (
+            f"screw-injection.md adaptive section still references forbidden: "
+            f"`{token}`"
+        )
+    assert "sign_adaptive_script" not in section
 
 
 # ---- Test 7: prompt-injection-resistance language is present ---------------
@@ -347,53 +372,7 @@ def test_adaptive_section_removes_noninteractive_detection() -> None:
         )
 
 
-# ---- Test 11: execute_adaptive_script invocation omits session_id ----------
-
-
-def test_execute_adaptive_script_invocation_omits_session_id() -> None:
-    """T18a Deviation 1 regression guard: the server.py signature for
-    execute_adaptive_script accepts only project_root, script_name,
-    and wall_clock_s (not session_id). A future "helpful" edit that
-    re-adds session_id to the subagent's sample invocation would
-    drift from the server signature and fail at runtime. This test
-    locks the correct call shape across all 4 per-agent subagents."""
-    for agent, path in _PER_AGENT_FILES.items():
-        _, body = _parse_subagent_file(path)
-        # Find the execute_adaptive_script sample invocation.
-        # Look for the opening `execute_adaptive_script({` and capture
-        # through the closing `})`.
-        import re
-        match = re.search(
-            r"execute_adaptive_script\s*\(\s*\{.*?\}\s*\)",
-            body,
-            re.DOTALL,
-        )
-        assert match is not None, (
-            f"{agent}: could not find execute_adaptive_script invocation "
-            f"in adaptive section"
-        )
-        invocation = match.group(0)
-        # session_id must NOT appear as a key in this invocation
-        assert '"session_id"' not in invocation, (
-            f"{agent}: execute_adaptive_script invocation includes "
-            f"session_id — server.py signature only accepts "
-            f"project_root/script_name/wall_clock_s. Remove session_id "
-            f"from this specific call (other MCP tool calls still pass "
-            f"session_id, but not this one)."
-        )
-
-
-# ---- Tests 12-23: T20 whole-file format-smoke assertions -------------------
-#
-# These 12 assertions (48 parametrized cases across the 4 per-agent files)
-# lock the whole-file content of each per-agent adaptive subagent. They
-# INTENTIONALLY overlap with the section-level tests above
-# (`test_adaptive_section_references_all_required_mcp_tools` and
-# `test_tools_frontmatter_includes_adaptive_mcp_tools`) — the prior tests
-# check the EXTRACTED adaptive section or the FRONTMATTER TOOLS LIST; these
-# check WHOLE-FILE content. The redundancy catches regressions that would
-# slip past the section-only checks, e.g. a prose mention of
-# `sign_adaptive_script` outside the adaptive section. Do NOT deduplicate.
+# ---- Whole-file format-smoke assertions (post-C2: per-agent + orchestrator scope only) ----
 
 
 def _read_agent_content(path: Path) -> str:
@@ -406,29 +385,6 @@ def _read_agent_content(path: Path) -> str:
 
 
 @pytest.mark.parametrize("agent,path", sorted(_PER_AGENT_FILES.items()))
-def test_adaptive_prompt_contains_stage_adaptive_script(agent: str, path: Path) -> None:
-    """Whole-file lock: `stage_adaptive_script` must appear in the prompt
-    content (frontmatter + body). Complements section-level checks."""
-    assert "stage_adaptive_script" in _read_agent_content(path), (
-        f"screw-{agent}.md missing stage_adaptive_script reference — C1 fix regressed"
-    )
-
-
-@pytest.mark.parametrize("agent,path", sorted(_PER_AGENT_FILES.items()))
-def test_adaptive_prompt_contains_promote_staged_script(agent: str, path: Path) -> None:
-    assert "promote_staged_script" in _read_agent_content(path), (
-        f"screw-{agent}.md missing promote_staged_script reference"
-    )
-
-
-@pytest.mark.parametrize("agent,path", sorted(_PER_AGENT_FILES.items()))
-def test_adaptive_prompt_contains_reject_staged_script(agent: str, path: Path) -> None:
-    assert "reject_staged_script" in _read_agent_content(path), (
-        f"screw-{agent}.md missing reject_staged_script reference"
-    )
-
-
-@pytest.mark.parametrize("agent,path", sorted(_PER_AGENT_FILES.items()))
 def test_adaptive_prompt_does_not_reference_sign_adaptive_script(agent: str, path: Path) -> None:
     """Option D isolation: LLM flow must NEVER reach sign_adaptive_script
     (the direct-path tool). If this test fails, the C1 regeneration-surface
@@ -438,28 +394,6 @@ def test_adaptive_prompt_does_not_reference_sign_adaptive_script(agent: str, pat
     assert "sign_adaptive_script" not in content, (
         f"screw-{agent}.md references sign_adaptive_script — LLM-flow isolation "
         f"regressed. Use stage + promote instead (spec §3.2)."
-    )
-
-
-@pytest.mark.parametrize("agent,path", sorted(_PER_AGENT_FILES.items()))
-def test_adaptive_prompt_uses_plugin_namespaced_reviewer(agent: str, path: Path) -> None:
-    """I1: subagent_type MUST be the plugin-namespaced form."""
-    content = _read_agent_content(path)
-    assert "screw:screw-script-reviewer" in content, (
-        f"screw-{agent}.md missing plugin-namespaced reviewer name (I1)"
-    )
-
-
-@pytest.mark.parametrize("agent,path", sorted(_PER_AGENT_FILES.items()))
-def test_adaptive_prompt_does_not_use_bare_reviewer_name(agent: str, path: Path) -> None:
-    """I1 negative: the bare form (without plugin prefix) must not appear as
-    a `subagent_type` value. Regex matches both YAML (`subagent_type: "x"`)
-    and JSON-ish (`"subagent_type": "x"`) assignment forms."""
-    import re
-    content = _read_agent_content(path)
-    bare_refs = re.findall(r"subagent_type['\": ]+\s*\"screw-script-reviewer\"", content)
-    assert not bare_refs, (
-        f"screw-{agent}.md uses bare screw-script-reviewer as subagent_type (I1 regressed)"
     )
 
 
@@ -500,36 +434,172 @@ def test_adaptive_prompt_contains_negative_examples_block(agent: str, path: Path
         )
 
 
-@pytest.mark.parametrize("agent,path", sorted(_PER_AGENT_FILES.items()))
-def test_adaptive_prompt_contains_stderr_render_on_failure(agent: str, path: Path) -> None:
-    """I3: execute-failure branch renders stderr in a fenced block."""
-    content = _read_agent_content(path)
-    assert "Standard error output" in content, (
-        f"screw-{agent}.md missing stderr render in failure branch (I3)"
+# ---- C2 NEW: scan.md main-session orchestrator assertions -------------------
+
+
+def test_scan_md_references_all_required_orchestration_mcp_tools() -> None:
+    """Post-C2: scan.md's main-session prompt must reference every MCP tool
+    the orchestrator calls directly: stage/promote/reject/execute +
+    accumulate + finalize + list_domains (for full-scope branch)."""
+    _, body = _parse_subagent_file(_SCAN_COMMAND_FILE)
+    for required in _ADAPTIVE_MCP_TOOLS_REQUIRED_ON_SCAN_MD:
+        tool_basename = required.replace("mcp__screw-agents__", "")
+        assert tool_basename in body, (
+            f"scan.md missing reference to {tool_basename} "
+            f"(Phase 3b-C2: main session owns post-generation flow)"
+        )
+
+
+def test_scan_md_dispatches_plugin_namespaced_reviewer() -> None:
+    """Post-C2: scan.md dispatches screw:screw-script-reviewer from main
+    session via the Task tool. The `subagent_type` literal must be the
+    plugin-namespaced form (I1 hardening from C1 PR #6, preserved here)."""
+    _, body = _parse_subagent_file(_SCAN_COMMAND_FILE)
+    assert "screw:screw-script-reviewer" in body, (
+        "scan.md missing plugin-namespaced reviewer dispatch (I1)"
+    )
+    # The bare name (without plugin prefix) must not appear as subagent_type.
+    import re
+    bare_refs = re.findall(
+        r'subagent_type[\'": ]+\s*"screw-script-reviewer"', body
+    )
+    assert not bare_refs, (
+        "scan.md uses bare screw-script-reviewer as subagent_type (I1 regressed)"
     )
 
 
-@pytest.mark.parametrize("agent,path", sorted(_PER_AGENT_FILES.items()))
-def test_adaptive_prompt_contains_retention_notice(agent: str, path: Path) -> None:
-    """I4: retention notice on execute failure points the operator at
-    `/screw:adaptive-cleanup remove` for cleanup."""
-    content = _read_agent_content(path)
-    assert "retained at" in content and "adaptive-cleanup remove" in content, (
-        f"screw-{agent}.md missing retention notice (I4)"
+def test_scan_md_phrase_grammar_locked() -> None:
+    """Post-C2 spec §4.2 D2: phrase grammar includes approve, confirm-high
+    (C2-new for HIGH-risk UX friction), confirm-stale, confirm-<8hex>, reject.
+
+    Uses word-boundary matching so `approve` doesn't match `disapprove` and
+    `reject` doesn't match `rejection`. For `confirm-` family: `\\bconfirm-\\b`
+    matches any `confirm-<wordchar...>` form (e.g., `confirm-high`,
+    `confirm-stale`, `confirm-a…` hex) — the trailing `\\b` matches the
+    non-word→word transition between `-` and the first char of the suffix.
+    """
+    import re
+    _, body = _parse_subagent_file(_SCAN_COMMAND_FILE)
+    required_phrases = [
+        "approve",
+        "reject",
+        "confirm-high",
+        "confirm-stale",
+        "confirm-",
+    ]
+    for phrase in required_phrases:
+        assert re.search(rf"\b{re.escape(phrase)}\b", body), (
+            f"scan.md missing approval phrase token: `{phrase}` "
+            f"(word-boundary match)"
+        )
+
+
+def test_scan_md_contains_subagent_return_schema_keys() -> None:
+    """Post-C2: scan.md parses scan-subagent fenced JSON return. The schema's
+    top-level keys (from spec §5.1) must be visible in scan.md so the
+    orchestrator knows what to parse."""
+    _, body = _parse_subagent_file(_SCAN_COMMAND_FILE)
+    required_keys = [
+        "pending_reviews",
+        "session_id",
+        "trust_status",
+        "scan_subagent",
+        "scan_metadata",
+    ]
+    for key in required_keys:
+        assert key in body, (
+            f"scan.md missing subagent-return schema key: `{key}`"
+        )
+
+
+def test_scan_md_does_not_reference_deleted_full_review_subagent() -> None:
+    """Post-C2: screw-full-review.md is deleted (Option A fold+delete).
+    scan.md MUST NOT reference it."""
+    _, body = _parse_subagent_file(_SCAN_COMMAND_FILE)
+    assert "screw-full-review" not in body, (
+        "scan.md still references deleted screw-full-review subagent "
+        "(Phase 3b-C2 Option A: full scope folded into scan.md)"
     )
 
 
-@pytest.mark.parametrize("agent,path", sorted(_PER_AGENT_FILES.items()))
-def test_adaptive_prompt_displays_sha256_prefix_in_review_header(agent: str, path: Path) -> None:
-    """C1 UX: the 5-section review header surfaces the staged sha prefix.
-    BOTH phrases are locked (not OR) — the uppercase `SHA256` label appears
-    in the review header, and `script_sha256_prefix` is the Python variable
-    name in the sample stage-tool invocation. Both must survive any future
-    edit; dropping either is a UX regression."""
-    content = _read_agent_content(path)
-    assert "SHA256" in content, (
-        f"screw-{agent}.md missing 'SHA256' label in review header (C1 UX)"
+def test_screw_full_review_md_file_is_deleted() -> None:
+    """Post-C2: screw-full-review.md file does not exist on disk."""
+    deleted_path = _AGENTS_DIR / "screw-full-review.md"
+    assert not deleted_path.exists(), (
+        f"{deleted_path} still exists — Phase 3b-C2 Option A requires deletion "
+        f"(second nested-subagent-dispatch instance per spec §1.4)"
     )
-    assert "script_sha256_prefix" in content, (
-        f"screw-{agent}.md missing `script_sha256_prefix` in stage invocation (C1 UX)"
+
+
+def test_per_agent_files_instruct_fenced_json_return() -> None:
+    """Post-C2: per-agent + orchestrator scan subagents end their turn with
+    a fenced JSON code block per spec §5.1 schema. The instruction to do so
+    must be discoverable in the prompt."""
+    all_files = {f"screw-{a}.md": p for a, p in _PER_AGENT_FILES.items()}
+    all_files["screw-injection.md"] = _ORCHESTRATOR_FILE
+    for name, path in all_files.items():
+        content = _read_agent_content(path)
+        assert "pending_reviews" in content, (
+            f"{name} missing pending_reviews reference — structured return "
+            f"schema (spec §5.1) not discoverable"
+        )
+        assert "scan_subagent" in content, (
+            f"{name} missing scan_subagent reference"
+        )
+        # Instruct the subagent to emit the fenced JSON block (rough
+        # regex — exact phrase is implementer-authored; this is a
+        # substring heuristic).
+        assert ("fenced JSON" in content or "fenced json" in content.lower()
+                or "```json" in content), (
+            f"{name} missing instruction to emit fenced JSON return block"
+        )
+
+
+def test_scan_md_contains_full_scope_list_domains_branch() -> None:
+    """Post-C2 Option A: scan.md's `full` branch dispatches domain
+    orchestrators via list_domains (no more screw-full-review). The branch
+    must reference list_domains; the `list_domains` assertion alone
+    covers the full-scope branch (the MCP tool is only invoked there)."""
+    _, body = _parse_subagent_file(_SCAN_COMMAND_FILE)
+    assert "list_domains" in body, (
+        "scan.md missing list_domains reference (full scope branch)"
+    )
+
+
+def test_scan_md_verifies_trust_before_promote() -> None:
+    """Post-C2 spec §4.7 D7 (per-review trust re-check): main session calls
+    `verify_trust` AFTER stage and BEFORE compose-review. Non-zero quarantine
+    counts surface a loud banner before the user sees the 5-section review.
+
+    This is advisory-loud, NOT fail-closed — promote_staged_script remains
+    the cryptographic gate via its internal tamper_detected check
+    (engine.py:509-588). verify_trust reports ENVIRONMENT state
+    (script_quarantine_count, exclusion_quarantine_count); promote's check
+    validates THIS SPECIFIC staged script. The two are complementary.
+
+    This assertion locks the ordering invariant: first `verify_trust` reference
+    in scan.md MUST precede the last `promote_staged_script` reference — so the
+    main-session LLM cannot skip the per-review environmental advisory.
+    """
+    _, body = _parse_subagent_file(_SCAN_COMMAND_FILE)
+    assert "verify_trust" in body, (
+        "scan.md missing verify_trust reference — spec §4.7 D7: main session "
+        "must call verify_trust between stage and promote for per-review "
+        "environmental trust advisory "
+        "(security: per-review environment visibility; promote's "
+        "tamper_detected is the cryptographic gate)"
+    )
+    # Ordering smoke: first verify_trust mention must precede the LAST
+    # promote_staged_script mention. Not a strict proof of correct sequencing
+    # (T10 live round-trip validates runtime order), but catches the gross
+    # case where verify_trust is only documented after promote.
+    first_verify = body.find("verify_trust")
+    last_promote = body.rfind("promote_staged_script")
+    assert first_verify >= 0 and last_promote >= 0, (
+        "scan.md must reference both verify_trust and promote_staged_script"
+    )
+    assert first_verify < last_promote, (
+        "scan.md's first verify_trust reference comes AFTER the last "
+        "promote_staged_script reference — ordering suggests verify_trust "
+        "isn't instructed before promote (spec §4.7 D7 violated)"
     )
