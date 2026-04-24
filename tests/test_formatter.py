@@ -366,3 +366,42 @@ def test_sarif_short_description_fallback_without_registry():
     short = parsed["runs"][0]["tool"]["driver"]["rules"][0]["shortDescription"]["text"]
     assert "CWE-89" in short
     assert "SQL Injection" in short
+
+
+# === T19-M1 — SARIF properties.mergedFromSources emission ===
+
+
+def test_sarif_merged_finding_emits_properties_merged_from_sources():
+    """A merged Finding's SARIF result must carry properties.mergedFromSources
+    with a list of {agent, severity} dicts. Unmerged findings emit no such key.
+    """
+    from screw_agents.formatter import _format_sarif
+    from screw_agents.models import MergedSource
+
+    merged_finding = _make_finding(
+        id="f1",
+        merged_from_sources=[
+            MergedSource(agent="adaptive_script:qb-check", severity="high"),
+        ],
+    )
+    unmerged_finding = _make_finding(id="f2", merged_from_sources=None)
+
+    sarif_str = _format_sarif(
+        [merged_finding, unmerged_finding], metadata={}, agent_registry=None
+    )
+    doc = json.loads(sarif_str)
+    results = doc["runs"][0]["results"]
+
+    # Merged finding: properties bag present with mergedFromSources
+    assert "properties" in results[0], (
+        "Merged finding's SARIF result missing properties bag"
+    )
+    assert results[0]["properties"]["mergedFromSources"] == [
+        {"agent": "adaptive_script:qb-check", "severity": "high"},
+    ]
+
+    # Unmerged finding: no properties bag (or no mergedFromSources key)
+    assert (
+        "properties" not in results[1]
+        or "mergedFromSources" not in results[1].get("properties", {})
+    )

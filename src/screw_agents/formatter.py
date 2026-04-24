@@ -236,6 +236,17 @@ def _sarif_result(finding: Finding) -> dict[str, Any]:
         "fingerprints": {"finding/v1": finding.id},
     }
 
+    # T19-M1: surface merged_from_sources via the SARIF properties bag
+    # (SARIF 2.1.0 §3.8 tool-specific extensions). Consumers that read the
+    # bag see multi-source attribution; consumers that don't still see the
+    # primary's `agent` via ruleId + tool driver metadata.
+    if finding.merged_from_sources:
+        result["properties"] = {
+            "mergedFromSources": [
+                s.model_dump() for s in finding.merged_from_sources
+            ],
+        }
+
     if loc.data_flow is not None:
         df = loc.data_flow
         result["relatedLocations"] = [
