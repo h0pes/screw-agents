@@ -840,3 +840,11 @@ def test_adaptive_script_meta_rejects_extra_fields():
             unknown_field="injected",  # should be rejected
         )
 
+
+def test_merged_source_roundtrip_via_model_dump() -> None:
+    """MergedSource(agent, severity) must model_dump to {agent, severity}."""
+    from screw_agents.models import MergedSource
+
+    ms = MergedSource(agent="sqli", severity="high")
+    assert ms.model_dump() == {"agent": "sqli", "severity": "high"}
+

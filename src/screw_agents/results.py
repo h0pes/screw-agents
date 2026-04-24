@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from screw_agents.formatter import format_csv, format_findings
 from screw_agents.learning import load_exclusions, match_exclusions
-from screw_agents.models import Finding
+from screw_agents.models import Finding, MergedSource
 
 if TYPE_CHECKING:
     from screw_agents.registry import AgentRegistry
@@ -53,10 +53,13 @@ def _merge_findings_augmentatively(findings: list[Finding]) -> list[Finding]:
        > low > info > unknown), then alphabetical agent name ascending, then
        first-in-input order (Python stable sort).
     2. Attaches a populated ``merged_from_sources`` list to the primary,
-       formatted as ``["<agent> (<severity>)", ...]`` for all sources in the
-       bucket (including the primary itself). Order follows the ORIGINAL
-       input order of the bucket, not sorted order — downstream consumers
-       see the natural insertion ordering.
+       typed as ``list[MergedSource]`` where each entry carries an
+       ``agent`` + ``severity`` pair. The list includes ALL entries in
+       the bucket — the primary's own detection is also represented as
+       one ``MergedSource`` entry, so the list is the complete
+       provenance of this merged finding. Order follows the ORIGINAL
+       input order of the bucket, not sorted order — downstream
+       consumers see the natural insertion ordering.
     3. Returns exactly one :class:`Finding` per ``(file, line_start, cwe)``
        bucket.
 
@@ -96,7 +99,8 @@ def _merge_findings_augmentatively(findings: list[Finding]) -> list[Finding]:
         # not from sorted order — this gives downstream consumers the
         # natural ordering they'd expect from insertion.
         sources = [
-            f"{f.agent} ({f.classification.severity})" for f in group
+            MergedSource(agent=f.agent, severity=f.classification.severity)
+            for f in group
         ]
 
         merged.append(
@@ -144,7 +148,10 @@ def render_and_write(
         Dict with keys:
             - files_written: dict[str, str] -- format name → file path
             - summary: dict -- total, suppressed, active, by_severity counts
-            - exclusions_applied: list[dict] -- finding_id + exclusion_ref pairs
+            - exclusions_applied: list[dict] -- each entry has finding_id,
+              exclusion_ref, and matched_via_agent (the source agent whose
+              exclusion triggered the suppression; for unmerged findings
+              or primary-agent matches this equals finding.agent)
             - trust_status: dict -- 4-field trust verification counts
               (matches :meth:`ScanEngine.verify_trust` shape)
 
@@ -153,7 +160,7 @@ def render_and_write(
             not accessible due to permissions (T6-I2).
     """
     if formats is None:
-        formats = ["json", "markdown"]
+        formats = ["json", "markdown", "csv"]  # T19-M1 D7 (2026-04-24)
     # Parse findings via Pydantic
     findings = [Finding(**f) for f in findings_raw]
 
@@ -201,22 +208,43 @@ def render_and_write(
     exclusions_applied: list[dict[str, str]] = []
 
     for finding in findings:
-        matches = match_exclusions(
-            exclusions,
-            file=finding.location.file,
-            line=finding.location.line_start,
-            code=finding.location.code_snippet or "",
-            agent=finding.agent,
-            function=finding.location.function,
-        )
-        if matches:
+        # T19-M2 (2026-04-24): per-source exclusion matching. Iterate
+        # primary agent first, then merged_from_sources in emitted
+        # order. First match wins (deterministic, audit-friendly).
+        # See DEFERRED_BACKLOG.md §T19-M2 for the pre-existing limitation
+        # this addresses (primary-only matching silently missed merged
+        # findings where user's exclusion targeted a non-primary source).
+        candidate_agents: list[str] = [finding.agent]
+        if finding.merged_from_sources:
+            candidate_agents.extend(
+                s.agent for s in finding.merged_from_sources
+            )
+
+        matched_agent: str | None = None
+        matched_ref: str | None = None
+        for candidate in candidate_agents:
+            matches = match_exclusions(
+                exclusions,
+                file=finding.location.file,
+                line=finding.location.line_start,
+                code=finding.location.code_snippet or "",
+                agent=candidate,
+                function=finding.location.function,
+            )
+            if matches:
+                matched_agent = candidate
+                matched_ref = matches[0].id
+                break
+
+        if matched_ref is not None:
             finding.triage.excluded = True
-            finding.triage.exclusion_ref = matches[0].id
+            finding.triage.exclusion_ref = matched_ref
             finding.triage.status = "suppressed"
             suppressed_count += 1
             exclusions_applied.append({
                 "finding_id": finding.id,
-                "exclusion_ref": matches[0].id,
+                "exclusion_ref": matched_ref,
+                "matched_via_agent": matched_agent,
             })
 
     # Create .screw/ directory structure. Wrap NotADirectoryError (when

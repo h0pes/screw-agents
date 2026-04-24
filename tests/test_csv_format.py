@@ -18,7 +18,7 @@ from tests.test_formatter import _make_finding
 _EXPECTED_COLUMNS = [
     "id", "file", "line", "cwe", "cwe_name", "agent",
     "severity", "confidence", "description", "code_snippet",
-    "excluded", "exclusion_ref",
+    "excluded", "exclusion_ref", "merged_sources",
 ]
 
 
@@ -107,3 +107,30 @@ def test_format_csv_sanitizes_formula_injection():
     data = dict(zip(rows[0], rows[1]))
     assert data["description"].startswith("\t=")
     assert data["code_snippet"].startswith("\t+")
+
+
+def test_format_csv_merged_finding_populates_merged_sources_column():
+    """A merged Finding's CSV row must carry a `"; "`-joined merged_sources
+    cell in the last column; unmerged findings emit an empty last cell
+    (T19-M1 D4).
+    """
+    from screw_agents.models import MergedSource
+
+    merged = _make_finding(
+        id="f1",
+        merged_from_sources=[
+            MergedSource(agent="adaptive_script:qb-check", severity="high"),
+            MergedSource(agent="xss", severity="medium"),
+        ],
+    )
+    unmerged = _make_finding(id="f2", merged_from_sources=None)
+
+    out = format_csv([merged, unmerged])
+    rows = list(csv.reader(io.StringIO(out)))
+
+    # Header must include merged_sources as the LAST column.
+    assert rows[0][-1] == "merged_sources"
+    # Merged row: last cell is "; "-joined "<agent> (<severity>)".
+    assert rows[1][-1] == "adaptive_script:qb-check (high); xss (medium)"
+    # Unmerged row: last cell is empty.
+    assert rows[2][-1] == ""
