@@ -514,9 +514,9 @@ See docs/PHASE_3B_C2_PLAN.md Task 1."
 ### Task 2: Rewrite `plugins/screw/commands/scan.md` as Main-Session Orchestrator
 
 **Files:**
-- Modify: `plugins/screw/commands/scan.md` (full rewrite, 97 → ~280 lines)
+- Modify: `plugins/screw/commands/scan.md` (full rewrite, 97 → ~440 lines)
 
-**Rationale:** This is the main work of C2. scan.md becomes the chain-subagents orchestrator per spec §6.1. It owns: argument parsing, scan-subagent dispatch, structured-return JSON parsing, adaptive review loop (reviewer dispatch + staging + 5-section review + approve/reject + promote/execute/accumulate), finalize, summary. Phrase grammar includes `confirm-high` per spec §4.2 D2 (HIGH-risk UX friction).
+**Rationale:** This is the main work of C2. scan.md becomes the chain-subagents orchestrator per spec §6.1. It owns: argument parsing, scan-subagent dispatch, structured-return JSON parsing, adaptive review loop (reviewer dispatch + staging + 5-section review + approve/reject + promote/execute/accumulate), finalize, summary. Phrase grammar includes `confirm-high` per spec §4.2 D2 (HIGH-risk UX friction). Step 3c.5 (post-RESCOPE PA-T2-R1) inserts a `verify_trust` advisory-loud check between stage and review per spec §4.7 D7.
 
 **Precedent to match:**
 - From PR #6 C1: 5-section review header format (`script_name`, `staged_at`, `session_id_short`, `script_sha256_prefix`) — preserve verbatim in scan.md
@@ -629,9 +629,10 @@ Phase 6 per DEFERRED_BACKLOG). Today the table has one entry:
 |--------------------------|----------------------------|
 | injection-input-handling | screw:screw-injection      |
 
-For each domain entry in response.domains:
-  - Look up the orchestrator subagent_type in the table above.
-  - If the domain is NOT in the table: surface "Domain {name} has N agents but
+The response is a flat dict `{<domain_name>: <agent_count>}` (engine.py:130-132).
+For each `(domain_name, agent_count)` in `response.items()`:
+  - Look up the orchestrator subagent_type in the table above using `domain_name`.
+  - If `domain_name` is NOT in the table: surface "Domain {name} has {agent_count} agent(s) but
     no orchestrator mapped in scan.md — skipped." and continue to next domain.
   - Otherwise, dispatch the orchestrator sequentially (one per domain):
     Task(
@@ -658,9 +659,12 @@ For each return:
 
 1. Locate the LAST fenced JSON code block in the subagent's output.
 2. Parse it via `json.loads` (or mental equivalent — the JSON MUST be valid).
-3. Validate `schema_version == 1` and required top-level keys are present:
-   - `scan_subagent`, `session_id`, `trust_status`, `yaml_findings_accumulated`,
-     `adaptive_mode_engaged`, `pending_reviews`, `scan_metadata`
+3. Validate the required top-level keys are present:
+   - `schema_version`, `scan_subagent`, `session_id`, `trust_status`,
+     `yaml_findings_accumulated`, `adaptive_mode_engaged`, `pending_reviews`,
+     `scan_metadata`
+   Then validate `schema_version == 1` as an explicit value check (reject any
+   other integer/string with the malformed-output error below).
 4. If parse fails or schema mismatches:
    Surface to user: *"Scan subagent (<scan_subagent-name>) returned malformed
    structured output. Falling back to YAML-only mode; adaptive features
@@ -749,6 +753,40 @@ Capture from the response: `script_sha256_prefix`, `session_id_short`,
 `staged_at`. On `status != "staged"` (e.g., `stage_name_collision`,
 `invalid_script_name`, `invalid_session_id`), render the tool's error message
 verbatim to the user, move to next review.
+
+#### 3c.5. Per-review trust re-check (advisory-loud, spec §4.7 D7)
+
+After stage succeeds and BEFORE composing the 5-section review, call the
+`verify_trust` MCP tool to report environmental trust state per the spec §4.7
+decision:
+
+```
+mcp__screw-agents__verify_trust({
+  "project_root": <absolute project root>
+})
+```
+
+Expected response fields: `script_quarantine_count`, `exclusion_quarantine_count`.
+
+If EITHER count is non-zero, surface a LOUD banner to the user BEFORE composing
+the 5-section review (i.e., print this, then print the review):
+
+```
+⚠ **Trust status before approval:** {exclusion_quarantine_count} exclusion(s) and
+{script_quarantine_count} script(s) are currently quarantined in this project.
+
+- Resolve exclusions with `screw-agents validate-exclusion <id>` or bulk-sign
+  with `screw-agents migrate-exclusions`.
+- Resolve scripts with `screw-agents validate-script <name>`.
+
+This approval affects an already-compromised directory — proceed with caution.
+```
+
+If BOTH counts are zero, skip the banner entirely (no output). The check is
+ADVISORY — NOT fail-closed. Continue to Step 3d regardless. Cryptographic
+enforcement stays in `promote_staged_script` (Step 3e) via the `tamper_detected`
+error taxonomy; verify_trust's role is ENVIRONMENT visibility, not per-script
+verification.
 
 #### 3d. Compose the 5-section review and END your main-session turn
 
@@ -975,9 +1013,9 @@ Capture each response's `files_written` paths, `summary` counts, and
 
 - [ ] **Step 3: Run scan.md-specific test assertions — verify they go GREEN**
 
-Run: `uv run pytest tests/test_adaptive_subagent_prompts.py::test_scan_md_references_all_required_orchestration_mcp_tools tests/test_adaptive_subagent_prompts.py::test_scan_md_dispatches_plugin_namespaced_reviewer tests/test_adaptive_subagent_prompts.py::test_scan_md_phrase_grammar_locked tests/test_adaptive_subagent_prompts.py::test_scan_md_contains_subagent_return_schema_keys tests/test_adaptive_subagent_prompts.py::test_scan_md_does_not_reference_deleted_full_review_subagent tests/test_adaptive_subagent_prompts.py::test_scan_md_contains_full_scope_list_domains_branch -v`
+Run: `uv run pytest tests/test_adaptive_subagent_prompts.py::test_scan_md_references_all_required_orchestration_mcp_tools tests/test_adaptive_subagent_prompts.py::test_scan_md_dispatches_plugin_namespaced_reviewer tests/test_adaptive_subagent_prompts.py::test_scan_md_phrase_grammar_locked tests/test_adaptive_subagent_prompts.py::test_scan_md_contains_subagent_return_schema_keys tests/test_adaptive_subagent_prompts.py::test_scan_md_does_not_reference_deleted_full_review_subagent tests/test_adaptive_subagent_prompts.py::test_scan_md_contains_full_scope_list_domains_branch tests/test_adaptive_subagent_prompts.py::test_scan_md_verifies_trust_before_promote -v`
 
-Expected: ALL 6 scan.md-related new assertions GREEN (the file-absence test still RED since we haven't deleted screw-full-review.md yet; that's T3).
+Expected: ALL 7 scan.md-related new assertions GREEN (the file-absence test still RED since we haven't deleted screw-full-review.md yet; that's T3).
 
 - [ ] **Step 4: Run full pytest — verify no other regression**
 
@@ -994,7 +1032,8 @@ git commit -m "feat(phase3b-c2): rewrite scan.md as main-session orchestrator
 Chain-subagents pattern per sub-agents.md:683-689. scan.md becomes the
 main-session orchestrator: dispatches scan subagent → parses structured
 return → dispatches screw:screw-script-reviewer per pending_review →
-stages → shows 5-section review → processes approve/reject → promotes +
+stages → Step 3c.5 verify_trust advisory-loud check (spec §4.7 D7) →
+shows 5-section review → processes approve/reject → promotes +
 executes + accumulates → finalizes.
 
 Phrase grammar adds confirm-high (spec §4.2 D2): HIGH-risk scripts
