@@ -2328,6 +2328,7 @@ fall-through."
 - E1 G1 escalation (pre-audit recommended C): `uniqueItems: true` added to agents schema for MCP-boundary defense-in-depth.
 - E1 G2 escalation (pre-audit recommended A): cursor type union `["string", "null"]` retained for consistency with scan_domain precedent.
 - E1 G4 escalation (pre-audit recommended C): schema-rejection tests deferred to BACKLOG-T-SCAN-REFACTOR-T5-M1.
+- Quality review note: scan_agents description text says "supersedes scan_full and per-agent scan_<name> tools (retired)" — those tools are still registered between Task 5 and Task 6 in the same PR. Transient one-task-cycle inconsistency, intentional and accepted; resolves when Task 6 lands.
 
 Net new tests in Task 5: **1** (dispatch test). Post-Task-5 expected: **977 passed, 9 skipped**.
 

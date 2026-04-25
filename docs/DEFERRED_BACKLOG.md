@@ -1919,3 +1919,14 @@ Non-blocking minors surfaced during Task 5 pre-audit. Deferred past T-SCAN-REFAC
 **Remediation sketch:** Use `jsonschema.validate(instance, schema)` against `tools[i]["input_schema"]` for each tool. Cover: `agents=[]` → fails `minItems`, `agents=["a","a"]` → fails `uniqueItems`, `page_size=0` → fails `minimum`, `page_size=10000` → fails `maximum`, `target` missing → fails `required`. ~30 LOC for one test file covering 4 tools × ~3 cases each.
 
 **Estimated scope:** 30 LOC + 0 production code changes. New test file.
+
+### BACKLOG-T-SCAN-REFACTOR-T5-M2 — En-dash style inconsistency in tool descriptions
+**Phase-4 readiness:** `non-blocker` — pure cosmetic
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 5 quality review, 2026-04-25 (QR-T5-M2)
+**File:** `src/screw_agents/engine.py::list_tool_definitions` (scan_agents at line 2517, scan_domain at line 2475)
+
+**Why deferred:** scan_agents and scan_domain descriptions use en-dash `—` characters; other tool descriptions in the same `list_tool_definitions` (scan_full, list_agents, get_agent_prompt, etc.) avoid em/en dashes entirely. Style inconsistency only — readers parse both forms identically.
+
+**Remediation sketch:** Sweep `list_tool_definitions` for `—` characters in description strings; replace with `--` or rephrase to avoid the dash entirely. ~10 LOC.
+
+**Estimated scope:** ~10 LOC in 1 file + 0 tests.
