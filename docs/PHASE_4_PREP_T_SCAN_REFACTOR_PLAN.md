@@ -321,6 +321,35 @@ In `registry.py::_load`, after the `for yaml_path in ...` loop completes (after 
             )
 ```
 
+- [ ] **Step 4b (added during fix-up): Lowercase-identifier validator on `AgentMeta`**
+
+Spec/quality review surfaced that the Section 10.2 collision check is a raw set intersection — case-only collisions (`Cryptography` vs `cryptography`) would slip through if the future Task 8 bare-token parser case-folds user input. Closing the gap at the schema layer (Pydantic `field_validator` on `AgentMeta.name`/`AgentMeta.domain`) eliminates the entire case-collision class permanently. All current 4 agents and 1 domain already comply; no migration.
+
+In `src/screw_agents/models.py`:
+
+1. Add `import re` near the top (after `from __future__ import annotations`).
+2. Extend the pydantic import to include `field_validator`.
+3. Inside `class AgentMeta(BaseModel)`, after the field declarations, add:
+
+```python
+    @field_validator("name", "domain")
+    @classmethod
+    def _lowercase_identifier(cls, v: str) -> str:
+        if not re.fullmatch(r"[a-z][a-z0-9_-]*", v):
+            raise ValueError(
+                f"AgentMeta name/domain must match '^[a-z][a-z0-9_-]*$' "
+                f"(lowercase letter followed by letters/digits/underscores/hyphens); "
+                f"got {v!r}. T-SCAN-REFACTOR Task 1 (Section 10.2 reinforcement): "
+                f"the bare-token slash command parser will case-fold user input; "
+                f"enforcing lowercase at load time eliminates case-only collisions."
+            )
+        return v
+```
+
+Append 4 new tests in `tests/test_registry_invariants.py` covering: positive lowercase, uppercase-name rejection, uppercase-domain rejection, leading-digit rejection, and hyphens/underscores acceptance. Append a 1-test self-collision regression block (`meta.name == meta.domain`) right after the existing collision tests (already caught by Section 10.2's set intersection but previously untested).
+
+Also enrich the agent-vs-domain collision error in `registry.py` with the offending YAML path(s), matching the existing duplicate-agent error pattern at `registry.py:53-57`. Track via a new `self._agent_paths: dict[str, Path]` populated alongside `self._agents` during the load loop.
+
 - [ ] **Step 5: Run new tests to verify they pass**
 
 ```
@@ -365,6 +394,12 @@ unchanged.
 disjoint success, agent-vs-domain collision failure, agent-vs-agent
 duplicate failure (sanity check)."
 ```
+
+**Fix-up additions (2026-04-25, post spec+quality review):**
+- Lowercase-identifier validator on `AgentMeta.name`/`AgentMeta.domain` (Pydantic field_validator, regex `^[a-z][a-z0-9_-]*$`). Rationale: spec/quality review surfaced that the Section 10.2 collision check uses raw set intersection, so case-only collisions (`Cryptography` vs `cryptography`) would slip through if the future Task 8 parser case-folds user input. Stronger contract: enforce lowercase at the schema layer; eliminate the case-collision class entirely. 4 new tests in `tests/test_registry_invariants.py`.
+- Self-collision regression test (`meta.name == meta.domain`). Existing implementation already catches this; test prevents future refactor regression.
+- Collision error message enriched with offending YAML path(s), matching the duplicate-agent error pattern at `registry.py:53-57`. Tracked via new `AgentRegistry._agent_paths: dict[str, Path]`.
+- DEFERRED_BACKLOG entry `BACKLOG-T-SCAN-REFACTOR-T1-M2` for the test helper's hardcoded CWE-89/SQLi values (cosmetic; not blocking).
 
 ---
 

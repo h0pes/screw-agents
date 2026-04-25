@@ -1762,3 +1762,20 @@ Non-blocking minors surfaced during T4 (per-agent screw-sqli.md truncation) pre-
 **Why deferred:** Plan's prescribed new Step 5 return JSON (plan lines 1269-1284) includes `adaptive_quota_note` and `blocklist_skipped_gaps` keys. Grep on scan.md (post-T2) shows zero consumer references for either. The keys are informational, carried for possible future main-session surfacing (e.g., summary of quota exhaustion events or blocklist skips), but currently dead payload.
 
 **Remediation sketch:** Either (a) wire into scan.md Step 5 summary (one extra section for each) to surface to the user, OR (b) drop the keys from per-agent Step 5 JSON and remove the corresponding spec §5.1 entries. Option (a) preserves information flow and matches the spec's intent; do it alongside the scan.md polish PR referenced by PA-T4-M1.
+
+---
+
+## T-SCAN-REFACTOR Task 1 minors (discovered 2026-04-25)
+
+Non-blocking minors surfaced during Task 1 quality review. Deferred past T-SCAN-REFACTOR merge; natural resolution point listed per entry.
+
+### BACKLOG-T-SCAN-REFACTOR-T1-M2 — Test helper hardcodes CWE-89 / SQLi remediation
+**Phase-4 readiness:** `non-blocker` — test-helper polish; no correctness impact
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 1 quality review, 2026-04-25 (QR-T1-M2)
+**File:** `tests/test_registry_invariants.py::_write_minimal_agent_yaml`
+
+**Why deferred:** The minimal-agent YAML helper hardcodes `cwes.primary: "CWE-89"` and `remediation.preferred: "use parameterized queries"` — both SQLi-flavored, regardless of the test's actual subject. Acceptable for current usage (5 tests, all about registry invariants — none care about the specific CWE/remediation), but slightly misleading if the helper is reused in future tests where CWE specificity matters. Could be parameterized later with sensible defaults; not worth doing now.
+
+**Remediation sketch:** When a future test needs a different CWE or remediation, parameterize the helper: `_write_minimal_agent_yaml(path, *, name, domain, cwe="CWE-89", remediation="use parameterized queries")`. Update existing 5 callers to either pass new args or keep the defaults. ~5 LOC.
+
+**Estimated scope:** 5 LOC + 0 new tests (existing tests still cover the helper through real use).
