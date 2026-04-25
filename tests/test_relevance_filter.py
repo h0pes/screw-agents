@@ -5,11 +5,9 @@ Spec sections 8.1, 8.2, 8.5.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
-from screw_agents.engine import ScanEngine, _agent_supported_languages, _filter_relevant_agents
+from screw_agents.engine import _agent_supported_languages, _filter_relevant_agents
 from screw_agents.models import (
     AgentDefinition,
     AgentMeta,
@@ -53,6 +51,33 @@ def test_shebang_unknown_returns_none() -> None:
     assert language_from_shebang("#!/usr/bin/perl") is None
     assert language_from_shebang("not a shebang") is None
     assert language_from_shebang("") is None
+
+
+def test_shebang_with_interpreter_flag_returns_language() -> None:
+    """Shebang with interpreter flag (e.g., python -O) still detects language."""
+    assert language_from_shebang("#!/usr/bin/python3 -O") == "python"
+    assert language_from_shebang("#!/usr/bin/python3 -u") == "python"
+
+
+def test_shebang_env_with_interpreter_flag_returns_language() -> None:
+    """`env interpreter flag` form returns language."""
+    assert language_from_shebang("#!/usr/bin/env python3 -O") == "python"
+
+
+def test_shebang_env_dash_S_split_args_returns_language() -> None:
+    """`env -S interpreter flag1 flag2` (split-args form) returns language."""
+    assert language_from_shebang("#!/usr/bin/env -S python3 -O") == "python"
+    assert language_from_shebang("#!/usr/bin/env -S deno run --allow-net") == "typescript"
+
+
+def test_shebang_node_with_flag_returns_javascript() -> None:
+    """Node shebang with --harmony flag returns javascript."""
+    assert language_from_shebang("#!/usr/bin/env node --harmony") == "javascript"
+
+
+def test_shebang_env_with_unsupported_interpreter_returns_none() -> None:
+    """`env perl` returns None (perl not in SHEBANG_MAP)."""
+    assert language_from_shebang("#!/usr/bin/env perl") is None
 
 
 # ---------------------------------------------------------------------------
@@ -212,3 +237,28 @@ def test_heuristic_entry_languages_uppercase_rejected() -> None:
 
     with pytest.raises(ValidationError, match="not in SUPPORTED_LANGUAGES"):
         HeuristicEntry(id="x", pattern="p", languages=["Python"])
+
+
+# ---------------------------------------------------------------------------
+# CodeExample.language validator (Section 8.5 reinforcement, Task 2 fix-up)
+# ---------------------------------------------------------------------------
+
+
+def test_code_example_language_unsupported_rejected() -> None:
+    """Typo or unsupported language in CodeExample.language is rejected."""
+    from pydantic import ValidationError
+
+    from screw_agents.models import CodeExample
+
+    with pytest.raises(ValidationError, match="not in SUPPORTED_LANGUAGES"):
+        CodeExample(language="csharp", code="// missing underscore", explanation="x")
+
+
+def test_code_example_language_uppercase_rejected() -> None:
+    """Uppercase language name in CodeExample.language is rejected."""
+    from pydantic import ValidationError
+
+    from screw_agents.models import CodeExample
+
+    with pytest.raises(ValidationError, match="not in SUPPORTED_LANGUAGES"):
+        CodeExample(language="Python", code="x = 1", explanation="x")

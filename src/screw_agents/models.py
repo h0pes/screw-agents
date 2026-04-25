@@ -169,6 +169,19 @@ class CodeExample(BaseModel):
     explanation: str = ""
     label: str = ""
 
+    @field_validator("language")
+    @classmethod
+    def _validate_supported_language(cls, v: str) -> str:
+        if v not in SUPPORTED_LANGUAGES:
+            raise ValueError(
+                f"CodeExample.language {v!r} is not in SUPPORTED_LANGUAGES. "
+                f"Allowed: {sorted(SUPPORTED_LANGUAGES)}. "
+                f"T-SCAN-REFACTOR Task 2 fix-up: enforces canonical language "
+                f"names so few-shot examples cannot drift from the relevance "
+                f"filter's vocabulary (e.g., 'csharp' vs 'c_sharp')."
+            )
+        return v
+
 
 class FewShotExamples(BaseModel):
     vulnerable: list[CodeExample] = []

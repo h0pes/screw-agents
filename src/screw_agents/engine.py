@@ -96,7 +96,10 @@ def _filter_relevant_agents(
         if code.language is not None:
             target_languages.add(code.language)
             continue
-        # Fallback: shebang on first line of content (handles extensionless scripts)
+        # Fallback: shebang on first line of content. The resolver already
+        # populates code.language for every chunk it produces, so this branch
+        # only fires for callers that construct ResolvedCode manually with
+        # language=None (e.g., test fixtures or future programmatic callers).
         first_line = code.content.split("\n", 1)[0] if code.content else ""
         lang = language_from_shebang(first_line)
         if lang is not None:

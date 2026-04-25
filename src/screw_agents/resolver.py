@@ -295,10 +295,11 @@ def _parse_unified_diff(diff_text: str, cwd: str) -> list[ResolvedCode]:
     for line in diff_text.splitlines(keepends=True):
         if line.startswith("diff --git"):
             if current_file and current_lines:
+                content = "".join(current_lines)
                 results.append(ResolvedCode(
                     file_path=current_file,
-                    content="".join(current_lines),
-                    language=_detect_language(current_file, "".join(current_lines)),
+                    content=content,
+                    language=_detect_language(current_file, content),
                     metadata={"source": "git_diff"},
                 ))
             current_lines = []
@@ -311,10 +312,11 @@ def _parse_unified_diff(diff_text: str, cwd: str) -> list[ResolvedCode]:
             current_lines.append(line)
 
     if current_file and current_lines:
+        content = "".join(current_lines)
         results.append(ResolvedCode(
             file_path=current_file,
-            content="".join(current_lines),
-            language=_detect_language(current_file, "".join(current_lines)),
+            content=content,
+            language=_detect_language(current_file, content),
             metadata={"source": "git_diff"},
         ))
 

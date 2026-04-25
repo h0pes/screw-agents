@@ -83,30 +83,36 @@ SHEBANG_MAP: dict[str, str] = {
 
 
 def language_from_shebang(first_line: str) -> str | None:
-    """Detect language from a shebang line (e.g., '#!/usr/bin/env python3').
+    """Detect language from a shebang line.
 
-    Returns the canonical language name (one of EXTENSION_MAP's values) or
-    None if the line is not a shebang or names an unsupported interpreter.
+    Walks the shebang tokens left-to-right, skipping interpreter flags
+    (anything starting with '-') and the 'env' wrapper. Returns the
+    canonical language name for the first remaining token whose basename
+    appears in SHEBANG_MAP, or None if no token matches.
 
-    Examples:
-        '#!/usr/bin/env python3'  -> 'python'
-        '#!/usr/bin/python'       -> 'python'
-        '#!/usr/bin/env ruby'     -> 'ruby'
-        '#!/usr/bin/env node'     -> 'javascript'
-        '#!/bin/bash'             -> None  (bash not in supported set)
-        'not a shebang'           -> None
+    Handles real-world shebang forms including interpreter flags and
+    `env -S` split-args:
+        '#!/usr/bin/env python3'              -> 'python'
+        '#!/usr/bin/python3 -O'               -> 'python'      (interpreter flag)
+        '#!/usr/bin/env python3 -O'           -> 'python'
+        '#!/usr/bin/env -S python3 -O'        -> 'python'      (env -S)
+        '#!/usr/bin/env node --harmony'       -> 'javascript'  (node flag)
+        '#!/bin/bash'                         -> None          (bash not supported)
+        '#!/usr/bin/env perl'                 -> None          (perl not supported)
+        'not a shebang'                       -> None
     """
     if not first_line.startswith("#!"):
         return None
-    # Strip '#!' then split on whitespace; take the last token.
-    # Examples: '/usr/bin/env python3' -> ['/usr/bin/env', 'python3']
-    #           '/usr/bin/python'      -> ['/usr/bin/python']
     parts = first_line[2:].strip().split()
-    if not parts:
-        return None
-    interpreter_path = parts[-1]
-    interpreter = interpreter_path.rsplit("/", 1)[-1]
-    return SHEBANG_MAP.get(interpreter)
+    for token in parts:
+        if token.startswith("-"):
+            continue  # interpreter or env flag (e.g., -O, -u, -S, --harmony)
+        interpreter = token.rsplit("/", 1)[-1]
+        if interpreter == "env":
+            continue  # env is a wrapper; the real interpreter follows
+        # First non-flag non-env token IS the interpreter; supported or not.
+        return SHEBANG_MAP.get(interpreter)
+    return None
 
 
 @lru_cache(maxsize=None)
