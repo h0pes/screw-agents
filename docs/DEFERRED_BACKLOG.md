@@ -1859,11 +1859,13 @@ Non-blocking minors surfaced during Task 3 quality review. Deferred past T-SCAN-
 ### BACKLOG-T-SCAN-REFACTOR-T3-M1 — INFO entry log for `assemble_agents_scan`
 **Phase-4 readiness:** `non-blocker` — observability-debt; no functional gap
 **Source:** Phase-4 prereq T-SCAN-REFACTOR Task 3 quality review, 2026-04-25 (QR-T3-M5)
-**File:** `src/screw_agents/engine.py::assemble_agents_scan`
+**File:** `src/screw_agents/engine.py::assemble_agents_scan` and `engine.py::assemble_domain_scan` wrapper (post-Task-4)
 
 **Why deferred:** `assemble_agents_scan` is silent at function entry. A future debug story (e.g., "why is this slash command picking these agents?") would benefit from an INFO log capturing agents/target_type/page_index. `assemble_domain_scan` is similarly silent; consistency wins on the no-log side. Adding the log to BOTH methods (or to a shared helper) would close the gap consistently.
 
-**Remediation sketch:** Add `logger.info("assemble_agents_scan: agents=%s target_type=%s page=%d", agents, target.get("type"), offset)` near function entry. Mirror in `assemble_domain_scan`. ~3 LOC × 2 methods.
+Task 4 (post-2026-04-25) made `assemble_domain_scan` a thin wrapper over `assemble_agents_scan`; the wrapper layer should ALSO get the INFO-level log when this entry is addressed, so domain-scoped vs agents-scoped invocations are distinguishable in logs (e.g., `logger.info("scan_domain wrapper: domain=%s → delegating to assemble_agents_scan", domain)`).
+
+**Remediation sketch:** Add `logger.info("assemble_agents_scan: agents=%s target_type=%s page=%d", agents, target.get("type"), offset)` near function entry. Mirror in `assemble_domain_scan`. ~3 LOC × 2 methods. Also add `logger.info("scan_domain wrapper: domain=%s → assemble_agents_scan(agents=%d)", domain, len(agent_names))` to `assemble_domain_scan` near function entry. Total scope grows from "2 methods" to "2 methods + wrapper layer" — same conceptual fix, mirrored across both call surfaces.
 
 **Estimated scope:** 6 LOC + 0 new tests (logging tests are typically integration-test territory).
 
@@ -1875,5 +1877,30 @@ Non-blocking minors surfaced during Task 3 quality review. Deferred past T-SCAN-
 **Why deferred:** Current cursor schema is `{target_hash, agents_hash, offset}`. If a future cursor schema changes (e.g., add a `kept_agent_names` snapshot to skip per-page filter re-application), backwards compatibility could be checked via a version field. Cursors are ephemeral (single-scan-session lifetime), so the practical risk is low.
 
 **Remediation sketch:** Add `"v": 1` to cursor payload; decode rejects non-1 versions with a "Cursor version unsupported; refresh by retrying without cursor" message. ~3 LOC + 1 test.
+
+**Estimated scope:** 3 LOC + 1 test.
+
+## T-SCAN-REFACTOR Task 4 minors (discovered 2026-04-25)
+
+Non-blocking minors surfaced during Task 4 quality review. Deferred past T-SCAN-REFACTOR merge; natural resolution point listed per entry.
+
+### BACKLOG-T-SCAN-REFACTOR-T4-M1 — Close-match suggestions for unknown-domain error
+**Phase-4 readiness:** `non-blocker` — UX polish; existing error already lists all available domains
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 4 quality review, 2026-04-25 (QR-T4-M2)
+**File:** `src/screw_agents/engine.py::assemble_domain_scan` (Unknown-domain error path)
+
+**Why deferred:** The "Unknown or empty domain" error at `engine.py:1655-1658` enumerates `sorted(self._registry.list_domains().keys())` — actionable for an 18-domain registry, where the user can scan the list and spot their typo. Adding `difflib.get_close_matches(domain, available, n=3)` for "Did you mean 'injection-input-handling'?" suggestions would be marginally tighter UX but the marginal value is small for the current registry size. YAGNI applies; revisit if the registry grows past ~50 domains where scanning becomes inconvenient.
+
+**Remediation sketch:**
+```python
+import difflib
+suggestions = difflib.get_close_matches(domain, available, n=3, cutoff=0.6)
+suggestion_clause = f" Did you mean: {suggestions}?" if suggestions else ""
+raise ValueError(
+    f"Unknown or empty domain: {domain!r}.{suggestion_clause} "
+    f"Available domains: {available}."
+)
+```
+~3 LOC + 1 test (e.g., `engine.assemble_domain_scan(domain="injection-input-handlng", ...)` should suggest the correctly-spelled domain).
 
 **Estimated scope:** 3 LOC + 1 test.

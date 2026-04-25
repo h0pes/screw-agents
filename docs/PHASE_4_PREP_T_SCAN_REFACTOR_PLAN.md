@@ -2099,6 +2099,13 @@ public surfaces (the primitive + the convenience wrapper)."
 
 Net new tests in Task 4: **2** (page_size upper bound + unknown-domain enumeration). Post-Task-4 expected: `976 passed, 9 skipped`.
 
+**Fix-up additions (2026-04-25, post spec+quality review):**
+- Minor 1 (cosmetic): `AgentRegistry` import in `tests/test_pagination.py` moved from in-fixture body to module-level imports, matching the precedent at `tests/test_assemble_agents_scan.py:25`.
+- Minor 2 deferred: `BACKLOG-T-SCAN-REFACTOR-T4-M1` (difflib close-match suggestions for unknown-domain error). YAGNI for 18-domain registry; revisit if registry grows.
+- Minor 3 deferred: existing `BACKLOG-T-SCAN-REFACTOR-T3-M1` extended to also cover the `assemble_domain_scan` wrapper layer when an INFO entry log is added.
+
+Net new tests in fix-up: 0 (all minors are cosmetic / deferred).
+
 ---
 
 ## Task 5: `scan_agents` MCP tool registration
