@@ -415,6 +415,32 @@ duplicate failure (sanity check)."
 
 **Pre-audit focus (mandatory):** before implementing, verify (a) the `HeuristicEntry.languages` field is populated in all 4 shipped agent YAMLs (grep for `languages:` in `domains/`); (b) the shebang map covers the 11 supported tree-sitter languages where shebang lines are realistic (python, ruby, php, javascript via node, typescript via tsnode, bash maps to None since not in EXTENSION_MAP); (c) the `ResolvedCode.language` field is already populated by `resolve_target` for all 9 target types.
 
+- [ ] **Step 0: Standardize `csharp` → `c_sharp` in production agent YAMLs**
+
+The relevance filter (this task ships) intersects `HeuristicEntry.languages` with target-detected languages. The treesitter canonical name (`treesitter.py:30`) is `c_sharp`, matching the upstream `tree_sitter_c_sharp` package. The 4 production YAMLs in `domains/injection-input-handling/` use `csharp` (no underscore) in 37 places, which would never intersect a target language and silently exclude every C# agent.
+
+**Files:**
+- `domains/injection-input-handling/cmdi.yaml` (8 occurrences)
+- `domains/injection-input-handling/sqli.yaml` (12)
+- `domains/injection-input-handling/ssti.yaml` (6)
+- `domains/injection-input-handling/xss.yaml` (11)
+
+**Action:**
+```bash
+sed -i 's/\bcsharp\b/c_sharp/g' domains/injection-input-handling/cmdi.yaml \
+                                domains/injection-input-handling/sqli.yaml \
+                                domains/injection-input-handling/ssti.yaml \
+                                domains/injection-input-handling/xss.yaml
+```
+
+**Verify:**
+```bash
+grep -rE "\bcsharp\b" domains/  # expect empty
+grep -rEc "\bc_sharp\b" domains/  # expect 8/12/6/11 = 37 total
+```
+
+After this step, the `HeuristicEntry.languages` validator (Step 7b below, added per Marco's Decision 2) and the relevance filter (Step 7) will see consistent canonical names.
+
 - [ ] **Step 1: Write failing test for `language_from_shebang`**
 
 Create `tests/test_relevance_filter.py`:
@@ -435,9 +461,10 @@ from screw_agents.engine import ScanEngine, _agent_supported_languages, _filter_
 from screw_agents.models import (
     AgentDefinition,
     AgentMeta,
-    CWERefs,
+    CWEs,
     DetectionHeuristics,
     HeuristicEntry,
+    OWASPMapping,
     Remediation,
 )
 from screw_agents.resolver import ResolvedCode
@@ -492,7 +519,10 @@ def _make_agent(name: str, *, languages_per_entry: list[list[str]]) -> AgentDefi
             name=name,
             display_name="X",
             domain="test-domain",
-            cwes=CWERefs(primary="CWE-1", related=[]),
+            version="0.1.0",
+            last_updated="2026-04-25",
+            cwes=CWEs(primary="CWE-1", related=[]),
+            owasp=OWASPMapping(top10="", asvs=[], testing_guide=""),
         ),
         core_prompt="x",
         detection_heuristics=DetectionHeuristics(high_confidence=entries),
@@ -506,7 +536,10 @@ def test_agent_supported_languages_unions_all_buckets() -> None:
             name="multi",
             display_name="X",
             domain="t",
-            cwes=CWERefs(primary="CWE-1", related=[]),
+            version="0.1.0",
+            last_updated="2026-04-25",
+            cwes=CWEs(primary="CWE-1", related=[]),
+            owasp=OWASPMapping(top10="", asvs=[], testing_guide=""),
         ),
         core_prompt="x",
         detection_heuristics=DetectionHeuristics(
@@ -531,7 +564,10 @@ def test_agent_supported_languages_handles_string_entries() -> None:
             name="mixed",
             display_name="X",
             domain="t",
-            cwes=CWERefs(primary="CWE-1", related=[]),
+            version="0.1.0",
+            last_updated="2026-04-25",
+            cwes=CWEs(primary="CWE-1", related=[]),
+            owasp=OWASPMapping(top10="", asvs=[], testing_guide=""),
         ),
         core_prompt="x",
         detection_heuristics=DetectionHeuristics(
@@ -674,7 +710,12 @@ Expected: 6 shebang tests PASS. The remaining tests still fail.
 
 - [ ] **Step 5: Update `_detect_language` in `resolver.py` for shebang fallback**
 
-Open `src/screw_agents/resolver.py`. Replace the `_detect_language` function at lines 92-95:
+Open `src/screw_agents/resolver.py`. At the top of the file, extend the existing import line `from screw_agents.treesitter import get_parser` to also import the two helpers (function-level imports are unnecessary — `treesitter.py` does NOT import from `resolver.py` or `engine.py`, verified at plan-time, so no circular-import risk):
+```python
+from screw_agents.treesitter import get_parser, language_from_path, language_from_shebang
+```
+
+Then replace the existing `_detect_language` function body at lines 92-95:
 
 ```python
 def _detect_language(path: str, content: str | None = None) -> str | None:
@@ -687,7 +728,6 @@ def _detect_language(path: str, content: str | None = None) -> str | None:
             hint. If `content` is None, shebang detection is skipped (caller
             doesn't have content handy and we don't pay an extra read).
     """
-    from screw_agents.treesitter import language_from_path, language_from_shebang
     lang = language_from_path(path)
     if lang is not None:
         return lang
@@ -723,16 +763,28 @@ In `resolver.py`, update the 7 call sites that pass `content` available locally:
 
 - [ ] **Step 7: Add `_agent_supported_languages` and `_filter_relevant_agents` to `engine.py`**
 
-Open `src/screw_agents/engine.py`. Locate the import block at the top (around lines 1-50). Confirm `HeuristicEntry` is importable from `screw_agents.models`; if not currently imported, add to the existing imports:
+Open `src/screw_agents/engine.py`. `HeuristicEntry` is already imported at `engine.py:33` (verified at plan-time, T-SCAN-REFACTOR Task 2 plan-fix). No imports change is needed for this helper.
 
+At top of `engine.py`, add a new import line for `language_from_shebang` (no existing `treesitter` import in `engine.py` at plan-time, verified):
 ```python
-from screw_agents.models import HeuristicEntry  # add to existing models import line
+from screw_agents.treesitter import language_from_shebang
 ```
 
-Add the helpers near the top of the file, after the existing imports/constants and before the `class ScanEngine` declaration. If a private-helpers section already exists, place there; otherwise insert at module level just before the class:
+`Any` is already imported at `engine.py:16` (`from typing import Any`, verified at plan-time). `ResolvedCode` is already imported at `engine.py:35` (`from screw_agents.resolver import ResolvedCode, filter_by_relevance, resolve_target`, verified). No additional typing or resolver imports needed.
+
+`logger` is NOT defined in `engine.py` at plan-time (verified — no `logging.getLogger(__name__)` in the file). The implementer must add at the top of `engine.py` (in the standard-library imports block):
+```python
+import logging
+```
+And after the imports, before the helpers:
+```python
+logger = logging.getLogger(__name__)
+```
+
+Add the helpers near the top of the file, after the existing imports/constants/`logger` definition and before the `class ScanEngine` declaration. If a private-helpers section already exists, place there; otherwise insert at module level just before the class:
 
 ```python
-def _agent_supported_languages(agent: "AgentDefinition") -> set[str]:
+def _agent_supported_languages(agent: AgentDefinition) -> set[str]:
     """Union of `languages` declarations across all HeuristicEntry items
     in the agent's three detection_heuristics buckets.
 
@@ -756,9 +808,9 @@ def _agent_supported_languages(agent: "AgentDefinition") -> set[str]:
 
 
 def _filter_relevant_agents(
-    target_codes: "list[ResolvedCode]",
-    agents: "list[AgentDefinition]",
-) -> "tuple[list[AgentDefinition], list[dict[str, Any]]]":
+    target_codes: list[ResolvedCode],
+    agents: list[AgentDefinition],
+) -> tuple[list[AgentDefinition], list[dict[str, Any]]]:
     """Drop agents whose declared languages don't intersect target's detected languages.
 
     Spec section 8.2. Two fail-open paths:
@@ -778,8 +830,6 @@ def _filter_relevant_agents(
                 agent_name, reason ("language_mismatch"),
                 agent_languages (sorted list), target_languages (sorted list).
     """
-    from screw_agents.treesitter import language_from_shebang
-
     target_languages: set[str] = set()
     for code in target_codes:
         if code.language is not None:
@@ -792,11 +842,18 @@ def _filter_relevant_agents(
             target_languages.add(lang)
 
     if not target_languages:
-        # Fail-open: target has no recognizable code languages. Keep all.
+        # Spec §8.2 / §8.5 row 3 — log a WARN when no target languages detected.
+        # Caller (assemble_agents_scan in Task 3) decides how to surface this to
+        # the user. See D6 for the fail-open contract.
+        logger.warning(
+            "Relevance filter: no target languages detected (target may be non-code); "
+            "keeping all %d agents (fail-open per D6).",
+            len(agents),
+        )
         return list(agents), []
 
-    kept: "list[AgentDefinition]" = []
-    excluded: "list[dict[str, Any]]" = []
+    kept: list[AgentDefinition] = []
+    excluded: list[dict[str, Any]] = []
     for agent in agents:
         agent_languages = _agent_supported_languages(agent)
         if not agent_languages:
@@ -817,6 +874,62 @@ def _filter_relevant_agents(
     return kept, excluded
 ```
 
+- [ ] **Step 7b: Add `HeuristicEntry.languages` Pydantic validator**
+
+Catches case-bugs and spelling-drift at agent-load time (registry boot) rather than silent scan-time exclusion. Same pattern as Task 1's `AgentMeta.name`/`domain` validator.
+
+**File:** `src/screw_agents/models.py` (extend `HeuristicEntry`, line 78).
+
+**Pre-flight:** confirm `treesitter.py` does NOT import from `models.py` (verified at plan-time — circular-import risk is None). Top-of-file import of `SUPPORTED_LANGUAGES` is safe.
+
+**Imports** at top of `models.py` (add to existing imports):
+```python
+from screw_agents.treesitter import SUPPORTED_LANGUAGES
+```
+(`field_validator` is already imported per Task 1 fix-up commit 99bbb8e.)
+
+**Validator** inside class `HeuristicEntry` (after the `languages: list[str] = []` field declaration):
+```python
+@field_validator("languages")
+@classmethod
+def _validate_supported_languages(cls, v: list[str]) -> list[str]:
+    invalid = [lang for lang in v if lang not in SUPPORTED_LANGUAGES]
+    if invalid:
+        raise ValueError(
+            f"HeuristicEntry.languages contains values not in SUPPORTED_LANGUAGES: {invalid}. "
+            f"Allowed: {sorted(SUPPORTED_LANGUAGES)}. "
+            f"T-SCAN-REFACTOR Task 2: enforces canonical language names so the "
+            f"relevance filter cannot silently exclude due to spelling drift "
+            f"(e.g., 'csharp' vs 'c_sharp', 'Python' vs 'python')."
+        )
+    return v
+```
+
+**Tests** to append to `tests/test_relevance_filter.py` AFTER the existing tests (before any closing comment):
+```python
+# ---------------------------------------------------------------------------
+# HeuristicEntry.languages validator (Section 8.5 reinforcement)
+# ---------------------------------------------------------------------------
+
+
+def test_heuristic_entry_languages_unsupported_rejected() -> None:
+    """A typo or unsupported language name is rejected at schema validation."""
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="not in SUPPORTED_LANGUAGES"):
+        HeuristicEntry(id="x", pattern="p", languages=["csharp"])  # missing underscore
+
+
+def test_heuristic_entry_languages_uppercase_rejected() -> None:
+    """An uppercase language name is rejected (SUPPORTED_LANGUAGES values are lowercase)."""
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="not in SUPPORTED_LANGUAGES"):
+        HeuristicEntry(id="x", pattern="p", languages=["Python"])
+```
+
+**Acceptance:** the production YAML standardization in Step 0 PLUS this validator together close the canonical-name gap permanently. Any future YAML drift surfaces at registry-boot time as a clear `ValidationError` rather than silent at-scan exclusion.
+
 - [ ] **Step 8: Run all tests to confirm helpers pass + no regression**
 
 ```
@@ -829,7 +942,7 @@ Expected: all 14 tests in `test_relevance_filter.py` PASS.
 uv run pytest -q 2>&1 | tail -5
 ```
 
-Expected: 906 + 5 (Task 1) + 14 (Task 2) = 925 passed, 8 skipped. Zero failures.
+Expected: 917 (Task 1 fix-up baseline at HEAD 36a5744) + 16 (Task 2: 14 filter/shebang + 2 HeuristicEntry validator) = 933 passed, 8 skipped. Zero failures.
 
 If a `test_resolver.py` test fails because `_detect_language(path)` is now `_detect_language(path, content=None)` — the signature is backward-compatible (default `None`); failing tests would only result if a test directly imported and called `_detect_language(path)` with no content and asserted equivalence-to-extension-only. Such tests should still pass since `content=None` skips shebang detection entirely.
 
@@ -862,6 +975,18 @@ fallback. Threaded through all 7 _resolve_* call sites.
 disjoint dropped, empty agent fail-open, empty target fail-open,
 shebang-driven detection)."
 ```
+
+**Plan-fix additions (2026-04-25, post pre-audit):**
+- Step 0: standardize `csharp` → `c_sharp` in 4 production YAMLs (37 occurrences). Decision 1 Option A — strongest canonical-name policy.
+- Step 7b: `HeuristicEntry.languages` Pydantic validator (membership in `SUPPORTED_LANGUAGES`). Decision 2 Option A — bundled into Task 2 scope, same pattern as Task 1's `AgentMeta.name`/`domain` validator.
+- Step 7 logging.warning on empty-target-languages fail-open path (spec §8.2 / §8.5 row 3 conformance).
+- CWERefs → CWEs rename (test imports correctness).
+- AgentMeta required fields (`version`, `last_updated`, `owasp`) added to all 3 `AgentMeta(...)` constructions in test fixtures.
+- Function-level imports lifted to module-level (no circular-import risk).
+- Forward-reference quoting dropped (`engine.py` has `from __future__ import annotations`).
+- HeuristicEntry import duplication removed (already at engine.py:33).
+- Test count math corrected to `917 + 16 = 933`.
+- 3 DEFERRED_BACKLOG entries: parametrized SHEBANG coverage, multi-lang union test, per-agent-empty-languages WARN if D6 hardens.
 
 ---
 

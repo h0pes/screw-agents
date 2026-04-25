@@ -1779,3 +1779,42 @@ Non-blocking minors surfaced during Task 1 quality review. Deferred past T-SCAN-
 **Remediation sketch:** When a future test needs a different CWE or remediation, parameterize the helper: `_write_minimal_agent_yaml(path, *, name, domain, cwe="CWE-89", remediation="use parameterized queries")`. Update existing 5 callers to either pass new args or keep the defaults. ~5 LOC.
 
 **Estimated scope:** 5 LOC + 0 new tests (existing tests still cover the helper through real use).
+
+---
+
+## T-SCAN-REFACTOR Task 2 minors (discovered 2026-04-25)
+
+Non-blocking minors surfaced during Task 2 pre-audit. Deferred past T-SCAN-REFACTOR merge; natural resolution point listed per entry.
+
+### BACKLOG-T-SCAN-REFACTOR-T2-M1 — Parametrized SHEBANG_MAP coverage
+**Phase-4 readiness:** `non-blocker` — test-debt; mechanical-lookup-only path
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 2 pre-audit, 2026-04-25 (PA-T2-M1)
+**File:** `tests/test_relevance_filter.py` (shebang test block)
+
+**Why deferred:** Plan ships SHEBANG_MAP with 10 entries (`python`, `python2`, `python3`, `ruby`, `node`, `nodejs`, `ts-node`, `tsnode`, `deno`, `php`) but tests only assert 6 variants (python3, python, ruby, node, php, plus negatives). `python2`, `nodejs`, `ts-node`, `tsnode`, `deno` have no positive assertion. Low-risk because the lookup is a flat dict (any key in `SHEBANG_MAP` works mechanically), but a defense-in-depth parametrized test would catch a future typo in the map.
+
+**Remediation sketch:** Replace the 6 individual shebang tests with a `@pytest.mark.parametrize` over all 10 keys in `SHEBANG_MAP`, asserting each maps to its declared canonical language. ~10 LOC net.
+
+**Estimated scope:** 10 LOC (test refactor) + 0 production code changes.
+
+### BACKLOG-T-SCAN-REFACTOR-T2-M2 — Multi-language `target_codes` union test
+**Phase-4 readiness:** `non-blocker` — test-debt; mechanical union of detected languages
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 2 pre-audit, 2026-04-25 (PA-T2-M2)
+**File:** `tests/test_relevance_filter.py` (filter test block)
+
+**Why deferred:** Plan tests pass exactly one `ResolvedCode` chunk per case. There is no test for `target_codes = [py_chunk, java_chunk, php_chunk]` exercising the language-union loop in `_filter_relevant_agents`. The loop is trivial; missing test is acceptable test-debt.
+
+**Remediation sketch:** Add one test `test_filter_unions_languages_across_target_chunks` that constructs three `ResolvedCode` chunks (different languages) and asserts an agent declaring only one of those languages is kept. ~15 LOC.
+
+**Estimated scope:** 15 LOC test + 0 production code changes.
+
+### BACKLOG-T-SCAN-REFACTOR-T2-M3 — Per-agent-empty-languages WARN-log if D6 hardens
+**Phase-4 readiness:** `non-blocker` — speculative; depends on future D6 evolution
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 2 pre-audit, 2026-04-25 (PA-T2-M3)
+**File:** `src/screw_agents/engine.py::_filter_relevant_agents`
+
+**Why deferred:** Spec §8.2 mandates a WARN log only for the empty-`target_languages` branch (covered in Task 2). The empty-`agent_languages` branch (D6 fail-open: agent has no `languages:` declarations) is silent. If D6 ever moves off fail-open (e.g., to "log+exclude" or "fail-closed"), the silent branch would benefit from a WARN log too. Currently spec-aligned at "fail-open silent."
+
+**Remediation sketch:** When/if a future spec revision changes the D6 policy, mirror the empty-`target_languages` WARN log in the empty-`agent_languages` branch. ~3 LOC.
+
+**Estimated scope:** 3 LOC + 0 new tests (existing tests cover both branches structurally).
