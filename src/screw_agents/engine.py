@@ -1837,10 +1837,26 @@ class ScanEngine:
         **Code page (cursor is set):** Emits a paged slice of code chunks
         fanned out per agent. Per-agent entries carry ``code``,
         ``resolved_files``, ``meta`` — no ``core_prompt``, no ``exclusions``
-        (exclusions are init-only), no ``agents_excluded_by_relevance`` (also
-        init-only). ``trust_status`` is re-emitted at the top level when
-        ``project_root`` is provided so any single page carries the
-        quarantine counts.
+        (exclusions are init-only). ``trust_status`` is re-emitted at the
+        top level when ``project_root`` is provided so any single page
+        carries the quarantine counts. Code pages do NOT re-emit
+        ``agents_excluded_by_relevance``; the cursor's ``agents_hash``
+        already binds the kept set so it cannot drift between pages.
+
+        ``agents_excluded_by_relevance`` (init page only, top-level): list
+        of dicts describing agents dropped by the relevance filter (each
+        with ``agent_name``, ``reason``, ``agent_languages``,
+        ``target_languages``). Code pages do NOT re-emit this field; the
+        cursor's ``agents_hash`` already binds the kept set.
+
+        Note: if files are added/deleted between init and code pages,
+        ``total_files`` may shift but the cursor ``offset`` is interpreted
+        on the current page's resolved file list. An out-of-bounds offset
+        (e.g., file deleted under the cursor) results in an empty page and
+        ``next_cursor=None`` — clean termination rather than an error. The
+        caller's accumulated results from prior pages remain valid but may
+        be incomplete. This is expected behavior for a stateless cursor
+        scheme.
 
         Cursor encoding (Option β):
             cursor = base64url(json({
@@ -1923,15 +1939,29 @@ class ScanEngine:
                 f"(per X1-M1 finding). Reduce page_size or paginate via cursor."
             )
         # Priority 5: all agent names resolve in the registry.
-        for name in agents:
-            if self._registry.get_agent(name) is None:
-                raise ValueError(f"Unknown agent: {name!r}")
+        # Validate ALL unknown agents in one pass (friendlier for callers
+        # passing several names — surface every unknown at once instead of
+        # forcing N round-trips).
+        unknown = [name for name in agents if self._registry.get_agent(name) is None]
+        if unknown:
+            raise ValueError(
+                f"Unknown agent name(s): {sorted(unknown)}. "
+                f"Use list_agents() to discover available names."
+            )
 
         # ---- Hashing inputs (cursor binding — Option β) ----
         canonical_target = _json.dumps(target, sort_keys=True, separators=(",", ":"))
         target_hash = hashlib.sha256(canonical_target.encode("utf-8")).hexdigest()[:16]
         sorted_agents = sorted(agents)
         agents_hash = hashlib.sha256(",".join(sorted_agents).encode("utf-8")).hexdigest()[:16]
+
+        # D1: treat empty-string cursor as None (init-page request).
+        # MCP / JSON-RPC clients sometimes pass "" rather than null; the
+        # original `if cursor:` truthiness check skipped decode but
+        # `is_init_page = cursor is None` would have been False, sending
+        # the function down the code-page branch with no binding validated.
+        if cursor == "":
+            cursor = None
 
         # ---- Cursor decode (preserves existing ValueError semantics) ----
         if cursor:
@@ -1974,6 +2004,12 @@ class ScanEngine:
         # ---- Init page: relevance filter + metadata + exclusions ----
         if is_init_page:
             kept_agents, excluded = _filter_relevant_agents(all_codes, agent_defs)
+            # D2: sort kept_agents alphabetically by meta.name so response
+            # order is input-order-invariant. Cursor's agents_hash is already
+            # built from sorted(agents), so this mirrors the binding contract:
+            # same input set → same cursor → same response order regardless
+            # of caller's input list ordering.
+            kept_agents = sorted(kept_agents, key=lambda a: a.meta.name)
 
             if project_root is not None:
                 all_exclusions: list[Exclusion] | None = load_exclusions(project_root)
@@ -2031,6 +2067,10 @@ class ScanEngine:
         # iterated — must match init-page result deterministically since
         # cursor's agents_hash already binds the call.
         kept_agents, _excluded_unused = _filter_relevant_agents(all_codes, agent_defs)
+        # D2: sort kept_agents alphabetically by meta.name so response
+        # order is input-order-invariant (mirrors init-page sort + cursor
+        # agents_hash contract).
+        kept_agents = sorted(kept_agents, key=lambda a: a.meta.name)
 
         page_codes = all_codes[offset : offset + page_size]
         next_offset = offset + len(page_codes)
