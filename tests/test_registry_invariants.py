@@ -112,3 +112,64 @@ def test_existing_agent_uniqueness_check_still_enforced(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="Duplicate agent name"):
         AgentRegistry(tmp_path)
+
+
+def test_agent_name_equals_own_domain_name_raises(tmp_path: Path) -> None:
+    """Self-collision: a YAML where meta.name equals meta.domain (the canonical foot-gun)."""
+    domain_dir = tmp_path / "cryptography"
+    domain_dir.mkdir()
+    _write_minimal_agent_yaml(domain_dir / "cryptography.yaml", name="cryptography", domain="cryptography")
+
+    with pytest.raises(ValueError, match="collide with domain name"):
+        AgentRegistry(tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# Lowercase-identifier enforcement (Section 10.2 reinforcement)
+# ---------------------------------------------------------------------------
+
+
+def test_lowercase_name_accepted(tmp_path: Path) -> None:
+    """Conventional lowercase agent names load cleanly."""
+    domain_dir = tmp_path / "test-domain"
+    domain_dir.mkdir()
+    _write_minimal_agent_yaml(domain_dir / "agent_a.yaml", name="agent_a", domain="test-domain")
+    AgentRegistry(tmp_path)  # no raise
+
+
+def test_uppercase_name_rejected(tmp_path: Path) -> None:
+    """An uppercase character in meta.name is rejected at schema validation."""
+    domain_dir = tmp_path / "test-domain"
+    domain_dir.mkdir()
+    _write_minimal_agent_yaml(domain_dir / "BadAgent.yaml", name="BadAgent", domain="test-domain")
+
+    with pytest.raises(ValueError, match="lowercase"):
+        AgentRegistry(tmp_path)
+
+
+def test_uppercase_domain_rejected(tmp_path: Path) -> None:
+    """An uppercase character in meta.domain is rejected at schema validation."""
+    domain_dir = tmp_path / "BadDomain"
+    domain_dir.mkdir()
+    _write_minimal_agent_yaml(domain_dir / "agent.yaml", name="agent", domain="BadDomain")
+
+    with pytest.raises(ValueError, match="lowercase"):
+        AgentRegistry(tmp_path)
+
+
+def test_invalid_first_char_digit_rejected(tmp_path: Path) -> None:
+    """Names starting with a digit are rejected."""
+    domain_dir = tmp_path / "test-domain"
+    domain_dir.mkdir()
+    _write_minimal_agent_yaml(domain_dir / "1bad.yaml", name="1bad", domain="test-domain")
+
+    with pytest.raises(ValueError, match="lowercase"):
+        AgentRegistry(tmp_path)
+
+
+def test_hyphens_and_underscores_accepted(tmp_path: Path) -> None:
+    """Hyphens and underscores after the leading letter are valid."""
+    domain_dir = tmp_path / "ok-domain_v2"
+    domain_dir.mkdir()
+    _write_minimal_agent_yaml(domain_dir / "ok_name-v2.yaml", name="ok_name-v2", domain="ok-domain_v2")
+    AgentRegistry(tmp_path)  # no raise

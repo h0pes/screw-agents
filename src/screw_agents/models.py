@@ -8,9 +8,10 @@ metadata.
 
 from __future__ import annotations
 
+import re
 from typing import Any, ClassVar, Literal, TypedDict
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic.main import IncEx
 
 
@@ -59,6 +60,19 @@ class AgentMeta(BaseModel):
     # Optional — some agents use sans_top25, others cwe_top25
     sans_top25: dict[str, Any] | None = None
     cwe_top25: dict[str, Any] | None = None
+
+    @field_validator("name", "domain")
+    @classmethod
+    def _lowercase_identifier(cls, v: str) -> str:
+        if not re.fullmatch(r"[a-z][a-z0-9_-]*", v):
+            raise ValueError(
+                f"AgentMeta name/domain must match '^[a-z][a-z0-9_-]*$' "
+                f"(lowercase letter followed by letters/digits/underscores/hyphens); "
+                f"got {v!r}. T-SCAN-REFACTOR Task 1 (Section 10.2 reinforcement): "
+                f"the bare-token slash command parser will case-fold user input; "
+                f"enforcing lowercase at load time eliminates case-only collisions."
+            )
+        return v
 
 
 class HeuristicEntry(BaseModel):

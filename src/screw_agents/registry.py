@@ -22,6 +22,7 @@ class AgentRegistry:
     def __init__(self, domains_dir: Path) -> None:
         self._agents: dict[str, AgentDefinition] = {}
         self._domains: dict[str, list[str]] = {}
+        self._agent_paths: dict[str, Path] = {}
         self._load(domains_dir)
 
     def _load(self, domains_dir: Path) -> None:
@@ -57,6 +58,7 @@ class AgentRegistry:
                 )
 
             self._agents[name] = agent
+            self._agent_paths[name] = yaml_path
 
             domain = agent.meta.domain
             if domain not in self._domains:
@@ -76,8 +78,10 @@ class AgentRegistry:
         # resolution.
         collision = set(self._agents.keys()) & set(self._domains.keys())
         if collision:
+            collision_paths = {n: str(self._agent_paths[n]) for n in sorted(collision)}
             raise ValueError(
                 f"Agent name(s) collide with domain name(s): {sorted(collision)}. "
+                f"Offending agent YAML(s): {collision_paths}. "
                 f"Agent names and domain names share a global namespace; rename one."
             )
 
