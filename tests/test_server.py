@@ -4,8 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from screw_agents.server import create_server
-from screw_agents.server import _dispatch_tool
+from screw_agents.server import _dispatch_tool, create_server
 
 
 @pytest.fixture
