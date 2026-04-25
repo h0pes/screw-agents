@@ -2110,18 +2110,18 @@ Net new tests in fix-up: 0 (all minors are cosmetic / deferred).
 
 ## Task 5: `scan_agents` MCP tool registration
 
-**Goal:** Wire `assemble_agents_scan` into the MCP server: register the tool in `engine.py::list_tool_definitions` and dispatch in `server.py::handle_call_tool`.
+**Goal:** Wire `assemble_agents_scan` into the MCP server: register the tool in `engine.py::list_tool_definitions` and dispatch in `server.py::_dispatch_tool` (the inner sync dispatcher invoked by the async `handle_call_tool` wrapper).
 
 **Files:**
-- Modify: `src/screw_agents/engine.py:2262+` (`list_tool_definitions`)
-- Modify: `src/screw_agents/server.py:240-278` (`handle_call_tool`)
+- Modify: `src/screw_agents/engine.py:2443+` (`list_tool_definitions`)
+- Modify: `src/screw_agents/server.py:244-278` (`_dispatch_tool` — scan-tool subregion). Note: `handle_call_tool` at line 57 is a thin async wrapper; the actual dispatch branches live in `_dispatch_tool`.
 - Modify: `tests/test_server.py` and `tests/test_engine.py` (assertions on registered tool list)
 
-**Pre-audit focus (none — mechanical):** inline-verify by reading the existing scan_domain registration (lines 2291-2327) and mirroring its shape. Confirm `_scan_input_schema` helper signature.
+**Pre-audit focus (none — mechanical):** inline-verify by reading the existing scan_domain registration (lines 2472-2508) and mirroring its shape. Confirm `_scan_input_schema` helper signature.
 
 - [ ] **Step 1: Add `scan_agents` registration to `list_tool_definitions`**
 
-Open `src/screw_agents/engine.py`. Locate `list_tool_definitions` at line 2262. After the existing `scan_domain` registration (ends line 2327) and before the existing `scan_full` registration block at lines 2328-2342, insert the new `scan_agents` registration:
+Open `src/screw_agents/engine.py`. Locate `list_tool_definitions` at line 2443. After the existing `scan_domain` registration (lines 2472-2508) and before the existing `scan_full` registration block at lines 2509-2523, insert the new `scan_agents` registration:
 
 ```python
         tools.append({
@@ -2145,10 +2145,11 @@ Open `src/screw_agents/engine.py`. Locate `list_tool_definitions` at line 2262. 
                         "type": "array",
                         "items": {"type": "string"},
                         "minItems": 1,
+                        "uniqueItems": True,
                         "description": (
-                            "List of registered agent names. Must be non-empty; "
-                            "every name must exist in the registry. Use "
-                            "list_agents() to discover names."
+                            "List of registered agent names. Must be non-empty "
+                            "with no duplicates; every name must exist in the "
+                            "registry. Use list_agents() to discover names."
                         ),
                     },
                     "thoroughness": _thoroughness_schema(),
@@ -2177,7 +2178,7 @@ Open `src/screw_agents/engine.py`. Locate `list_tool_definitions` at line 2262. 
 
 - [ ] **Step 2: Update `scan_domain` description to reference the primitive**
 
-In the same file, locate the `scan_domain` registration (lines 2291-2327). Update its description string to:
+In the same file, locate the `scan_domain` registration (lines 2472-2508). Update its description string to:
 
 ```python
             "description": (
@@ -2187,15 +2188,15 @@ In the same file, locate the `scan_domain` registration (lines 2291-2327). Updat
                 "scan_agents directly to scan an arbitrary subset of agents. "
                 "Returns a paginated response: {agents, "
                 "agents_excluded_by_relevance, next_cursor, page_size, "
-                "total_files, offset, trust_status?, domain}. Subagents MUST "
+                "total_files, offset, trust_status?}. Subagents MUST "
                 "loop until next_cursor is None before calling "
                 "finalize_scan_results."
             ),
 ```
 
-- [ ] **Step 3: Add `scan_agents` dispatch to `server.py::handle_call_tool`**
+- [ ] **Step 3: Add `scan_agents` dispatch to `server.py::_dispatch_tool`**
 
-Open `src/screw_agents/server.py`. Locate the dispatch block at lines 244-259. After the existing `if name == "scan_domain": ...` branch (ends line 252) and before the `if name == "scan_full":` branch (starts line 254), insert:
+Open `src/screw_agents/server.py`. Locate the dispatch block at lines 244-259 (inside `_dispatch_tool`; `handle_call_tool` at line 57 is a thin async wrapper). After the existing `if name == "scan_domain": ...` branch (ends line 252) and before the `if name == "scan_full":` branch (starts line 254), insert:
 
 ```python
     if name == "scan_agents":
@@ -2211,7 +2212,26 @@ Open `src/screw_agents/server.py`. Locate the dispatch block at lines 244-259. A
 
 - [ ] **Step 4: Add server-level test for the dispatch**
 
-Open `tests/test_server.py`. Find the test that verifies tool names are registered (the existing `assert "scan_full" in names` at line 25 area). Add a new assertion immediately after the existing list:
+First, add to the module-level imports of `tests/test_server.py` (top of file, alongside the existing `from screw_agents.server import create_server`):
+
+```python
+from pathlib import Path
+
+from screw_agents.server import _dispatch_tool
+```
+
+Match the file's existing import ordering (stdlib first, then project imports).
+
+Then, add an `engine` fixture at the top of the file (mirroring the precedent at `tests/test_phase2_server.py:11-14`) if one is not already present:
+
+```python
+@pytest.fixture
+def engine(domains_dir):
+    _, engine = create_server(domains_dir)
+    return engine
+```
+
+Find the test that verifies tool names are registered (the existing `assert "scan_full" in names` at line 25 area). Add a new assertion immediately after the existing list:
 
 ```python
     assert "scan_agents" in names
@@ -2220,27 +2240,27 @@ Open `tests/test_server.py`. Find the test that verifies tool names are register
 Then append a new test function at the end of the file:
 
 ```python
-def test_scan_agents_dispatch_via_server(tmp_path: Path) -> None:
-    """server.handle_call_tool routes scan_agents to engine.assemble_agents_scan."""
-    from screw_agents.server import create_server
+def test_scan_agents_dispatch_via_server(engine, tmp_path: Path) -> None:
+    """server._dispatch_tool routes scan_agents to engine.assemble_agents_scan.
 
+    Tests the actual MCP dispatch path (matches the precedent at
+    tests/test_phase2_server.py:36+).
+    """
     src = tmp_path / "src"
     src.mkdir()
     (src / "x.py").write_text("import sqlite3\n")
 
-    server, engine = create_server()  # uses default domains/ tree
-    # The server interface is async; for the dispatch path we call
-    # engine.assemble_agents_scan directly via the dispatch helper.
-    # In test_server.py the existing pattern uses engine directly — match that.
-    response = engine.assemble_agents_scan(
-        agents=["sqli"],
-        target={"type": "codebase", "root": str(tmp_path)},
+    response = _dispatch_tool(
+        engine,
+        "scan_agents",
+        {
+            "agents": ["sqli"],
+            "target": {"type": "codebase", "root": str(tmp_path)},
+        },
     )
     assert "agents" in response
     assert any(a["agent_name"] == "sqli" for a in response["agents"])
 ```
-
-(Adjust the import path / dispatch invocation pattern to match `test_server.py`'s existing style — read the file's existing tests first to see whether `create_server` is imported or `ScanEngine` directly.)
 
 - [ ] **Step 5: Update `test_engine.py` per-tool-name assertion**
 
@@ -2264,7 +2284,7 @@ Expected: tests asserting `scan_agents` is registered PASS. The pre-existing `sc
 uv run pytest -q 2>&1 | tail -5
 ```
 
-Expected: 975 (Task 4 end: 974 + 1 from Step 4b) + 1 (new dispatch test) = **976 passed, 9 skipped**. Zero failures.
+Expected: 976 (Task 4 end) + 1 (new dispatch test) = **977 passed, 9 skipped**. Zero failures.
 
 - [ ] **Step 8: Commit**
 
@@ -2283,7 +2303,7 @@ Wires assemble_agents_scan into the MCP server:
   per spec section 5.5 (every convenience tool's description starts with
   'Convenience shortcut for X' and includes the equivalence).
 
-- server.handle_call_tool: scan_agents dispatch branch routes to
+- server._dispatch_tool: scan_agents dispatch branch routes to
   engine.assemble_agents_scan with agents/target/thoroughness/project_root/
   cursor/page_size args.
 
@@ -2291,8 +2311,25 @@ Wires assemble_agents_scan into the MCP server:
 - tests/test_engine.py: scan_agents registered in tool_names.
 
 scan_full and per-agent scan_<name> tools remain registered until Task 6
-retires them — Task 5 is purely additive."
+retires them — Task 5 is purely additive. Insertion location does not
+depend on scan_full presence — Task 6 deletion of scan_full leaves
+scan_agents correctly positioned between scan_domain and the per-agent
+fall-through."
 ```
+
+**Plan-fix additions (2026-04-25, post pre-audit on HEAD 65249d7):**
+- All cited engine.py / server.py line numbers re-pinned to HEAD 65249d7 (drift ~180 lines from Tasks 3+4): list_tool_definitions 2262→2443, scan_domain reg 2291-2327→2472-2508, scan_full reg 2328-2342→2509-2523, server.py dispatch `_dispatch_tool` 71+ (handle_call_tool at 57 is thin wrapper).
+- Step 4 dispatch test rewritten to use `_dispatch_tool` (canonical pattern from tests/test_phase2_server.py:36+); verbatim plan code called `engine.assemble_agents_scan` directly, bypassing the dispatcher and not testing Step 3's new branch.
+- `from pathlib import Path` and `from screw_agents.server import _dispatch_tool` added to module-level imports of tests/test_server.py.
+- `, domain` removed from `scan_domain` updated description (Task 4 E4 dropped the shim; description would have lied about response shape).
+- Test count math corrected: 976 (Task 4 end) + 1 (new dispatch test) = 977 (was wrongly 974+1=976 in plan).
+- Server.py line refs in task header corrected: `_dispatch_tool` is the actual dispatch site, not `handle_call_tool` (which is a thin async wrapper).
+- Test fixture pattern aligned with precedent: use `engine` + `tmp_path` fixtures, not `create_server()` zero-arg.
+- E1 G1 escalation (pre-audit recommended C): `uniqueItems: true` added to agents schema for MCP-boundary defense-in-depth.
+- E1 G2 escalation (pre-audit recommended A): cursor type union `["string", "null"]` retained for consistency with scan_domain precedent.
+- E1 G4 escalation (pre-audit recommended C): schema-rejection tests deferred to BACKLOG-T-SCAN-REFACTOR-T5-M1.
+
+Net new tests in Task 5: **1** (dispatch test). Post-Task-5 expected: **977 passed, 9 skipped**.
 
 ---
 

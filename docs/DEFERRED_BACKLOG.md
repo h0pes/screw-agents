@@ -1904,3 +1904,18 @@ raise ValueError(
 ~3 LOC + 1 test (e.g., `engine.assemble_domain_scan(domain="injection-input-handlng", ...)` should suggest the correctly-spelled domain).
 
 **Estimated scope:** 3 LOC + 1 test.
+
+## T-SCAN-REFACTOR Task 5 minors (discovered 2026-04-25)
+
+Non-blocking minors surfaced during Task 5 pre-audit. Deferred past T-SCAN-REFACTOR merge; natural resolution point listed per entry.
+
+### BACKLOG-T-SCAN-REFACTOR-T5-M1 — Schema-rejection tests for scan_* tool input schemas
+**Phase-4 readiness:** `non-blocker` — defense-in-depth at MCP boundary; engine layer already enforces semantics
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 5 pre-audit, 2026-04-25 (PA-T5-G4)
+**File:** TBD — likely `tests/test_tool_schemas.py` (new file)
+
+**Why deferred:** Engine-layer validation (Tasks 3+4) covers semantic checks (agents non-empty, no duplicates, page_size in [1, 500], unknown agents). The JSON schema layer ALSO enforces these (`minItems`, `uniqueItems` via plan-fix Edit 10, `minimum`/`maximum`) but no test exercises the schema-layer rejection path. MCP-aware clients that validate against `tools[i]["input_schema"]` before round-tripping would benefit from coverage. Cross-tool concern: same gap exists for `scan_domain`, `scan_full`, and per-agent `scan_<name>` tools.
+
+**Remediation sketch:** Use `jsonschema.validate(instance, schema)` against `tools[i]["input_schema"]` for each tool. Cover: `agents=[]` → fails `minItems`, `agents=["a","a"]` → fails `uniqueItems`, `page_size=0` → fails `minimum`, `page_size=10000` → fails `maximum`, `target` missing → fails `required`. ~30 LOC for one test file covering 4 tools × ~3 cases each.
+
+**Estimated scope:** 30 LOC + 0 production code changes. New test file.
