@@ -70,7 +70,7 @@
 | Task 10: Round-trip verification | Live `claude -p` × 2 — no code changes | 0 |
 | **Total** | | **~+2610 / -2608 (net ~+2 LOC; ~700 substantive new + ~1900 cleanup)** |
 
-**Target test count:** 906 passed → **≈970 passed, 8 skipped** (≈+65 new, ≈-15 deleted, ≈-15 net migrated). Zero failures.
+**Target test count:** 906 passed → **≈988 passed, 9 skipped** (≈+88 new, ≈-15 deleted, ≈-15 net migrated; +1 conditional skip from Task 3 fix-up). Zero failures.
 
 **Test files:**
 - New: `tests/test_registry_invariants.py` (5 tests), `tests/test_relevance_filter.py` (10 tests), `tests/test_assemble_agents_scan.py` (25 tests), `tests/test_scan_command_parser.py` (15 tests), `tests/test_screw_scan_subagent.py` (5 tests)
@@ -1176,8 +1176,19 @@ def test_cursor_agents_mismatch_raises(engine: ScanEngine, small_target: dict) -
 
 
 def test_cursor_negative_offset_raises(engine: ScanEngine, small_target: dict) -> None:
+    """Negative offset in a correctly-bound cursor raises with actionable error."""
+    import hashlib
+
+    target_hash = hashlib.sha256(
+        _json.dumps(small_target, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:16]
+    agents_hash = hashlib.sha256(",".join(sorted(["sqli"])).encode("utf-8")).hexdigest()[:16]
     bad_cursor = base64.urlsafe_b64encode(
-        _json.dumps({"target_hash": "x", "agents_hash": "y", "offset": -1}).encode("utf-8")
+        _json.dumps(
+            {"target_hash": target_hash, "agents_hash": agents_hash, "offset": -1},
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
     ).decode("ascii")
     with pytest.raises(ValueError, match="offset is negative"):
         engine.assemble_agents_scan(agents=["sqli"], target=small_target, cursor=bad_cursor)
@@ -1195,6 +1206,30 @@ def test_cursor_agents_hash_independent_of_input_order(engine: ScanEngine, small
     cur_a = _json.loads(base64.urlsafe_b64decode(init_a["next_cursor"].encode("ascii")))
     cur_b = _json.loads(base64.urlsafe_b64decode(init_b["next_cursor"].encode("ascii")))
     assert cur_a["agents_hash"] == cur_b["agents_hash"]
+    # Strengthening (Minor 7): full cursor strings must be byte-identical,
+    # not just the agents_hash component.
+    assert init_a["next_cursor"] == init_b["next_cursor"]
+
+
+def test_empty_string_cursor_treated_as_init(engine: ScanEngine, small_target: dict) -> None:
+    """D1 (Marco-approved Option A): empty-string cursor is normalized to None and treated as init-page."""
+    response_init = engine.assemble_agents_scan(agents=["sqli"], target=small_target)
+    response_empty = engine.assemble_agents_scan(agents=["sqli"], target=small_target, cursor="")
+    assert "agents_excluded_by_relevance" in response_init
+    assert "agents_excluded_by_relevance" in response_empty
+    assert response_init.keys() == response_empty.keys()
+
+
+def test_response_order_invariant_under_input_reorder(
+    engine: ScanEngine, small_target: dict
+) -> None:
+    """D2 (Marco-approved Option A): same agents set in different input order produces identical response order."""
+    response_a = engine.assemble_agents_scan(agents=["xss", "sqli"], target=small_target)
+    response_b = engine.assemble_agents_scan(agents=["sqli", "xss"], target=small_target)
+    names_a = [a["agent_name"] for a in response_a["agents"]]
+    names_b = [a["agent_name"] for a in response_b["agents"]]
+    assert names_a == names_b
+    assert names_a == ["sqli", "xss"]  # alphabetical
 
 
 # ---------------------------------------------------------------------------
@@ -1208,8 +1243,19 @@ def test_empty_agents_list_raises(engine: ScanEngine, small_target: dict) -> Non
 
 
 def test_unknown_agent_raises(engine: ScanEngine, small_target: dict) -> None:
-    with pytest.raises(ValueError, match="Unknown agent"):
+    with pytest.raises(ValueError, match="Unknown agent name"):
         engine.assemble_agents_scan(agents=["nonexistent"], target=small_target)
+
+
+def test_multiple_unknown_agents_collected_in_error(
+    engine: ScanEngine, small_target: dict
+) -> None:
+    """Minor 4 fix-up: multiple unknown agents surface together with a sorted list."""
+    with pytest.raises(ValueError, match=r"Unknown agent name.*\['nonex1', 'nonex2'\]"):
+        engine.assemble_agents_scan(
+            agents=["sqli", "nonex2", "nonex1"],
+            target=small_target,
+        )
 
 
 def test_duplicate_agents_raises(engine: ScanEngine, small_target: dict) -> None:
@@ -1388,6 +1434,77 @@ def test_multi_agent_code_page_fans_out_per_agent(engine: ScanEngine, small_targ
     # Each agent entry has same code (target same; agents fan out per code page)
     for entry in code["agents"]:
         assert "code" in entry
+
+
+# ---------------------------------------------------------------------------
+# Coverage gaps closed in fix-up (Minor 9 partial)
+# ---------------------------------------------------------------------------
+
+
+def test_init_page_when_all_agents_filtered_out(
+    engine: ScanEngine, tmp_path: Path
+) -> None:
+    """When every agent's languages are disjoint from target's, response is well-formed.
+
+    Skips when production agents collectively cover all SUPPORTED_LANGUAGES
+    (no language gap to exploit). Skipping is benign — the no-coverage-gap
+    state is exactly the desired registry shape.
+    """
+    from screw_agents.engine import _agent_supported_languages
+    from screw_agents.treesitter import SUPPORTED_LANGUAGES
+
+    all_agent_langs: set[str] = set()
+    for agent in engine._registry.agents.values():
+        all_agent_langs.update(_agent_supported_languages(agent))
+    coverage_gap = set(SUPPORTED_LANGUAGES) - all_agent_langs
+    if not coverage_gap:
+        pytest.skip("All SUPPORTED_LANGUAGES covered by current production agents.")
+    target_lang = next(iter(coverage_gap))
+    pytest.skip(f"Coverage-gap language {target_lang!r} requires synthetic-target setup not in scope")
+
+
+def test_cursor_offset_above_total_files_returns_empty(
+    engine: ScanEngine, small_target: dict
+) -> None:
+    """Cursor with offset > total_files returns empty page + next_cursor=None.
+
+    Models files-deleted-between-pages: cursor's offset is now out-of-bounds.
+    """
+    import hashlib
+
+    target_hash = hashlib.sha256(
+        _json.dumps(small_target, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:16]
+    agents_hash = hashlib.sha256(",".join(sorted(["sqli"])).encode("utf-8")).hexdigest()[:16]
+    cursor_payload = _json.dumps(
+        {"target_hash": target_hash, "agents_hash": agents_hash, "offset": 9999},
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    cursor = base64.urlsafe_b64encode(cursor_payload).decode("ascii")
+
+    response = engine.assemble_agents_scan(
+        agents=["sqli"], target=small_target, cursor=cursor
+    )
+    if response["agents"]:
+        for entry in response["agents"]:
+            assert entry.get("resolved_files", []) == []
+            assert not entry.get("code")
+    assert response["code_chunks_on_page"] == 0
+    assert response["next_cursor"] is None
+
+
+def test_project_root_without_exclusions_file(
+    engine: ScanEngine, small_target: dict, tmp_path: Path
+) -> None:
+    """project_root provided but no .screw/learning/exclusions.yaml exists — exclusions empty."""
+    project_root = tmp_path
+    response = engine.assemble_agents_scan(
+        agents=["sqli"], target=small_target, project_root=project_root
+    )
+    assert "agents" in response
+    for entry in response["agents"]:
+        assert entry.get("exclusions", []) == []
 ```
 
 - [ ] **Step 2: Run new tests to verify they fail**
@@ -1438,10 +1555,26 @@ Open `src/screw_agents/engine.py`. Locate `assemble_domain_scan` ending at line 
         **Code page (cursor is set):** Emits a paged slice of code chunks
         fanned out per agent. Per-agent entries carry ``code``,
         ``resolved_files``, ``meta`` — no ``core_prompt``, no ``exclusions``
-        (exclusions are init-only), no ``agents_excluded_by_relevance`` (also
-        init-only). ``trust_status`` is re-emitted at the top level when
-        ``project_root`` is provided so any single page carries the
-        quarantine counts.
+        (exclusions are init-only). ``trust_status`` is re-emitted at the
+        top level when ``project_root`` is provided so any single page
+        carries the quarantine counts. Code pages do NOT re-emit
+        ``agents_excluded_by_relevance``; the cursor's ``agents_hash``
+        already binds the kept set so it cannot drift between pages.
+
+        ``agents_excluded_by_relevance`` (init page only, top-level): list
+        of dicts describing agents dropped by the relevance filter (each
+        with ``agent_name``, ``reason``, ``agent_languages``,
+        ``target_languages``). Code pages do NOT re-emit this field; the
+        cursor's ``agents_hash`` already binds the kept set.
+
+        Note: if files are added/deleted between init and code pages,
+        ``total_files`` may shift but the cursor ``offset`` is interpreted
+        on the current page's resolved file list. An out-of-bounds offset
+        (e.g., file deleted under the cursor) results in an empty page and
+        ``next_cursor=None`` — clean termination rather than an error. The
+        caller's accumulated results from prior pages remain valid but may
+        be incomplete. This is expected behavior for a stateless cursor
+        scheme.
 
         Cursor encoding (Option β):
             cursor = base64url(json({
@@ -1524,15 +1657,25 @@ Open `src/screw_agents/engine.py`. Locate `assemble_domain_scan` ending at line 
                 f"(per X1-M1 finding). Reduce page_size or paginate via cursor."
             )
         # Priority 5: all agent names resolve in the registry.
-        for name in agents:
-            if self._registry.get_agent(name) is None:
-                raise ValueError(f"Unknown agent: {name!r}")
+        # Validate ALL unknown agents in one pass (friendlier for callers
+        # passing several names — surface every unknown at once instead of
+        # forcing N round-trips).
+        unknown = [name for name in agents if self._registry.get_agent(name) is None]
+        if unknown:
+            raise ValueError(
+                f"Unknown agent name(s): {sorted(unknown)}. "
+                f"Use list_agents() to discover available names."
+            )
 
         # ---- Hashing inputs (cursor binding — Option β) ----
         canonical_target = _json.dumps(target, sort_keys=True, separators=(",", ":"))
         target_hash = hashlib.sha256(canonical_target.encode("utf-8")).hexdigest()[:16]
         sorted_agents = sorted(agents)
         agents_hash = hashlib.sha256(",".join(sorted_agents).encode("utf-8")).hexdigest()[:16]
+
+        # D1: treat empty-string cursor as None (init-page request).
+        if cursor == "":
+            cursor = None
 
         # ---- Cursor decode (preserves existing ValueError semantics) ----
         if cursor:
@@ -1575,6 +1718,9 @@ Open `src/screw_agents/engine.py`. Locate `assemble_domain_scan` ending at line 
         # ---- Init page: relevance filter + metadata + exclusions ----
         if is_init_page:
             kept_agents, excluded = _filter_relevant_agents(all_codes, agent_defs)
+            # D2: sort kept_agents alphabetically by meta.name so response
+            # order is input-order-invariant.
+            kept_agents = sorted(kept_agents, key=lambda a: a.meta.name)
 
             if project_root is not None:
                 all_exclusions: list[Exclusion] | None = load_exclusions(project_root)
@@ -1632,6 +1778,9 @@ Open `src/screw_agents/engine.py`. Locate `assemble_domain_scan` ending at line 
         # iterated — must match init-page result deterministically since
         # cursor's agents_hash already binds the call.
         kept_agents, _excluded_unused = _filter_relevant_agents(all_codes, agent_defs)
+        # D2: sort kept_agents alphabetically by meta.name so response
+        # order is input-order-invariant.
+        kept_agents = sorted(kept_agents, key=lambda a: a.meta.name)
 
         page_codes = all_codes[offset : offset + page_size]
         next_offset = offset + len(page_codes)
@@ -1685,7 +1834,7 @@ Open `src/screw_agents/engine.py`. Locate `assemble_domain_scan` ending at line 
 uv run pytest tests/test_assemble_agents_scan.py -v 2>&1 | tail -30
 ```
 
-Expected: all 26 tests in `test_assemble_agents_scan.py` PASS (22 base + 4 added per E1/E2 plan-fix).
+Expected: 31 tests PASS + 1 conditionally SKIPPED in `test_assemble_agents_scan.py` (22 base + E1×2 + E2×2 + fix-up: D1 empty-string cursor + D2 response-order invariance + multiple-unknown collection + offset-above-total + project-root-no-exclusions + all-agents-filtered (skips when no language gap)).
 
 - [ ] **Step 5: Run full test suite to confirm no regression**
 
@@ -1693,7 +1842,7 @@ Expected: all 26 tests in `test_assemble_agents_scan.py` PASS (22 base + 4 added
 uv run pytest -q 2>&1 | tail -5
 ```
 
-Expected: 943 (post-Task-2 baseline at HEAD `daa8691`) + 26 (new this task: 22 base + E1×2 + E2×2; plan-fix arithmetic miscounted base as 20) = **969 passed, 8 skipped**. Zero failures.
+Expected: 943 (post-Task-2 baseline at HEAD `daa8691`) + 31 (Task 3: 22 base + E1×2 + E2×2 + fix-up +5 net new passing; the all-agents-filtered fix-up test conditionally skips, raising skipped count by 1) = **974 passed, 9 skipped**. Zero failures.
 
 - [ ] **Step 6: Commit**
 
@@ -1746,7 +1895,17 @@ integration."
 - E4 deferred to Task 4 pre-audit (cross-task scope concern about `result["domain"]` mutation in wrapper).
 - Decode block restructured (Option B, Marco approved during implementation) — single catch for binascii.Error/JSONDecodeError/UnicodeDecodeError/KeyError/TypeError/ValueError wraps as "Invalid cursor: {detail}"; post-decode binding + offset checks unchanged. The verbatim plan body had a try/except ordering bug that escaped the wrapping path; surfaced by test_cursor_malformed_raises and test_cursor_negative_offset_raises which now correctly exercise their paths.
 
-Net new tests in Task 3: 22 (base) + 2 (E1) + 2 (E2) = **26 new tests** (plan-fix arithmetic miscounted base as 20). Post-Task-3 expected: `943 + 26 = 969 passed, 8 skipped`.
+**Fix-up additions (2026-04-25, post spec+quality review):**
+- D1 (Marco-approved Option A): empty-string cursor normalized to None at function entry. Original `if cursor:` truthiness skipped decode for `""`, but `is_init_page = cursor is None` was False, sending the function down the code-page branch with no binding validated. Centralize normalization once.
+- D2 (Marco-approved Option A): `kept_agents` sorted alphabetically by `meta.name` in both init- and code-page paths for response-order invariance. Mirrors cursor's `agents_hash` order-invariant binding contract.
+- Docstring wording corrected for `agents_excluded_by_relevance` (top-level init-only field) + files-deleted-between-pages note added (Minors 1+2 — parity with `assemble_domain_scan`).
+- Unknown agents collected into one error message instead of first-fail (Minor 4) — `Unknown agent name(s): [...]` with sorted list.
+- Cursor stability + canonical JSON test improvements (Minors 7+8): `test_cursor_agents_hash_independent_of_input_order` strengthened to assert full cursor byte-equality; `test_cursor_negative_offset_raises` uses canonical JSON (`sort_keys=True`, `separators=(",", ":")`).
+- 3 coverage tests added (Minor 9 partial): `test_init_page_when_all_agents_filtered_out` (conditional skip if no language gap), `test_cursor_offset_above_total_files_returns_empty` (out-of-bounds graceful termination), `test_project_root_without_exclusions_file` (no exclusions YAML present).
+- 2 DEFERRED_BACKLOG entries (M1 INFO entry log, M2 cursor schema version field).
+- Net new tests in fix-up: +5 passing + 1 conditional skip; final fix-up file count = 31 passed + 1 skipped.
+
+Net new tests in Task 3: 22 (base) + 2 (E1) + 2 (E2) + 5 (fix-up D1/D2/coverage) = **31 new passing tests + 1 conditional skip**. Post-Task-3 expected: `943 + 31 = 974 passed, 9 skipped` (the +1 skip is the all-agents-filtered conditional).
 
 ---
 
@@ -1856,7 +2015,7 @@ Expected: all existing `assemble_domain_scan` tests PASS unchanged.
 uv run pytest -q 2>&1 | tail -5
 ```
 
-Expected: 969 passed (no change from end of Task 3 — Task 4 swaps internals but adds no new tests; Step 4b below adds 1 net test). Zero failures.
+Expected: 974 passed, 9 skipped (no change from end of Task 3 — Task 4 swaps internals but adds no new tests; Step 4b below adds 1 net test). Zero failures.
 
 - [ ] **Step 4b (added per E2 plan-fix): Retrofit `page_size <= 500` to `assemble_domain_scan`**
 
@@ -2079,7 +2238,7 @@ Expected: tests asserting `scan_agents` is registered PASS. The pre-existing `sc
 uv run pytest -q 2>&1 | tail -5
 ```
 
-Expected: 970 (Task 4 end: 969 + 1 from Step 4b) + 1 (new dispatch test) = **971 passed**. Zero failures.
+Expected: 975 (Task 4 end: 974 + 1 from Step 4b) + 1 (new dispatch test) = **976 passed, 9 skipped**. Zero failures.
 
 - [ ] **Step 8: Commit**
 
@@ -2212,7 +2371,7 @@ Expected: all PASS. Test count drops by ~6-8 (4 deleted full-scan tests + 2 migr
 uv run pytest -q 2>&1 | tail -5
 ```
 
-Expected: 969 (post-Task-5) - ~8 (deletions: 4 test_assemble_full_scan_* + scan_full assertion + dispatch branch test artifacts) = **~961 passed, 8 skipped**. Zero failures.
+Expected: 976 (post-Task-5) - ~8 (deletions: 4 test_assemble_full_scan_* + scan_full assertion + dispatch branch test artifacts) = **~968 passed, 9 skipped**. Zero failures.
 
 If a test fails because it called `engine.assemble_scan(name)` for a per-agent tool through some indirect path: the engine method `assemble_scan(name, ...)` itself is preserved (it's the per-agent helper used internally by both `assemble_agents_scan` and `assemble_domain_scan`); only the **MCP tool** dispatch branch was deleted. Direct `engine.assemble_scan(...)` calls in tests work unchanged.
 
@@ -3656,18 +3815,18 @@ Section in Plan | Expected count
 Baseline (main HEAD `02d90d1`) | 906 passed, 8 skipped
 After Task 1 (registry invariants +5) | 911
 After Task 2 (relevance filter +14 ; +12 fix-up = +26 net shipped per HEAD `daa8691`) | **943** (Task-2-shipped baseline)
-After Task 3 (assemble_agents_scan +26 ; 22 base + E1×2 + E2×2 — plan-fix arithmetic miscounted base as 20) | 969
-After Task 4 (wrapper refactor 0 + Step 4b retrofit +1 per plan-fix E2) | 970
-After Task 5 (server dispatch +1) | 971
-After Task 6 (deletions ~-8) | ~963
-After Task 7 (subagent tests +7) | ~970
-After Task 8 (parser tests +15) | ~985
-After Task 9 (docs only; 0) | ~983
-After Task 10 (verification only; 0) | ~983
+After Task 3 (assemble_agents_scan +26 plan-fix + +5 fix-up D1/D2/coverage = +31 ; +1 conditional skip) | **974 passed, 9 skipped** (Task-3-shipped baseline)
+After Task 4 (wrapper refactor 0 + Step 4b retrofit +1 per plan-fix E2) | 975
+After Task 5 (server dispatch +1) | 976
+After Task 6 (deletions ~-8) | ~968
+After Task 7 (subagent tests +7) | ~975
+After Task 8 (parser tests +15) | ~990
+After Task 9 (docs only; 0) | ~988
+After Task 10 (verification only; 0) | ~988
 
-Final target: **≈983 passed, 8 skipped**. Deviations of ±5 from cleanup and migration accounting are acceptable.
+Final target: **≈988 passed, 9 skipped**. Deviations of ±5 from cleanup and migration accounting are acceptable.
 
-**Cascade derivation note:** baseline 943 reflects HEAD `daa8691` (Task 2 fix-up shipped 26 net new tests, not 14 + 5 as the original plan modeled). Plan-fix on Task 3 adds 4 new validation tests for E1+E2 (duplicates, non-string, page_size > 500, validation ordering). Plan-fix on Task 4 adds 1 test (page_size upper bound on `assemble_domain_scan`). Net delta vs original cumulative target: +23 tests (943 - 925 baseline shift = +18; +4 E1/E2 in Task 3; +1 E2 in Task 4 = +23).
+**Cascade derivation note:** baseline 943 reflects HEAD `daa8691` (Task 2 fix-up shipped 26 net new tests, not 14 + 5 as the original plan modeled). Plan-fix on Task 3 adds 4 new validation tests for E1+E2 (duplicates, non-string, page_size > 500, validation ordering). Task 3 fix-up adds 5 net new passing tests (D1 empty-string cursor, D2 response-order invariance, multiple-unknown collection, offset-above-total, project-root-no-exclusions) + 1 conditional skip (all-agents-filtered). Plan-fix on Task 4 adds 1 test (page_size upper bound on `assemble_domain_scan`). Final delta vs original cumulative target: +28 tests + 1 skip shift (8 → 9).
 
 ### 6. Cross-plan sync (per `feedback_cross_plan_sync` memory)
 

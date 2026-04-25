@@ -1851,3 +1851,29 @@ Non-blocking minors surfaced during Task 2 pre-audit. Deferred past T-SCAN-REFAC
 **Remediation sketch:** For each of the 8 call sites, add one integration test passing an extensionless file with a Python shebang and asserting `ResolvedCode.language == "python"`. ~30 LOC. Could fold into existing M1 (parametrized SHEBANG_MAP coverage) for shared fixture setup.
 
 **Estimated scope:** ~30 LOC (8 tests) + 0 production code changes.
+
+## T-SCAN-REFACTOR Task 3 minors (discovered 2026-04-25)
+
+Non-blocking minors surfaced during Task 3 quality review. Deferred past T-SCAN-REFACTOR merge; natural resolution point listed per entry.
+
+### BACKLOG-T-SCAN-REFACTOR-T3-M1 — INFO entry log for `assemble_agents_scan`
+**Phase-4 readiness:** `non-blocker` — observability-debt; no functional gap
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 3 quality review, 2026-04-25 (QR-T3-M5)
+**File:** `src/screw_agents/engine.py::assemble_agents_scan`
+
+**Why deferred:** `assemble_agents_scan` is silent at function entry. A future debug story (e.g., "why is this slash command picking these agents?") would benefit from an INFO log capturing agents/target_type/page_index. `assemble_domain_scan` is similarly silent; consistency wins on the no-log side. Adding the log to BOTH methods (or to a shared helper) would close the gap consistently.
+
+**Remediation sketch:** Add `logger.info("assemble_agents_scan: agents=%s target_type=%s page=%d", agents, target.get("type"), offset)` near function entry. Mirror in `assemble_domain_scan`. ~3 LOC × 2 methods.
+
+**Estimated scope:** 6 LOC + 0 new tests (logging tests are typically integration-test territory).
+
+### BACKLOG-T-SCAN-REFACTOR-T3-M2 — Cursor schema version field
+**Phase-4 readiness:** `non-blocker` — speculative future-proofing
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 3 quality review, 2026-04-25 (QR-T3-M6)
+**File:** `src/screw_agents/engine.py::assemble_agents_scan` cursor encoding
+
+**Why deferred:** Current cursor schema is `{target_hash, agents_hash, offset}`. If a future cursor schema changes (e.g., add a `kept_agent_names` snapshot to skip per-page filter re-application), backwards compatibility could be checked via a version field. Cursors are ephemeral (single-scan-session lifetime), so the practical risk is low.
+
+**Remediation sketch:** Add `"v": 1` to cursor payload; decode rejects non-1 versions with a "Cursor version unsupported; refresh by retrying without cursor" message. ~3 LOC + 1 test.
+
+**Estimated scope:** 3 LOC + 1 test.
