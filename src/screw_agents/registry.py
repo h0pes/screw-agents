@@ -39,6 +39,15 @@ class AgentRegistry:
                 continue
 
             agent = AgentDefinition.model_validate(raw)
+            # T-SCAN-REFACTOR Task 1 (Section 10.3): YAML filename stem
+            # must equal meta.name. Prevents copy-paste mistakes where a
+            # duplicated YAML keeps the original meta.name.
+            if yaml_path.stem != agent.meta.name:
+                raise ValueError(
+                    f"YAML filename stem {yaml_path.stem!r} does not match "
+                    f"meta.name {agent.meta.name!r} in {yaml_path}. "
+                    f"Convention: stem == meta.name."
+                )
             name = agent.meta.name
 
             if name in self._agents:
@@ -59,6 +68,18 @@ class AgentRegistry:
             len(self._agents),
             len(self._domains),
         )
+
+        # T-SCAN-REFACTOR Task 1 (Section 10.2): agent names must not
+        # collide with domain names. The slash command's bare-token parser
+        # disambiguates a token by looking it up in both registries; without
+        # this invariant a token could match both, producing ambiguous scope
+        # resolution.
+        collision = set(self._agents.keys()) & set(self._domains.keys())
+        if collision:
+            raise ValueError(
+                f"Agent name(s) collide with domain name(s): {sorted(collision)}. "
+                f"Agent names and domain names share a global namespace; rename one."
+            )
 
     @property
     def agents(self) -> dict[str, AgentDefinition]:
