@@ -338,3 +338,42 @@ def test_pagination_walks_all_files_without_duplicates(tmp_path: Path):
         assert pages_consumed < 20, "pagination did not terminate"
 
     assert len(all_visited) == total_files
+
+
+# ---------------------------------------------------------------------------
+# T-SCAN-REFACTOR Task 4 Step 4b: symmetric coverage for assemble_domain_scan
+# now that it delegates to assemble_agents_scan.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def engine() -> ScanEngine:
+    """ScanEngine loaded from the real domains/ directory.
+
+    Mirrors tests/test_assemble_agents_scan.py:33-42 fixture pattern.
+    """
+    from screw_agents.registry import AgentRegistry
+
+    domains_dir = Path(__file__).parents[1] / "domains"
+    return ScanEngine(AgentRegistry(domains_dir))
+
+
+def test_assemble_domain_scan_page_size_above_500_raises(engine: ScanEngine, tmp_path: Path) -> None:
+    """E2 retrofit (per Task 4 plan-fix Step 4b): assemble_domain_scan
+    enforces page_size <= 500 by inheriting from assemble_agents_scan."""
+    target = {"type": "codebase", "root": str(tmp_path)}
+    with pytest.raises(ValueError, match=r"page_size must be in \[1, 500\]"):
+        engine.assemble_domain_scan(
+            domain="injection-input-handling", target=target, page_size=10000
+        )
+
+
+def test_assemble_domain_scan_unknown_domain_lists_available(
+    engine: ScanEngine, tmp_path: Path
+) -> None:
+    """G1 polish: 'Unknown domain' error enumerates available domains."""
+    target = {"type": "codebase", "root": str(tmp_path)}
+    with pytest.raises(ValueError, match=r"Unknown or empty domain.*Available domains"):
+        engine.assemble_domain_scan(
+            domain="nonexistent-domain", target=target
+        )

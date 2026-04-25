@@ -1614,193 +1614,58 @@ class ScanEngine:
         cursor: str | None = None,
         page_size: int = 50,
     ) -> dict[str, Any]:
-        """Assemble paginated scan payloads for every agent in a domain.
+        """Convenience wrapper: scan all agents in a CWE-1400 domain.
 
-        The response has TWO shapes keyed by the cursor discriminator:
+        T-SCAN-REFACTOR Task 4: now a thin shortcut over ``assemble_agents_scan``.
+        Equivalent to:
 
-        **Init page (cursor is None):** Returns per-agent metadata (and,
-        if ``project_root`` is set, agent-scoped exclusions) without any
-        code. Each per-agent ``agents`` entry carries ``agent_name`` and
-        ``meta`` but NO ``core_prompt`` and NO ``code``. There is NO
-        top-level ``prompts`` dict — orchestrators fetch each agent's
-        prompt lazily via the ``get_agent_prompt`` MCP tool on first
-        encounter and cache for reuse across code pages (the aggregate
-        prompts dict exceeded Claude Code's inline tool-response budget,
-        triggering cache-to-file fallback; shipping prompts lazily keeps
-        every response under the ceiling). ``code_chunks_on_page == 0``
-        and ``offset == 0``. ``next_cursor`` encodes offset=0 when files
-        exist (pointing at the first code page); it is None when there
-        is nothing to paginate.
+            scan_agents(
+                agents=[a.meta.name for a in registry.get_agents_by_domain(domain)],
+                ...
+            )
 
-        **Code page (cursor is set):** Emits a paged slice of code chunks
-        fanned out per agent. Per-agent entries carry ``code``,
-        ``resolved_files``, ``meta`` — but no ``core_prompt`` and no
-        ``exclusions`` (exclusions are init-only). ``trust_status`` is
-        re-emitted at the top level when ``project_root`` is provided so
-        any single page carries the quarantine counts.
+        The response shape additions versus pre-T-SCAN-REFACTOR:
+        - Init-page now carries ``agents_excluded_by_relevance`` (the per-agent
+          language relevance filter is applied via the underlying primitive).
 
-        The cursor is an opaque base64url-encoded JSON token encoding
-        ``{"target_hash": str, "offset": int}``. Cursors are bound to their
-        originating target: replaying a cursor against a different target
-        raises ``ValueError``.
+        The response shape additions versus the old domain-scoped scan are
+        purely additive; no existing key changed type or semantics.
+
+        Use ``scan_agents`` directly to scan an arbitrary subset of agents
+        (e.g., 2 of 10 in a domain, or agents from multiple domains).
 
         Args:
             domain: CWE-1400 domain name (e.g. "injection-input-handling").
-            target: Target spec dict (PRD S5).
-            thoroughness: Per-agent tier control ("standard" | "deep").
-            project_root: Optional project root for exclusions + trust.
-            cursor: Opaque pagination token from a previous call; None
-                requests the init page.
-            page_size: Max number of resolved code chunks per page
-                (default 50).
+            target: PRD §5 target spec dict.
+            thoroughness: passed through ("standard" | "deep").
+            project_root: optional project root for exclusions + trust_status.
+            cursor: opaque pagination token; None requests init page.
+            page_size: max code chunks per page (default 50).
 
         Returns:
-            Dict with keys shared across both shapes:
-                domain: str
-                agents: list[dict[str, Any]]
-                next_cursor: str | None
-                page_size: int
-                total_files: int
-                offset: int
-                code_chunks_on_page: int
-                trust_status: dict  (only when project_root is provided)
-            Neither shape emits a top-level ``prompts`` key; callers must
-            use ``get_agent_prompt(agent_name, thoroughness)`` instead.
-
-        Note: if files are deleted between page requests, the cursor's offset may
-        exceed the current file count. This results in an empty ``agents`` list
-        with ``next_cursor=None`` — clean termination rather than an error. The
-        caller's accumulated results from prior pages remain valid but may be
-        incomplete. This is expected behavior for a stateless cursor scheme.
+            Same shape as ``assemble_agents_scan``.
 
         Raises:
-            ValueError: If cursor is bound to a different target, or is
-                malformed.
+            ValueError: if domain is unknown or the underlying agents-scan
+                raises (cursor binding mismatch, etc.).
         """
-        if page_size < 1:
-            raise ValueError(f"page_size must be >= 1, got {page_size}")
-
-        # Canonical target hash binds the cursor to the target -- rejects replay across targets
-        canonical = _json.dumps(target, sort_keys=True, separators=(",", ":"))
-        target_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
-
-        # Decode cursor — preserves existing ValueError semantics
-        if cursor:
-            try:
-                decoded = _json.loads(
-                    base64.urlsafe_b64decode(cursor.encode("ascii")).decode("utf-8")
-                )
-                if decoded.get("target_hash") != target_hash:
-                    raise ValueError(
-                        "cursor is bound to a different target; refusing to use"
-                    )
-                offset = int(decoded["offset"])
-                if offset < 0:
-                    raise ValueError("cursor offset is negative")
-            except ValueError:
-                raise
-            except Exception as exc:
-                raise ValueError(f"Invalid cursor: {exc}") from exc
-        else:
-            offset = 0
-
-        agents = self._registry.get_agents_by_domain(domain)
-
-        # Resolve target once — both branches need total_files.
-        all_codes = resolve_target(target)
-        total_files = len(all_codes)
-
-        is_init_page = cursor is None
-
-        # Load exclusions only on the init page — project-wide, included once
-        # in the subagent's context. Code pages do NOT re-ship exclusions.
-        if project_root is not None and is_init_page:
-            domain_exclusions: list[Exclusion] | None = load_exclusions(project_root)
-        else:
-            domain_exclusions = None
-
-        if is_init_page:
-            agents_responses: list[dict[str, Any]] = []
-            for a in agents:
-                entry: dict[str, Any] = {
-                    "agent_name": a.meta.name,
-                    "meta": self._agent_meta_summary(a),
-                }
-                if project_root is not None and domain_exclusions is not None:
-                    agent_exclusions = [
-                        e for e in domain_exclusions
-                        if e.agent == a.meta.name and not e.quarantined
-                    ]
-                    entry["exclusions"] = [e.model_dump() for e in agent_exclusions]
-                agents_responses.append(entry)
-
-            if total_files > 0:
-                next_cursor: str | None = base64.urlsafe_b64encode(
-                    _json.dumps(
-                        {"target_hash": target_hash, "offset": 0},
-                        separators=(",", ":"),
-                    ).encode("utf-8")
-                ).decode("ascii")
-            else:
-                next_cursor = None
-
-            result: dict[str, Any] = {
-                "domain": domain,
-                "agents": agents_responses,
-                "next_cursor": next_cursor,
-                "page_size": page_size,
-                "total_files": total_files,
-                "code_chunks_on_page": 0,
-                "offset": 0,
-            }
-            if project_root is not None:
-                result["trust_status"] = self.verify_trust(
-                    project_root=project_root, exclusions=domain_exclusions
-                )
-            return result
-
-        # Code-page branch (cursor was non-None)
-        page_codes = all_codes[offset : offset + page_size]
-        next_offset = offset + len(page_codes)
-        if next_offset < total_files:
-            next_cursor = base64.urlsafe_b64encode(
-                _json.dumps(
-                    {"target_hash": target_hash, "offset": next_offset},
-                    separators=(",", ":"),
-                ).encode("utf-8")
-            ).decode("ascii")
-        else:
-            next_cursor = None
-
-        agents_responses = [
-            self.assemble_scan(
-                a.meta.name,
-                target,
-                thoroughness,
-                project_root,
-                preloaded_codes=page_codes,
-                _preloaded_exclusions=[],
-                include_prompt=False,
+        agents_in_domain = self._registry.get_agents_by_domain(domain)
+        if not agents_in_domain:
+            available = sorted(self._registry.list_domains().keys())
+            raise ValueError(
+                f"Unknown or empty domain: {domain!r}. "
+                f"Available domains: {available}."
             )
-            for a in agents
-        ]
+        agent_names = [a.meta.name for a in agents_in_domain]
 
-        for entry in agents_responses:
-            entry.pop("exclusions", None)
-            entry.pop("trust_status", None)
-
-        result = {
-            "domain": domain,
-            "agents": agents_responses,
-            "next_cursor": next_cursor,
-            "page_size": page_size,
-            "total_files": total_files,
-            "code_chunks_on_page": len(page_codes),
-            "offset": offset,
-        }
-        if project_root is not None:
-            result["trust_status"] = self.verify_trust(project_root=project_root)
-        return result
+        return self.assemble_agents_scan(
+            agents=agent_names,
+            target=target,
+            thoroughness=thoroughness,
+            project_root=project_root,
+            cursor=cursor,
+            page_size=page_size,
+        )
 
     def assemble_agents_scan(
         self,
