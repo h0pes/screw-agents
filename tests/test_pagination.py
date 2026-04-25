@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from screw_agents.engine import ScanEngine
+from screw_agents.registry import AgentRegistry
 
 
 def _seed_injection_fixture(root: Path, n: int = 12) -> None:
@@ -352,8 +353,6 @@ def engine() -> ScanEngine:
 
     Mirrors tests/test_assemble_agents_scan.py:33-42 fixture pattern.
     """
-    from screw_agents.registry import AgentRegistry
-
     domains_dir = Path(__file__).parents[1] / "domains"
     return ScanEngine(AgentRegistry(domains_dir))
 
