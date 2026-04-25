@@ -1914,9 +1914,8 @@ Net new tests in Task 3: 22 (base) + 2 (E1) + 2 (E2) + 5 (fix-up D1/D2/coverage)
 **Goal:** Replace the body of `assemble_domain_scan` (~180 LOC of pagination logic at lines 1606-1802) with a thin delegation to `assemble_agents_scan`. Schema unchanged from caller's view; tests asserting `scan_domain` behavior still pass. Also retrofit the E2 page_size upper-bound enforcement (added per plan-fix Step 4b).
 
 **Files:**
-- Modify: `src/screw_agents/engine.py:1606-1802` (the entire `assemble_domain_scan` method body)
-- Modify: `src/screw_agents/engine.py:1679-1680` (page_size lower-bound check — retrofit per E2 plan-fix Step 4b)
-- Modify: `tests/test_pagination.py` — update `test_assemble_domain_scan_invalid_page_size` to cover the new upper-bound case (or add a new sibling test if name differs).
+- Modify: `src/screw_agents/engine.py:1606-1802` (the entire `assemble_domain_scan` method body — replaced with thin delegation wrapper)
+- Modify: `tests/test_pagination.py` — append two new sibling tests per Step 4b (upper-bound coverage + unknown-domain enumeration). No existing test is touched; bound validation is inherited from `assemble_agents_scan` automatically via delegation.
 
 **Pre-audit focus (mandatory):** before replacing the body, run `grep -n "scan_domain\|assemble_domain_scan" tests/` and audit every assertion site. Confirm none of them inspect `agents_excluded_by_relevance` — that's a new init-page field that `assemble_domain_scan` will now also emit (since it delegates). Tests that don't care about this field will pass; any test that asserts `assert set(response.keys()) == {EXACT_SET}` would fail. List those for the implementer to handle.
 
@@ -1975,8 +1974,7 @@ Open `src/screw_agents/engine.py`. Replace lines 1606-1802 (the entire `assemble
             page_size: max code chunks per page (default 50).
 
         Returns:
-            Same shape as ``assemble_agents_scan`` plus a top-level "domain"
-            key for backward compatibility with pre-T-SCAN-REFACTOR callers.
+            Same shape as ``assemble_agents_scan``.
 
         Raises:
             ValueError: if domain is unknown or the underlying agents-scan
@@ -1984,10 +1982,14 @@ Open `src/screw_agents/engine.py`. Replace lines 1606-1802 (the entire `assemble
         """
         agents_in_domain = self._registry.get_agents_by_domain(domain)
         if not agents_in_domain:
-            raise ValueError(f"Unknown or empty domain: {domain!r}")
+            available = sorted(self._registry.list_domains().keys())
+            raise ValueError(
+                f"Unknown or empty domain: {domain!r}. "
+                f"Available domains: {available}."
+            )
         agent_names = [a.meta.name for a in agents_in_domain]
 
-        result = self.assemble_agents_scan(
+        return self.assemble_agents_scan(
             agents=agent_names,
             target=target,
             thoroughness=thoroughness,
@@ -1995,10 +1997,6 @@ Open `src/screw_agents/engine.py`. Replace lines 1606-1802 (the entire `assemble
             cursor=cursor,
             page_size=page_size,
         )
-        # Preserve historical "domain" key so existing test assertions and
-        # external readers see no shape regression.
-        result["domain"] = domain
-        return result
 ```
 
 - [ ] **Step 3: Run domain-scan tests to verify behavior preserved**
@@ -2017,22 +2015,11 @@ uv run pytest -q 2>&1 | tail -5
 
 Expected: 974 passed, 9 skipped (no change from end of Task 3 — Task 4 swaps internals but adds no new tests; Step 4b below adds 1 net test). Zero failures.
 
-- [ ] **Step 4b (added per E2 plan-fix): Retrofit `page_size <= 500` to `assemble_domain_scan`**
+- [ ] **Step 4b (added per E2 plan-fix): Symmetric upper-bound test for `assemble_domain_scan`**
 
-For symmetry with `assemble_agents_scan` (Task 3), retrofit the upper-bound check onto `assemble_domain_scan`'s lower-bound check site at `engine.py:1679-1680`.
+For coverage symmetry with `assemble_agents_scan` (Task 3, where `test_page_size_above_500_raises` already exists at `tests/test_assemble_agents_scan.py:251`), add a sibling test for the `assemble_domain_scan` MCP-surface entry point. The wrapper delegates to `assemble_agents_scan`, which already enforces `page_size in [1, 500]` (engine.py:1935-1940). The pass-through inherits the same `ValueError` and actionable message automatically — no engine-side code change is needed.
 
-NOTE on placement: the wrapper from Step 2 above delegates to `assemble_agents_scan`, which already enforces `[1, 500]`. Step 4b applies if the implementer's wrapper does NOT add its own page_size pre-check (the page_size will fall through to the primitive and surface the same `ValueError`). If the implementer chose to retain a defensive pre-check inside the wrapper (or chose to keep the legacy `assemble_domain_scan` body partially untouched in a different refactor strategy), update the lower-bound check site at `engine.py:1679` (matching the original method's `if page_size < 1:` block) to enforce the full bound:
-
-```python
-        if page_size < 1 or page_size > 500:
-            raise ValueError(
-                f"page_size must be in [1, 500]; got {page_size}. "
-                f"The 500-item ceiling protects against oversize tool responses "
-                f"(per X1-M1 finding). Reduce page_size or paginate via cursor."
-            )
-```
-
-Either way (delegation or in-wrapper check), update the existing `tests/test_pagination.py` test that asserts on the page_size lower-bound message (search for `r"page_size must be"` regex match) so it binds to the new `[1, 500]` message and add a new sibling `test_assemble_domain_scan_page_size_above_500_raises` that exercises the upper bound:
+Append to `tests/test_pagination.py`:
 
 ```python
 def test_assemble_domain_scan_page_size_above_500_raises(engine: ScanEngine, tmp_path: Path) -> None:
@@ -2043,6 +2030,17 @@ def test_assemble_domain_scan_page_size_above_500_raises(engine: ScanEngine, tmp
         engine.assemble_domain_scan(
             domain="injection-input-handling", target=target, page_size=10000
         )
+
+
+def test_assemble_domain_scan_unknown_domain_lists_available(
+    engine: ScanEngine, tmp_path: Path
+) -> None:
+    """G1 polish: 'Unknown domain' error enumerates available domains."""
+    target = {"type": "codebase", "root": str(tmp_path)}
+    with pytest.raises(ValueError, match=r"Unknown or empty domain.*Available domains"):
+        engine.assemble_domain_scan(
+            domain="nonexistent-domain", target=target
+        )
 ```
 
 Run pagination tests:
@@ -2051,7 +2049,15 @@ Run pagination tests:
 uv run pytest tests/test_pagination.py -v 2>&1 | tail -30
 ```
 
-Expected: existing page_size tests still pass after message update; new upper-bound test passes. Net new tests in Task 4: **1** (the upper-bound symmetry test).
+Expected: existing pagination tests still pass; new upper-bound test passes. Net new tests in Task 4: **2** (page_size upper bound + unknown-domain enumeration).
+
+After Step 2 (wrapper) + Step 4b (new tests) together:
+
+```
+uv run pytest -q 2>&1 | tail -5
+```
+
+Expected: **976 passed, 9 skipped**, zero failures.
 
 - [ ] **Step 5: If any test failed because the response key set changed**
 
@@ -2060,14 +2066,17 @@ Inspect the failing assertion. If it compares to a literal frozenset of keys, up
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/screw_agents/engine.py
+git add src/screw_agents/engine.py tests/test_pagination.py
 git commit -m "T-SCAN-REFACTOR Task 4: assemble_domain_scan now delegates to assemble_agents_scan
 
 Replaces ~180 LOC of pagination/cursor/filter logic in assemble_domain_scan
 with a 12-line wrapper that:
 1. Resolves the agent name list from registry.get_agents_by_domain(domain)
 2. Calls assemble_agents_scan(agents=names, ...) with all other args passed through
-3. Adds the historical 'domain' key to the response for backward compat
+
+Spec §5.2 conformance: the wrapper is a clean passthrough; pre-T-SCAN-REFACTOR
+top-level 'domain' result-field shim was dropped per Marco-approved E4
+(grep confirmed zero readers — no test, no MCP schema mention, no live caller).
 
 Net effect: scan_domain MCP tool's behavior is unchanged from caller's
 view EXCEPT init-page response now carries agents_excluded_by_relevance
@@ -2079,6 +2088,16 @@ page so binding always matches.
 Eliminates code duplication: one paginated scan implementation, two
 public surfaces (the primitive + the convenience wrapper)."
 ```
+
+**Plan-fix additions (2026-04-25, post pre-audit on HEAD c169f5a):**
+- Step 4b rewritten to remove fictional-test reference (the "existing `tests/test_pagination.py` page_size test" did not exist; verified empty grep).
+- Step 4b conditional code block dropped — wrapper delegates to `assemble_agents_scan`, which already enforces `[1, 500]`. Pass-through inherits validation automatically.
+- Step 6 `git add` corrected to include `tests/test_pagination.py`.
+- Final post-Task-4 expected count `976 passed, 9 skipped` (was `974`; missing +2 from new tests).
+- E4 (Marco approved Option B): dropped `result["domain"] = domain` shim line. Spec §5.2 shows wrapper as clean passthrough; grep confirmed zero readers (no test, no MCP schema mention, no live caller). Docstring + commit message updated accordingly.
+- G1 free polish: "Unknown domain" error enumerates available domains via `self._registry.list_domains().keys()`. Mirrors Task 3's `Unknown agent name(s)` actionable-error pattern. +1 test (`test_assemble_domain_scan_unknown_domain_lists_available`).
+
+Net new tests in Task 4: **2** (page_size upper bound + unknown-domain enumeration). Post-Task-4 expected: `976 passed, 9 skipped`.
 
 ---
 
