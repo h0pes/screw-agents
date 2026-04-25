@@ -536,11 +536,11 @@ detection_heuristics:
     # C#
     - id: cs-html-raw
       pattern: "@Html.Raw() or new HtmlString() with user-controlled content"
-      languages: [csharp]
+      languages: [c_sharp]
       example: "@Html.Raw(userInput)"
     - id: cs-response-write
       pattern: "Response.Write() with request data"
-      languages: [csharp]
+      languages: [c_sharp]
       example: "Response.Write('Hello ' + Request.QueryString['name'])"
     # Rust — NO SAST COVERAGE EXISTS — this agent is the primary detector
     - id: rs-format-html-response
@@ -611,26 +611,26 @@ detection_heuristics:
   medium_confidence:
     - id: any-href-user-url
       pattern: "User-controlled value in href/src attribute without URL scheme validation"
-      languages: [python, java, javascript, typescript, go, ruby, php, csharp, rust]
+      languages: [python, java, javascript, typescript, go, ruby, php, c_sharp, rust]
       note: "javascript: URI bypasses ALL HTML encoding. Must validate scheme is http/https."
       semgrep: "python.flask.security.xss.audit.template-href-var.template-href-var"
     - id: any-var-in-script
       pattern: "Template variable inside <script> block — HTML auto-escaping is wrong context"
-      languages: [python, java, javascript, typescript, go, ruby, php, csharp, rust]
+      languages: [python, java, javascript, typescript, go, ruby, php, c_sharp, rust]
       note: "Even with auto-escaping ON, HTML encoding in JS context is insufficient."
       semgrep: "ruby.rails.security.audit.xss.templates.var-in-script-tag.var-in-script-tag"
     - id: any-unquoted-attr
       pattern: "Template variable in unquoted HTML attribute"
-      languages: [python, java, javascript, typescript, go, ruby, php, csharp, rust]
+      languages: [python, java, javascript, typescript, go, ruby, php, c_sharp, rust]
       note: "Unquoted attributes allow breakout without special chars: <div class=foo onmouseover=alert(1)>"
       semgrep: "python.flask.security.xss.audit.template-unquoted-attribute-var.template-unquoted-attribute-var"
     - id: any-json-html-content-type
       pattern: "JSON response served with text/html Content-Type"
-      languages: [python, java, javascript, typescript, go, ruby, php, csharp, rust]
+      languages: [python, java, javascript, typescript, go, ruby, php, c_sharp, rust]
       note: "Browser executes script in JSON if content type is text/html."
     - id: any-svg-upload
       pattern: "SVG file upload served from same origin without sanitization"
-      languages: [python, java, javascript, typescript, go, ruby, php, csharp, rust]
+      languages: [python, java, javascript, typescript, go, ruby, php, c_sharp, rust]
       note: "SVG can contain <script> tags and event handlers."
     - id: rs-askama-nonhtml-ext
       pattern: "Askama template with non-HTML extension rendering user input"
@@ -660,7 +660,7 @@ detection_heuristics:
   context_required:
     - id: any-stored-xss-check
       pattern: "Data stored in DB/cache, later rendered in HTML — check encoding at output"
-      languages: [python, java, javascript, typescript, go, ruby, php, csharp, rust]
+      languages: [python, java, javascript, typescript, go, ruby, php, c_sharp, rust]
       note: "The write and read code paths may be in completely different modules. Check profiles, comments, filenames, log viewers."
     - id: any-dom-source-to-sink
       pattern: "DOM source (location.hash/search, document.referrer, window.name) flows to rendering"
@@ -672,7 +672,7 @@ detection_heuristics:
       note: "Real-time data channels bypass traditional request/response scanning."
     - id: any-sanitizer-then-modify
       pattern: "HTML sanitized then further modified (concatenation, substring, interpolation)"
-      languages: [python, java, javascript, typescript, go, ruby, php, csharp, rust]
+      languages: [python, java, javascript, typescript, go, ruby, php, c_sharp, rust]
       note: "Any string operation after sanitization can reintroduce XSS."
     - id: rs-ammonia-svg-math-allowlist
       pattern: "ammonia usage with svg or math in tags() allowlist combined with raw-text elements"
@@ -896,7 +896,7 @@ few_shot_examples:
         ?>
       explanation: "Direct echo of GET parameter into HTML. Fix: echo '<h1>Welcome, ' . htmlspecialchars($name, ENT_QUOTES|ENT_HTML5, 'UTF-8') . '!</h1>';"
 
-    - language: csharp
+    - language: c_sharp
       label: "ASP.NET Html.Raw with user input"
       code: |
         @{
@@ -1047,7 +1047,7 @@ few_shot_examples:
         <p>{{ $userInput }}</p>
       explanation: "Blade {{ }} auto-escapes. Contrast with {!! !!} which renders raw HTML."
 
-    - language: csharp
+    - language: c_sharp
       label: "Razor auto-escaping"
       code: |
         <p>@Model.UserInput</p>

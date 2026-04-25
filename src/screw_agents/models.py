@@ -14,6 +14,8 @@ from typing import Any, ClassVar, Literal, TypedDict
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic.main import IncEx
 
+from screw_agents.treesitter import SUPPORTED_LANGUAGES
+
 
 # ---------------------------------------------------------------------------
 # YAML Agent Definition Schema (PRD §4)
@@ -83,6 +85,20 @@ class HeuristicEntry(BaseModel):
     id: str
     pattern: str
     languages: list[str] = []
+
+    @field_validator("languages")
+    @classmethod
+    def _validate_supported_languages(cls, v: list[str]) -> list[str]:
+        invalid = [lang for lang in v if lang not in SUPPORTED_LANGUAGES]
+        if invalid:
+            raise ValueError(
+                f"HeuristicEntry.languages contains values not in SUPPORTED_LANGUAGES: {invalid}. "
+                f"Allowed: {sorted(SUPPORTED_LANGUAGES)}. "
+                f"T-SCAN-REFACTOR Task 2: enforces canonical language names so the "
+                f"relevance filter cannot silently exclude due to spelling drift "
+                f"(e.g., 'csharp' vs 'c_sharp', 'Python' vs 'python')."
+            )
+        return v
 
 
 # Detection heuristic entries can be plain strings (minimal form) or structured

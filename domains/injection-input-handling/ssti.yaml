@@ -362,17 +362,17 @@ detection_heuristics:
     # C#/.NET
     - id: cs-razor-runcompile
       pattern: "Engine.Razor.RunCompile(var, ...) where var is user-controlled"
-      languages: [csharp]
+      languages: [c_sharp]
       example: "Engine.Razor.RunCompile(request.TemplateContent, \"key\", null, model)"
     - id: cs-scriban-parse-var
       pattern: "Template.Parse(var).Render(ctx) where var is user-controlled"
-      languages: [csharp]
+      languages: [c_sharp]
       example: "Template.Parse(request.TemplateContent).Render(new { data = GetData() })"
 
   medium_confidence:
     - id: any-concat-before-render
       pattern: "Template string built via string concatenation/interpolation with user data before passing to any template render function"
-      languages: [python, java, javascript, typescript, go, ruby, php, csharp, rust]
+      languages: [python, java, javascript, typescript, go, ruby, php, c_sharp, rust]
       note: "The string interpolation bridge pattern — f-string, +, format(), format!(), fmt.Sprintf() bridging user input to template source."
     - id: py-jinja2-no-sandbox
       pattern: "Jinja2 Environment() (not SandboxedEnvironment) processing user-supplied templates"
@@ -389,7 +389,7 @@ detection_heuristics:
       note: "Thymeleaf may apply preprocessing to view names depending on resolver configuration."
     - id: any-cms-template-edit
       pattern: "CMS or admin interface allowing users to edit template content"
-      languages: [python, java, javascript, typescript, php, ruby, csharp]
+      languages: [python, java, javascript, typescript, php, ruby, c_sharp]
       cves: ["CVE-2025-66438", "CVE-2024-56085"]
       note: "ERPNext, Logpoint SIEM patterns — user-editable template fields."
     - id: any-llm-template-pipeline
@@ -409,7 +409,7 @@ detection_heuristics:
   context_required:
     - id: any-template-render-variable
       pattern: "Template render call where the template string argument is a variable — trace origin"
-      languages: [python, java, javascript, typescript, go, ruby, php, csharp, rust]
+      languages: [python, java, javascript, typescript, go, ruby, php, c_sharp, rust]
       note: "Need to determine if the variable is user-controlled or loaded from trusted source."
     - id: py-jinja2-sandbox-userinput
       pattern: "Jinja2 SandboxedEnvironment with user templates — safer but sandbox bypasses exist"
@@ -435,7 +435,7 @@ detection_heuristics:
       note: "Still need to check if user controls the template SOURCE, not just the data."
     - id: any-test-fixture-template
       pattern: "Test/fixture code with hardcoded template strings — not exploitable in production"
-      languages: [python, java, javascript, typescript, go, ruby, php, csharp, rust]
+      languages: [python, java, javascript, typescript, go, ruby, php, c_sharp, rust]
 
 bypass_techniques:
   - name: "Jinja2 MRO Chain (Introspective Exploitation)"

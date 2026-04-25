@@ -63,6 +63,52 @@ def language_from_path(path: str | Path) -> str | None:
     return EXTENSION_MAP.get(suffix)
 
 
+# Shebang interpreter → canonical language name. Restricted to languages
+# present in EXTENSION_MAP / SUPPORTED_LANGUAGES so the rest of the
+# pipeline (tree-sitter parsing, agent language declarations) stays
+# coherent. Bash, perl, etc. map to None even if a shebang line points
+# at them, since we have no parsers for those.
+SHEBANG_MAP: dict[str, str] = {
+    "python": "python",
+    "python2": "python",
+    "python3": "python",
+    "ruby": "ruby",
+    "node": "javascript",
+    "nodejs": "javascript",
+    "ts-node": "typescript",
+    "tsnode": "typescript",
+    "deno": "typescript",
+    "php": "php",
+}
+
+
+def language_from_shebang(first_line: str) -> str | None:
+    """Detect language from a shebang line (e.g., '#!/usr/bin/env python3').
+
+    Returns the canonical language name (one of EXTENSION_MAP's values) or
+    None if the line is not a shebang or names an unsupported interpreter.
+
+    Examples:
+        '#!/usr/bin/env python3'  -> 'python'
+        '#!/usr/bin/python'       -> 'python'
+        '#!/usr/bin/env ruby'     -> 'ruby'
+        '#!/usr/bin/env node'     -> 'javascript'
+        '#!/bin/bash'             -> None  (bash not in supported set)
+        'not a shebang'           -> None
+    """
+    if not first_line.startswith("#!"):
+        return None
+    # Strip '#!' then split on whitespace; take the last token.
+    # Examples: '/usr/bin/env python3' -> ['/usr/bin/env', 'python3']
+    #           '/usr/bin/python'      -> ['/usr/bin/python']
+    parts = first_line[2:].strip().split()
+    if not parts:
+        return None
+    interpreter_path = parts[-1]
+    interpreter = interpreter_path.rsplit("/", 1)[-1]
+    return SHEBANG_MAP.get(interpreter)
+
+
 @lru_cache(maxsize=None)
 def get_language(name: str) -> Language:
     """Return a tree-sitter Language for the given canonical name.

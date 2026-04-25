@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json as _json
+import logging
 import os
 from pathlib import Path
 from typing import Any
@@ -33,12 +34,105 @@ from screw_agents.learning import (
 from screw_agents.models import AgentDefinition, Exclusion, Finding, HeuristicEntry
 from screw_agents.registry import AgentRegistry
 from screw_agents.resolver import ResolvedCode, filter_by_relevance, resolve_target
+from screw_agents.treesitter import language_from_shebang
 from screw_agents.trust import (
     load_config,
     verify_script,
 )
 
+logger = logging.getLogger(__name__)
+
 _DEFAULT_DOMAINS_DIR = Path(__file__).resolve().parent.parent.parent / "domains"
+
+
+def _agent_supported_languages(agent: AgentDefinition) -> set[str]:
+    """Union of `languages` declarations across all HeuristicEntry items
+    in the agent's three detection_heuristics buckets.
+
+    Plain string heuristic entries (HeuristicItem = str | HeuristicEntry per
+    models.py:76) contribute nothing — they have no language metadata.
+
+    Returns:
+        Set of canonical language names (from treesitter.SUPPORTED_LANGUAGES).
+        Empty set when the agent declares no languages on any heuristic entry.
+    """
+    langs: set[str] = set()
+    for bucket in (
+        agent.detection_heuristics.high_confidence,
+        agent.detection_heuristics.medium_confidence,
+        agent.detection_heuristics.context_required,
+    ):
+        for entry in bucket:
+            if isinstance(entry, HeuristicEntry):
+                langs.update(entry.languages)
+    return langs
+
+
+def _filter_relevant_agents(
+    target_codes: list[ResolvedCode],
+    agents: list[AgentDefinition],
+) -> tuple[list[AgentDefinition], list[dict[str, Any]]]:
+    """Drop agents whose declared languages don't intersect target's detected languages.
+
+    Spec section 8.2. Two fail-open paths:
+    1. Empty `target_languages` (target is non-code or unknown): keep all agents.
+    2. Empty `agent_languages` (agent declares no per-heuristic languages): keep
+       agent (D6 default; new agents without language declarations are not
+       silently excluded).
+
+    Args:
+        target_codes: list of ResolvedCode chunks (already populated by resolve_target).
+        agents: candidate agent list.
+
+    Returns:
+        (kept, excluded) where:
+            kept = list of AgentDefinition surviving the filter.
+            excluded = list of dicts with keys:
+                agent_name, reason ("language_mismatch"),
+                agent_languages (sorted list), target_languages (sorted list).
+    """
+    target_languages: set[str] = set()
+    for code in target_codes:
+        if code.language is not None:
+            target_languages.add(code.language)
+            continue
+        # Fallback: shebang on first line of content (handles extensionless scripts)
+        first_line = code.content.split("\n", 1)[0] if code.content else ""
+        lang = language_from_shebang(first_line)
+        if lang is not None:
+            target_languages.add(lang)
+
+    if not target_languages:
+        # Spec §8.2 / §8.5 row 3 — log a WARN when no target languages detected.
+        # Caller (assemble_agents_scan in Task 3) decides how to surface this to
+        # the user. See D6 for the fail-open contract.
+        logger.warning(
+            "Relevance filter: no target languages detected (target may be non-code); "
+            "keeping all %d agents (fail-open per D6).",
+            len(agents),
+        )
+        return list(agents), []
+
+    kept: list[AgentDefinition] = []
+    excluded: list[dict[str, Any]] = []
+    for agent in agents:
+        agent_languages = _agent_supported_languages(agent)
+        if not agent_languages:
+            # D6 fail-open: agent with no language declarations is always kept.
+            kept.append(agent)
+            continue
+        if agent_languages & target_languages:
+            kept.append(agent)
+        else:
+            excluded.append(
+                {
+                    "agent_name": agent.meta.name,
+                    "reason": "language_mismatch",
+                    "agent_languages": sorted(agent_languages),
+                    "target_languages": sorted(target_languages),
+                }
+            )
+    return kept, excluded
 
 
 def _read_stale_staging_hours(project_root: Path) -> int:

@@ -318,7 +318,7 @@ detection_heuristics:
     # C#/.NET
     - id: cs-process-cmd-concat
       pattern: "Process.Start(\"cmd.exe\", \"/c \" + userInput) or similar shell invocation"
-      languages: [csharp]
+      languages: [c_sharp]
       example: "Process.Start(\"cmd.exe\", \"/c type \" + filename)"
     # Rust
     - id: rs-sh-c-format
@@ -351,22 +351,22 @@ detection_heuristics:
       cves: ["CVE-2024-27980", "CVE-2024-36138"]
     - id: any-user-executable-path
       pattern: "User input as executable path in array-based execution: subprocess.run([user_controlled, ...]) or exec.Command(userControlled, ...)"
-      languages: [python, java, javascript, typescript, go, ruby, csharp, rust]
+      languages: [python, java, javascript, typescript, go, ruby, c_sharp, rust]
     - id: php-escapeshellcmd
       pattern: "escapeshellcmd() prevents command chaining but allows argument injection"
       languages: [php]
     - id: any-filename-in-cmd
       pattern: "User input in filename/path passed to commands: convert(upload.filename, ...), tar cf archive.tar {filename}"
-      languages: [python, java, javascript, typescript, go, ruby, php, csharp, rust]
+      languages: [python, java, javascript, typescript, go, ruby, php, c_sharp, rust]
     - id: any-cicd-cmd
       pattern: "CI/CD pipeline commands with variables from PR titles, branch names, commit messages"
       languages: [python, java, javascript, typescript, go, ruby, php]
     - id: any-docker-cmd
       pattern: "Docker/container commands building image tags or env vars from user input"
-      languages: [python, java, javascript, typescript, go, ruby, php, csharp]
+      languages: [python, java, javascript, typescript, go, ruby, php, c_sharp]
     - id: any-iac-cmd
       pattern: "Infrastructure-as-code commands with user-sourced parameters"
-      languages: [python, java, javascript, typescript, go, ruby, php, csharp]
+      languages: [python, java, javascript, typescript, go, ruby, php, c_sharp]
     - id: rs-tool-arg-injection
       pattern: "Command::new(\"git\"/\"curl\"/\"tar\"/\"rsync\").arg(user_input) — argument injection depending on the tool"
       languages: [rust]
@@ -382,13 +382,13 @@ detection_heuristics:
   context_required:
     - id: any-array-exec-arg-injection
       pattern: "subprocess.run([fixedCmd, variable]) with shell=False — safe from metacharacters, but check for argument injection on specific tools (git, curl, tar, rsync, ssh, sendmail)"
-      languages: [python, java, javascript, typescript, go, ruby, csharp, rust]
+      languages: [python, java, javascript, typescript, go, ruby, c_sharp, rust]
     - id: any-processbuilder-args
       pattern: "ProcessBuilder / exec.Command with user-controlled arguments — no shell, but tool-specific flag injection possible"
       languages: [java, go]
     - id: any-sandboxed-cmd
       pattern: "Commands in Docker/sandbox — reduced impact but still a finding"
-      languages: [python, java, javascript, typescript, go, ruby, php, csharp, rust]
+      languages: [python, java, javascript, typescript, go, ruby, php, c_sharp, rust]
     - id: any-shlex-quote
       pattern: "shlex.quote() applied — usually safe but verify it covers every argument, not the whole command string"
       languages: [python]
@@ -635,7 +635,7 @@ few_shot_examples:
         system("ping -c 1 " . $ip);
       explanation: "User input concatenated directly into shell command. ATTACK: ip=;cat /etc/passwd. FIX: $ip = filter_var($_GET['ip'], FILTER_VALIDATE_IP); system('ping -c 1 ' . escapeshellarg($ip))."
 
-    - language: csharp
+    - language: c_sharp
       label: "Process.Start with cmd.exe concatenation"
       code: |
         string filename = Request.Query["file"];
