@@ -251,6 +251,16 @@ def _dispatch_tool(
             page_size=args.get("page_size", 50),
         )
 
+    if name == "scan_agents":
+        return engine.assemble_agents_scan(
+            agents=args["agents"],
+            target=args["target"],
+            thoroughness=args.get("thoroughness", "standard"),
+            project_root=project_root,
+            cursor=args.get("cursor"),
+            page_size=args.get("page_size", 50),
+        )
+
     if name == "scan_full":
         return engine.assemble_full_scan(
             target=args["target"],

@@ -2472,10 +2472,15 @@ class ScanEngine:
         tools.append({
             "name": "scan_domain",
             "description": (
-                "Run all agents in a vulnerability domain against the target. "
-                "Returns a paginated response: {agents, next_cursor, page_size, total_files, "
-                "offset, trust_status?}. Subagents MUST loop until next_cursor is None "
-                "before calling finalize_scan_results."
+                "Convenience shortcut for scan_agents — runs all registered "
+                "agents in the named CWE-1400 domain. Equivalent to "
+                "scan_agents(agents=list_agents(domain=<X>).names, ...). Use "
+                "scan_agents directly to scan an arbitrary subset of agents. "
+                "Returns a paginated response: {agents, "
+                "agents_excluded_by_relevance, next_cursor, page_size, "
+                "total_files, offset, trust_status?}. Subagents MUST "
+                "loop until next_cursor is None before calling "
+                "finalize_scan_results."
             ),
             "input_schema": self._scan_input_schema(
                 extra_required=["target", "domain"],
@@ -2493,6 +2498,56 @@ class ScanEngine:
                             "Opaque pagination token from a previous scan_domain call. "
                             "Pass null (or omit) on the first call. When next_cursor in the "
                             "response is null, pagination is complete."
+                        ),
+                        "default": None,
+                    },
+                    "page_size": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 500,
+                        "description": "Max resolved code chunks per page (default 50).",
+                        "default": 50,
+                    },
+                },
+            ),
+        })
+        tools.append({
+            "name": "scan_agents",
+            "description": (
+                "Run a custom selection of agents against the target. The new "
+                "T-SCAN-REFACTOR primitive — supersedes scan_full and the "
+                "per-agent scan_<name> tools (retired). Returns a paginated "
+                "response: {agents, agents_excluded_by_relevance, next_cursor, "
+                "page_size, total_files, offset, trust_status?}. Subagents MUST "
+                "loop until next_cursor is None before calling "
+                "finalize_scan_results. The cursor binds to (target_hash, "
+                "agents_hash) — passing a different agents list on a follow-up "
+                "page raises ValueError."
+            ),
+            "input_schema": self._scan_input_schema(
+                extra_required=["target", "agents"],
+                extra_props={
+                    "target": _target_schema(),
+                    "agents": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 1,
+                        "uniqueItems": True,
+                        "description": (
+                            "List of registered agent names. Must be non-empty "
+                            "with no duplicates; every name must exist in the "
+                            "registry. Use list_agents() to discover names."
+                        ),
+                    },
+                    "thoroughness": _thoroughness_schema(),
+                    "project_root": _project_root_schema(),
+                    "cursor": {
+                        "type": ["string", "null"],
+                        "description": (
+                            "Opaque pagination token from a previous scan_agents "
+                            "call. Pass null (or omit) on the first call. When "
+                            "next_cursor in the response is null, pagination is "
+                            "complete."
                         ),
                         "default": None,
                     },

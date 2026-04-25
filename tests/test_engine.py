@@ -77,6 +77,7 @@ def test_engine_list_tools(engine):
     assert "list_agents" in tool_names
     assert "scan_domain" in tool_names
     assert "scan_full" in tool_names
+    assert "scan_agents" in tool_names
 
 
 def test_full_pipeline_all_agents(engine, fixtures_dir):
