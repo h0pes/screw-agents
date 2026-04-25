@@ -674,31 +674,44 @@ SHEBANG_MAP: dict[str, str] = {
 
 
 def language_from_shebang(first_line: str) -> str | None:
-    """Detect language from a shebang line (e.g., '#!/usr/bin/env python3').
+    """Detect language from a shebang line.
 
-    Returns the canonical language name (one of EXTENSION_MAP's values) or
-    None if the line is not a shebang or names an unsupported interpreter.
+    Walks the shebang tokens left-to-right, skipping interpreter flags
+    (anything starting with '-') and the 'env' wrapper. Returns the
+    canonical language name for the first remaining token whose basename
+    appears in SHEBANG_MAP, or None if no token matches.
 
-    Examples:
-        '#!/usr/bin/env python3'  -> 'python'
-        '#!/usr/bin/python'       -> 'python'
-        '#!/usr/bin/env ruby'     -> 'ruby'
-        '#!/usr/bin/env node'     -> 'javascript'
-        '#!/bin/bash'             -> None  (bash not in supported set)
-        'not a shebang'           -> None
+    Handles real-world shebang forms including interpreter flags and
+    `env -S` split-args:
+        '#!/usr/bin/env python3'              -> 'python'
+        '#!/usr/bin/python3 -O'               -> 'python'      (interpreter flag)
+        '#!/usr/bin/env python3 -O'           -> 'python'
+        '#!/usr/bin/env -S python3 -O'        -> 'python'      (env -S)
+        '#!/usr/bin/env node --harmony'       -> 'javascript'  (node flag)
+        '#!/bin/bash'                         -> None          (bash not supported)
+        '#!/usr/bin/env perl'                 -> None          (perl not supported)
+        'not a shebang'                       -> None
     """
     if not first_line.startswith("#!"):
         return None
-    # Strip '#!' then split on whitespace; take the last token.
-    # Examples: '/usr/bin/env python3' -> ['/usr/bin/env', 'python3']
-    #           '/usr/bin/python'      -> ['/usr/bin/python']
     parts = first_line[2:].strip().split()
-    if not parts:
-        return None
-    interpreter_path = parts[-1]
-    interpreter = interpreter_path.rsplit("/", 1)[-1]
-    return SHEBANG_MAP.get(interpreter)
+    for token in parts:
+        if token.startswith("-"):
+            continue  # interpreter or env flag (e.g., -O, -u, -S, --harmony)
+        interpreter = token.rsplit("/", 1)[-1]
+        if interpreter == "env":
+            continue  # env is a wrapper; the real interpreter follows
+        # First non-flag non-env token IS the interpreter; supported or not.
+        return SHEBANG_MAP.get(interpreter)
+    return None
 ```
+
+> **Fix-up (2026-04-25):** the original plan-time algorithm took
+> `parts[-1]` after whitespace split, which mis-parsed interpreter flags
+> (e.g., `python3 -O`, `env -S python3 -O`, `node --harmony`) as the
+> interpreter and silently returned None. Spec+quality review surfaced
+> this as Important 1; the rewrite above walks tokens left-to-right,
+> skipping flags and the `env` wrapper. See fix-up commit.
 
 - [ ] **Step 4: Run shebang tests to verify they pass**
 
@@ -930,6 +943,8 @@ def test_heuristic_entry_languages_uppercase_rejected() -> None:
 
 **Acceptance:** the production YAML standardization in Step 0 PLUS this validator together close the canonical-name gap permanently. Any future YAML drift surfaces at registry-boot time as a clear `ValidationError` rather than silent at-scan exclusion.
 
+Marco-approved fix-up (Decision: A): a parallel `CodeExample.language` validator (singular `str`) is added in `tests/test_relevance_filter.py` to close the schema-asymmetry gap. See fix-up commit.
+
 - [ ] **Step 8: Run all tests to confirm helpers pass + no regression**
 
 ```
@@ -987,6 +1002,16 @@ shebang-driven detection)."
 - HeuristicEntry import duplication removed (already at engine.py:33).
 - Test count math corrected to `917 + 16 = 933`.
 - 3 DEFERRED_BACKLOG entries: parametrized SHEBANG coverage, multi-lang union test, per-agent-empty-languages WARN if D6 hardens.
+
+**Fix-up additions (2026-04-25, post spec+quality review):**
+- Important 1: `language_from_shebang` rewritten to walk tokens left-to-right, skipping interpreter flags (`-O`, `-u`, `--harmony`) and the `env` wrapper (including `env -S` split-args). Original `parts[-1]` algorithm mis-parsed flagged shebangs (e.g., `#!/usr/bin/env python3 -O`, `#!/usr/bin/env -S python3 -O`, `#!/usr/bin/env node --harmony`) and silently returned None, causing extensionless scripts with flagged interpreters to fall back to D6 fail-open keep-all. 5 new tests cover python flag, env python flag, env -S split-args, node flag, env unsupported.
+- Minor 1: dead imports (`Path`, `ScanEngine`) removed from `tests/test_relevance_filter.py`.
+- Minor 4 (Marco-approved decision): `CodeExample.language` Pydantic validator added (singular `str`), mirroring `HeuristicEntry.languages` validator from Step 7b. Closes the schema-asymmetry gap — both fields driving language semantics now enforce membership in `SUPPORTED_LANGUAGES`. 2 new tests cover unsupported value rejected + uppercase rejected.
+- Minor 5: `_parse_unified_diff` computes `"".join(current_lines)` once per emit path instead of twice. Trivial efficiency.
+- Minor 6: 3 direct unit tests for `_detect_language` in `tests/test_resolver.py` assert the extension-precedence contract (extension wins over shebang), shebang fallback for extensionless files, and None-on-no-content.
+- Minor 8: comment at `engine.py:99-103` corrected — the engine-side shebang fallback covers manually-constructed `ResolvedCode` with `language=None`, not "extensionless scripts" (the resolver already handles those).
+- 3 new DEFERRED_BACKLOG entries: M4 (`_agent_supported_languages` `frozenset` return type), M5 (`HeuristicEntry.languages` validator dedup check), M6 (resolver-layer integration tests for shebang path).
+- Test count: 933 → 943 (+10): 5 shebang flag-handling, 2 CodeExample validator, 3 `_detect_language` direct unit tests.
 
 ---
 

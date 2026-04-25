@@ -1818,3 +1818,36 @@ Non-blocking minors surfaced during Task 2 pre-audit. Deferred past T-SCAN-REFAC
 **Remediation sketch:** When/if a future spec revision changes the D6 policy, mirror the empty-`target_languages` WARN log in the empty-`agent_languages` branch. ~3 LOC.
 
 **Estimated scope:** 3 LOC + 0 new tests (existing tests cover both branches structurally).
+
+### BACKLOG-T-SCAN-REFACTOR-T2-M4 — `_agent_supported_languages` returns mutable `set`
+**Phase-4 readiness:** `non-blocker` — typing-strictness polish; no correctness impact
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 2 quality review, 2026-04-25 (QR-T2-M2)
+**File:** `src/screw_agents/engine.py::_agent_supported_languages`
+
+**Why deferred:** Returns `set[str]`, communicating that the result is mutable. No caller mutates today, but `frozenset[str]` would document immutability and prevent accidental future mutation downstream. Defense-in-depth typing.
+
+**Remediation sketch:** Change return type to `frozenset[str]`. Wrap the constructed set in `frozenset(...)` before returning. Update tests if any assert exact type via `is` or compare via mutation.
+
+**Estimated scope:** 3 LOC + 0 test changes (existing equality assertions still work).
+
+### BACKLOG-T-SCAN-REFACTOR-T2-M5 — `HeuristicEntry.languages` validator allows duplicates
+**Phase-4 readiness:** `non-blocker` — defense-in-depth; duplicates are silently deduped by set-update downstream
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 2 quality review, 2026-04-25 (QR-T2-M3)
+**File:** `src/screw_agents/models.py::HeuristicEntry._validate_supported_languages`
+
+**Why deferred:** Validator currently accepts `["python", "python"]`. Set-update in `_agent_supported_languages` silently dedupes, so no functional impact, but duplicates indicate a YAML copy-paste bug. Catching them at validation time would surface the bug at registry boot.
+
+**Remediation sketch:** Add a duplicate check in the validator: `if len(set(v)) != len(v): raise ValueError(...)`. ~3 LOC + 1 new test.
+
+**Estimated scope:** 3 LOC + 1 test.
+
+### BACKLOG-T-SCAN-REFACTOR-T2-M6 — Resolver-layer integration tests for shebang path
+**Phase-4 readiness:** `non-blocker` — coverage gap; current shebang flow tested only at engine layer
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 2 quality review, 2026-04-25 (QR-T2-M7)
+**File:** `tests/test_resolver.py` (or new file) — covering `_resolve_file`, `_resolve_glob`, `_resolve_lines`, `_resolve_function`, `_resolve_class`, `_resolve_codebase`, `_parse_unified_diff` × 2.
+
+**Why deferred:** None of the 8 resolver call sites that thread `content` to `_detect_language` has an integration test exercising the extensionless-with-shebang path through the actual resolver function. Shebang flow is tested only at the engine layer (`tests/test_relevance_filter.py:184-188`) and via `_detect_language` direct unit tests added in Task 2 fix-up. The resolver-layer integration gap could mask a regression where `_detect_language` returns the right value but `ResolvedCode.language` ends up wrong (e.g., overwritten downstream).
+
+**Remediation sketch:** For each of the 8 call sites, add one integration test passing an extensionless file with a Python shebang and asserting `ResolvedCode.language == "python"`. ~30 LOC. Could fold into existing M1 (parametrized SHEBANG_MAP coverage) for shared fixture setup.
+
+**Estimated scope:** ~30 LOC (8 tests) + 0 production code changes.
