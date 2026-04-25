@@ -191,11 +191,16 @@ meta:
   name: {name}
   display_name: "Test Agent"
   domain: {domain}
+  version: "0.1.0"
+  last_updated: "2026-04-25"
   cwes:
     primary: "CWE-89"
     related: []
   capec: []
-  owasp_top10: ""
+  owasp:
+    top10: ""
+    asvs: []
+    testing_guide: ""
   sources: []
 core_prompt: "test prompt"
 detection_heuristics:
