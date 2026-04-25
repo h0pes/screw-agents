@@ -1537,24 +1537,31 @@ Open `src/screw_agents/engine.py`. Locate `assemble_domain_scan` ending at line 
         # ---- Cursor decode (preserves existing ValueError semantics) ----
         if cursor:
             try:
-                decoded = _json.loads(
-                    base64.urlsafe_b64decode(cursor.encode("ascii")).decode("utf-8")
-                )
-                if decoded.get("target_hash") != target_hash:
-                    raise ValueError(
-                        "cursor is bound to a different target; refusing to use"
-                    )
-                if decoded.get("agents_hash") != agents_hash:
-                    raise ValueError(
-                        "cursor is bound to a different agents list; refusing to use"
-                    )
+                raw = base64.urlsafe_b64decode(cursor.encode("ascii")).decode("utf-8")
+                decoded = _json.loads(raw)
+                cursor_target = decoded["target_hash"]
+                cursor_agents = decoded["agents_hash"]
                 offset = int(decoded["offset"])
-                if offset < 0:
-                    raise ValueError("cursor offset is negative")
-            except ValueError:
-                raise
-            except Exception as exc:
+            except (
+                binascii.Error,
+                _json.JSONDecodeError,
+                UnicodeDecodeError,
+                KeyError,
+                TypeError,
+                ValueError,
+            ) as exc:
                 raise ValueError(f"Invalid cursor: {exc}") from exc
+
+            if cursor_target != target_hash:
+                raise ValueError(
+                    "cursor is bound to a different target; refusing to use"
+                )
+            if cursor_agents != agents_hash:
+                raise ValueError(
+                    "cursor is bound to a different agents list; refusing to use"
+                )
+            if offset < 0:
+                raise ValueError("cursor offset is negative")
         else:
             offset = 0
 
@@ -1678,7 +1685,7 @@ Open `src/screw_agents/engine.py`. Locate `assemble_domain_scan` ending at line 
 uv run pytest tests/test_assemble_agents_scan.py -v 2>&1 | tail -30
 ```
 
-Expected: all ~24 tests in `test_assemble_agents_scan.py` PASS (20 base + 4 added per E1/E2 plan-fix).
+Expected: all 26 tests in `test_assemble_agents_scan.py` PASS (22 base + 4 added per E1/E2 plan-fix).
 
 - [ ] **Step 5: Run full test suite to confirm no regression**
 
@@ -1686,7 +1693,7 @@ Expected: all ~24 tests in `test_assemble_agents_scan.py` PASS (20 base + 4 adde
 uv run pytest -q 2>&1 | tail -5
 ```
 
-Expected: 943 (post-Task-2 baseline at HEAD `daa8691`) + 24 (new this task: 20 base + E1×2 + E2×2) = **967 passed, 8 skipped**. Zero failures.
+Expected: 943 (post-Task-2 baseline at HEAD `daa8691`) + 26 (new this task: 22 base + E1×2 + E2×2; plan-fix arithmetic miscounted base as 20) = **969 passed, 8 skipped**. Zero failures.
 
 - [ ] **Step 6: Commit**
 
@@ -1737,8 +1744,9 @@ integration."
 - E2 Decision (Marco approved Option B): `page_size in [1, 500]` enforced at engine layer; 2 new tests (`test_page_size_above_500_raises`, updated `test_page_size_zero_raises` message-binding) + Task 4 Step 4b retrofit on `assemble_domain_scan`.
 - E3 confirmed Option A (cursor format breakage acceptable per spec §5.3 — zero live external callers; no plan change).
 - E4 deferred to Task 4 pre-audit (cross-task scope concern about `result["domain"]` mutation in wrapper).
+- Decode block restructured (Option B, Marco approved during implementation) — single catch for binascii.Error/JSONDecodeError/UnicodeDecodeError/KeyError/TypeError/ValueError wraps as "Invalid cursor: {detail}"; post-decode binding + offset checks unchanged. The verbatim plan body had a try/except ordering bug that escaped the wrapping path; surfaced by test_cursor_malformed_raises and test_cursor_negative_offset_raises which now correctly exercise their paths.
 
-Net new tests in Task 3: 20 (base) + 2 (E1) + 2 (E2) = **24 new tests**. Post-Task-3 expected: `943 + 24 = 967 passed, 8 skipped`.
+Net new tests in Task 3: 22 (base) + 2 (E1) + 2 (E2) = **26 new tests** (plan-fix arithmetic miscounted base as 20). Post-Task-3 expected: `943 + 26 = 969 passed, 8 skipped`.
 
 ---
 
@@ -1848,7 +1856,7 @@ Expected: all existing `assemble_domain_scan` tests PASS unchanged.
 uv run pytest -q 2>&1 | tail -5
 ```
 
-Expected: 967 passed (no change from end of Task 3 — Task 4 swaps internals but adds no new tests; Step 4b below adds 1 net test). Zero failures.
+Expected: 969 passed (no change from end of Task 3 — Task 4 swaps internals but adds no new tests; Step 4b below adds 1 net test). Zero failures.
 
 - [ ] **Step 4b (added per E2 plan-fix): Retrofit `page_size <= 500` to `assemble_domain_scan`**
 
@@ -2071,7 +2079,7 @@ Expected: tests asserting `scan_agents` is registered PASS. The pre-existing `sc
 uv run pytest -q 2>&1 | tail -5
 ```
 
-Expected: 968 (Task 4 end: 967 + 1 from Step 4b) + 1 (new dispatch test) = **969 passed**. Zero failures.
+Expected: 970 (Task 4 end: 969 + 1 from Step 4b) + 1 (new dispatch test) = **971 passed**. Zero failures.
 
 - [ ] **Step 8: Commit**
 
@@ -3648,12 +3656,12 @@ Section in Plan | Expected count
 Baseline (main HEAD `02d90d1`) | 906 passed, 8 skipped
 After Task 1 (registry invariants +5) | 911
 After Task 2 (relevance filter +14 ; +12 fix-up = +26 net shipped per HEAD `daa8691`) | **943** (Task-2-shipped baseline)
-After Task 3 (assemble_agents_scan +24 ; 20 base + E1×2 + E2×2 per plan-fix) | 967
-After Task 4 (wrapper refactor 0 + Step 4b retrofit +1 per plan-fix E2) | 968
-After Task 5 (server dispatch +1) | 969
-After Task 6 (deletions ~-8) | ~961
-After Task 7 (subagent tests +7) | ~968
-After Task 8 (parser tests +15) | ~983
+After Task 3 (assemble_agents_scan +26 ; 22 base + E1×2 + E2×2 — plan-fix arithmetic miscounted base as 20) | 969
+After Task 4 (wrapper refactor 0 + Step 4b retrofit +1 per plan-fix E2) | 970
+After Task 5 (server dispatch +1) | 971
+After Task 6 (deletions ~-8) | ~963
+After Task 7 (subagent tests +7) | ~970
+After Task 8 (parser tests +15) | ~985
 After Task 9 (docs only; 0) | ~983
 After Task 10 (verification only; 0) | ~983
 
