@@ -36,10 +36,10 @@
 - `docs/DEFERRED_BACKLOG.md` §T-FULL-P1 (line 425) — to be marked superseded with forwarding entry
 - `docs/PROJECT_STATUS.md` §"Phase 4 Prerequisites (hard gates)" — prereq state to update
 - `docs/PHASE_4_PREP_T19M_PLAN.md` — structural template for this plan
-- `src/screw_agents/engine.py:1421-1507` — `assemble_scan` (per-agent helper, kept as inner primitive)
-- `src/screw_agents/engine.py:1509-1705` — `assemble_domain_scan` (cursor + paging template; refactored as wrapper in Task 4)
-- `src/screw_agents/engine.py:1707-1774` — `assemble_full_scan` (deleted in Task 6)
-- `src/screw_agents/engine.py:2165+` — `list_tool_definitions` (modified in Tasks 5 + 6)
+- `src/screw_agents/engine.py:1518-1604` — `assemble_scan` (per-agent helper, kept as inner primitive)
+- `src/screw_agents/engine.py:1606-1802` — `assemble_domain_scan` (cursor + paging template; refactored as wrapper in Task 4)
+- `src/screw_agents/engine.py:1804-1871` — `assemble_full_scan` (deleted in Task 6)
+- `src/screw_agents/engine.py:2262+` — `list_tool_definitions` (modified in Tasks 5 + 6)
 - `src/screw_agents/engine.py:3156+` — `_scan_input_schema` helper
 - `src/screw_agents/server.py:230-280` — `handle_call_tool` dispatch (modified in Tasks 5 + 6)
 - `src/screw_agents/registry.py:22-94` — full registry; new invariants land at end of `_load()`
@@ -130,6 +130,8 @@
 ---
 
 ## Task Breakdown
+
+> **Line-number pin:** All `engine.py` / `server.py` line numbers cited below are pinned to HEAD `daa8691` (Task 2 fix-up). If a future commit shifts the file, the next pre-audit must update.
 
 The task index continues in subsequent edits — each task is a separate self-contained block with goal, files, pre-audit focus, steps, and commit. The 10 tasks are ordered by dependency:
 
@@ -1020,10 +1022,10 @@ shebang-driven detection)."
 **Goal:** Implement the new paginated multi-agent primitive. Mirrors `assemble_domain_scan`'s init/code-page split, with cursor binding generalized to `(target_hash, agents_hash)` per Option β. Integrates the relevance filter from Task 2. Emits `agents_excluded_by_relevance` field on init-page response.
 
 **Files:**
-- Modify: `src/screw_agents/engine.py` (new method between `assemble_domain_scan` ending at line 1705 and `assemble_full_scan` at line 1707; or symmetric position before `get_agent_prompt`)
+- Modify: `src/screw_agents/engine.py` (new method between `assemble_domain_scan` ending at line 1802 and `assemble_full_scan` at line 1804; or symmetric position before `get_agent_prompt`)
 - Create: `tests/test_assemble_agents_scan.py`
 
-**Pre-audit focus (mandatory — novel work):** read `assemble_domain_scan` lines 1509-1705 end-to-end and identify EVERY invariant it carries that `assemble_agents_scan` must mirror — cursor decode logic, target_hash binding, page_size validation, total_files semantics, init-page exclusion-loading rule (project_root only on init), code-page no-exclusion-reload rule, trust_status emission rule (init has it, code page re-emits when project_root). Also confirm that `assemble_scan` (per-agent helper at line 1421) has the `_preloaded_exclusions` and `preloaded_codes` kwargs needed for the code-page path. Map every line of `assemble_domain_scan` to a corresponding line in the new method or note the deliberate divergence (e.g., `agents_hash` vs no agents component; `agents_excluded_by_relevance` is new).
+**Pre-audit focus (mandatory — novel work):** read `assemble_domain_scan` lines 1606-1802 end-to-end and identify EVERY invariant it carries that `assemble_agents_scan` must mirror — cursor decode logic, target_hash binding, page_size validation, total_files semantics, init-page exclusion-loading rule (project_root only on init), code-page no-exclusion-reload rule, trust_status emission rule (init has it, code page re-emits when project_root). Also confirm that `assemble_scan` (per-agent helper at line 1518) has the `_preloaded_exclusions` and `preloaded_codes` kwargs needed for the code-page path. Map every line of `assemble_domain_scan` to a corresponding line in the new method or note the deliberate divergence (e.g., `agents_hash` vs no agents component; `agents_excluded_by_relevance` is new).
 
 - [ ] **Step 1: Write failing tests for the new primitive**
 
@@ -1054,6 +1056,7 @@ from pathlib import Path
 import pytest
 
 from screw_agents.engine import ScanEngine
+from screw_agents.registry import AgentRegistry
 
 
 # ---------------------------------------------------------------------------
@@ -1063,9 +1066,14 @@ from screw_agents.engine import ScanEngine
 
 @pytest.fixture
 def engine() -> ScanEngine:
-    """ScanEngine loaded from the real domains/ directory."""
+    """ScanEngine loaded from the real domains/ directory.
+
+    Constructor pattern matches `tests/test_engine.py:11-14` and
+    `tests/test_pagination.py:26` (registry-first; ScanEngine takes an
+    AgentRegistry, not a `domains_dir=` kwarg).
+    """
     domains_dir = Path(__file__).parents[1] / "domains"
-    return ScanEngine(domains_dir=domains_dir)
+    return ScanEngine(AgentRegistry(domains_dir))
 
 
 @pytest.fixture
@@ -1119,6 +1127,21 @@ def test_init_page_next_cursor_when_files_exist(engine: ScanEngine, small_target
     assert "target_hash" in decoded
     assert "agents_hash" in decoded
     assert decoded["offset"] == 0
+
+    # Bind to canonical encoding per spec section 5.1 — protects against drift in
+    # hash function, input ordering, or truncation length.
+    import hashlib
+    import json
+
+    expected_target_hash = hashlib.sha256(
+        json.dumps(small_target, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:16]
+    assert decoded["target_hash"] == expected_target_hash
+
+    expected_agents_hash = hashlib.sha256(
+        ",".join(sorted(["sqli"])).encode("utf-8")
+    ).hexdigest()[:16]
+    assert decoded["agents_hash"] == expected_agents_hash
 
 
 def test_init_page_next_cursor_null_when_no_files(engine: ScanEngine, tmp_path: Path) -> None:
@@ -1180,7 +1203,7 @@ def test_cursor_agents_hash_independent_of_input_order(engine: ScanEngine, small
 
 
 def test_empty_agents_list_raises(engine: ScanEngine, small_target: dict) -> None:
-    with pytest.raises(ValueError, match="agents must be a non-empty list"):
+    with pytest.raises(ValueError, match="agents list is empty"):
         engine.assemble_agents_scan(agents=[], target=small_target)
 
 
@@ -1189,9 +1212,40 @@ def test_unknown_agent_raises(engine: ScanEngine, small_target: dict) -> None:
         engine.assemble_agents_scan(agents=["nonexistent"], target=small_target)
 
 
+def test_duplicate_agents_raises(engine: ScanEngine, small_target: dict) -> None:
+    """E1 (Marco approved Option B): Duplicate agent names raise ValueError
+    with actionable message naming the duplicate(s)."""
+    with pytest.raises(ValueError, match="duplicate name"):
+        engine.assemble_agents_scan(agents=["sqli", "sqli"], target=small_target)
+
+
+def test_non_string_agent_raises(engine: ScanEngine, small_target: dict) -> None:
+    """E1 (Marco approved Option B): Non-string agent entries raise ValueError
+    naming the bad element."""
+    with pytest.raises(ValueError, match="non-string element"):
+        engine.assemble_agents_scan(agents=["sqli", 123], target=small_target)  # type: ignore[list-item]
+
+
 def test_page_size_zero_raises(engine: ScanEngine, small_target: dict) -> None:
-    with pytest.raises(ValueError, match="page_size must be >= 1"):
+    """page_size < 1 raises with the actionable [1, 500] message."""
+    with pytest.raises(ValueError, match=r"page_size must be in \[1, 500\]"):
         engine.assemble_agents_scan(agents=["sqli"], target=small_target, page_size=0)
+
+
+def test_page_size_above_500_raises(engine: ScanEngine, small_target: dict) -> None:
+    """E2 (Marco approved Option B): page_size > 500 raises ValueError naming
+    the limit and reason. JSON-schema enforces the upper bound for MCP callers
+    but Python callers (e.g., test code, internal callers) bypass the schema —
+    engine layer must enforce too."""
+    with pytest.raises(ValueError, match=r"page_size must be in \[1, 500\]"):
+        engine.assemble_agents_scan(agents=["sqli"], target=small_target, page_size=10000)
+
+
+def test_validation_ordering(engine: ScanEngine, small_target: dict) -> None:
+    """When multiple validation errors apply, the first per docstring's order fires.
+    Empty agents + bad page_size: empty agents fires first (priority 1 vs 4)."""
+    with pytest.raises(ValueError, match="agents list is empty"):
+        engine.assemble_agents_scan(agents=[], target=small_target, page_size=10000)
 
 
 # ---------------------------------------------------------------------------
@@ -1231,14 +1285,24 @@ def test_code_page_terminates_with_null_cursor(engine: ScanEngine, small_target:
 # ---------------------------------------------------------------------------
 
 
-def test_relevance_filter_drops_irrelevant_agents_on_init_page(engine: ScanEngine, small_target: dict) -> None:
-    """All shipped agents support python; this test asserts the pipeline runs.
+def test_relevance_filter_drops_irrelevant_agents_on_init_page(
+    engine: ScanEngine, small_target: dict
+) -> None:
+    """sqli (declares python) is kept; xss (also declares python) is kept;
+    if a future agent declared only Java, it would be filtered out.
+
+    Test depends on sqli having `python` in its HeuristicEntry.languages
+    declarations — verify by `grep "languages.*python" domains/injection-input-handling/sqli.yaml`.
+    If sqli ever drops python, this test must be updated.
+
     Adversarial test (target lacks any agent's language) is harder to construct
     without an out-of-domain agent in the registry — covered in unit tests
-    for _filter_relevant_agents (Task 2)."""
+    for _filter_relevant_agents (Task 2).
+    """
     response = engine.assemble_agents_scan(agents=["sqli"], target=small_target)
-    # sqli's HeuristicEntry list declares python; target is python; agent kept
-    assert any(e["agent_name"] == "sqli" for e in response["agents"])
+    # sqli declares python; small_target is a Python codebase; agent kept.
+    assert len(response["agents"]) == 1
+    assert response["agents"][0]["agent_name"] == "sqli"
     assert response["agents_excluded_by_relevance"] == []
 
 
@@ -1336,7 +1400,7 @@ Expected: AttributeError on `engine.assemble_agents_scan` — method doesn't exi
 
 - [ ] **Step 3: Add `assemble_agents_scan` method to `ScanEngine`**
 
-Open `src/screw_agents/engine.py`. Locate `assemble_domain_scan` ending at line 1705 (closing of its `return result` block). Insert the new method between `assemble_domain_scan` and `assemble_full_scan`. The new method mirrors `assemble_domain_scan`'s structure with three deliberate changes: (a) takes `agents: list[str]` directly instead of resolving from a `domain` arg, (b) cursor encodes an additional `agents_hash` field, (c) emits `agents_excluded_by_relevance` on the init-page response.
+Open `src/screw_agents/engine.py`. Locate `assemble_domain_scan` ending at line 1802 (closing of its `return result` block). Insert the new method between `assemble_domain_scan` (1606-1802) and `assemble_full_scan` (1804). The new method mirrors `assemble_domain_scan`'s structure with three deliberate changes: (a) takes `agents: list[str]` directly instead of resolving from a `domain` arg, (b) cursor encodes an additional `agents_hash` field, (c) emits `agents_excluded_by_relevance` on the init-page response.
 
 ```python
     def assemble_agents_scan(
@@ -1412,18 +1476,54 @@ Open `src/screw_agents/engine.py`. Locate `assemble_domain_scan` ending at line 
             Neither shape emits a top-level ``prompts`` key; callers must use
             ``get_agent_prompt(agent_name, thoroughness)`` instead.
 
+        Validation order (errors raise in this priority — test order matters):
+            1. agents list non-empty
+            2. agents list contains no non-string elements (E1)
+            3. agents list contains no duplicates (E1)
+            4. page_size in [1, 500] (E2: lower + upper bound)
+            5. all agent names resolve in the registry
+
+        Errors raise as ValueError with messages telling the caller (a) what
+        is wrong and (b) how to fix it.
+
         Raises:
-            ValueError: if `agents` is empty, contains an unknown agent name,
-                if `page_size < 1`, or if cursor is bound to a different
-                target / agents list / is malformed.
+            ValueError: if `agents` is empty, contains a non-string element,
+                contains duplicates, contains an unknown agent name, if
+                `page_size` is outside [1, 500], or if cursor is bound to a
+                different target / agents list / is malformed.
         """
-        # ---- Validation ----
+        # ---- Validation (order documented in docstring above) ----
+        # Priority 1: agents list non-empty.
         if not agents:
             raise ValueError(
-                "agents must be a non-empty list; pass at least one registered agent name"
+                "agents list is empty; pass at least one registered agent name. "
+                "Use list_agents() to discover names."
             )
-        if page_size < 1:
-            raise ValueError(f"page_size must be >= 1, got {page_size}")
+        # Priority 2: E1 (Marco approved Option B) — reject non-string entries
+        # with actionable error.
+        non_string = [a for a in agents if not isinstance(a, str)]
+        if non_string:
+            raise ValueError(
+                f"agents must be a list of strings; got non-string element(s): "
+                f"{non_string!r}. Pass agent names as strings (e.g., 'sqli')."
+            )
+        # Priority 3: E1 — reject duplicates with actionable error.
+        duplicates = sorted({a for a in agents if agents.count(a) > 1})
+        if duplicates:
+            raise ValueError(
+                f"agents list contains duplicate name(s): {duplicates}. "
+                f"Each agent must appear at most once. "
+                f"Deduplicate the input list before calling assemble_agents_scan."
+            )
+        # Priority 4: E2 (Marco approved Option B) — enforce page_size bounds at
+        # engine layer for symmetry with JSON-schema constraint on MCP callers.
+        if page_size < 1 or page_size > 500:
+            raise ValueError(
+                f"page_size must be in [1, 500]; got {page_size}. "
+                f"The 500-item ceiling protects against oversize tool responses "
+                f"(per X1-M1 finding). Reduce page_size or paginate via cursor."
+            )
+        # Priority 5: all agent names resolve in the registry.
         for name in agents:
             if self._registry.get_agent(name) is None:
                 raise ValueError(f"Unknown agent: {name!r}")
@@ -1578,7 +1678,7 @@ Open `src/screw_agents/engine.py`. Locate `assemble_domain_scan` ending at line 
 uv run pytest tests/test_assemble_agents_scan.py -v 2>&1 | tail -30
 ```
 
-Expected: all ~20 tests in `test_assemble_agents_scan.py` PASS.
+Expected: all ~24 tests in `test_assemble_agents_scan.py` PASS (20 base + 4 added per E1/E2 plan-fix).
 
 - [ ] **Step 5: Run full test suite to confirm no regression**
 
@@ -1586,7 +1686,7 @@ Expected: all ~20 tests in `test_assemble_agents_scan.py` PASS.
 uv run pytest -q 2>&1 | tail -5
 ```
 
-Expected: 925 + 20 (new this task) = ~945 passed, 8 skipped. Zero failures.
+Expected: 943 (post-Task-2 baseline at HEAD `daa8691`) + 24 (new this task: 20 base + E1×2 + E2×2) = **967 passed, 8 skipped**. Zero failures.
 
 - [ ] **Step 6: Commit**
 
@@ -1610,21 +1710,46 @@ changes:
    surfacing the per-agent language relevance filter's decisions
    (agent_name, reason, agent_languages, target_languages).
 
-Validation: empty agents list, unknown agent name, page_size < 1 all
-raise ValueError. Tests cover ~20 paths spanning response shape, cursor
-encoding/decoding, binding rejection, validation, pagination boundaries,
-multi-agent fan-out, project_root integration."
+Validation (priority order pinned in docstring + ordering test):
+1. agents list non-empty
+2. agents list contains no non-string entries (E1)
+3. agents list contains no duplicates (E1)
+4. page_size in [1, 500] (E2 — engine layer enforcement for symmetry
+   with JSON-schema MCP-caller constraint)
+5. all agent names resolve in the registry
+
+All ValueError messages tell the caller (a) what is wrong and (b) how
+to fix it. Tests cover 24 paths spanning response shape, cursor
+encoding/decoding (with canonical hash assertions), binding rejection,
+validation (incl. duplicates, non-string, page_size upper+lower bound,
+ordering), pagination boundaries, multi-agent fan-out, project_root
+integration."
 ```
+
+**Plan-fix additions (2026-04-25, post pre-audit on HEAD `daa8691`):**
+- Fixture constructor corrected (`ScanEngine(AgentRegistry(domains_dir))` — matches `tests/test_engine.py:11-14` and `tests/test_pagination.py:26`).
+- All `engine.py`/`server.py` line numbers re-pinned to HEAD `daa8691` (Task 2 fix-up moved them by ~100 lines).
+- Test count baseline corrected to `943` (was stale at `925`); cascade updated through plan §5.
+- Cursor-decode test asserts canonical hash values, not just shape.
+- Validation-error ordering pinned in docstring + new `test_validation_ordering`.
+- `test_relevance_filter_drops_irrelevant_agents_on_init_page` hardened with explicit "sqli must declare python" dependency comment + tightened asserts.
+- E1 Decision (Marco approved Option B): hard-error on duplicate / non-string agent entries; 2 new tests (`test_duplicate_agents_raises`, `test_non_string_agent_raises`).
+- E2 Decision (Marco approved Option B): `page_size in [1, 500]` enforced at engine layer; 2 new tests (`test_page_size_above_500_raises`, updated `test_page_size_zero_raises` message-binding) + Task 4 Step 4b retrofit on `assemble_domain_scan`.
+- E3 confirmed Option A (cursor format breakage acceptable per spec §5.3 — zero live external callers; no plan change).
+- E4 deferred to Task 4 pre-audit (cross-task scope concern about `result["domain"]` mutation in wrapper).
+
+Net new tests in Task 3: 20 (base) + 2 (E1) + 2 (E2) = **24 new tests**. Post-Task-3 expected: `943 + 24 = 967 passed, 8 skipped`.
 
 ---
 
 ## Task 4: Refactor `assemble_domain_scan` as wrapper
 
-**Goal:** Replace the body of `assemble_domain_scan` (~180 LOC of pagination logic at lines 1509-1705) with a thin delegation to `assemble_agents_scan`. Schema unchanged from caller's view; tests asserting `scan_domain` behavior still pass.
+**Goal:** Replace the body of `assemble_domain_scan` (~180 LOC of pagination logic at lines 1606-1802) with a thin delegation to `assemble_agents_scan`. Schema unchanged from caller's view; tests asserting `scan_domain` behavior still pass. Also retrofit the E2 page_size upper-bound enforcement (added per plan-fix Step 4b).
 
 **Files:**
-- Modify: `src/screw_agents/engine.py:1509-1705` (the entire `assemble_domain_scan` method body)
-- No test changes expected — `test_engine.py`'s domain-scan tests should pass unchanged because the response shape is identical.
+- Modify: `src/screw_agents/engine.py:1606-1802` (the entire `assemble_domain_scan` method body)
+- Modify: `src/screw_agents/engine.py:1679-1680` (page_size lower-bound check — retrofit per E2 plan-fix Step 4b)
+- Modify: `tests/test_pagination.py` — update `test_assemble_domain_scan_invalid_page_size` to cover the new upper-bound case (or add a new sibling test if name differs).
 
 **Pre-audit focus (mandatory):** before replacing the body, run `grep -n "scan_domain\|assemble_domain_scan" tests/` and audit every assertion site. Confirm none of them inspect `agents_excluded_by_relevance` — that's a new init-page field that `assemble_domain_scan` will now also emit (since it delegates). Tests that don't care about this field will pass; any test that asserts `assert set(response.keys()) == {EXACT_SET}` would fail. List those for the implementer to handle.
 
@@ -1641,7 +1766,7 @@ If any test asserts the EXACT key set: that test must be updated (Task 4 Step 5 
 
 - [ ] **Step 2: Replace `assemble_domain_scan` body with delegation**
 
-Open `src/screw_agents/engine.py`. Replace lines 1509-1705 (the entire `assemble_domain_scan` method) with:
+Open `src/screw_agents/engine.py`. Replace lines 1606-1802 (the entire `assemble_domain_scan` method) with:
 
 ```python
     def assemble_domain_scan(
@@ -1723,7 +1848,43 @@ Expected: all existing `assemble_domain_scan` tests PASS unchanged.
 uv run pytest -q 2>&1 | tail -5
 ```
 
-Expected: ~945 passed (no change from end of Task 3 — Task 4 swaps internals but adds no new tests). Zero failures.
+Expected: 967 passed (no change from end of Task 3 — Task 4 swaps internals but adds no new tests; Step 4b below adds 1 net test). Zero failures.
+
+- [ ] **Step 4b (added per E2 plan-fix): Retrofit `page_size <= 500` to `assemble_domain_scan`**
+
+For symmetry with `assemble_agents_scan` (Task 3), retrofit the upper-bound check onto `assemble_domain_scan`'s lower-bound check site at `engine.py:1679-1680`.
+
+NOTE on placement: the wrapper from Step 2 above delegates to `assemble_agents_scan`, which already enforces `[1, 500]`. Step 4b applies if the implementer's wrapper does NOT add its own page_size pre-check (the page_size will fall through to the primitive and surface the same `ValueError`). If the implementer chose to retain a defensive pre-check inside the wrapper (or chose to keep the legacy `assemble_domain_scan` body partially untouched in a different refactor strategy), update the lower-bound check site at `engine.py:1679` (matching the original method's `if page_size < 1:` block) to enforce the full bound:
+
+```python
+        if page_size < 1 or page_size > 500:
+            raise ValueError(
+                f"page_size must be in [1, 500]; got {page_size}. "
+                f"The 500-item ceiling protects against oversize tool responses "
+                f"(per X1-M1 finding). Reduce page_size or paginate via cursor."
+            )
+```
+
+Either way (delegation or in-wrapper check), update the existing `tests/test_pagination.py` test that asserts on the page_size lower-bound message (search for `r"page_size must be"` regex match) so it binds to the new `[1, 500]` message and add a new sibling `test_assemble_domain_scan_page_size_above_500_raises` that exercises the upper bound:
+
+```python
+def test_assemble_domain_scan_page_size_above_500_raises(engine: ScanEngine, tmp_path: Path) -> None:
+    """E2 retrofit (per Task 4 plan-fix Step 4b): assemble_domain_scan
+    enforces page_size <= 500 by inheriting from assemble_agents_scan."""
+    target = {"type": "codebase", "root": str(tmp_path)}
+    with pytest.raises(ValueError, match=r"page_size must be in \[1, 500\]"):
+        engine.assemble_domain_scan(
+            domain="injection-input-handling", target=target, page_size=10000
+        )
+```
+
+Run pagination tests:
+
+```
+uv run pytest tests/test_pagination.py -v 2>&1 | tail -30
+```
+
+Expected: existing page_size tests still pass after message update; new upper-bound test passes. Net new tests in Task 4: **1** (the upper-bound symmetry test).
 
 - [ ] **Step 5: If any test failed because the response key set changed**
 
@@ -1759,15 +1920,15 @@ public surfaces (the primitive + the convenience wrapper)."
 **Goal:** Wire `assemble_agents_scan` into the MCP server: register the tool in `engine.py::list_tool_definitions` and dispatch in `server.py::handle_call_tool`.
 
 **Files:**
-- Modify: `src/screw_agents/engine.py:2165+` (`list_tool_definitions`)
-- Modify: `src/screw_agents/server.py:240-280` (`handle_call_tool`)
+- Modify: `src/screw_agents/engine.py:2262+` (`list_tool_definitions`)
+- Modify: `src/screw_agents/server.py:240-278` (`handle_call_tool`)
 - Modify: `tests/test_server.py` and `tests/test_engine.py` (assertions on registered tool list)
 
-**Pre-audit focus (none — mechanical):** inline-verify by reading the existing scan_domain registration (lines 2194-2230) and mirroring its shape. Confirm `_scan_input_schema` helper signature.
+**Pre-audit focus (none — mechanical):** inline-verify by reading the existing scan_domain registration (lines 2291-2327) and mirroring its shape. Confirm `_scan_input_schema` helper signature.
 
 - [ ] **Step 1: Add `scan_agents` registration to `list_tool_definitions`**
 
-Open `src/screw_agents/engine.py`. Locate `list_tool_definitions` at line 2165. After the existing `scan_domain` registration (ends line 2230) and before the existing `scan_full` registration block at lines 2231-2245, insert the new `scan_agents` registration:
+Open `src/screw_agents/engine.py`. Locate `list_tool_definitions` at line 2262. After the existing `scan_domain` registration (ends line 2327) and before the existing `scan_full` registration block at lines 2328-2342, insert the new `scan_agents` registration:
 
 ```python
         tools.append({
@@ -1823,7 +1984,7 @@ Open `src/screw_agents/engine.py`. Locate `list_tool_definitions` at line 2165. 
 
 - [ ] **Step 2: Update `scan_domain` description to reference the primitive**
 
-In the same file, locate the `scan_domain` registration (lines 2194-2230). Update its description string to:
+In the same file, locate the `scan_domain` registration (lines 2291-2327). Update its description string to:
 
 ```python
             "description": (
@@ -1841,7 +2002,7 @@ In the same file, locate the `scan_domain` registration (lines 2194-2230). Updat
 
 - [ ] **Step 3: Add `scan_agents` dispatch to `server.py::handle_call_tool`**
 
-Open `src/screw_agents/server.py`. Locate the dispatch block around lines 244-259. After the existing `if name == "scan_domain": ...` branch (ends line 252) and before the `if name == "scan_full":` branch (starts line 254), insert:
+Open `src/screw_agents/server.py`. Locate the dispatch block at lines 244-259. After the existing `if name == "scan_domain": ...` branch (ends line 252) and before the `if name == "scan_full":` branch (starts line 254), insert:
 
 ```python
     if name == "scan_agents":
@@ -1910,7 +2071,7 @@ Expected: tests asserting `scan_agents` is registered PASS. The pre-existing `sc
 uv run pytest -q 2>&1 | tail -5
 ```
 
-Expected: ~945 + 1 (new dispatch test) = ~946 passed. Zero failures.
+Expected: 968 (Task 4 end: 967 + 1 from Step 4b) + 1 (new dispatch test) = **969 passed**. Zero failures.
 
 - [ ] **Step 8: Commit**
 
@@ -1947,7 +2108,7 @@ retires them — Task 5 is purely additive."
 **Goal:** Hard-break retirement of the three retired surfaces. Delete the engine method, the MCP tool registrations (the static `scan_full` block + the per-agent loop), the dispatch branches in `server.py`, and the corresponding tests.
 
 **Files:**
-- Modify: `src/screw_agents/engine.py` — delete `assemble_full_scan` (lines 1707-1774); delete `scan_full` registration in `list_tool_definitions` (lines 2231-2245); delete per-agent registration loop (lines 2275-2291).
+- Modify: `src/screw_agents/engine.py` — delete `assemble_full_scan` (lines 1804-1871); delete `scan_full` registration in `list_tool_definitions` (lines 2328-2342); delete per-agent registration loop (lines 2372-2388).
 - Modify: `src/screw_agents/server.py` — delete `scan_full` branch (lines 254-259); delete per-agent fallback dispatch (lines 269-276).
 - Modify: `tests/test_engine.py` — delete `test_assemble_full_scan_*` tests (lines 303-411 area; 4 tests).
 - Modify: `tests/test_server.py` — delete or migrate `assert "scan_full" in names` (line 25).
@@ -1967,15 +2128,15 @@ Capture the output. Every per-agent `scan_<name>` MCP tool reference in `tests/`
 
 - [ ] **Step 2: Delete `assemble_full_scan` from `engine.py`**
 
-Open `src/screw_agents/engine.py`. Delete lines 1707-1774 (the entire `assemble_full_scan` method, from `def assemble_full_scan(` through its trailing `return result`).
+Open `src/screw_agents/engine.py`. Delete lines 1804-1871 (the entire `assemble_full_scan` method, from `def assemble_full_scan(` through its trailing `return result`).
 
 - [ ] **Step 3: Delete `scan_full` registration in `list_tool_definitions`**
 
-In the same file, delete lines 2231-2245 (the `tools.append({"name": "scan_full", ...})` block).
+In the same file, delete lines 2328-2342 (the `tools.append({"name": "scan_full", ...})` block).
 
 - [ ] **Step 4: Delete per-agent registration loop**
 
-In the same file, delete lines 2275-2291 (the `for agent in self._registry.agents.values(): tools.append({...})` loop).
+In the same file, delete lines 2372-2388 (the `for agent in self._registry.agents.values(): tools.append({...})` loop).
 
 - [ ] **Step 5: Delete `scan_full` and per-agent dispatch branches in `server.py`**
 
@@ -2043,7 +2204,7 @@ Expected: all PASS. Test count drops by ~6-8 (4 deleted full-scan tests + 2 migr
 uv run pytest -q 2>&1 | tail -5
 ```
 
-Expected: ~946 - ~8 (deletions) = ~938 passed, 8 skipped. Zero failures.
+Expected: 969 (post-Task-5) - ~8 (deletions: 4 test_assemble_full_scan_* + scan_full assertion + dispatch branch test artifacts) = **~961 passed, 8 skipped**. Zero failures.
 
 If a test fails because it called `engine.assemble_scan(name)` for a per-agent tool through some indirect path: the engine method `assemble_scan(name, ...)` itself is preserved (it's the per-agent helper used internally by both `assemble_agents_scan` and `assemble_domain_scan`); only the **MCP tool** dispatch branch was deleted. Direct `engine.assemble_scan(...)` calls in tests work unchanged.
 
@@ -2442,7 +2603,7 @@ Expected: all 7 tests PASS.
 uv run pytest -q 2>&1 | tail -5
 ```
 
-Expected: ~938 + 7 = ~945 passed, 8 skipped. Zero failures.
+Expected: ~961 + 7 = ~968 passed, 8 skipped. Zero failures.
 
 If any other test fails because it referenced one of the 5 deleted subagents by file name: that test is owed to Task 7 — update it to assert `screw-scan.md` exists instead.
 
@@ -3013,7 +3174,7 @@ uv run pytest tests/test_scan_command_parser.py -v 2>&1 | tail -10
 uv run pytest -q 2>&1 | tail -5
 ```
 
-Expected: parser tests PASS; full suite ~945 + 15 = ~960 passed.
+Expected: parser tests PASS; full suite ~968 + 15 = ~983 passed.
 
 - [ ] **Step 8: Commit**
 
@@ -3298,7 +3459,7 @@ Expected: no hits in `docs/` or `plugins/`. (The 5 subagent files themselves are
 uv run pytest -q 2>&1 | tail -5
 ```
 
-Expected: ~960 passed, 8 skipped. (Doc changes don't run tests; this is a sanity check.)
+Expected: ~983 passed, 8 skipped. (Doc changes don't run tests; this is a sanity check.)
 
 - [ ] **Step 13: Commit**
 
@@ -3486,17 +3647,19 @@ Section in Plan | Expected count
 ---|---
 Baseline (main HEAD `02d90d1`) | 906 passed, 8 skipped
 After Task 1 (registry invariants +5) | 911
-After Task 2 (relevance filter +14) | 925
-After Task 3 (assemble_agents_scan +20) | 945
-After Task 4 (refactor; 0 net) | 945
-After Task 5 (server dispatch +1) | 946
-After Task 6 (deletions ~-8) | ~938
-After Task 7 (subagent tests +7) | ~945
-After Task 8 (parser tests +15) | ~960
-After Task 9 (docs only; 0) | ~960
-After Task 10 (verification only; 0) | ~960
+After Task 2 (relevance filter +14 ; +12 fix-up = +26 net shipped per HEAD `daa8691`) | **943** (Task-2-shipped baseline)
+After Task 3 (assemble_agents_scan +24 ; 20 base + E1×2 + E2×2 per plan-fix) | 967
+After Task 4 (wrapper refactor 0 + Step 4b retrofit +1 per plan-fix E2) | 968
+After Task 5 (server dispatch +1) | 969
+After Task 6 (deletions ~-8) | ~961
+After Task 7 (subagent tests +7) | ~968
+After Task 8 (parser tests +15) | ~983
+After Task 9 (docs only; 0) | ~983
+After Task 10 (verification only; 0) | ~983
 
-Final target: **≈960 passed, 8 skipped**. Deviations of ±5 from cleanup and migration accounting are acceptable.
+Final target: **≈983 passed, 8 skipped**. Deviations of ±5 from cleanup and migration accounting are acceptable.
+
+**Cascade derivation note:** baseline 943 reflects HEAD `daa8691` (Task 2 fix-up shipped 26 net new tests, not 14 + 5 as the original plan modeled). Plan-fix on Task 3 adds 4 new validation tests for E1+E2 (duplicates, non-string, page_size > 500, validation ordering). Plan-fix on Task 4 adds 1 test (page_size upper bound on `assemble_domain_scan`). Net delta vs original cumulative target: +23 tests (943 - 925 baseline shift = +18; +4 E1/E2 in Task 3; +1 E2 in Task 4 = +23).
 
 ### 6. Cross-plan sync (per `feedback_cross_plan_sync` memory)
 
@@ -3543,7 +3706,7 @@ On completion of Task 10:
 
    ## Test plan
 
-   - [x] All ~960 unit tests pass; 8 skipped (unchanged); zero failures.
+   - [x] All ~983 unit tests pass; 8 skipped (unchanged); zero failures.
    - [x] Round-trip 1: `/screw:scan domains:injection-input-handling agents:sqli src/screw_agents/ --no-confirm` — pre-execution summary correct, sqli runs, report generated.
    - [x] Round-trip 2: `/screw:scan full src/screw_agents/ --no-confirm` — all 4 agents resolved + filtered + run, aggregated report generated.
    - [x] grep verification: zero `scan_full` / `assemble_full_scan` / `screw-sqli|cmdi|ssti|xss|injection` references in active code or docs.
