@@ -2026,3 +2026,47 @@ Non-blocking minors surfaced during Task 6 pre-audit. Deferred past T-SCAN-REFAC
 **Remediation sketch:** Spec out re-scan semantics in spec §9. Implement in a follow-up PR after T-SCAN-REFACTOR ships.
 
 **Estimated scope:** Spec ~30 LOC + implementation ~50 LOC + 2-3 tests.
+
+### BACKLOG-T-SCAN-REFACTOR-T7-M4 — `verify_trust` duplicate call in screw-scan.md
+**Phase-4 readiness:** `non-blocker` — efficiency, not correctness
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 7 quality review, 2026-04-26 (QR-T7-M1)
+**File:** `plugins/screw/agents/screw-scan.md` Step 1
+
+**Why deferred:** Step 1 calls `verify_trust` separately, but `init["trust_status"]` is already populated by `scan_agents` (engine.py:1924-1927). One extra MCP round-trip per scan. Not security-critical; cleanup opportunity.
+
+**Remediation sketch:** Replace standalone `verify_trust` call with `trust_status = init["trust_status"]`. Update body to read from init payload. ~3 LOC.
+
+**Estimated scope:** 3 LOC + 0 tests.
+
+### BACKLOG-T-SCAN-REFACTOR-T7-M5 — `verify_trust` error-path graceful degradation
+**Phase-4 readiness:** `non-blocker` — defense-in-depth
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 7 quality review, 2026-04-26 (QR-T7-M4)
+**File:** `plugins/screw/agents/screw-scan.md` Step 1
+
+**Why deferred:** `verify_trust` may raise ValueError on malformed `.screw/learning/exclusions.yaml` (engine.py:259-264). Body has no graceful-degradation guidance — LLM has no fallback.
+
+**Remediation sketch:** Add error-handling block to Step 1: "If verify_trust raises, set trust_status to null, add trust_error field to structured return with the error message, and continue scan." ~5 LOC body addition.
+
+**Estimated scope:** 5 LOC + 1 test.
+
+### BACKLOG-T-SCAN-REFACTOR-T7-M6 — Hard iteration cap on scan_agents page loop
+**Phase-4 readiness:** `non-blocker` — defense-in-depth against pathological MCP behavior
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 7 quality review, 2026-04-26 (QR-T7-L)
+**File:** `plugins/screw/agents/screw-scan.md` Step 3
+
+**Why deferred:** `while next_cursor is not None: ...` has no hard cap. A pathological MCP layer that always returns non-null cursor would loop until token-budget exhaust. Cursor-binding-mismatch error covers tampering, but a buggy server could cause infinite loops. Spec D7 fence-collision precedent set a 3-attempt cap; analogous hard cap on pages (e.g., 100) would mirror that defense.
+
+**Remediation sketch:** Add `if pages_processed > 100: emit fatal_error and abort` to scan_agents loop. ~3 LOC.
+
+**Estimated scope:** 3 LOC + 1 test.
+
+### BACKLOG-T-SCAN-REFACTOR-T7-M7 — MCP tool error graceful-degradation guidance
+**Phase-4 readiness:** `non-blocker` — defense-in-depth
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 7 quality review, 2026-04-26 (QR-T7-L)
+**File:** `plugins/screw/agents/screw-scan.md` (new section)
+
+**Why deferred:** Body assumes every MCP call succeeds. If `accumulate_findings` raises, LLM has no fallback — likely crashes the subagent. A "Behavior under errors" subsection covering tool-error paths would help.
+
+**Remediation sketch:** Add "Behavior under MCP tool errors" subsection covering: (a) accumulate_findings failure → retry once, then emit fatal_error preserving partial findings; (b) get_agent_prompt failure → skip that agent, log to scan_metadata; (c) verify_trust failure → see T7-M5; (d) other tool failures → emit fatal_error with tool name + error message. ~10 LOC body + 1-2 tests.
+
+**Estimated scope:** 10 LOC + 2 tests.
