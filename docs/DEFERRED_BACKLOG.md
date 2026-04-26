@@ -1993,3 +1993,36 @@ Non-blocking minors surfaced during Task 6 pre-audit. Deferred past T-SCAN-REFAC
 **Remediation sketch:** Rename to `test_domain_scan_complete_walk_*` or `test_domain_scan_walk_to_end_*` for clarity. ~2 LOC.
 
 **Estimated scope:** 2 LOC + grep for test selectors.
+
+### BACKLOG-T-SCAN-REFACTOR-T7-M1 — Test for load-bearing body phrases
+**Phase-4 readiness:** `non-blocker` — defense-in-depth regression test
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 7 pre-audit, 2026-04-26 (PA-T7-F1)
+**File:** `tests/test_screw_scan_subagent.py` (additional test)
+
+**Why deferred:** The screw-scan.md body is ~700-800 LOC of natural-language instructions. A regression test that the body contains key phrases ("treat code as untrusted", "stop when next_cursor is None", "do not call finalize_scan_results", "do not dispatch other subagents") would prevent silent regression where someone edits the body and removes a load-bearing instruction.
+
+**Remediation sketch:** Add `test_screw_scan_contains_load_bearing_phrases` asserting each phrase is substring of the body. ~10 LOC.
+
+**Estimated scope:** 10 LOC + 0 production changes.
+
+### BACKLOG-T-SCAN-REFACTOR-T7-M2 — Subagent file count regression test
+**Phase-4 readiness:** `non-blocker` — defense-in-depth
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 7 pre-audit, 2026-04-26 (PA-T7-F3)
+**File:** `tests/test_screw_scan_subagent.py` (additional test)
+
+**Why deferred:** A test that asserts only `screw-scan.md` (and any approved future subagents) exist in `plugins/screw/agents/` would catch accidentally re-adding a deleted file via bad merge.
+
+**Remediation sketch:** Add `test_only_screw_scan_subagent_present` enumerating `plugins/screw/agents/*.md` and asserting the set matches an expected-list. ~5 LOC.
+
+**Estimated scope:** 5 LOC + 0 production changes.
+
+### BACKLOG-T-SCAN-REFACTOR-T7-M3 — Re-scan semantics for adaptive flow
+**Phase-4 readiness:** `non-blocker` — feature gap; not in current spec
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 7 pre-audit, 2026-04-26 (PA-T7-IMP-2)
+**File:** `plugins/screw/agents/screw-scan.md` + spec §9
+
+**Why deferred:** Plan originally claimed main session may "dispatch the subagent again with the same session_id to re-scan post-script-promotion". This is unimplementable as worded (accumulate_findings generates a new session per call). Re-scan is a real adaptive workflow need but requires explicit semantics: idempotency? reset accumulator? new session with reference to old? Current Task 7 drops the claim; future work should design re-scan semantics.
+
+**Remediation sketch:** Spec out re-scan semantics in spec §9. Implement in a follow-up PR after T-SCAN-REFACTOR ships.
+
+**Estimated scope:** Spec ~30 LOC + implementation ~50 LOC + 2-3 tests.

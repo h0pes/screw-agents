@@ -2575,25 +2575,32 @@ CWE-1400 expansion would have been 43 → still 2."
 
 ## Task 7: Universal `screw-scan.md` subagent + delete 5 old subagent files
 
-**Goal:** Collapse 4 per-agent subagents (`screw-sqli`, `screw-cmdi`, `screw-ssti`, `screw-xss`; 414 LOC each, byte-identical modulo name) and 1 domain orchestrator (`screw-injection`; 222 LOC) into a single universal `screw-scan.md` (~420 LOC) parameterized by `agents: list[str]` from the dispatch prompt.
+**Goal:** Collapse 4 per-agent subagents (`screw-sqli`, `screw-cmdi`, `screw-ssti`, `screw-xss`; 414 LOC each, byte-identical modulo name) and 1 domain orchestrator (`screw-injection`; 222 LOC) into a single universal `screw-scan.md` (~700-800 LOC after E1=A inline adaptive body port) parameterized by `agents: list[str]` from the dispatch prompt.
 
 **Files:**
-- Create: `plugins/screw/agents/screw-scan.md`
+- Create: `plugins/screw/agents/screw-scan.md` (~700-800 LOC after E1=A inline adaptive body)
 - Delete: `plugins/screw/agents/screw-sqli.md`, `screw-cmdi.md`, `screw-ssti.md`, `screw-xss.md`, `screw-injection.md`
-- Modify: `plugins/screw/plugin.json` (or equivalent registration file — confirm path during pre-audit) — drop the 5 deleted subagent registrations, add `screw-scan` registration.
-- Create: `tests/test_screw_scan_subagent.py` — 5 tests for file presence, frontmatter, return-payload size regression.
+- Modify: `plugins/screw/skills/screw-review/SKILL.md` — replace 5 deleted subagent names with `screw-scan` (lines 28-32; cross-task coherence)
+- Create: `tests/test_screw_scan_subagent.py` — 10-15 tests covering file presence, frontmatter, body invariants, return-schema documentation
+- No manifest edits required — subagents are registered by file presence in `plugins/screw/agents/*.md`. The actual `plugins/screw/.claude-plugin/plugin.json` carries no subagent registry; deleting the 5 files and adding `screw-scan.md` is sufficient.
 
-**Pre-audit focus (mandatory — novel work):** before writing `screw-scan.md`, read `screw-sqli.md` end-to-end (414 lines) and identify EVERY procedural element that must be parameterized by agent name vs preserved verbatim. Read `screw-injection.md` (222 lines) to confirm the domain-orchestrator's dispatch responsibilities are now subsumed by main session (per C2 finding). Read `plugins/screw/plugin.json` (or scan `plugins/screw/` for the registration mechanism — could be a `marketplace.json`, `plugin.json`, or implicit by file presence) to know exactly which file lists subagent names.
+**Pre-audit focus (mandatory — novel work):** before writing `screw-scan.md`, read `screw-sqli.md` end-to-end (414 lines) and identify EVERY procedural element that must be parameterized by agent name vs preserved verbatim. Read `screw-injection.md` (222 lines) to confirm the domain-orchestrator's dispatch responsibilities are now subsumed by main session (per C2 finding). Plugin registration mechanism already confirmed: subagents are registered by file presence (no manifest edit needed).
 
-- [ ] **Step 1: Pre-audit — confirm registration mechanism**
+- [ ] **Step 1: Pre-audit — read existing per-agent body to plan inline adaptive port (E1=A)**
+
+The 5 deleted subagent files are byte-identical modulo agent name. `screw-sqli.md` is the canonical source for the per-agent procedural body. `screw-injection.md` adds the orchestrator-shared-quota logic.
 
 ```
-ls /home/marco/Programming/AI/screw-agents/plugins/screw/
-cat /home/marco/Programming/AI/screw-agents/plugins/screw/plugin.json 2>/dev/null || echo 'no plugin.json'
-find /home/marco/Programming/AI/screw-agents/plugins/screw/ -maxdepth 2 -type f -name '*.json' -o -name '*.yaml' -o -name '*.yml'
+sed -n '1,84p'   /home/marco/Programming/AI/screw-agents/plugins/screw/agents/screw-sqli.md
+sed -n '85,353p' /home/marco/Programming/AI/screw-agents/plugins/screw/agents/screw-sqli.md   # adaptive body to port verbatim
+sed -n '354,414p' /home/marco/Programming/AI/screw-agents/plugins/screw/agents/screw-sqli.md   # return schema (mirror in screw-scan.md)
+sed -n '106,167p' /home/marco/Programming/AI/screw-agents/plugins/screw/agents/screw-injection.md  # orchestrator quota logic
 ```
 
-Identify the file (if any) that explicitly registers subagents. If subagents are registered implicitly by file presence in `plugins/screw/agents/*.md`, no manifest edit is required; deleting the 5 files and adding `screw-scan.md` suffices.
+Inventory the procedural elements that need parameterization vs verbatim preservation:
+
+- **Agent-specific text → parameterize via `{agent_entry["agent_name"]}`:** all hardcoded `sqli` / `xss` / `cmdi` / `ssti` references, fence_token derivation seed, per-agent quota keys.
+- **Security guards → preserve verbatim:** Layer 0a (UNTRUSTED_CODE_ delimiters), 0b (no nested dispatch), 0c (Read-only enforcement), 0d (script length cap), 0e (blocklist), 0f (quota).
 
 - [ ] **Step 2: Read the existing subagent template**
 
@@ -2610,15 +2617,18 @@ Create `/home/marco/Programming/AI/screw-agents/plugins/screw/agents/screw-scan.
 ```markdown
 ---
 name: screw-scan
-description: Universal security scan runner — analyzes code against a custom set of agents specified by the dispatcher. Replaces 4 per-agent subagents and 1 domain orchestrator. Handles paginated scan_agents calls, lazy prompt fetching, finding accumulation, and structured-payload return.
+description: Universal security scan runner — analyzes code against a custom set of agents specified by the dispatcher. Replaces 4 per-agent subagents and 1 domain orchestrator. Handles paginated scan_agents calls, lazy prompt fetching, finding accumulation, adaptive Layer 0 (gap detection + script lint + pending review emission), and structured-payload return.
 tools:
   - Read
+  - Glob
   - Grep
   - mcp__screw-agents__scan_agents
   - mcp__screw-agents__get_agent_prompt
   - mcp__screw-agents__accumulate_findings
   - mcp__screw-agents__record_context_required_match
   - mcp__screw-agents__verify_trust
+  - mcp__screw-agents__detect_coverage_gaps
+  - mcp__screw-agents__lint_adaptive_script
 model: opus
 ---
 
@@ -2649,7 +2659,13 @@ Call `verify_trust` once at the start. The result is advisory — surface in you
 trust = mcp__screw-agents__verify_trust({"project_root": <project_root>})
 ```
 
-Capture `trust["verified"]`, `trust["quarantined_count"]`, and any `trust["warning_message"]`.
+Capture the four counts the engine returns:
+- `trust["exclusion_quarantine_count"]` (int)
+- `trust["exclusion_active_count"]` (int)
+- `trust["script_quarantine_count"]` (int)
+- `trust["script_active_count"]` (int)
+
+These mirror the schema documented in `screw-sqli.md:386-398` (the existing per-agent return contract); see also `engine.py::verify_trust`.
 
 ### Step 2: Init page
 
@@ -2668,7 +2684,7 @@ init = mcp__screw-agents__scan_agents({
 Capture for use across pages:
 - `init["agents"]` — surviving agents after relevance filter (may be a subset of the input list)
 - `init["agents_excluded_by_relevance"]` — list of `{agent_name, reason, agent_languages, target_languages}` records — echo these in your final return so main session can show the user
-- For each agent entry in `init["agents"]`: capture `entry["meta"]` (CWE classifications, etc.) and `entry["exclusions"]` (filter findings against this list before emission)
+- For each agent entry in `init["agents"]`: capture `entry["meta"]` (CWE classifications, etc.) and `entry["exclusions"]` — note: `exclusions` is informational only. The server applies exclusions in MergedSource pre-filtering (per T19-M1/M2/M3 / PR #15). Do NOT re-apply exclusions client-side; that would double-suppress findings.
 - `init["next_cursor"]` — opaque token for first code page
 
 Initialize a per-agent prompt cache:
@@ -2703,7 +2719,7 @@ For each `agent_entry` in `page["agents"]`:
 
 2. **Analyze** — apply the cached `core_prompt` to `agent_entry["code"]`. Use `agent_entry["meta"]` for CWE classification labels in any findings you emit.
 
-3. **For each detected vulnerability:** construct a finding dict per the schema in `models.py::Finding` (id, agent, location, classification, analysis, remediation, triage). Apply the per-agent exclusion list captured from the init page — drop any finding matching an exclusion's scope. For exclusions you DO suppress, record the suppression in your structured return's `exclusions_applied` accounting (the main session's `finalize_scan_results` records these too; double-counting is suppressed by session-id dedup).
+3. **For each detected vulnerability:** construct a finding dict per the schema in `models.py::Finding` (id, agent, location, classification, analysis, remediation, triage). Do NOT filter findings against `agent_entry["exclusions"]` — the server already applied those exclusions in MergedSource pre-filtering before the page reached you (T19-M1/M2/M3 / PR #15). Client-side re-application would double-suppress. The exclusions list is exposed in the page payload for awareness only; if you want to mirror the server's accounting in your structured return, increment `exclusions_applied_count` to track what the server reports — do not infer it from your own filtering.
 
 4. **For each context-required pattern match where you decided NOT to emit a finding** (adaptive D1 signal): call `record_context_required_match`:
    ```python
@@ -2731,27 +2747,37 @@ For each `agent_entry` in `page["agents"]`:
 
 After all pages processed (when `next_cursor` is null), proceed to Step 4.
 
-### Step 4: Return structured payload
+### Step 4: Return structured payload (hybrid schema per E2=C)
 
-End your turn with ONE fenced JSON code block matching this schema:
+End your turn with ONE fenced JSON code block matching this schema. The C2-required keys (top group) MUST be present so `scan.md`'s parser keeps working — that contract is locked by `tests/test_adaptive_subagent_prompts.py:497-512` and mirrored in the existing `screw-sqli.md:386-410` per-agent return. The new enrichment keys (bottom group) deliver the spec §7.1 deliverable.
 
 ````json
 {
-  "session_id": "<opaque token>",
-  "summary_counts": {
-    "findings_total": <int>,
-    "findings_by_severity": {"high": <int>, "medium": <int>, "low": <int>, "critical": <int>},
-    "findings_by_agent": {"<agent_name>": <int>, ...}
-  },
-  "classification_summary": {
-    "cwes_seen": ["CWE-89", "CWE-79", ...],
-    "owasp_top10_seen": ["A03:2025", ...]
-  },
+  "schema_version": "1.0",
+  "scan_subagent": "screw-scan",
+  "session_id": "<uuid>",
   "trust_status": {
-    "verified": true,
-    "quarantined_count": 0,
-    "warning_message": null
+    "exclusion_quarantine_count": <int>,
+    "exclusion_active_count": <int>,
+    "script_quarantine_count": <int>,
+    "script_active_count": <int>
   },
+  "yaml_findings_accumulated": <int>,
+  "adaptive_mode_engaged": <bool>,
+  "adaptive_quota_note": "<string|null>",
+  "pending_reviews": [<list of pending review descriptors>],
+  "blocklist_skipped_gaps": [<list>],
+  "scan_metadata": {
+    "agents_run": <list[str]>,
+    "pages_processed": <int>,
+    "total_files_scanned": <int>
+  },
+  "summary_counts": {
+    "high_confidence": <int>,
+    "medium_confidence": <int>,
+    "context_required": <int>
+  },
+  "classification_summary": {<by-CWE breakdown>},
   "agents_excluded_by_relevance": [
     {"agent_name": "<name>", "reason": "language_mismatch",
      "agent_languages": [...], "target_languages": [...]}
@@ -2761,18 +2787,25 @@ End your turn with ONE fenced JSON code block matching this schema:
 }
 ````
 
+**Schema notes:**
+- The first group (`schema_version` … `scan_metadata`) is the C2 contract. `scan.md`'s parser (locked by `test_adaptive_subagent_prompts.py:497-512`) reads these keys; renaming or omitting them breaks the orchestrator. Mirror exactly the shape used in `screw-sqli.md:386-410`.
+- The second group (`summary_counts`, `classification_summary`, `agents_excluded_by_relevance`, `context_required_matches_recorded`, `exclusions_applied_count`) is the new universal-subagent enrichment from spec §7.1 — additive, not C2-blocking.
+- `trust_status` is the engine-real 4-count form (no invented `verified` / `quarantined_count` / `warning_message`).
+
 **CRITICAL — Concern A from spec section 11.2:** your structured return **MUST NOT** include findings inline. Findings live in `.screw/staging/{session_id}/findings.json` after `accumulate_findings`. Your return is a summary only. The main session will call `finalize_scan_results(session_id, format)` which renders + writes the report.
 
 The main session reads your return and decides next steps:
-- If adaptive_flag and any `staged scripts` flagged: it dispatches `screw-script-reviewer`.
-- After the script reviewer (if any), it may dispatch you again with the same session_id to re-scan post-script-promotion.
+- If `adaptive_mode_engaged` is true and `pending_reviews` is non-empty: main session dispatches `screw-script-reviewer` (per C2 chain-subagents pattern).
 - Finally it calls `finalize_scan_results(session_id, format)` to render and write the report.
+
+(Re-scan semantics — re-dispatching screw-scan to incorporate promoted scripts within the same session — is a real adaptive workflow need but is unimplementable as a same-session_id call: `accumulate_findings` generates a fresh session per call. Tracked as `BACKLOG-T-SCAN-REFACTOR-T7-M3` for follow-up spec + implementation.)
 
 ## Behavior under errors
 
 - **Cursor binding mismatch from MCP layer** (`agents` list changed mid-flow, target changed): re-emit the structured return with a `fatal_error` field instead of `summary_counts`. Main session aborts the scan.
-- **Empty `agents` arg from main session:** unreachable in normal flow (slash command rejects empty resolution), but if encountered, return `{"fatal_error": "No agents provided to scan"}`.
-- **All agents filtered out by relevance filter on init page:** init page returns `agents=[]` and `next_cursor=null`. Your loop runs zero iterations. Return the structured payload with `summary_counts.findings_total = 0` and the full `agents_excluded_by_relevance` list. The main session shows the user the "all agents filtered" diagnostic.
+- **All agents filtered out by relevance filter on init page:** init page returns `agents=[]` and `next_cursor=null`. Your loop runs zero iterations. Return the structured payload with `summary_counts.high_confidence = summary_counts.medium_confidence = summary_counts.context_required = 0` and the full `agents_excluded_by_relevance` list. The main session shows the user the "all agents filtered" diagnostic.
+
+(Empty-`agents`-arg-from-main-session is not a runtime case for this subagent: `assemble_agents_scan` rejects empty lists at `engine.py:1777` before the dispatch reaches the MCP boundary. If this branch fires, the bug is upstream of the subagent.)
 
 ## Reasoning for design decisions
 
@@ -2783,7 +2816,40 @@ The main session reads your return and decides next steps:
 - **No nested subagent dispatch.** Per `sub-agents.md:711`. Adaptive script reviewer is dispatched by main session, not by this subagent.
 ```
 
-(Total: ~420 LOC. Adjust the procedural details if `screw-sqli.md`'s pattern differs in nuance — the goal is parametric equivalence, not literal copy.)
+(After Step 3.5's adaptive port: ~700-800 LOC total. Adjust the procedural details if `screw-sqli.md`'s pattern differs in nuance — the goal is parametric equivalence, not literal copy.)
+
+- [ ] **Step 3.5: Inline adaptive-mode body (E1=A — Marco-approved)**
+
+The universal subagent must absorb the existing adaptive-mode procedural body — without this port, the per-agent adaptive flow regresses. Insert a new "Step 3.5: Adaptive Mode" section in `screw-scan.md` AFTER the per-page scan loop (Step 3) and BEFORE the structured-return assembly (Step 4 in the body).
+
+**Port instructions for the implementer:**
+
+1. **Read the canonical adaptive body verbatim.**
+   - Source A: `plugins/screw/agents/screw-sqli.md` lines 85-353 — the per-agent adaptive procedural body (Layer 0a-f, fence_token derivation, lint, pending_review emission, blocklist, quota).
+   - Source B: `plugins/screw/agents/screw-injection.md` lines 106-167 — orchestrator-specific shared-quota logic across agents.
+
+2. **Port verbatim** into `screw-scan.md`'s new Step 3.5 section, replacing every agent-specific text occurrence with `{agent_entry["agent_name"]}` parameterization:
+   - Hardcoded `sqli` / `xss` / `cmdi` / `ssti` references → substitute `{agent_entry["agent_name"]}`.
+   - `fence_token` derivation seed → use `{agent_entry["agent_name"]}` as the seed.
+   - Per-agent quotas (from injection orchestrator's quota-sharing logic) → key on `{agent_entry["agent_name"]}` so the universal subagent enforces per-agent quotas across the agents list it received.
+
+3. **Preserve verbatim — do NOT rewrite the security guards:**
+   - **Layer 0a:** UNTRUSTED_CODE_ delimiters convention (prompt-injection guard).
+   - **Layer 0b:** No nested subagent dispatch (per `sub-agents.md:711`).
+   - **Layer 0c:** Read-only enforcement (no Edit/Write/Bash/Task tools — frontmatter excludes them; runtime check matches).
+   - **Layer 0d:** Adaptive script length cap.
+   - **Layer 0e:** Blocklist check before script proposal.
+   - **Layer 0f:** Per-agent quota cap.
+
+4. **Tooling additions** the body now uses (already added to frontmatter — see Step 3):
+   - `mcp__screw-agents__detect_coverage_gaps` — to identify pending-review opportunities.
+   - `mcp__screw-agents__lint_adaptive_script` — to validate proposed scripts before staging.
+
+5. **Surface in the structured return:** the fields `adaptive_mode_engaged`, `adaptive_quota_note`, `pending_reviews`, and `blocklist_skipped_gaps` (already in the Step 4 schema) get populated from the Step 3.5 logic.
+
+**Don't try to write the ~270 LOC port inline in this plan**: instruct the implementer to copy `screw-sqli.md:85-353` verbatim and apply the parameterization rules above, then layer in `screw-injection.md:106-167`'s quota-sharing semantics keyed on agent name. The result is parametric-equivalent to the existing per-agent + orchestrator behavior.
+
+After Step 3.5, the body grows from ~420 LOC to ~700-800 LOC. The description in the frontmatter already reflects the adaptive scope ("adaptive Layer 0 (gap detection + script lint + pending review emission)").
 
 - [ ] **Step 4: Delete the 5 old subagent files**
 
@@ -2795,138 +2861,99 @@ rm /home/marco/Programming/AI/screw-agents/plugins/screw/agents/screw-xss.md
 rm /home/marco/Programming/AI/screw-agents/plugins/screw/agents/screw-injection.md
 ```
 
-- [ ] **Step 5: Update plugin manifest if it exists**
+- [ ] **Step 5: Update SKILL.md to reference `screw-scan` (cross-task coherence)**
 
-If Step 1's pre-audit identified a manifest file (e.g., `plugin.json`) that explicitly registers subagents by name, edit it: remove the 5 deleted subagent entries; add `screw-scan` entry. If no explicit manifest exists (registration is by file presence), skip this step.
+Subagent registration is by file presence — no manifest edit is needed in `plugins/screw/.claude-plugin/plugin.json` (confirmed; that file carries no subagent registry).
 
-- [ ] **Step 6: Write subagent regression tests**
+However, `plugins/screw/skills/screw-review/SKILL.md:28-32` references the 5 deleted per-agent subagent names. This is technically a Task 9 (docs sync) item but the file-presence change creates a behavior gap if not addressed in Task 7: skill text would point at non-existent subagents.
 
-Create `tests/test_screw_scan_subagent.py`:
+Edit `plugins/screw/skills/screw-review/SKILL.md` (lines ~28-32) to replace the 5 per-agent subagent names with `screw-scan`. Keep the surrounding skill prose intact; only the subagent-name list entries change.
 
-```python
-"""Tests for T-SCAN-REFACTOR Task 7: universal screw-scan subagent.
+- [ ] **Step 6: Write subagent regression tests (10-15 tests; specific list below)**
 
-Spec section 7. Verifies file presence, frontmatter declarations,
-and the return-payload size discipline (Concern A from spec section 11.2).
-"""
+Create `tests/test_screw_scan_subagent.py`. The implementer MUST write at least the following tests (post-E1=A and pre-Step-6b counts; Step 6b adds migrated security-invariant assertions):
 
-from __future__ import annotations
+1. **`test_screw_scan_subagent_file_exists`** — file presence at `plugins/screw/agents/screw-scan.md`.
+2. **`test_retired_per_agent_subagents_are_deleted`** — `screw-sqli.md`, `screw-cmdi.md`, `screw-ssti.md`, `screw-xss.md`, `screw-injection.md` no longer exist.
+3. **`test_other_subagents_unchanged`** — `screw-script-reviewer.md` and `screw-learning-analyst.md` still present (separate concerns).
+4. **`test_screw_scan_frontmatter_parses_yaml`** — frontmatter is valid YAML between leading/trailing `---` lines.
+5. **`test_screw_scan_frontmatter_name_matches_filename_stem`** — Task 1 invariant; `name: screw-scan` matches the file stem.
+6. **`test_screw_scan_frontmatter_declares_required_tools`** — tools list includes `Read`, `Glob`, `Grep`, `mcp__screw-agents__scan_agents`, `mcp__screw-agents__get_agent_prompt`, `mcp__screw-agents__accumulate_findings`, `mcp__screw-agents__record_context_required_match`, `mcp__screw-agents__verify_trust`, `mcp__screw-agents__detect_coverage_gaps`, `mcp__screw-agents__lint_adaptive_script`.
+7. **`test_screw_scan_frontmatter_excludes_dispatch_or_mutation_tools`** — tools list does NOT contain `Edit`, `Write`, `Bash`, `Task`, or `Agent` (Layer 0b/0c invariants — read-only + no nested dispatch).
+8. **`test_screw_scan_uses_opus_model`** — frontmatter `model: opus` per `feedback_opus_for_all_subagents` memory.
+9. **`test_screw_scan_body_states_no_nested_dispatch`** — body contains the C2 invariant phrase (e.g., "do not dispatch other subagents").
+10. **`test_screw_scan_body_contains_adaptive_layer_markers`** — body contains the Layer 0a-f markers (`Layer 0a` … `Layer 0f`) ported from screw-sqli.md (security invariants).
+11. **`test_screw_scan_body_states_next_cursor_stop_condition`** — body contains the explicit "while next_cursor is non-null" / "next_cursor is null" stop condition.
+12. **`test_screw_scan_body_does_not_call_finalize_scan_results`** — body must NOT mention `finalize_scan_results` as something the subagent calls (that's main session's job).
+13. **`test_screw_scan_return_schema_includes_c2_contract_keys`** — body's documented JSON schema mentions all C2-required keys: `schema_version`, `scan_subagent`, `session_id`, `trust_status`, `yaml_findings_accumulated`, `adaptive_mode_engaged`, `pending_reviews`, `scan_metadata`. Locked by parser at `tests/test_adaptive_subagent_prompts.py:497-512`.
+14. **`test_screw_scan_body_uses_untrusted_code_delimiter`** — body contains `UNTRUSTED_CODE_` delimiter convention (Layer 0a, prompt-injection guard).
+15. **`test_screw_scan_body_forbids_inline_findings`** — body's MUST-NOT-inline-findings discipline (Concern A from spec section 11.2): mentions `MUST NOT`, `accumulate_findings`, and `staging`.
 
-from pathlib import Path
+Use a shared `_read_frontmatter(path) -> dict` helper that parses YAML between leading/trailing `---` lines (mirror the existing helper pattern in `tests/test_adaptive_subagent_prompts.py`).
 
-import pytest
-import yaml
+Step 6b (test migration) below adds further tests by porting per-agent security-invariant assertions from `tests/test_adaptive_subagent_prompts.py`.
 
+- [ ] **Step 6b: Migrate per-agent test assertions from `test_adaptive_subagent_prompts.py` (E3=C — Marco-approved)**
 
-SUBAGENT_DIR = Path(__file__).parents[1] / "plugins" / "screw" / "agents"
-SCREW_SCAN_PATH = SUBAGENT_DIR / "screw-scan.md"
+The existing `tests/test_adaptive_subagent_prompts.py` (605 LOC, ~23 tests) splits cleanly along the universal-vs-orchestrator boundary:
 
+- **Per-agent assertions** (those referencing `screw-{sqli,cmdi,ssti,xss,injection}.md` body content directly, including the per-agent parameterization fixtures `_PER_AGENT_FILES` and `_ORCHESTRATOR_FILE`) → migrate to `tests/test_screw_scan_subagent.py` (Task 7 owns).
+- **scan.md / orchestrator assertions** (those reading `plugins/screw/commands/scan.md` and asserting on the slash-command-side parser/orchestrator behavior, e.g., `tests/test_adaptive_subagent_prompts.py:497-512` which locks the C2 contract keys) → STAY in `test_adaptive_subagent_prompts.py`. Task 8 will update those when `scan.md` is rewritten.
 
-# ---------------------------------------------------------------------------
-# File presence
-# ---------------------------------------------------------------------------
+**Migration procedure:**
 
+1. **Identify per-agent tests** by grepping for the deleted subagent filenames:
+   ```bash
+   grep -nE "screw-(sqli|cmdi|ssti|xss|injection)\.md" tests/test_adaptive_subagent_prompts.py
+   ```
+   Each match maps to a per-agent test that must be migrated or dropped.
 
-def test_screw_scan_subagent_file_exists() -> None:
-    assert SCREW_SCAN_PATH.is_file(), f"missing {SCREW_SCAN_PATH}"
+2. **Migrate** the per-agent tests to `tests/test_screw_scan_subagent.py`:
+   - Drop the per-agent-name parameterization (no longer needed — only one subagent file).
+   - Re-target assertions at `plugins/screw/agents/screw-scan.md`.
+   - Preserve security-invariant assertions verbatim (Layer 0a/0b/0c/0d/0e/0f, fence_token, prompt-injection guards, no-nested-dispatch).
+   - Where the original test asserted a body-text invariant per agent (e.g., "screw-sqli.md mentions UNTRUSTED_CODE_"), the migrated test asserts the same invariant once on `screw-scan.md`.
 
+3. **Leave in place** the tests that read `scan.md` / orchestrator / parser behavior. Specifically, the assertions at `test_adaptive_subagent_prompts.py:497-512` which lock the parser keys (`schema_version`, `scan_subagent`, `session_id`, `trust_status`, `yaml_findings_accumulated`, `adaptive_mode_engaged`, `pending_reviews`, `scan_metadata`) — Task 8 will update them when `scan.md` is rewritten, but they MUST keep passing through Task 7 (the universal subagent's return schema preserves these keys per E2=C).
 
-def test_retired_per_agent_subagents_are_deleted() -> None:
-    for old_name in ("screw-sqli.md", "screw-cmdi.md", "screw-ssti.md", "screw-xss.md", "screw-injection.md"):
-        path = SUBAGENT_DIR / old_name
-        assert not path.exists(), f"{old_name} should be deleted in T-SCAN-REFACTOR Task 7"
+4. **Delete** the per-agent constant `_PER_AGENT_FILES` dict and `_ORCHESTRATOR_FILE` references from `test_adaptive_subagent_prompts.py`. Drop any `pytest.parametrize` over per-agent tuples that no longer have targets.
 
-
-def test_other_subagents_unchanged() -> None:
-    """screw-script-reviewer and screw-learning-analyst remain untouched."""
-    assert (SUBAGENT_DIR / "screw-script-reviewer.md").is_file()
-    assert (SUBAGENT_DIR / "screw-learning-analyst.md").is_file()
-
-
-# ---------------------------------------------------------------------------
-# Frontmatter
-# ---------------------------------------------------------------------------
-
-
-def _read_frontmatter(path: Path) -> dict:
-    """Parse YAML frontmatter between leading '---' lines."""
-    text = path.read_text(encoding="utf-8")
-    if not text.startswith("---\n"):
-        raise ValueError(f"{path} has no leading frontmatter delimiter")
-    end_idx = text.index("\n---\n", 4)
-    fm_text = text[4:end_idx]
-    return yaml.safe_load(fm_text)
-
-
-def test_screw_scan_frontmatter_declares_required_tools() -> None:
-    fm = _read_frontmatter(SCREW_SCAN_PATH)
-    tools = fm.get("tools", [])
-    required = {
-        "mcp__screw-agents__scan_agents",
-        "mcp__screw-agents__get_agent_prompt",
-        "mcp__screw-agents__accumulate_findings",
-        "mcp__screw-agents__record_context_required_match",
-        "mcp__screw-agents__verify_trust",
-    }
-    assert required.issubset(set(tools)), f"missing tools: {required - set(tools)}"
-
-
-def test_screw_scan_uses_opus_model() -> None:
-    """Per feedback_opus_for_all_subagents memory."""
-    fm = _read_frontmatter(SCREW_SCAN_PATH)
-    assert fm.get("model") == "opus"
-
-
-def test_screw_scan_does_not_declare_agent_tool() -> None:
-    """Subagents cannot dispatch other subagents (sub-agents.md:711)."""
-    fm = _read_frontmatter(SCREW_SCAN_PATH)
-    tools = set(fm.get("tools", []))
-    # Neither 'Agent' (current name) nor 'Task' (deprecated alias) should appear.
-    assert "Agent" not in tools
-    assert "Task" not in tools
-
-
-# ---------------------------------------------------------------------------
-# Return-payload size discipline (Concern A — spec section 11.2)
-# ---------------------------------------------------------------------------
-
-
-def test_screw_scan_body_forbids_inline_findings() -> None:
-    """The subagent's procedural template must instruct it NOT to inline
-    findings in the structured return — staging-only via accumulate_findings."""
-    text = SCREW_SCAN_PATH.read_text(encoding="utf-8")
-    # Heuristic check for the explicit "MUST NOT include findings inline" warning
-    assert "MUST NOT" in text and "findings" in text.lower()
-    assert "accumulate_findings" in text
-    assert "staging" in text.lower()
-```
+5. **Verify migration:**
+   ```bash
+   uv run pytest tests/test_adaptive_subagent_prompts.py -v 2>&1 | tail -30
+   uv run pytest tests/test_screw_scan_subagent.py -v 2>&1 | tail -30
+   ```
+   Some tests in `test_adaptive_subagent_prompts.py` may fail because `scan.md` still references the deleted subagent names — those failures are expected (Task 8 fixes them). Document the expected residual failures in the Step 9 commit message; do not "fix" them by editing scan.md (that's Task 8's deliverable).
 
 - [ ] **Step 7: Run subagent tests**
 
 ```
-uv run pytest tests/test_screw_scan_subagent.py -v 2>&1 | tail -25
+uv run pytest tests/test_screw_scan_subagent.py -v 2>&1 | tail -40
 ```
 
-Expected: all 7 tests PASS.
+Expected: all 10-15+ tests PASS (count depends on Step 6b migration scope).
 
 - [ ] **Step 8: Run full test suite**
 
 ```
-uv run pytest -q 2>&1 | tail -5
+uv run pytest --collect-only -q | wc -l    # baseline collection count post-migration
+uv run pytest -q 2>&1 | tail -10
 ```
 
-Expected: ~961 + 7 = ~968 passed, 8 skipped. Zero failures.
+**Expected count formula:** `973 (post-Task-6 baseline at HEAD 89e9bad) - X (deleted from test_adaptive_subagent_prompts.py via Step 6b) + Y (new in test_screw_scan_subagent.py from Step 6 + migrated tests from Step 6b) = Z passed, 9 skipped`. Implementer computes X, Y, Z from actual collection (run `--collect-only -q | wc -l` before and after to confirm). Specify the resolved numbers in the commit message.
 
-If any other test fails because it referenced one of the 5 deleted subagents by file name: that test is owed to Task 7 — update it to assert `screw-scan.md` exists instead.
+If any test fails because `scan.md` still references one of the 5 deleted subagents by file name: that test is owed to **Task 8** (slash-command rewrite), not Task 7 — leave the failure in place and document it in the commit message; Task 8's fix-up will resolve it. Do NOT edit `scan.md` here.
 
 - [ ] **Step 9: Commit**
 
 ```bash
-git add plugins/screw/agents/screw-scan.md plugins/screw/agents/ tests/test_screw_scan_subagent.py
-# (the deleted files are staged via the implicit git rm in 'git add' on the directory)
+git add plugins/screw/agents/screw-scan.md plugins/screw/agents/ \
+        plugins/screw/skills/screw-review/SKILL.md \
+        tests/test_screw_scan_subagent.py tests/test_adaptive_subagent_prompts.py
+# (the deleted subagent files are staged via the implicit git rm in 'git add' on the agents/ directory)
 git commit -m "T-SCAN-REFACTOR Task 7: universal screw-scan subagent
 
-Collapses 5 subagent files into 1:
+Collapses 5 subagent files into 1 universal subagent:
 
 Deleted (-1878 LOC of duplicate markdown):
 - plugins/screw/agents/screw-sqli.md       (414 LOC)
@@ -2935,20 +2962,62 @@ Deleted (-1878 LOC of duplicate markdown):
 - plugins/screw/agents/screw-xss.md        (414 LOC)
 - plugins/screw/agents/screw-injection.md  (222 LOC)
 
-Created (+~420 LOC):
+Created (+~700-800 LOC after E1=A inline adaptive port):
 - plugins/screw/agents/screw-scan.md — universal scan runner
   parameterized by agents: list[str] from dispatch prompt; calls
   scan_agents (paginated) + get_agent_prompt (lazy) + accumulate_findings
-  + record_context_required_match + verify_trust. Returns a lean
-  structured payload (Concern A: findings stage to disk, not inline).
+  + record_context_required_match + verify_trust + detect_coverage_gaps
+  + lint_adaptive_script. Inline adaptive Layer 0a-f body ported verbatim
+  from screw-sqli.md:85-353 + screw-injection.md:106-167 (orchestrator
+  quota), parameterized by agent_entry['agent_name']. Returns a hybrid
+  structured payload preserving the C2 contract keys (schema_version,
+  scan_subagent, session_id, trust_status, yaml_findings_accumulated,
+  adaptive_mode_engaged, pending_reviews, scan_metadata) AND adding new
+  enrichment keys (summary_counts, classification_summary,
+  agents_excluded_by_relevance, context_required_matches_recorded,
+  exclusions_applied_count). Concern A: findings stage to disk, not
+  inline.
+
+Modified:
+- plugins/screw/skills/screw-review/SKILL.md — replaced 5 deleted
+  subagent name references with screw-scan (cross-task coherence).
 
 Unchanged: screw-script-reviewer.md, screw-learning-analyst.md (separate
 concerns; do not dispatch scan tools).
 
-7 regression tests cover: file presence (new + deleted), frontmatter
-tool declaration, opus model, no Agent tool (subagents can't dispatch),
-body's MUST-NOT-inline-findings discipline."
+Test migration (E3=C):
+- tests/test_screw_scan_subagent.py — 10-15+ new tests (file presence,
+  frontmatter, body invariants, return schema, security guards).
+- tests/test_adaptive_subagent_prompts.py — per-agent assertions migrated
+  out (parametrization over deleted files dropped); scan.md /
+  orchestrator assertions left in place for Task 8.
+
+Test count: 973 (post-Task-6 baseline) - X (deleted) + Y (new) = Z
+passed, 9 skipped. (Implementer fills X, Y, Z.)
+
+Some tests in test_adaptive_subagent_prompts.py may fail residually
+because scan.md still references the 5 deleted subagent names; Task 8's
+slash-command rewrite resolves them. Documented; not regressions."
 ```
+
+**Plan-fix additions (2026-04-26, post pre-audit on HEAD 89e9bad):**
+
+Pre-audit found 6 CRITICAL, 7 IMPORTANT, and 3 escalation candidates. All applied per Marco's decisions (E1=A inline adaptive body, E2=C hybrid return schema, E3=C split test migration). Sixteen edits:
+
+- **CRITICAL #1 — Plugin-manifest mis-identification (PA-T7-C1):** Step 1's "modify `plugins/screw/plugin.json`" instruction dropped. Confirmed `plugins/screw/.claude-plugin/plugin.json` is the actual manifest path AND it carries no subagent registry (registration is by file presence). Files: block + Step 1 + Step 5 simplified accordingly.
+- **CRITICAL #2 — Frontmatter tools list incomplete (PA-T7-C2):** Added `Glob` (needed for glob target specs) and the two adaptive tools `mcp__screw-agents__detect_coverage_gaps` + `mcp__screw-agents__lint_adaptive_script` (needed for E1=A inline adaptive body).
+- **CRITICAL #3 — Invented `trust_status` schema (PA-T7-C3):** Replaced fabricated `{verified, quarantined_count, warning_message}` shape with the engine-real 4-count form `{exclusion_quarantine_count, exclusion_active_count, script_quarantine_count, script_active_count}`. Mirrors `engine.py::verify_trust` and `screw-sqli.md:386-398`. Updated everywhere it appeared in the plan.
+- **CRITICAL #4 + ESCALATION E1=A — Inline adaptive body (PA-T7-C4):** Added Step 3.5 instructing implementer to port `screw-sqli.md:85-353` (per-agent adaptive body) + `screw-injection.md:106-167` (orchestrator quota) verbatim, parameterized by `agent_entry["agent_name"]`, with security guards (Layer 0a-f, fence_token, prompt-injection delimiters) preserved. Body grows from ~420 LOC to ~700-800 LOC. LOC estimate updated in Files: block + goal + commit-message draft.
+- **CRITICAL #5 + ESCALATION E2=C — Hybrid return schema (PA-T7-C5):** Replaced single-shape return schema with the hybrid form preserving the C2 contract keys (`schema_version`, `scan_subagent`, `session_id`, `trust_status`, `yaml_findings_accumulated`, `adaptive_mode_engaged`, `adaptive_quota_note`, `pending_reviews`, `blocklist_skipped_gaps`, `scan_metadata`) AND adding the new enrichment keys (`summary_counts`, `classification_summary`, `agents_excluded_by_relevance`, `context_required_matches_recorded`, `exclusions_applied_count`). C2 keys locked by parser at `tests/test_adaptive_subagent_prompts.py:497-512`.
+- **CRITICAL #6 — Server-side exclusion ownership (PA-T7-C6):** Two body sentences ("Apply the per-agent exclusion list…") replaced with text matching `screw-sqli.md:48`: `exclusions` is informational only; server applies them in MergedSource pre-filtering (T19-M1/M2/M3 / PR #15). Client-side re-application would double-suppress.
+- **IMPORTANT #1 — Dead-branch "empty agents arg" (PA-T7-IMP-1):** Dropped from "Behavior under errors". `assemble_agents_scan` rejects empty lists at `engine.py:1777`; the branch is unreachable.
+- **IMPORTANT #2 + BACKLOG-T7-M3 — Dead "re-dispatch with same session_id" claim (PA-T7-IMP-2):** Dropped. Unimplementable as worded (`accumulate_findings` generates a new session per call). Re-scan semantics is a real adaptive workflow need but requires explicit spec; deferred to `BACKLOG-T-SCAN-REFACTOR-T7-M3`.
+- **IMPORTANT #3 — LOC estimate update:** Files block, goal block, and commit-message draft updated from ~420 → ~700-800 to reflect the E1=A port.
+- **IMPORTANT #4 — SKILL.md cross-task coherence (PA-T7-IMP-3):** Added Step 5 sub-task: update `plugins/screw/skills/screw-review/SKILL.md:28-32` to reference `screw-scan` (was: 5 deleted per-agent subagent names). Without this, the skill text points at non-existent subagents on Task 7 merge.
+- **IMPORTANT #5 — Test count math:** Plan baseline corrected to 973 (post-Task-6 at HEAD 89e9bad, not 961). Step 8 expected output rewritten as a formula `973 - X + Y = Z` with implementer computing X (deleted from `test_adaptive_subagent_prompts.py`), Y (new in `test_screw_scan_subagent.py`), Z (final).
+- **IMPORTANT #6 — Step 6 test list (PA-T7-IMP-4):** Step 6 grew from "5 tests" / 7 functions to a specific list of 10-15 tests covering file presence, frontmatter (parses, name match, required-tools, Glob/adaptive tools, no Edit/Write/Bash/Task, model: opus), body invariants (no nested dispatch, Layer 0a-f markers, next_cursor stop, no `finalize_scan_results` call, `UNTRUSTED_CODE_` delimiter, no inline findings), and return-schema documentation (C2 contract keys present).
+- **IMPORTANT #7 + ESCALATION E3=C — Split test migration (PA-T7-IMP-5):** Added Step 6b: per-agent assertions in `tests/test_adaptive_subagent_prompts.py` (those reading the 5 deleted subagent files) migrate to `tests/test_screw_scan_subagent.py`; scan.md / orchestrator assertions (including the parser-key lock at lines 497-512) STAY for Task 8 to update. `_PER_AGENT_FILES` and `_ORCHESTRATOR_FILE` constants dropped. Residual test failures from scan.md still referencing deleted subagents are expected and Task-8-owned; documented in commit message.
+- **3 backlog entries added:** `BACKLOG-T-SCAN-REFACTOR-T7-M1` (load-bearing-phrase regression test), `BACKLOG-T-SCAN-REFACTOR-T7-M2` (subagent file-count regression test), `BACKLOG-T-SCAN-REFACTOR-T7-M3` (re-scan semantics for adaptive flow).
 
 ---
 
