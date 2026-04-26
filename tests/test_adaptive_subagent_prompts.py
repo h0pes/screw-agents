@@ -39,6 +39,11 @@ _SCAN_COMMAND_FILE = _COMMANDS_DIR / "scan.md"
 # the post-generation MCP surface (stage/promote/reject/execute) plus
 # accumulate_findings + finalize (two-phase persist) + list_domains for the
 # `full` scope branch.
+#
+# T-SCAN-REFACTOR Task 8 plan-fix Edit 3: post-rewrite the body now also
+# invokes scan_agents (init-page call from main session per E2=A),
+# resolve_scope (new MCP tool replacing shell-out per E1=A), and
+# verify_trust (per-review trust re-check per spec §4.7 D7).
 _ADAPTIVE_MCP_TOOLS_REQUIRED_ON_SCAN_MD = [
     "mcp__screw-agents__stage_adaptive_script",
     "mcp__screw-agents__promote_staged_script",
@@ -47,6 +52,9 @@ _ADAPTIVE_MCP_TOOLS_REQUIRED_ON_SCAN_MD = [
     "mcp__screw-agents__accumulate_findings",
     "mcp__screw-agents__finalize_scan_results",
     "mcp__screw-agents__list_domains",
+    "mcp__screw-agents__scan_agents",
+    "mcp__screw-agents__resolve_scope",
+    "mcp__screw-agents__verify_trust",
 ]
 
 
@@ -145,14 +153,31 @@ def test_scan_md_contains_subagent_return_schema_keys() -> None:
     These keys are also asserted on the universal subagent's body in
     `tests/test_screw_scan_subagent.py::test_screw_scan_return_schema_includes_c2_contract_keys`
     so the contract holds at both ends.
+
+    T-SCAN-REFACTOR Task 8 plan-fix Edit 3: post-rewrite, scan.md must
+    additionally document the Task-7 hybrid-schema enrichment keys
+    (`schema_version`, `yaml_findings_accumulated`, `adaptive_mode_engaged`,
+    plus `summary_counts`, `classification_summary`,
+    `agents_excluded_by_relevance`, `context_required_matches_recorded`,
+    `exclusions_applied_count`) so the orchestrator surfaces them.
     """
     _, body = _parse_subagent_file(_SCAN_COMMAND_FILE)
     required_keys = [
-        "pending_reviews",
+        # C2 contract keys
+        "schema_version",
+        "scan_subagent",
         "session_id",
         "trust_status",
-        "scan_subagent",
+        "yaml_findings_accumulated",
+        "adaptive_mode_engaged",
+        "pending_reviews",
         "scan_metadata",
+        # Task-7 hybrid-schema enrichment keys
+        "summary_counts",
+        "classification_summary",
+        "agents_excluded_by_relevance",
+        "context_required_matches_recorded",
+        "exclusions_applied_count",
     ]
     for key in required_keys:
         assert key in body, (

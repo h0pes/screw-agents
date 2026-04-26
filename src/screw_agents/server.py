@@ -102,6 +102,31 @@ def _dispatch_tool(
     if name == "list_agents":
         return engine.list_agents(domain=args.get("domain"))
 
+    # T-SCAN-REFACTOR Task 8 (E1=A): resolve_scope MCP tool. Replaces the
+    # shell-injection-vulnerable Bash + python -c invocation in
+    # plugins/screw/commands/scan.md. Args are JSON-serialized over the
+    # MCP layer; no shell parsing happens.
+    if name == "resolve_scope":
+        from screw_agents.scan_command import (
+            ScopeResolutionError,
+            parse_scope_spec,
+            resolve_scope,
+            summarize_scope,
+        )
+
+        scope_text = args["scope_text"]
+        try:
+            parsed = parse_scope_spec(scope_text)
+            agents = resolve_scope(parsed, engine._registry)
+            summary = summarize_scope(parsed, engine._registry)
+        except ScopeResolutionError:
+            # Re-raise as ValueError; the MCP server upstream wraps any
+            # ValueError into a tool-error response with the message
+            # surfaced verbatim — that's exactly what the slash command
+            # body needs to see for actionable user feedback.
+            raise
+        return {"agents": agents, "summary": summary}
+
     # --- Phase 2: new tools ---
 
     if name == "format_output":

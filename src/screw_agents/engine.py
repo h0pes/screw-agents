@@ -2400,6 +2400,38 @@ class ScanEngine:
                 },
             ),
         })
+        # T-SCAN-REFACTOR Task 8 (E1=A): resolve_scope MCP tool. Replaces
+        # the shell-injection-vulnerable Bash + python -c invocation in
+        # plugins/screw/commands/scan.md with a JSON-serialized MCP call.
+        tools.append({
+            "name": "resolve_scope",
+            "description": (
+                "Resolve a slash-command scope spec into a deduplicated, sorted "
+                "list of agent names. Used by the /screw:scan slash command to "
+                "translate user input (e.g., 'sqli', 'full', 'domains:foo,bar', "
+                "'agents:baz,qux') into the agents list passed to scan_agents. "
+                "Returns: {agents: list[str], summary: list[dict]}. The summary "
+                "field carries per-domain subset|full annotation for the "
+                "pre-execution summary line. Raises ValueError on parse/resolve "
+                "errors with actionable messages."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "scope_text": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": (
+                            "Raw scope-spec string from the user. Examples: "
+                            "'sqli', 'full', 'domains:injection-input-handling', "
+                            "'agents:sqli,xss', 'domains:foo agents:bar'."
+                        ),
+                    },
+                },
+                "required": ["scope_text"],
+                "additionalProperties": False,
+            },
+        })
         tools.append({
             "name": "scan_domain",
             "description": (

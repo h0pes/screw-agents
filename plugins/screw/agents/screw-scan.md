@@ -33,6 +33,7 @@ The main session's dispatch prompt provides:
 - `thoroughness: str` — `"standard"` or `"deep"`
 - `adaptive_flag: bool` — whether `--adaptive` was passed
 - `format: str` — output format hint (`"json"`, `"sarif"`, `"markdown"`, `"csv"`)
+- `cursor: str | None` — OPTIONAL pagination cursor (T-SCAN-REFACTOR Task 8 / E2=A). When provided, the main session has ALREADY called `scan_agents(cursor=null)` for the init page itself; this is the `next_cursor` from that init response. SKIP your own Step 2 init call — start the Step 3 page loop directly with this cursor. When `cursor` is null/absent, fall back to the standard Step 2 init flow.
 
 Translate the user's request into a target spec when needed:
 
@@ -70,7 +71,12 @@ Do NOT render trust warnings here. Do NOT emit conversational prose. Silence is 
 
 ### Step 2: Init page
 
-Call `scan_agents` with `cursor=null` to get the init page. The response carries per-agent metadata, agent-scoped exclusions, the relevance-filter exclusion list, and the first cursor.
+**Two dispatch modes (T-SCAN-REFACTOR Task 8 / E2=A):**
+
+- **Mode A — main session pre-fetched the init page (`cursor` input is non-null):** Skip the `scan_agents(cursor=null)` call below entirely. The main session already paid the init-page cost; you start at the first code page with the provided cursor in Step 3. In this mode, the `init["agents"]` and `init["agents_excluded_by_relevance"]` data are NOT available to you — main session owns them and renders the pre-execution summary itself. You still echo `agents_excluded_by_relevance` in your Step 5 return as an empty list `[]` (the data isn't double-counted).
+- **Mode B — main session did not pre-fetch (`cursor` input is null/absent):** Proceed with the standard init call below, capturing the response normally.
+
+Mode B init call:
 
 ```
 mcp__screw-agents__scan_agents({
@@ -82,19 +88,21 @@ mcp__screw-agents__scan_agents({
 })
 ```
 
-Capture for use across pages:
+Capture for use across pages (Mode B only):
 - `init["agents"]` — surviving agents after relevance filter (may be a subset of the input list).
 - `init["agents_excluded_by_relevance"]` — list of `{agent_name, reason, agent_languages, target_languages}` records — echo these in your final return so main session can show the user.
 - For each agent entry in `init["agents"]`: capture `entry["meta"]` (CWE classifications, etc.) and `entry["exclusions"]` — note: `exclusions` is informational only. The server applies exclusions in MergedSource pre-filtering (per T19-M1/M2/M3 / PR #15). Do NOT re-apply exclusions client-side; that would double-suppress findings.
 - `init["next_cursor"]` — opaque token for first code page.
 
-Initialize a per-agent prompt cache:
+Initialize a per-agent prompt cache (both modes):
 
 ```
 prompt_cache = {}  # agent_name -> {core_prompt, meta}
 ```
 
-If `init["next_cursor"]` is null and `init["agents"]` is empty (every agent filtered by relevance), pagination is complete and there is no work — skip directly to Step 4 (persist empty findings) and Step 5 (return summary with zero counts and the full `agents_excluded_by_relevance` list).
+**Mode B-only:** If `init["next_cursor"]` is null and `init["agents"]` is empty (every agent filtered by relevance), pagination is complete and there is no work — skip directly to Step 4 (persist empty findings) and Step 5 (return summary with zero counts and the full `agents_excluded_by_relevance` list).
+
+**Mode A:** the `cursor` input from main session is the starting point for the Step 3 loop; proceed there directly.
 
 ### Step 3: Page loop
 
