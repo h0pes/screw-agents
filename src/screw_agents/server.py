@@ -75,7 +75,7 @@ def _dispatch_tool(
 
     Args:
         engine: The ScanEngine instance.
-        name: Tool name (e.g. ``"list_domains"``, ``"scan_sqli"``).
+        name: Tool name (e.g. ``"list_domains"``, ``"scan_agents"``).
         args: Tool arguments dict.
 
     Returns:
@@ -261,13 +261,6 @@ def _dispatch_tool(
             page_size=args.get("page_size", 50),
         )
 
-    if name == "scan_full":
-        return engine.assemble_full_scan(
-            target=args["target"],
-            thoroughness=args.get("thoroughness", "standard"),
-            project_root=project_root,
-        )
-
     # Phase 3a X1-M1 (T12): per-agent prompt fetch
     if name == "get_agent_prompt":
         return engine.get_agent_prompt(
@@ -275,14 +268,15 @@ def _dispatch_tool(
             thoroughness=args.get("thoroughness", "standard"),
         )
 
-    # Per-agent scan tools: scan_{agent_name}
-    if name.startswith("scan_"):
-        agent_name = name[len("scan_"):]
-        return engine.assemble_scan(
-            agent_name=agent_name,
-            target=args["target"],
-            thoroughness=args.get("thoroughness", "standard"),
-            project_root=project_root,
+    # T-SCAN-REFACTOR Task 6: actionable error for callers using retired tool names.
+    if name == "scan_full" or (
+        name.startswith("scan_") and name not in ("scan_domain", "scan_agents")
+    ):
+        raise ValueError(
+            f"Tool {name!r} was retired in T-SCAN-REFACTOR. "
+            f"Use scan_agents(agents=[...], target=...) for per-agent scans, "
+            f"or scan_agents(agents=list_agents().names, target=...) for full scans, "
+            f"or scan_domain(domain=..., target=...) for whole-domain scans."
         )
 
     raise ValueError(f"Unknown tool: {name!r}")

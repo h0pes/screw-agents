@@ -1545,7 +1545,7 @@ class ScanEngine:
                 ``core_prompt``. When False, ``core_prompt`` is omitted
                 entirely (not empty string — key absent). Used by
                 ``assemble_domain_scan`` on code pages and by
-                ``assemble_full_scan``'s per-agent fan-out.
+                ``assemble_agents_scan``'s per-agent fan-out.
 
         Returns:
             Dict with keys:
@@ -1980,75 +1980,6 @@ class ScanEngine:
         }
         if project_root is not None:
             result["trust_status"] = self.verify_trust(project_root=project_root)
-        return result
-
-    def assemble_full_scan(
-        self,
-        target: dict[str, Any],
-        thoroughness: str = "standard",
-        project_root: Path | None = None,
-    ) -> dict[str, Any]:
-        """Assemble scan payloads for all registered agents.
-
-        Returns a single response dict with ``agents`` (list of per-agent
-        code + metadata entries, no core_prompt). Per-agent detection
-        prompts are NOT emitted inline — subagents must fetch each agent's
-        prompt lazily via the ``get_agent_prompt`` MCP tool on first
-        encounter and cache it for reuse across all code entries for that
-        agent. This matches the X1-M1 T13 pattern used by
-        ``assemble_domain_scan`` and keeps the response under Claude Code's
-        inline tool-response token budget.
-
-        Note: this function is NOT paginated — it returns all code for all
-        files for all agents in one response. On large codebases (especially
-        at CWE-1400 expansion scale, 41 agents per ``docs/AGENT_CATALOG.md``)
-        the code payload may exceed the caller's token budget even with
-        prompts deduped via lazy fetch. Tracked as ``T-FULL-P1`` in
-        ``docs/DEFERRED_BACKLOG.md`` for Phase 4+ (pagination +
-        agent-relevance pre-filter).
-
-        Args:
-            target: Target spec dict.
-            thoroughness: Passed through to assemble_scan.
-            project_root: Optional project root for exclusion loading.
-
-        Returns:
-            Dict with keys:
-                agents: list[dict] -- per-agent code + meta (no core_prompt);
-                    each entry has agent_name, code, resolved_files, meta,
-                    and exclusions when project_root is set
-                trust_status: dict -- only when project_root is provided
-        """
-        all_agent_names = list(self._registry.agents)
-        agents = [self._registry.get_agent(name) for name in all_agent_names]
-
-        if project_root is not None:
-            all_exclusions = load_exclusions(project_root)
-        else:
-            all_exclusions = None
-
-        agents_responses = [
-            self.assemble_scan(
-                a.meta.name,
-                target,
-                thoroughness,
-                project_root,
-                _preloaded_exclusions=all_exclusions,
-                include_prompt=False,
-            )
-            for a in agents
-        ]
-
-        for entry in agents_responses:
-            entry.pop("trust_status", None)
-
-        result: dict[str, Any] = {
-            "agents": agents_responses,
-        }
-        if project_root is not None:
-            result["trust_status"] = self.verify_trust(
-                project_root=project_root, exclusions=all_exclusions
-            )
         return result
 
     def get_agent_prompt(
@@ -2561,22 +2492,6 @@ class ScanEngine:
                 },
             ),
         })
-        tools.append({
-            "name": "scan_full",
-            "description": (
-                "Run all registered agents against the target. "
-                "Use for comprehensive security audits."
-            ),
-            "input_schema": self._scan_input_schema(
-                extra_required=["target"],
-                extra_props={
-                    "target": _target_schema(),
-                    "thoroughness": _thoroughness_schema(),
-                    "project_root": _project_root_schema(),
-                },
-            ),
-        })
-
         # Phase 3a X1-M1 (T12): per-agent prompt fetch
         tools.append({
             "name": "get_agent_prompt",
@@ -2604,24 +2519,6 @@ class ScanEngine:
                 "required": ["agent_name"],
             },
         })
-
-        # Per-agent scan tools
-        for agent in self._registry.agents.values():
-            tools.append({
-                "name": f"scan_{agent.meta.name}",
-                "description": (
-                    f"Run the {agent.meta.display_name} against the target. "
-                    f"Detects {agent.meta.cwes.primary} vulnerabilities."
-                ),
-                "input_schema": self._scan_input_schema(
-                    extra_required=["target"],
-                    extra_props={
-                        "target": _target_schema(),
-                        "thoroughness": _thoroughness_schema(),
-                        "project_root": _project_root_schema(),
-                    },
-                ),
-            })
 
         # Phase 3a X1-M1 (T18): accumulate_findings + finalize_scan_results
         # (replaces the legacy single-shot write_scan_results tool).

@@ -23,14 +23,9 @@ def test_server_tool_definitions(domains_dir):
     _, engine = create_server(domains_dir)
     tools = engine.list_tool_definitions()
     names = {t["name"] for t in tools}
-    assert "scan_sqli" in names
-    assert "scan_cmdi" in names
-    assert "scan_ssti" in names
-    assert "scan_xss" in names
     assert "list_domains" in names
     assert "list_agents" in names
     assert "scan_domain" in names
-    assert "scan_full" in names
     assert "scan_agents" in names
 
 
@@ -60,3 +55,16 @@ def test_scan_agents_dispatch_via_server(engine, tmp_path: Path) -> None:
     )
     assert "agents" in response
     assert any(a["agent_name"] == "sqli" for a in response["agents"])
+
+
+def test_retired_tool_names_raise_actionable_error(engine) -> None:
+    """Calling a retired tool name (scan_full, scan_<agent>) raises with migration hint.
+
+    T-SCAN-REFACTOR Task 6 (Escalation I1): defense-in-depth UX. Caller
+    migration mistakes (calling retired names against a post-refactor server)
+    get a one-line migration hint pointing to scan_agents / scan_domain
+    rather than a generic ``Unknown tool:`` dead-end.
+    """
+    for retired_name in ("scan_full", "scan_sqli", "scan_xss"):
+        with pytest.raises(ValueError, match=r"was retired in T-SCAN-REFACTOR"):
+            _dispatch_tool(engine, retired_name, {})
