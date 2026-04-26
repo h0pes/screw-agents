@@ -1960,3 +1960,36 @@ Non-blocking minors surfaced during Task 6 pre-audit. Deferred past T-SCAN-REFAC
 **Remediation sketch:** Drop the `or t["name"] in (...)` clause; the `startswith("scan_")` check alone catches all three tools (`scan_domain`, `scan_agents`, plus any future scan-shaped tool). ~1 LOC.
 
 **Estimated scope:** 1 LOC + 0 tests.
+
+### BACKLOG-T-SCAN-REFACTOR-T6-M3 — `test_server.py:42` docstring cites stale precedent
+**Phase-4 readiness:** `non-blocker` — cosmetic; documentation freshness
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 6 quality review, 2026-04-26
+**File:** `tests/test_server.py:42` (test docstring)
+
+**Why deferred:** The docstring on `test_scan_agents_dispatch_via_server` claims "matches the precedent at `tests/test_phase2_server.py:36+`" — but those line numbers now contain `format_output` tests, not a `_dispatch_tool` precedent. The docstring is stale; the precedent reference doesn't help future readers locate the canonical pattern.
+
+**Remediation sketch:** Either remove the precedent reference (test stands on its own) OR update to a current location pattern (e.g., reference the test by name instead of line number). ~1 LOC.
+
+**Estimated scope:** 1 LOC + 0 tests.
+
+### BACKLOG-T-SCAN-REFACTOR-T6-M4 — `test_phase3a_trust_tool.py:70` stale test function name
+**Phase-4 readiness:** `non-blocker` — cosmetic; pre-existing
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 6 quality review, 2026-04-26
+**File:** `tests/test_phase3a_trust_tool.py:70`
+
+**Why deferred:** Test function `test_scan_sqli_response_includes_trust_status` references the retired `scan_sqli` tool name in its identifier; body actually exercises `engine.assemble_scan(agent_name="sqli", ...)`. Stale name from before Task 6 — body is correct, name is grep-noise.
+
+**Remediation sketch:** Rename to `test_assemble_scan_response_includes_trust_status` or similar. ~1 LOC + grep for test selectors that might reference the old name.
+
+**Estimated scope:** 1 LOC + minimal grep.
+
+### BACKLOG-T-SCAN-REFACTOR-T6-M5 — `test_prompt_dedup_roundtrip.py:25,75` function names contain "scan_full" substring
+**Phase-4 readiness:** `non-blocker` — cosmetic; pre-existing naming overlap
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 6 quality review, 2026-04-26
+**File:** `tests/test_prompt_dedup_roundtrip.py:25, 75`
+
+**Why deferred:** Function names `test_domain_scan_full_walk_*` use the substring "scan_full" to mean "full pagination walk" of a domain scan, not the retired `scan_full` tool. Cosmetic naming overlap creates grep-noise.
+
+**Remediation sketch:** Rename to `test_domain_scan_complete_walk_*` or `test_domain_scan_walk_to_end_*` for clarity. ~2 LOC.
+
+**Estimated scope:** 2 LOC + grep for test selectors.
