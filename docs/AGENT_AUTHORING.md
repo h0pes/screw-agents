@@ -6,7 +6,7 @@
 
 Three invariants are enforced at registry load time. Violations refuse server start.
 
-1. **Agent names are globally unique across all domains.** Two YAMLs declaring the same `meta.name` raise `ValueError("Duplicate agent name X: ...")` at `registry.py:44-48`. This invariant is established since Phase 1.
+1. **Agent names are globally unique across all domains.** Two YAMLs declaring the same `meta.name` raise `ValueError("Duplicate agent name <name>: already loaded, conflict with <yaml_path>")` at `registry.py:54-58`. This invariant is established since Phase 1.
 
 2. **Agent names must not collide with any domain name.** A YAML declaring `meta.name: cryptography` (the same as the `domains/cryptography/` directory) raises `ValueError("Agent name(s) collide with domain name(s): ['cryptography']")`. Enforced since T-SCAN-REFACTOR. Reason: the slash command's bare-token parser disambiguates a token by registry lookup; without this invariant `/screw:scan cryptography` would be ambiguous.
 
@@ -17,7 +17,7 @@ Three invariants are enforced at registry load time. Violations refuse server st
 Pydantic-level validators run on every loaded YAML:
 
 - **`AgentMeta.name` and `AgentMeta.domain`** must match `^[a-z][a-z0-9_]*$` (lowercase identifier). Uppercase names like `SQLi` or hyphenated names are rejected.
-- **`HeuristicEntry.languages`** entries must each appear in the project-wide `SUPPORTED_LANGUAGES` set (`src/screw_agents/models.py`). Today this is `{python, javascript, typescript, go, rust, java, ruby, php, c, c_sharp, cpp}` — note `c_sharp` (snake-case), not `csharp`.
+- **`HeuristicEntry.languages`** entries must each appear in the project-wide `SUPPORTED_LANGUAGES` tuple (`src/screw_agents/treesitter.py:33`). Today this is `(python, javascript, typescript, go, rust, java, ruby, php, c, c_sharp, cpp)` — note `c_sharp` (snake-case), not `csharp`.
 - **`CodeExample.language`** carries the same `SUPPORTED_LANGUAGES` validator.
 
 These validators surface typos during YAML authoring instead of at scan time.

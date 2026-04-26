@@ -159,9 +159,9 @@ PR #5 (2026-04-12): E2E defect fixes — `write_scan_results` MCP tool (`results
 
 These are documented in `docs/PHASE_2_E2E_RESULTS.md` "Known Limitations" section:
 
-1. **Subagent nesting depth:** Claude Code can't nest 3+ subagent levels. For Phase 6 (18 domains), the skill should dispatch domain orchestrators directly instead of going through screw-full-review.
-2. **scan_domain payload size:** Responses can reach 47k-277k tokens for large targets, exceeding tool-response limits. Track for Phase 3 optimization.
-3. **CSV output format:** Requested but deferred — not blocking any phase.
+1. **Subagent nesting depth:** Claude Code can't nest 3+ subagent levels. For Phase 6 (18 domains), the skill should dispatch domain orchestrators directly instead of going through screw-full-review. *(Resolved 2026-04-23 by Phase 3b-C2 (commit fa2f42a) — `screw-full-review` deleted; chain-subagents architecture moved orchestration to main session. ADR-016 superseded.)*
+2. **scan_domain payload size:** Responses can reach 47k-277k tokens for large targets, exceeding tool-response limits. Track for Phase 3 optimization. *(Resolved 2026-04-17 by Phase 3a X1-M1 (pagination) and again 2026-04-25 by T-SCAN-REFACTOR (`scan_agents` paginated primitive).)*
+3. **CSV output format:** Requested but deferred — not blocking any phase. *(Resolved 2026-04-24 by T19-M D7 (commit 02d90d1) — CSV is in the default `formats=['json','markdown','csv']` list.)*
 4. **Benchmark exclusion isolation:** `.screw/learning/exclusions.yaml` must be ignored or scoped out during benchmark evaluation runs (Phase 4) to prevent FP exclusions from suppressing true positives in benchmark fixtures.
 5. **Formatter polish:** Finding model schema asymmetry (empty strings vs null), SARIF shortDescription should be richer, Markdown headings could use full CWE names.
 
@@ -418,7 +418,7 @@ Structured as a dependency graph with three parallel tracks converging at smoke 
 | Phase 1.7 | Gates G5-G7: Detection rate validation (D-02) | **Complete** (pipeline validated, PR #3, 2026-04-11) |
 | Phase 2 | Claude Code Integration (subagents, skills, filesystem output, FP learning) | **Complete** (PR #4 2026-04-11, PR #5 2026-04-12) |
 | Phase 3a | Prompt infrastructure (trust, learning aggregation, plugin-namespace, core-prompt dedup) | **Complete** (PR #6-#9 series, merged 2026-04-16/17) |
-| **Phase 3b** | **Adaptive Analysis & Learning Refinement** | **In-flight** — PR #4 (#10) + PR #5 (#11) merged 2026-04-18/20; PR #6 branch `phase-3b-c1-staging`, T0-T23 complete, merge pending T26 |
+| Phase 3b | Adaptive Analysis & Learning Refinement | **Complete** — PR #4 (#10) 2026-04-18, PR #5 (#11) 2026-04-20, PR #6 (#12) 2026-04-23, Phase 3b-C2 2026-04-24, BACKLOG-PR6-22 (#14) 2026-04-24, T19-M D7 (#15) 2026-04-24, T-SCAN-REFACTOR final 2026-04-25 |
 | Phase 3c | Sandbox hardening sweep (seccomp filter + thread-safety + dedup) | **Deferred** — see `docs/DEFERRED_BACKLOG.md` §"Phase 3c (sandbox hardening follow-ups)" |
 | Phase 4 | Autoresearch & Self-Improvement — step 4.0 is D-01 (hard gate) | **Pending**, hard-gated only on D-01 |
 | Phase 5 | Multi-LLM Challenger System | Pending |

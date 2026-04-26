@@ -180,22 +180,33 @@ detection_heuristics:
   # validator: each language must appear in models.SUPPORTED_LANGUAGES).
   # The union of `languages` across all heuristic tiers is the implicit
   # relevance signal used by `_filter_relevant_agents` (T-SCAN-REFACTOR D4).
+  # Each HeuristicEntry requires `id` (kebab-case identifier) + `pattern`
+  # (the actual regex/literal token used by detection). `languages` is
+  # optional but enforced against models.SUPPORTED_LANGUAGES if present.
+  # Reference: src/screw_agents/models.py:80-101 (HeuristicEntry).
   high_confidence:
-    - description: "String concatenation or f-strings containing variable references within SQL query strings"
+    - id: sql-string-concat
+      pattern: '(?:SELECT|INSERT|UPDATE|DELETE)\b[^"]*\+\s*\w+'
       languages: [python, javascript, typescript, ruby, php]
-    - description: "Use of ORM raw()/extra() methods with user-controlled parameters"
+    - id: orm-raw-extra
+      pattern: '\.(?:raw|extra)\s*\('
       languages: [python, ruby, java]
-    - description: "Dynamic table or column names derived from user input"
+    - id: dynamic-table-or-column
+      pattern: '(?:FROM|JOIN)\s+["\x27]?\s*\+'
       languages: [python, javascript, typescript, java, go, ruby, php, c_sharp]
-    - description: "Parameterized queries where the query structure itself is dynamic"
+    - id: dynamic-query-structure
+      pattern: 'execute\s*\(\s*f["\x27]'
       languages: [python, javascript, typescript, java, go, ruby, php, c_sharp, rust]
   medium_confidence:
-    - description: "ORM filter() with dynamically constructed field lookups"
+    - id: orm-filter-dynamic-lookup
+      pattern: '\.filter\s*\(\s*\*\*'
       languages: [python, ruby]
-    - description: "Stored procedure calls with string-interpolated parameters"
+    - id: stored-proc-string-interp
+      pattern: 'EXEC\s+\w+\s+["\x27]?\s*\+'
       languages: [java, c_sharp, php]
   context_required:
-    - description: "String variables passed to query methods (need to trace data flow)"
+    - id: query-arg-from-variable
+      pattern: '\.execute\s*\(\s*[a-zA-Z_]\w*\s*\)'
       languages: [python, javascript, typescript, java, go, ruby, php, c_sharp, rust]
 
 bypass_techniques:
@@ -1374,13 +1385,19 @@ screw-agents/
 │   ├── registry.py                  # Agent YAML loading → tool registration
 │   ├── resolver.py                  # Target resolution (tree-sitter, git diff)
 │   ├── formatter.py                 # Output formatting (JSON, SARIF, Markdown, CSV)
-│   ├── results.py                   # write_scan_results / finalize_scan_results
+│   ├── results.py                   # render_and_write — finalize-side renderer + writer
 │   ├── learning.py                  # Exclusions DB, FP learning
 │   ├── trust.py                     # Signing/verification for adaptive scripts
 │   ├── adaptive/                    # Adaptive script lifecycle (Phase 3b)
 │   │   ├── signing.py
-│   │   ├── stage.py
+│   │   ├── staging.py
 │   │   ├── executor.py
+│   │   ├── lint.py
+│   │   ├── ast_walker.py
+│   │   ├── dataflow.py
+│   │   ├── findings.py
+│   │   ├── project.py
+│   │   ├── script_name.py
 │   │   └── sandbox/                 # bwrap (Linux), sandbox-exec (macOS)
 │   ├── autoresearch/
 │   │   ├── loop.py                  # Mutate → evaluate → gate → log

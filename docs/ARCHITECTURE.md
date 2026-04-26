@@ -108,8 +108,11 @@ Every ingest script, the dedup pipeline, and the MoreFixes extractor import from
 - `list_domains()` — enumerate domains.
 - `get_agent_prompt(agent_name)` — fetch the per-agent core prompt on demand (lazy fetch from subagents).
 
+**Accumulator tools** (Phase 3a X1-M1 — paired with `finalize_scan_results`; called on every scan, not just adaptive flows):
+- `accumulate_findings` — appends finding records to the active session keyed by `session_id`. Phase 3a X1-M1 introduced this as the generic per-page consumer for the lazy-fetch pagination flow.
+
 **Adaptive tools** (Phase 3b):
-- `record_context_required_match`, `detect_coverage_gaps`, `accumulate_findings`, `lint_adaptive_script`, `stage_adaptive_script`, `promote_staged_script`, `reject_staged_script`, `execute_adaptive_script`, `verify_trust`.
+- `record_context_required_match`, `detect_coverage_gaps`, `lint_adaptive_script`, `stage_adaptive_script`, `promote_staged_script`, `reject_staged_script`, `execute_adaptive_script`, `verify_trust`.
 
 **Slash-command parser:**
 - `resolve_scope(scope_text)` — Task 8 helper; returns `{agents, summary}`. Used by `/screw:scan` to translate user input into an agent list. Closed allowlist (registry lookup) + no shell evaluation.
