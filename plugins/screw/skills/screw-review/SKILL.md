@@ -25,11 +25,11 @@ Based on the user's request, decide which subagent to dispatch:
 
 | User intent | Subagent |
 |---|---|
-| Specific vulnerability: "SQL injection", "SQLi" | `screw-sqli` |
-| Specific vulnerability: "command injection", "CmdI" | `screw-cmdi` |
-| Specific vulnerability: "template injection", "SSTI" | `screw-ssti` |
-| Specific vulnerability: "XSS", "cross-site scripting" | `screw-xss` |
-| Domain: "injection vulnerabilities", "input validation" | `screw-injection` |
+| Specific vulnerability: "SQL injection", "SQLi" | `screw-scan` (with `agents:[sqli]`) |
+| Specific vulnerability: "command injection", "CmdI" | `screw-scan` (with `agents:[cmdi]`) |
+| Specific vulnerability: "template injection", "SSTI" | `screw-scan` (with `agents:[ssti]`) |
+| Specific vulnerability: "XSS", "cross-site scripting" | `screw-scan` (with `agents:[xss]`) |
+| Domain: "injection vulnerabilities", "input validation" | `screw-scan` (with `agents:[sqli, cmdi, ssti, xss]`) |
 | Broad: "security review", "security audit", "full scan" | See §3 redirect |
 
 ### 2. Check for Existing Findings
@@ -42,7 +42,7 @@ For specific-vulnerability and domain rows: dispatch the chosen subagent via the
 
 For the broad/full row: do NOT dispatch. Respond to the user with this message verbatim:
 
-> Full scans require `/screw:scan full` (skills dispatch a single subagent, but full-scope coverage needs orchestration across multiple domain agents). Either run `/screw:scan full` directly, or specify a domain (`injection`) or agent (`sqli`, `cmdi`, `ssti`, `xss`) for a targeted scan.
+> Full scans require `/screw:scan full` (skills dispatch a single subagent with one fixed scope; full-scope coverage is owned by the slash command's resolver). Either run `/screw:scan full` directly, or specify a domain (e.g., `injection-input-handling`) or agent (`sqli`, `cmdi`, `ssti`, `xss`) for a targeted scan.
 
 Rationale (do not include in user output): the screw-agents plugin enforces a chain-subagents pattern (sub-agents.md:683-689) where multi-agent fan-out lives in the main-session slash command (`scan.md` Step 1b), not in a skill. The skill's role is narrow intent routing; broad intents require the slash command.
 
@@ -56,7 +56,7 @@ After the subagent completes, briefly summarize what was found and where the rep
 
 If the user asks about a vulnerability type without a dedicated agent, respond with what's available:
 
-"No dedicated agent for [requested type] yet. Available agents: **sqli** (SQL injection), **cmdi** (command injection), **ssti** (template injection), **xss** (cross-site scripting). The **injection** domain orchestrator runs all four. Want me to run one of these?"
+"No dedicated agent for [requested type] yet. Available agents: **sqli** (SQL injection), **cmdi** (command injection), **ssti** (template injection), **xss** (cross-site scripting). All four belong to the **injection-input-handling** domain. Want me to run one of these?"
 
 ## What NOT to Do
 
