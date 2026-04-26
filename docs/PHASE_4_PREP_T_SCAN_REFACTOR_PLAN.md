@@ -70,7 +70,7 @@
 | Task 10: Round-trip verification | Live `claude -p` × 2 — no code changes | 0 |
 | **Total** | | **~+2610 / -2608 (net ~+2 LOC; ~700 substantive new + ~1900 cleanup)** |
 
-**Target test count:** 906 passed → **≈988 passed, 9 skipped** (≈+88 new, ≈-15 deleted, ≈-15 net migrated; +1 conditional skip from Task 3 fix-up). Zero failures.
+**Target test count:** 906 passed → **996 passed, 9 skipped** (HEAD baseline `c7fa9d9` end-of-Task-8; Tasks 9-10 add zero tests). Zero failures.
 
 **Test files:**
 - New: `tests/test_registry_invariants.py` (5 tests), `tests/test_relevance_filter.py` (10 tests), `tests/test_assemble_agents_scan.py` (25 tests), `tests/test_scan_command_parser.py` (15 tests), `tests/test_screw_scan_subagent.py` (5 tests)
@@ -3949,7 +3949,7 @@ Post-Task-8: 971 + 19 = 990 passed, 9 skipped."
 
 ## Task 9: Documentation sync
 
-**Goal:** Bring all 8 affected docs into alignment with the shipped code in the SAME PR (per Marco's reminder during brainstorm; per `feedback_plan_sync_on_deviation` memory). No code changes in this task.
+**Goal:** Bring all 9 affected docs into alignment with the shipped code in the SAME PR (per Marco's reminder during brainstorm; per `feedback_plan_sync_on_deviation` memory). No code changes in this task.
 
 **Files (modify):**
 - `docs/PRD.md`
@@ -3960,10 +3960,11 @@ Post-Task-8: 971 + 19 = 990 passed, 9 skipped."
 - `docs/DEFERRED_BACKLOG.md`
 - `docs/CONTRIBUTING.md`
 - `docs/AGENT_CATALOG.md`
+- `CLAUDE.md` (root project file — added per Marco-approved EQ4=A; pre-audit found stale "Pre-implementation" / "Phase 0 next" claims)
 
 **Pre-audit focus (mandatory — cross-cut):** before editing, grep each doc for:
 ```
-grep -l 'scan_full\|scan_sqli\|scan_cmdi\|scan_ssti\|scan_xss\|screw-sqli\|screw-cmdi\|screw-ssti\|screw-xss\|screw-injection\|assemble_full_scan' docs/*.md
+grep -l 'scan_full\|scan_sqli\|scan_cmdi\|scan_ssti\|scan_xss\|screw-sqli\|screw-cmdi\|screw-ssti\|screw-xss\|screw-injection\|assemble_full_scan' docs/*.md CLAUDE.md
 ```
 Capture the list. Each file in the output requires updates. Section-level grep within each:
 ```
@@ -3973,16 +3974,18 @@ gives line numbers to target.
 
 - [ ] **Step 1: Update `docs/DEFERRED_BACKLOG.md` — close T-FULL-P1**
 
-Open `docs/DEFERRED_BACKLOG.md`. Locate the T-FULL-P1 entry at line 425 (`### T-FULL-P1 — Paginate \`assemble_full_scan\` + apply lazy-fetch + agent-relevance filter`). Prepend a "RESOLVED" header in the same style as BACKLOG-PR6-22 used:
+Open `docs/DEFERRED_BACKLOG.md`. Locate the T-FULL-P1 entry at line 425 (`### T-FULL-P1 — Paginate \`assemble_full_scan\` + apply lazy-fetch + agent-relevance filter`). Prepend a "SUPERSEDED" header in the same style as BACKLOG-PR6-22 used.
+
+The entire T-FULL-P1 block (lines 425-455) is preserved VERBATIM under a "Historical entry" heading; only the SUPERSEDED preamble is added. Mirror the BACKLOG-PR6-22 precedent.
 
 ```markdown
 ### T-FULL-P1 — Paginate `assemble_full_scan` + apply lazy-fetch + agent-relevance filter — **SUPERSEDED 2026-04-25**
 **Superseded on branch:** `t-scan-refactor` (merge commit TBD on merge).
 **Forwarded to:** **T-SCAN-REFACTOR** — full architectural refactor that subsumed T-FULL-P1's scope. Instead of paginating `scan_full`, the work retired `scan_full` entirely, introduced `scan_agents` as the new paginated multi-agent primitive (with cursor binding generalized to `(target_hash, agents_hash)`), retired all per-agent `scan_<name>` MCP tools, collapsed 4 per-agent + 1 domain orchestrator subagents into one universal `screw-scan.md`, and rewrote the slash command for multi-scope syntax (`domains:`/`agents:` prefix keys). The relevance filter was preserved as `_filter_relevant_agents` in `engine.py`, applied server-side inside `scan_agents` init-page (returns `agents_excluded_by_relevance` records). Spec: `docs/specs/2026-04-25-t-scan-refactor-design.md`. Plan: `docs/PHASE_4_PREP_T_SCAN_REFACTOR_PLAN.md`.
 
-**Historical entry (original deferral, for audit trail):**
+**Historical entry (original deferral, for audit trail — preserve lines 425-455 verbatim below):**
 
-[... existing T-FULL-P1 entry preserved unchanged below ...]
+[... existing T-FULL-P1 entry preserved unchanged below — body verbatim, no edits ...]
 ```
 
 - [ ] **Step 2: Update DEFERRED_BACKLOG blocker table + Phase 4 gate**
@@ -4003,7 +4006,12 @@ Phase 4 gate paragraph (line ~141):
 
 - [ ] **Step 3: Add new deferred items**
 
-Append 6 new entries near the existing deferred items section (find the appropriate section based on doc convention):
+**Placement (per Marco-approved EQ5):**
+- Insert a new top-level section heading `## T-SCAN-REFACTOR follow-ups (slash command + relevance filter UX)` AFTER the existing §"Phase 7 (multi-process MCP server)" section ends. Place T-SCAN-FILTER-1, T-SCAN-LANG-1, T-SCAN-MERGE-1, T-SCAN-RELEV-1, T-SCAN-LIST-1, T-SCAN-AUDIT-1 under this heading.
+- Insert ANOTHER new top-level section heading `## T-SCAN-REFACTOR Documentation Backlog` immediately after the previous section. This section captures doc-rewrite follow-ups deferred from Task 9.
+- Add entry `T-SCAN-REFACTOR-DOC-1: AGENT_CATALOG.md per-domain orchestrator deeper rewrite` to the Documentation Backlog section. (Even though EQ1=B does the full rewrite in Task 9, retain this entry as a tracking record for "if any deeper semantic adjustments surface during implementation, file them here for follow-up.")
+
+Append 6 new entries under the new "T-SCAN-REFACTOR follow-ups" section heading (placement per above):
 
 ```markdown
 ### T-SCAN-FILTER-1 — `severity:` / `cwe:` / `exclude-agents:` slash command filters
@@ -4051,35 +4059,62 @@ Append 6 new entries near the existing deferred items section (find the appropri
 
 - [ ] **Step 4: Update `docs/PROJECT_STATUS.md`**
 
-(a) Top-of-file gate line:
+(a) **Line 33 top-of-file gate line:**
 
 ```markdown
 Gates G1-G4 pass. **Phase 4 (Autoresearch) is gated only on D-01 (Rust benchmark corpus) — all other prereqs shipped through T-SCAN-REFACTOR. See §"Phase 4 Prerequisites (hard gates)" below.**
 ```
 
-(b) New "What's shipped" bullet (chronologically after T19-M):
+(b) **Lines 24-31 — New "What's shipped" bullet** (chronologically after T19-M):
 
 ```markdown
-- **T-SCAN-REFACTOR (branch `t-scan-refactor`)** merged 2026-04-25 — Final Phase-4 prereq. Subsumes T-FULL-P1. Replaces 6-tool scan surface (`scan_full` + `scan_domain` + 4 per-agent) with `scan_agents` paginated primitive + `scan_domain` thin wrapper. Adds per-agent language relevance filter (`_filter_relevant_agents`) with extension + shebang detection. Cursor binding generalized to `(target_hash, agents_hash)` (Option β). Rewrites slash command for multi-scope syntax (`/screw:scan domains:A,B agents:1A,2A`). Collapses 5 subagents into universal `screw-scan.md`. Test suite: 906 → ~970 passed, 8 skipped. Phase 4 blocker count drops 1 → 0.
+- **T-SCAN-REFACTOR (branch `t-scan-refactor`)** merged 2026-04-25 — Final Phase-4 prereq. Subsumes T-FULL-P1. Replaces 6-tool scan surface (`scan_full` + `scan_domain` + 4 per-agent) with `scan_agents` paginated primitive + `scan_domain` thin wrapper. Adds per-agent language relevance filter (`_filter_relevant_agents`) with extension + shebang detection. Cursor binding generalized to `(target_hash, agents_hash)` (Option β). Rewrites slash command for multi-scope syntax (`/screw:scan domains:A,B agents:1A,2A`). Collapses 5 subagents into universal `screw-scan.md`. Test suite: 906 → 996 passed, 9 skipped (HEAD baseline `c7fa9d9`). Phase 4 blocker count drops 1 → 0.
 ```
 
-(c) Phase 4 row in phase table:
+(c) **Line 422 Phase 4 row in phase table:**
 
 ```markdown
 | Phase 4 | Autoresearch & Self-Improvement — step 4.0 is D-01 (hard gate) | **Pending**, hard-gated only on D-01 |
 ```
 
-(d) §"Phase 4 Prerequisites (hard gates)" — delete the T-FULL-P1 block entirely; update the introductory paragraph to state the only remaining prereq is D-01.
+(d) **Lines 438-441 §"Phase 4 Prerequisites (hard gates)"** — delete the T-FULL-P1 block entirely; update the introductory paragraph to state the only remaining prereq is D-01.
 
-- [ ] **Step 5: Update `docs/PRD.md`**
+(e) **Line 21 §"Current Phase" header:**
+Replace `Phase 3b closed — Phase 4 prereq sweep in progress` with `Phase 3b closed — all Phase-4 prereqs except D-01 shipped (T-SCAN-REFACTOR final, 2026-04-25)`.
 
-§3 (Architecture) — find references to `scan_full`, per-agent tools, per-agent subagents. Update:
-- Tool count: was 3 scan-shaped MCP tools (or 6 including per-agent); now 2 (`scan_agents` + `scan_domain`).
-- Subagent count: was 5 (4 per-agent + 1 domain); now 1 (`screw-scan`) for scan-shaped subagents (plus unchanged `screw-script-reviewer`, `screw-learning-analyst`).
+(f) **Lines 134-136** are archival ("What was done in Phase 2") and contain retired subagent names. DO NOT REWRITE — they correctly describe what shipped at the time.
 
-§4 (YAML schema) — clarify that `HeuristicEntry.languages: list[str]` is the implicit relevance signal derived for the per-agent language filter. Add a sentence: "Agents that omit `languages` on their heuristic entries are treated as 'always relevant' (D6 fail-open in T-SCAN-REFACTOR spec)."
+- [ ] **Step 5: PRD.md updates**
 
-§6 (User-facing examples) — add multi-scope examples:
+Open `docs/PRD.md`. Apply these targeted edits:
+
+(a) **§6 Tool Inventory table (lines 308-314):**
+- Drop the `scan_{agent_name}` row (per-agent tools retired)
+- Drop the `scan_full` row (retired)
+- Add a `scan_agents` row: "agents: list[str], target, optional cursor + page_size; returns paginated init/code-page response with `agents_excluded_by_relevance` field"
+- Update `scan_domain` row description to "Convenience shortcut for `scan_agents`; runs all agents in a CWE-1400 domain"
+- Add a `resolve_scope` row: "Slash-command scope-spec parser; returns `{agents, summary}`. Used by `/screw:scan` to translate user input."
+
+(b) **§7.1 Subagent inventory tree (lines 333-344):**
+- Replace the 5 retired entries (screw-sqli, screw-cmdi, screw-ssti, screw-xss, screw-injection) with a single line: "`screw-scan.md` — universal scan runner (Task 7 of T-SCAN-REFACTOR; replaces 5 per-vuln + per-domain subagents). Dispatched with `agents: list[str]` from main session."
+- Verify supporting subagents (screw-script-reviewer, screw-learning-analyst) are still listed.
+
+(c) **§7.1 Workflow narrative (lines 381-391):**
+- Rewrite to show: main session orchestrator → resolves scope via `mcp__screw-agents__resolve_scope` → calls `scan_agents(cursor=null)` for init page → dispatches `screw-scan` subagent with cursor + agents list → subagent walks code pages → returns hybrid C2+enrichment payload → main session optionally chains `screw-script-reviewer` (per `pending_reviews`) → calls `finalize_scan_results`.
+- Drop references to per-domain orchestrators (`screw-injection`).
+
+(d) **§4 Schema example (line 725):**
+- Update agent example to use the validated lowercase identifier (`name: sqli`)
+- Add a `HeuristicEntry.languages: [python, javascript]` example showing the post-Task-2 validator
+- KEEP `target_strategy.relevance_signals` example BUT annotate as "legacy free-form keyword field; see footnote on D4 implicit relevance from `HeuristicEntry.languages`" (legacy backwards-compat field; shipped YAMLs use it)
+- ADD a §4 footnote: "T-SCAN-REFACTOR D4 (2026-04-25): relevance is implicitly derived from `HeuristicEntry.languages` field; agents without language declarations fail-open (kept) per spec §8.5. `relevance_signals` remains as a free-form keyword field for backwards compat; see deferred T-SCAN-RELEV-1 for explicit AST-based signal proposal."
+
+(e) **Appendix C tree (lines 1316-1323):**
+- Replace 5 retired subagent entries with `screw-scan.md`
+- Add `scan_command.py` to the `src/screw_agents/` listing
+
+(f) **§6 multi-scope slash command examples:**
+- Find existing `/screw:scan` examples; if they show single-domain form only, add three example lines covering bare-token, `full`, and `domains:`/`agents:` prefix-key forms.
 
 ```markdown
 **Multi-scope syntax (T-SCAN-REFACTOR):**
@@ -4088,53 +4123,155 @@ Gates G1-G4 pass. **Phase 4 (Autoresearch) is gated only on D-01 (Rust benchmark
 - `/screw:scan domains:A,B,C agents:1A,3C src/api/` — A subset, B implicit full (no agents listed for B), C subset
 - `/screw:scan agents:sqli,xss src/api/` — specific agents anywhere
 - `/screw:scan full src/api/` — every registered agent (post-relevance-filter)
+- `/screw:scan sqli src/api/` — bare-token single agent
+- `/screw:scan injection-input-handling src/api/` — bare-token whole domain
 ```
 
-- [ ] **Step 6: Update `docs/DECISIONS.md`**
+- [ ] **Step 6: DECISIONS.md updates**
 
-Append a new ADR at the end of the file (or in chronological position):
+Open `docs/DECISIONS.md`. Apply these edits:
+
+(a) **ADR-016 SUPERSEDED header (lines 331-346) — per Marco-approved EQ3=A:**
+Prepend the existing ADR-016 with:
 
 ```markdown
-## ADR-T-SCAN-REFACTOR — `scan_agents` primitive, retire `scan_full`, universal subagent
-
-**Date:** 2026-04-25
-**Status:** Accepted (shipped on branch `t-scan-refactor`)
-**Supersedes:** T-FULL-P1 deferral entry
-
-**Context:** Phase 3b-C2 rewrote `/screw:scan full` as a main-session orchestrator looping `list_domains` + per-domain orchestrator dispatch. This bypassed `scan_full` entirely (the unpaginated response couldn't fit at >4 agents). The MCP tool surface had grown to 6 scan-shaped tools (`scan_full` + `scan_domain` + 4 per-agent) — at CWE-1400 expansion would have grown to 43. The slash command's single-token scope syntax couldn't express multi-domain or agent-subset scopes.
-
-**Decision:** Replace the three-tool scan surface with one paginated multi-agent primitive (`scan_agents`) + one thin convenience shortcut (`scan_domain`). Retire `scan_full` and per-agent `scan_<name>` tools. Introduce per-agent language relevance filter. Rewrite slash command for `domains:`/`agents:` prefix-key multi-scope syntax. Collapse 4 per-agent subagents + 1 domain orchestrator into one universal `screw-scan.md`.
-
-**Alternatives considered:**
-- **Path X (T-FULL-P1 as originally scoped):** paginate `scan_full` keeping it alongside `scan_domain` and per-agent tools. Rejected — would build a tool with no live caller (post-C2 the slash command uses domain loop; Phase-4 autoresearch is per-agent). Would still leave the 6→43 tool-count growth unaddressed.
-- **Option B (retire everything except `scan_agents` + `list_agents`):** retire `scan_domain` too. Rejected — `scan_domain` is a high-frequency convenience workflow worth preserving with explicit "shortcut for X" framing.
-- **Option C (keep three peers, add relevance filter):** all three primitives stay; add filter. Rejected — doesn't solve "subset of A + full B + subset of C" (the user-flagged "huge gap").
-
-**Consequences:**
-- MCP tool count drops 6→2 (today), 43→2 (at CWE-1400 expansion).
-- Subagent count drops 5→1 for scan-shaped subagents.
-- Slash command grammar gains expressive power (multi-scope) and adds a registry-load invariant (agent-vs-domain collision check).
-- Cursor protocol generalized: `(target_hash, agents_hash)` binding catches mid-flow agents-list drift.
-- Phase 4 autoresearch consumes `scan_agents([single_name])` for per-agent loops — same primitive serves both single-agent (autoresearch) and multi-agent (slash command) callers.
-- Hard break for retired tools — no compat shim. Justified by zero live external callers.
-
-**References:**
-- Spec: `docs/specs/2026-04-25-t-scan-refactor-design.md` (835 lines, sections 1-18)
-- Plan: `docs/PHASE_4_PREP_T_SCAN_REFACTOR_PLAN.md`
-- Brainstorm decisions D0-D8 (sketch phase) + Q1-Q6 (clarifying-question phase)
+> **SUPERSEDED 2026-04-25 by ADR-T-SCAN-REFACTOR**
+>
+> This ADR described the OLD architecture's dispatch via `screw-full-review` and proposed Phase 6 implications. Phase 3b-C2 (commit `fa2f42a`) deleted `screw-full-review`; T-SCAN-REFACTOR (this PR) collapsed all per-vuln + per-domain orchestrator subagents into a single universal `screw-scan.md` and rewired the slash command to grammar `bare-token | full | domains:|agents:`. Main session now owns dispatch orchestration entirely; subagents do NOT spawn other subagents (Claude Code architectural constraint, `sub-agents.md:711`). The ADR text below is preserved for audit trail.
+>
+> ---
 ```
 
-- [ ] **Step 7: Update `docs/ARCHITECTURE.md`**
+Then preserve ADR-016's existing body verbatim below the separator.
 
-Locate the tool inventory + subagent inventory + scan-flow chain diagrams. Update each:
+(b) **Append new ADR-T-SCAN-REFACTOR** (after ADR-016 block, before any subsequent section):
 
-- Tool inventory: drop `scan_full`, `scan_<agent>` × 4 entries. Add `scan_agents` entry. Update `scan_domain` description as "convenience wrapper for scan_agents".
-- Subagent inventory: drop `screw-sqli`, `screw-cmdi`, `screw-ssti`, `screw-xss`, `screw-injection`. Add `screw-scan` entry. Keep `screw-script-reviewer`, `screw-learning-analyst`.
-- Scan-flow chain diagram: replace "main session → list_domains → per-domain orchestrator dispatch" with "main session → parse + resolve scope → screw-scan dispatch → return to main → finalize".
+```markdown
+## ADR-T-SCAN-REFACTOR — Universal scan subagent + multi-scope slash command (2026-04-25)
+
+### Status
+Accepted; landed on branch `t-scan-refactor`.
+
+### Context
+The pre-T-SCAN-REFACTOR architecture had: 4 per-vuln subagents (screw-sqli/cmdi/ssti/xss; ~414 LOC each, byte-identical modulo name), 1 domain orchestrator (screw-injection), per-agent MCP tools (`scan_<name>`), and a `scan_full` aggregator. The slash command had a single-domain syntax `/screw:scan <domain>`. This produced 4× duplicated subagent body and a domain-only dispatch surface.
+
+### Decision
+1. **Universal subagent**: collapse all per-vuln + per-domain subagents into `screw-scan.md` (~559 LOC), parameterized by `agents: list[str]` from the dispatch prompt. Subagent does NOT dispatch other subagents (chain-subagents architecture, main session orchestrates).
+2. **MCP surface**: introduce `scan_agents` paginated multi-agent primitive with cursor binding `(target_hash, agents_hash)`. `scan_domain` becomes a thin wrapper. Retire `scan_full` and per-agent `scan_<name>` MCP tools (hard break).
+3. **Slash command grammar**: support bare-token (single agent or domain), `full` keyword, and `domains:`/`agents:` prefix-key form. Add `--no-confirm` flag; mutually exclusive with `--adaptive`. Parse via `mcp__screw-agents__resolve_scope` MCP tool (no shell exec).
+4. **Relevance filter**: implicit per-agent language relevance via `HeuristicEntry.languages` declarations; fail-open for agents without declarations. Spec D4 + D6.
+5. **Schema validators**: lowercase-identifier regex on `AgentMeta.name`/`domain`; `SUPPORTED_LANGUAGES` membership on `HeuristicEntry.languages` + `CodeExample.language`.
+
+### Consequences
+- ~1,300 LOC of subagent body deleted (5 files → 1 file).
+- ~270 LOC of adaptive-mode body inlined into universal subagent (parameterized by `agent_entry["agent_name"]`).
+- Cursor protocol generalized: same protocol covers single-domain and arbitrary-agent-set scans.
+- Slash command grammar more expressive (multi-domain, multi-agent, full-set in one syntax).
+- Eliminates shell-injection class via MCP-tool parser invocation.
+- 906 → 996 test count delta across the PR.
+
+### Cross-references
+- Spec: `docs/specs/2026-04-25-t-scan-refactor-design.md`
+- Plan: `docs/PHASE_4_PREP_T_SCAN_REFACTOR_PLAN.md`
+- Supersedes: ADR-016 (Phase 3b-C2 + T-SCAN-REFACTOR jointly).
+```
+
+- [ ] **Step 7: ARCHITECTURE.md full rewrite (per Marco-approved EQ2=C)**
+
+Open `docs/ARCHITECTURE.md`. Apply these edits:
+
+(a) **Update Phase Plan Summary table (lines 181-191):**
+- Phase 3 row: "Complete (Phase 3a + Phase 3b + Phase 3b-C2)"
+- Phase 4 row: "Pending (gated only on D-01 Rust benchmark corpus)"
+
+(b) **ADD a new section after the existing "Phase Lifecycle" section** titled `## Tool & Subagent Inventory (post-T-SCAN-REFACTOR)`. Body:
+
+```markdown
+## Tool & Subagent Inventory (post-T-SCAN-REFACTOR)
+
+### MCP tools (post-2026-04-25)
+
+**Scan tools:**
+- `scan_agents(agents, target, ...)` — paginated multi-agent primitive. Cursor binding `(target_hash, agents_hash)`. Returns init-page with `agents_excluded_by_relevance` + code-pages with per-agent prompts.
+- `scan_domain(domain, target, ...)` — convenience wrapper over `scan_agents`. Resolves all agents in domain.
+
+**Discovery tools:**
+- `list_agents(domain=None)` — enumerate registered agents.
+- `list_domains()` — enumerate domains.
+
+**Adaptive tools** (Phase 3b):
+- `record_context_required_match`, `detect_coverage_gaps`, `accumulate_findings`, `lint_adaptive_script`, `stage_adaptive_script`, `promote_staged_script`, `reject_staged_script`, `execute_adaptive_script`, `verify_trust`.
+
+**Slash-command parser:**
+- `resolve_scope(scope_text)` — Task 8 helper; returns `{agents, summary}`. Used by `/screw:scan`.
+
+**Output:**
+- `finalize_scan_results(session_id, formats=...)` — emit JSON/Markdown/SARIF/CSV reports.
+
+**Retired (T-SCAN-REFACTOR Task 6):**
+- `scan_full` — replaced by `scan_agents(agents=list_agents().names, ...)`.
+- `scan_<name>` per-agent tools (sqli/cmdi/ssti/xss) — replaced by `scan_agents(agents=[<name>], ...)`.
+
+### Subagents (post-2026-04-25)
+
+- **`screw-scan.md`** — universal scan runner (~559 LOC). Replaces 5 deleted per-vuln + per-domain subagents (screw-sqli, screw-cmdi, screw-ssti, screw-xss, screw-injection — Task 7 of T-SCAN-REFACTOR). Dispatched with `agents: list[str]` from main session.
+- **`screw-script-reviewer.md`** — adaptive script review. Dispatched by main session per `pending_reviews` chain (chain-subagents architecture, Phase 3b-C2).
+- **`screw-learning-analyst.md`** — learning-mode analyst (Phase 3a).
+
+Subagents do NOT dispatch other subagents (Claude Code constraint, `sub-agents.md:711`). Main session is the sole orchestrator.
+
+### Slash command grammar (post-Task-8)
+
+`/screw:scan <scope-spec> <target> [--adaptive | --no-confirm | --thoroughness <L>] [--format <F>]`
+
+Scope-spec forms (mutually exclusive):
+- **Bare-token**: single agent name (e.g., `sqli`) or domain name (e.g., `injection-input-handling`).
+- **`full`** keyword: all registered agents.
+- **Prefix-key**: `domains:foo,bar agents:baz,qux` — combine multiple domains and agents.
+
+Examples:
+```
+/screw:scan sqli src/api/                    # single agent
+/screw:scan injection-input-handling src/    # whole domain
+/screw:scan full .                           # all agents
+/screw:scan agents:sqli,xss src/api/         # subset across domains
+/screw:scan domains:foo agents:baz src/      # mix
+```
+
+### Scan flow (chain-subagents architecture)
+
+```
+slash command       resolve_scope        scan_agents (init page)
+   ↓                    ↓                       ↓
+main session ──────────────────────────────────→  pre-execution summary
+   ↓                                                    ↓
+   ↓                                              user consent (or --no-confirm)
+   ↓                                                    ↓
+dispatch screw-scan ──────────────────────────────────────────→ scan_agents (code pages)
+   ↓                                                                  ↓
+   ↓                                                            accumulate_findings
+   ↓                                                                  ↓
+parse return (C2 + enrichment) ←─────────────────────────────── return structured payload
+   ↓
+optionally chain screw-script-reviewer (per pending_reviews)
+   ↓
+finalize_scan_results
+   ↓
+report (JSON, Markdown, SARIF, CSV per --format)
+```
+```
+
+(c) **Drop or rewrite any section that contradicts the new inventory.**
+
+This is approximately 80-100 LOC of new architecture content per Marco-approved EQ2=C.
 
 - [ ] **Step 8: Update `docs/AGENT_AUTHORING.md`**
 
-Append a new section near the YAML schema discussion:
+(a) Append a new section near the YAML schema discussion (full content below).
+
+(b) Append the "Adding a new agent (post-T-SCAN-REFACTOR)" section after (a).
+
+(c) Drop the line-5 stale TODO: `TODO: Step-by-step guide for writing YAML agent definitions will be written after Phase 0...` Phase 0 is complete; replace with the new substantive content from sub-steps (a)-(b).
 
 ```markdown
 ## Global uniqueness invariants (T-SCAN-REFACTOR)
@@ -4159,21 +4296,67 @@ Adding a new vulnerability agent NO LONGER requires a per-agent subagent file. S
 The universal `screw-scan` subagent handles all registered agents — no new subagent file needed.
 ```
 
-- [ ] **Step 9: Update `docs/CONTRIBUTING.md`**
+- [ ] **Step 9: CONTRIBUTING.md updates**
 
-Search for any "how to add a new agent" or "how to write a subagent" sections. If present, update to reference the new AGENT_AUTHORING section above. If absent, no change needed.
+Open `docs/CONTRIBUTING.md`. Apply these edits:
 
-- [ ] **Step 10: Update `docs/AGENT_CATALOG.md`**
+(a) **Lines 24-27 retired-identifier block:**
+- Replace `/screw:scan <sqli|cmdi|ssti|xss|injection|full> [target]` example with the new grammar:
+```
+/screw:scan <agent | domain | full | domains:foo,bar | agents:baz,qux> [target] [--adaptive | --no-confirm]
+```
+- Replace the retired subagent listing (`screw-sqli, screw-cmdi, screw-ssti, screw-xss, screw-injection, screw-full-review`) with the post-T-SCAN-REFACTOR listing:
+```
+Subagents: `screw-scan` (universal), `screw-script-reviewer` (adaptive review chain), `screw-learning-analyst` (learning mode).
+```
 
-Search for any references to per-agent MCP tools or per-agent subagents. Update tool counts; if the catalog formerly listed `scan_<name>` tools per agent, replace with a single note "All agents are runnable via `scan_agents([<name>])` MCP tool or `/screw:scan <name>` slash command".
+(b) Search for any "how to add a new agent" or "how to write a subagent" sections. If present, update the example to YAML schema + new universal subagent dispatch. Reference the new AGENT_AUTHORING section.
+
+(c) Search for any references to retired MCP tools (`scan_full`, `scan_<name>`) in CONTRIBUTING.md. If present, update to `scan_agents`.
+
+- [ ] **Step 10: AGENT_CATALOG.md FULL REWRITE (per Marco-approved EQ1=B)**
+
+The pre-T-SCAN-REFACTOR architecture assumed "1 orchestrator subagent per domain + 1 .md subagent per agent = 60 .md files at full CWE-1400 expansion". T-SCAN-REFACTOR retires that entirely: 1 universal `screw-scan.md` covers all agents.
+
+Apply a substantive rewrite:
+
+(a) **Update preamble "Reading This Document" (lines 1-15):**
+Replace the subagent description with: "Each domain section lists planned agent definitions (YAML files in `domains/<domain>/<agent>.yaml`). At runtime, ALL agents are dispatched via the single universal `screw-scan.md` subagent (T-SCAN-REFACTOR, 2026-04-25); per-agent .md subagent files are NOT created."
+
+(b) **Replace summary table (lines 18-25)** with:
+```
+| Layer | Count | Files |
+|---|---|---|
+| Domains (CWE-1400 categories) | 18 | `domains/<domain>/` directories |
+| Agents (planned at full CWE-1400 expansion) | 41 | `domains/<domain>/<agent>.yaml` YAML files |
+| Universal scan subagent | 1 | `plugins/screw/agents/screw-scan.md` |
+| Supporting subagents | 2 | `screw-script-reviewer.md`, `screw-learning-analyst.md` |
+| **Total subagent .md files** | **3** | (was 60 in pre-T-SCAN-REFACTOR design) |
+```
+
+(c) **For EACH of the 18 domain sections** (lines 40, 55, 72, 88, 104, 120, 137, 154, 168, 193, 209, 225, 242, 256, 272, 286, 300, 317):
+Replace `**Orchestrator:** screw-<domain>.md` with `**Dispatch:** universal `screw-scan.md` via `/screw:scan <domain>` (or `/screw:scan domains:<domain>`)`.
+
+(d) **§"Build Order by Phase":** Update subagent counts to reflect 3 .md files (not 60).
+
+(e) **Anywhere that references per-agent `scan_<name>` MCP tools or per-agent .md subagents:** replace with `scan_agents([<name>])` and "dispatch via `screw-scan`".
+
+This is approximately 200-300 LOC of edits per Marco-approved EQ1=B.
 
 - [ ] **Step 11: Final grep verification**
 
-```
-grep -rn 'scan_full\|assemble_full_scan' docs/ src/ tests/ plugins/ 2>/dev/null | grep -v __pycache__ | grep -v 'specs/' | grep -v 'PHASE_.*_PLAN\|DEFERRED_BACKLOG.*Historical entry'
+```bash
+# Run the final cleanup grep, allowing only marked-superseded historical context
+grep -rn 'scan_full\|assemble_full_scan' docs/ src/ tests/ plugins/ \
+    --exclude-dir=__pycache__ \
+    --exclude-dir=specs \
+    --include='*.md' --include='*.py' \
+    | grep -vE '(SUPERSEDED|Historical entry|forwarded to|retired|migration note)'
 ```
 
 Expected: no hits in current/active docs. Hits in `PHASE_*_PLAN.md` historical context (e.g., the T19-M plan referencing T-FULL-P1) are allowed if marked "superseded".
+
+(Or use `awk` two-pass; pick whichever is simpler. The original `'PHASE_.*_PLAN\|DEFERRED_BACKLOG.*Historical entry'` pattern was per-line not per-file — the rewrite uses `--exclude-dir` and per-line `-vE` over allowlisted markers, which is the correct semantics.)
 
 ```
 grep -rn 'screw-sqli\|screw-cmdi\|screw-ssti\|screw-xss\|screw-injection' docs/ plugins/ 2>/dev/null | grep -v __pycache__
@@ -4181,21 +4364,33 @@ grep -rn 'screw-sqli\|screw-cmdi\|screw-ssti\|screw-xss\|screw-injection' docs/ 
 
 Expected: no hits in `docs/` or `plugins/`. (The 5 subagent files themselves are deleted in Task 7.)
 
+- [ ] **Step 11b: CLAUDE.md root file updates (per Marco-approved EQ4=A)**
+
+Open `/home/marco/Programming/AI/screw-agents/.worktrees/t-scan-refactor/CLAUDE.md` (root project CLAUDE.md, NOT docs/CLAUDE.md if that exists).
+
+(a) **Line "Phase: Pre-implementation. Architecture and product design phase is complete."** → update to reflect current state: `Phase 3b closed; Phase 4 prereq sweep complete (T-SCAN-REFACTOR final 2026-04-25); next milestone is Phase 4 step 4.0 (D-01 Rust benchmark corpus).`
+
+(b) **Line "Next milestone: Phase 0 — Knowledge Research Sprint..."** → DROP entirely (Phase 0 is complete).
+
+(c) **§"Current State" block** — update bullet list to reflect: PRD frozen at v0.4.3; Tasks 1-8 of T-SCAN-REFACTOR shipped; suite at 996/9; Phase 4 gated on D-01 only.
+
+(d) Search for any references to `scan_full`, `scan_<name>`, or 5-subagent architecture (`screw-sqli` etc.). Update to current state.
+
 - [ ] **Step 12: Run full test suite — confirm no regression**
 
 ```
 uv run pytest -q 2>&1 | tail -5
 ```
 
-Expected: ~983 passed, 8 skipped. (Doc changes don't run tests; this is a sanity check.)
+Expected: **996 passed, 9 skipped** (HEAD baseline `c7fa9d9` — Tasks 1-8 shipped; Task 9 is doc-only with DELTA = 0 tests). Zero failures.
 
 - [ ] **Step 13: Commit**
 
 ```bash
-git add docs/
+git add docs/ CLAUDE.md
 git commit -m "T-SCAN-REFACTOR Task 9: documentation sync
 
-8 docs updated to reflect the shipped architecture (per Marco's reminder
+9 docs updated to reflect the shipped architecture (per Marco's reminder
 during brainstorm, and feedback_plan_sync_on_deviation memory):
 
 DEFERRED_BACKLOG.md:
@@ -4219,22 +4414,55 @@ PRD.md:
 - §6 examples: multi-scope syntax samples added
 
 DECISIONS.md:
-- new ADR for T-SCAN-REFACTOR captures Path Y rationale, all
+- ADR-016 SUPERSEDED header (per EQ3=A) preserves body for audit trail
+- new ADR-T-SCAN-REFACTOR captures Path Y rationale, all
   alternatives, consequences, references to spec + plan + brainstorm
 
-ARCHITECTURE.md:
-- tool inventory, subagent inventory, scan-flow chain diagrams redrawn
+ARCHITECTURE.md (per EQ2=C — full rewrite):
+- new Tool & Subagent Inventory section (~80-100 LOC)
+- slash command grammar + scan-flow diagram redrawn for chain-subagents
 
 AGENT_AUTHORING.md:
+- line-5 stale TODO replaced with substantive content
 - new section on global uniqueness invariants
 - new section on adding agents post-refactor (no per-agent subagent
   file required)
 
-CONTRIBUTING.md, AGENT_CATALOG.md:
+CONTRIBUTING.md:
+- lines 24-27 retired-identifier block edits (slash command grammar +
+  subagent listing)
 - references to retired tools / subagents updated
+
+AGENT_CATALOG.md (per EQ1=B — full rewrite):
+- preamble updated: per-agent .md subagent files NOT created
+- summary table reflects 3 .md files (was 60 in pre-T-SCAN-REFACTOR)
+- 18 per-domain orchestrator entries → universal screw-scan dispatch
+
+CLAUDE.md (root file, per EQ4=A):
+- Phase line updated from "Pre-implementation" to "Phase 3b closed"
+- Phase 0 milestone removed (complete)
+- Current State block updated to reflect 996/9 suite + Phase 4 readiness
 
 Plan and code are coherent at merge time."
 ```
+
+**Plan-fix additions (2026-04-26, post pre-audit on HEAD c7fa9d9):**
+- Scope expanded to 9 docs (CLAUDE.md root added per EQ4=A).
+- All test-count baselines corrected to 996/9 (was stale at ~983/8 / ~970 / ~988 across the plan).
+- Step 5 (PRD.md) expanded with explicit line ranges and per-section instructions for tool table, subagent tree, workflow narrative, schema example, Appendix C tree, multi-scope examples.
+- Step 6 (DECISIONS.md) expanded with ADR-016 SUPERSEDED header (EQ3=A) + new ADR-T-SCAN-REFACTOR.
+- Step 7 (ARCHITECTURE.md) replaced with FULL REWRITE (EQ2=C): adds 80-100 LOC inventory section covering MCP tools, subagents, slash command grammar, scan-flow diagram.
+- Step 8 (AGENT_AUTHORING.md) adds line-5 stale TODO cleanup.
+- Step 9 (CONTRIBUTING.md) replaced with explicit line-24-27 retired-identifier block edits.
+- Step 10 (AGENT_CATALOG.md) replaced with FULL REWRITE (EQ1=B): summary table, all 18 per-domain orchestrator entries, preamble, build-order subagent counts.
+- Step 4 (PROJECT_STATUS.md) sub-steps gain explicit line numbers + new sub-step (e) for line-21 header rewording.
+- Step 1 (DEFERRED_BACKLOG T-FULL-P1) clarified: "preserve lines 425-455 verbatim under Historical entry heading".
+- Step 3 (DEFERRED_BACKLOG new items) gains explicit placement: new section "T-SCAN-REFACTOR follow-ups" + new section "T-SCAN-REFACTOR Documentation Backlog" (per EQ5) with entry T-SCAN-REFACTOR-DOC-1.
+- Step 11 (final grep) regex fixed; per-line OR per-file semantics clarified.
+- New Step 11b: CLAUDE.md root file edits (per EQ4=A).
+- Step 5 sub-step (d) clarifies `target_strategy.relevance_signals` field reconciliation (keep legacy, add HeuristicEntry.languages example, add D4 footnote).
+
+Doc-only — no code changes. No test count delta (Task 9 is docs-only). Implementer dispatched on next commit.
 
 ---
 
@@ -4381,11 +4609,11 @@ After Task 4 (wrapper refactor 0 + Step 4b retrofit +1 per plan-fix E2) | 975
 After Task 5 (server dispatch +1) | 976
 After Task 6 (deletions ~-8) | ~968
 After Task 7 (subagent tests +7) | ~975
-After Task 8 (parser tests +15) | ~990
-After Task 9 (docs only; 0) | ~988
-After Task 10 (verification only; 0) | ~988
+After Task 8 (parser tests +15; shipped at HEAD `c7fa9d9`) | **996 passed, 9 skipped** (Task-8-shipped baseline)
+After Task 9 (docs only; 0) | 996
+After Task 10 (verification only; 0) | 996
 
-Final target: **≈988 passed, 9 skipped**. Deviations of ±5 from cleanup and migration accounting are acceptable.
+Final target: **996 passed, 9 skipped** (HEAD baseline `c7fa9d9` end-of-Task-8). Task 9 is doc-only (DELTA = 0 tests); Task 10 is verification-only.
 
 **Cascade derivation note:** baseline 943 reflects HEAD `daa8691` (Task 2 fix-up shipped 26 net new tests, not 14 + 5 as the original plan modeled). Plan-fix on Task 3 adds 4 new validation tests for E1+E2 (duplicates, non-string, page_size > 500, validation ordering). Task 3 fix-up adds 5 net new passing tests (D1 empty-string cursor, D2 response-order invariance, multiple-unknown collection, offset-above-total, project-root-no-exclusions) + 1 conditional skip (all-agents-filtered). Plan-fix on Task 4 adds 1 test (page_size upper bound on `assemble_domain_scan`). Final delta vs original cumulative target: +28 tests + 1 skip shift (8 → 9).
 
@@ -4434,7 +4662,7 @@ On completion of Task 10:
 
    ## Test plan
 
-   - [x] All ~983 unit tests pass; 8 skipped (unchanged); zero failures.
+   - [x] All 996 unit tests pass; 9 skipped (unchanged); zero failures.
    - [x] Round-trip 1: `/screw:scan domains:injection-input-handling agents:sqli src/screw_agents/ --no-confirm` — pre-execution summary correct, sqli runs, report generated.
    - [x] Round-trip 2: `/screw:scan full src/screw_agents/ --no-confirm` — all 4 agents resolved + filtered + run, aggregated report generated.
    - [x] grep verification: zero `scan_full` / `assemble_full_scan` / `screw-sqli|cmdi|ssti|xss|injection` references in active code or docs.
