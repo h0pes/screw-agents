@@ -2070,3 +2070,14 @@ Non-blocking minors surfaced during Task 6 pre-audit. Deferred past T-SCAN-REFAC
 **Remediation sketch:** Add "Behavior under MCP tool errors" subsection covering: (a) accumulate_findings failure → retry once, then emit fatal_error preserving partial findings; (b) get_agent_prompt failure → skip that agent, log to scan_metadata; (c) verify_trust failure → see T7-M5; (d) other tool failures → emit fatal_error with tool name + error message. ~10 LOC body + 1-2 tests.
 
 **Estimated scope:** 10 LOC + 2 tests.
+
+### BACKLOG-T-SCAN-REFACTOR-T8-M1 — ScopeResolutionError base class disambiguation
+**Phase-4 readiness:** `non-blocker` — defense-in-depth typing
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 8 pre-audit, 2026-04-26
+**File:** `src/screw_agents/scan_command.py::ScopeResolutionError`
+
+**Why deferred:** `ScopeResolutionError` extends `ValueError`. Engine layer also raises `ValueError`. Body catching `ValueError` for parse errors could confuse with engine errors. A distinct base class would cleanly separate parse errors from engine errors.
+
+**Remediation sketch:** Change base from `ValueError` to `Exception` (or a new `ScanCommandError`); update body to catch `ScopeResolutionError` specifically. ~2 LOC + minor body updates. Existing tests still pass since `match=...` on substrings.
+
+**Estimated scope:** 5 LOC + 0 new tests.

@@ -3023,13 +3023,19 @@ Pre-audit found 6 CRITICAL, 7 IMPORTANT, and 3 escalation candidates. All applie
 
 ## Task 8: Slash command rewrite — multi-scope syntax + parser + summary + errors
 
-**Goal:** Rewrite `plugins/screw/commands/scan.md` for the new grammar (bare-token | `full` | `domains:`/`agents:` prefix-key form), the resolution algorithm, the relevance filter integration, the pre-execution summary line, error cases, and `--no-confirm` flag.
+**Goal:** Rewrite `plugins/screw/commands/scan.md` for the new grammar (bare-token | `full` | `domains:`/`agents:` prefix-key form), the resolution algorithm, the relevance filter integration, the pre-execution summary line, error cases, `--no-confirm` flag, and `--adaptive`/`--no-confirm` mutual exclusivity.
 
 **Files:**
-- Modify: `plugins/screw/commands/scan.md` — full rewrite (~480 LOC current, ~600 LOC after)
-- Create: `tests/test_scan_command_parser.py` — 15 tests for grammar + resolution + error cases
+- Modify: `plugins/screw/commands/scan.md` — full rewrite (~480 LOC current, ~620 LOC after)
+- Create: `src/screw_agents/scan_command.py` — pure-Python parser + `resolve_scope` + `summarize_scope` + `validate_flags` helpers
+- Modify: `src/screw_agents/engine.py` — register `resolve_scope` MCP tool
+- Modify: `src/screw_agents/server.py` — dispatch `resolve_scope` MCP tool
+- Modify: `plugins/screw/agents/screw-scan.md` — accept optional `cursor` input parameter (skip subagent's own init-page call when present)
+- Create: `tests/test_scan_command_parser.py` — 15 parser tests + 1 mutual-exclusion test + 1 whitespace test
+- Modify: `tests/test_server.py` (or `tests/test_scan_command_parser.py`) — 2 MCP-dispatch tests for `resolve_scope` tool
+- Modify: `tests/test_adaptive_subagent_prompts.py` — update assertions for the rewritten scan.md (Step 6.5)
 
-**Pre-audit focus (mandatory — novel UX):** read the current `scan.md` end-to-end (480 LOC). Identify every workflow step that survives the rewrite vs replaces. Specifically: (a) Step 1 (parse arguments + dispatch) is replaced; (b) Step 1b (full-scope domain loop) is replaced; (c) Step 2 (parse subagent return) survives but reads `screw-scan`'s new payload shape; (d) finalize step survives. Confirm `$ARGUMENTS` is the input variable per `skills.md:213` (Claude Code docs). Confirm the slash-command parser runs in main session per `sub-agents.md:11, 685` (chain-subagents pattern).
+**Pre-audit focus (mandatory — novel UX):** read the current `scan.md` end-to-end (480 LOC). Identify every workflow step that survives the rewrite vs replaces. Specifically: (a) Step 1 (parse arguments + dispatch) is replaced; (b) Step 1b (full-scope domain loop) is replaced; (c) the entire adaptive review loop (current scan.md lines 146-442) survives verbatim; (d) finalize step survives. Confirm `$ARGUMENTS` is the input variable per `skills.md:213` (Claude Code docs). Confirm the slash-command parser runs in main session per `sub-agents.md:11, 685` (chain-subagents pattern).
 
 - [ ] **Step 1: Pre-audit — read current scan.md and identify replaceable sections**
 
@@ -3190,10 +3196,78 @@ def test_malformed_prefix_key_raises(registry: AgentRegistry) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_resolved_list_is_sorted_and_unique(registry: AgentRegistry) -> None:
-    parsed = parse_scope_spec("agents:sqli,xss,sqli")  # duplicate
+def test_resolved_list_dedup_explicit(registry: AgentRegistry) -> None:
+    """Duplicates in input are deduplicated; output is sorted.
+
+    Strengthened from the prior tautological `assert resolved == sorted(set(resolved))`
+    to assert concrete expected values (per pre-audit IMPORTANT finding).
+    """
+    parsed = parse_scope_spec("agents:sqli,xss,sqli")  # 'sqli' appears twice
     resolved = resolve_scope(parsed, registry)
-    assert resolved == sorted(set(resolved))
+    assert resolved == ["sqli", "xss"]
+    assert len(resolved) == 2  # sqli appeared twice in input
+
+
+# ---------------------------------------------------------------------------
+# Cross-domain rejection (15th test — security boundary, T8 plan-fix Edit 8)
+# ---------------------------------------------------------------------------
+
+
+def test_cross_domain_agent_rejection(tmp_path: Path) -> None:
+    """If `domains:` is given AND `agents:` names cross-belong, parser rejects.
+
+    Today's registry has 1 domain so the path is unreachable with real YAMLs;
+    test uses a tmp_path-built fake registry with 2 fake domains. Closes the
+    security-boundary gap flagged in pre-audit Edit 8.
+    """
+    # Build 2-domain fake registry. Implementer fills in minimal valid YAMLs
+    # for `agent_x` (in domain-a) and `agent_y` (in domain-b) per the YAML
+    # schema in domains/<domain>/<agent>.yaml.
+    d1 = tmp_path / "domain-a"
+    d1.mkdir()
+    # ... write minimal valid YAML for agent_x in domain-a
+    d2 = tmp_path / "domain-b"
+    d2.mkdir()
+    # ... write minimal valid YAML for agent_y in domain-b
+    fake_registry = AgentRegistry(tmp_path)
+
+    parsed = parse_scope_spec("domains:domain-a agents:agent_y")
+    with pytest.raises(ScopeResolutionError, match="not in any of the listed domains|domain-a"):
+        resolve_scope(parsed, fake_registry)
+
+
+# ---------------------------------------------------------------------------
+# Whitespace handling in prefix-key tokens (T8 plan-fix Edit 11)
+# ---------------------------------------------------------------------------
+
+
+def test_whitespace_in_prefix_key_raises_actionable(registry: AgentRegistry) -> None:
+    """`domains: foo` (space after colon) raises an actionable error.
+
+    Without explicit handling, `foo` would be silently re-classified as a
+    bare token. Pre-audit IMPORTANT (Edit 11): explicit error is friendlier
+    than silent re-interpretation.
+    """
+    parsed = parse_scope_spec("domains: foo")
+    with pytest.raises(ScopeResolutionError, match="Whitespace not allowed inside prefix-key"):
+        resolve_scope(parsed, registry)
+
+
+# ---------------------------------------------------------------------------
+# Mutual exclusivity: --adaptive + --no-confirm (E4=A, T8 plan-fix Edit 7)
+# ---------------------------------------------------------------------------
+
+
+def test_adaptive_and_no_confirm_mutually_exclusive() -> None:
+    """Combining --adaptive and --no-confirm raises with actionable message.
+
+    E4=A (Marco approved): hard error — `--adaptive` needs interactive consent,
+    `--no-confirm` signals non-interactive context. They cannot be combined.
+    """
+    from screw_agents.scan_command import validate_flags
+
+    with pytest.raises(ValueError, match="cannot be combined"):
+        validate_flags(["--adaptive", "--no-confirm"])
 ```
 
 - [ ] **Step 3: Run new tests to verify they fail**
@@ -3222,6 +3296,7 @@ Spec sections 6.1, 6.2, 6.3, 6.6.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Literal
 
 from screw_agents.registry import AgentRegistry
 
@@ -3231,14 +3306,32 @@ class ScopeResolutionError(ValueError):
     surfaces this as a user-facing error message before any dispatch."""
 
 
-@dataclass
+@dataclass(frozen=True)
 class ParsedScope:
     """Result of `parse_scope_spec` — pre-registry-validation."""
 
+    form: Literal["bare-token", "full", "prefix-key"]
     full_keyword: bool = False
     bare_token: str | None = None
     domains_explicit: list[str] = field(default_factory=list)
     agents_explicit: list[str] = field(default_factory=list)
+
+
+def validate_flags(flags: list[str]) -> None:
+    """Validate flag combinations BEFORE scope parsing.
+
+    Raises:
+        ValueError: if `--adaptive` and `--no-confirm` are both present
+            (E4=A: hard error per Marco's approval). `--adaptive` requires
+            interactive consent; `--no-confirm` signals non-interactive
+            context — they cannot be combined.
+    """
+    if "--adaptive" in flags and "--no-confirm" in flags:
+        raise ValueError(
+            "Error: `--adaptive` requires interactive consent (5-section "
+            "review prompts). `--no-confirm` signals non-interactive context. "
+            "Pick one — they cannot be combined."
+        )
 
 
 def parse_scope_spec(scope_text: str) -> ParsedScope:
@@ -3379,6 +3472,34 @@ def resolve_scope(parsed: ParsedScope, registry: AgentRegistry) -> list[str]:
         )
 
     return sorted(final)
+
+
+def summarize_scope(parsed: ParsedScope, registry: AgentRegistry) -> list[dict]:
+    """Enriched per-domain summary for the pre-execution summary line.
+
+    E3=C (Marco approved): split from resolve_scope so the security-critical
+    resolution (registry allowlist + cross-domain rejection) stays simple
+    and testable, while the UX-formatting concern lives separately.
+
+    Returns a list of dicts:
+        [{"domain": str, "mode": "subset"|"full", "agents": list[str]}, ...]
+
+    Mode "full" = all agents in the domain (e.g., bare-token domain or `full`
+    keyword path). Mode "subset" = only the explicitly-named agents from the
+    domain (e.g., `agents:sqli` resolves to subset of injection-input-handling).
+
+    Args:
+        parsed: result of `parse_scope_spec`.
+        registry: loaded AgentRegistry.
+
+    Returns:
+        Sorted-by-domain list of summary dicts. Each entry's `agents` list
+        is also sorted. Used by `/screw:scan` body to render the
+        per-domain "subset|full" annotation in the pre-execution summary.
+    """
+    # Implementer fills in: walk parsed form, group by domain, classify
+    # subset vs full, return sorted dicts.
+    ...
 ```
 
 - [ ] **Step 5: Run parser tests; confirm pass**
@@ -3387,7 +3508,98 @@ def resolve_scope(parsed: ParsedScope, registry: AgentRegistry) -> list[str]:
 uv run pytest tests/test_scan_command_parser.py -v 2>&1 | tail -25
 ```
 
-Expected: all 15 tests PASS.
+Expected: all parser tests PASS (15 grammar + 1 mutual-exclusion + 1 whitespace = 17). Two more (MCP-dispatch tests in Step 5b) added below.
+
+- [ ] **Step 5b: Register `resolve_scope` as an MCP tool** (E1=A — security: eliminates Bash + `python -c` shell-injection class)
+
+Marco approved E1=A. The slash command MUST NOT shell out to `uv run python -c "..."` with user-controlled `$ARGUMENTS` — quote-escaping bugs in the markdown body would expose a shell-injection vulnerability. Instead, register the parser as a first-class MCP tool. JSON-serialized inputs over the MCP layer are not shell-parsed.
+
+**(a) Tool registration in `src/screw_agents/engine.py::list_tool_definitions`:**
+
+```python
+        tools.append({
+            "name": "resolve_scope",
+            "description": (
+                "Resolve a slash-command scope spec into a deduplicated, sorted "
+                "list of agent names. Used by the /screw:scan slash command to "
+                "translate user input (e.g., 'sqli', 'full', 'domains:foo,bar', "
+                "'agents:baz,qux') into the agents list passed to scan_agents. "
+                "Returns: {agents: list[str], summary: list[dict]}. The summary "
+                "field carries per-domain subset|full annotation for the "
+                "pre-execution summary line. Raises ValueError on parse/resolve "
+                "errors with actionable messages."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "scope_text": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": (
+                            "Raw scope-spec string from the user. Examples: 'sqli', "
+                            "'full', 'domains:injection-input-handling', "
+                            "'agents:sqli,xss', 'domains:foo agents:bar'."
+                        ),
+                    },
+                },
+                "required": ["scope_text"],
+                "additionalProperties": False,
+            },
+        })
+```
+
+**(b) Server-side dispatch in `src/screw_agents/server.py::_dispatch_tool`:**
+
+```python
+    if name == "resolve_scope":
+        from screw_agents.scan_command import (
+            parse_scope_spec,
+            resolve_scope,
+            summarize_scope,
+        )
+        scope_text = args["scope_text"]
+        parsed = parse_scope_spec(scope_text)
+        agents = resolve_scope(parsed, engine.registry)
+        summary = summarize_scope(parsed, engine.registry)
+        return {"agents": agents, "summary": summary}
+```
+
+**(c) Add 2 MCP-dispatch tests** (in `tests/test_scan_command_parser.py` or `tests/test_server.py` — implementer's choice):
+
+```python
+def test_resolve_scope_mcp_dispatch_sqli() -> None:
+    """resolve_scope MCP tool routes to scan_command parser; no shell exec."""
+    from screw_agents.server import _dispatch_tool
+    from screw_agents.engine import ScanEngine
+    from screw_agents.registry import AgentRegistry
+    from pathlib import Path
+
+    engine = ScanEngine(AgentRegistry(Path(__file__).parents[1] / "domains"))
+    result = _dispatch_tool(engine, "resolve_scope", {"scope_text": "sqli"})
+    assert result["agents"] == ["sqli"]
+    assert isinstance(result["summary"], list)
+    assert all("domain" in entry and "mode" in entry for entry in result["summary"])
+
+
+def test_resolve_scope_mcp_rejects_unknown_token() -> None:
+    """Unknown scope tokens raise ValueError with actionable message."""
+    from screw_agents.server import _dispatch_tool
+    from screw_agents.engine import ScanEngine
+    from screw_agents.registry import AgentRegistry
+    from pathlib import Path
+
+    engine = ScanEngine(AgentRegistry(Path(__file__).parents[1] / "domains"))
+    with pytest.raises(ValueError, match="not a domain or agent"):
+        _dispatch_tool(engine, "resolve_scope", {"scope_text": "unknownname"})
+```
+
+Run:
+
+```
+uv run pytest tests/test_scan_command_parser.py tests/test_server.py -v 2>&1 | tail -20
+```
+
+Expected: dispatch tests PASS; full parser file at 19 tests (15 grammar + 1 cross-domain + 1 whitespace + 1 mutual-exclusion + 2 MCP-dispatch — or 17 if MCP tests live in test_server.py).
 
 - [ ] **Step 6: Rewrite `scan.md` slash command body**
 
@@ -3396,15 +3608,36 @@ Open `/home/marco/Programming/AI/screw-agents/plugins/screw/commands/scan.md`. R
 ```markdown
 ---
 name: screw:scan
-description: "Run a security scan with screw-agents. Usage: /screw:scan <scope-spec> [target] [--thoroughness standard|deep] [--format json|sarif|markdown|csv] [--adaptive] [--no-confirm]"
+description: "Run a security scan with screw-agents. Usage: /screw:scan <scope-spec> [target] [--thoroughness standard|deep] [--format json|sarif|markdown|csv] [--adaptive] [--no-confirm]. Migration: bare-token form (`/screw:scan sqli`) is preserved. The retired `scan_full` and per-agent (`scan_sqli`, ...) MCP tools are replaced by `scan_agents` (Task 6); for full-coverage scans use `/screw:scan full` or call `scan_agents(agents=list_agents().names)` directly."
 allowed-tools:
-  - Bash
   - Read
   - Agent
   - mcp__screw-agents__list_agents
   - mcp__screw-agents__list_domains
+  - mcp__screw-agents__resolve_scope
+  - mcp__screw-agents__scan_agents
+  - mcp__screw-agents__verify_trust
+  - mcp__screw-agents__accumulate_findings
   - mcp__screw-agents__finalize_scan_results
+  - mcp__screw-agents__stage_adaptive_script
+  - mcp__screw-agents__promote_staged_script
+  - mcp__screw-agents__reject_staged_script
+  - mcp__screw-agents__execute_adaptive_script
+  - mcp__screw-agents__record_exclusion
 ---
+
+<!--
+Frontmatter `allowed-tools` rationale (T8 plan-fix Edit 2):
+- `Bash` dropped: E1=A replaced shell-out with `mcp__screw-agents__resolve_scope` MCP tool registration. No more shell-injection surface.
+- Adaptive review loop tools added: stage_adaptive_script, promote_staged_script,
+  reject_staged_script, execute_adaptive_script, accumulate_findings, verify_trust,
+  record_exclusion. The body invokes all of these on the adaptive path.
+- scan_agents added: main session calls scan_agents(cursor=null) for the init page
+  itself (E2=A: split init/code-page architecture). Subagent dispatched with cursor
+  for code pages only.
+-->
+
+**Migration from retired tools:** If you previously typed `/screw:scan sqli`, that still works (bare-token form). If you scripted `scan_full` MCP calls, those are retired (Task 6) — use `mcp__screw-agents__scan_agents` directly with `agents=list_agents().names` for full-coverage scans, OR use `/screw:scan full` from the slash command. Per-agent MCP tools (`scan_sqli`, etc.) are also retired; use `scan_agents(agents=["sqli"])`.
 
 # /screw:scan — Security Scan Orchestrator (main-session)
 
@@ -3450,54 +3683,101 @@ Pick exactly one of:
 
 ## Workflow
 
-### Step 1: Parse `$ARGUMENTS`
+### Step 1: Parse `$ARGUMENTS` and validate flags
 
-Tokenize `$ARGUMENTS` into:
-- `scope_tokens`: tokens before the first non-flag, non-`:`-bearing, non-`full` token (or after such token if it's the bare-token form). Specifically: walk left-to-right; tokens are scope-spec tokens until you hit something that's not `full`, not a bare-token name in the registry, and not a `domains:`/`agents:` prefix key. The remaining is target + flags.
-- `target_token`: the single positional after the scope-spec.
-- `flags`: any tokens starting with `--`.
-
-In practice, since the scope-spec form is mutually exclusive (Section "Scope-spec forms"), you can determine which form is in use by looking at the first non-flag token, then consume scope tokens accordingly.
-
-### Step 2: Resolve scope to agents list
-
-Invoke `screw_agents.scan_command.parse_scope_spec` and `resolve_scope` (the registered Python helper). If a `ScopeResolutionError` is raised, surface its message verbatim and abort:
+**Pre-parse algorithm** (token classification from `$ARGUMENTS` — T8 plan-fix Edit 10):
 
 ```
-Bash: `uv run python -c "from screw_agents.scan_command import parse_scope_spec, resolve_scope; from screw_agents.registry import AgentRegistry; from pathlib import Path; reg = AgentRegistry(Path('domains')); parsed = parse_scope_spec(<scope_text>); print(','.join(resolve_scope(parsed, reg)))"`
+tokens = $ARGUMENTS.split()
+flags = {}  # --adaptive, --no-confirm, --thoroughness <v>, --format <v>
+scope_tokens = []
+target = None
+
+i = 0
+while i < len(tokens):
+    t = tokens[i]
+    if t == "--adaptive" or t == "--no-confirm":
+        flags[t.lstrip("-")] = True
+        i += 1
+    elif t in ("--thoroughness", "--format"):
+        if i + 1 >= len(tokens):
+            raise ValueError(f"Flag {t} requires a value")
+        flags[t.lstrip("-")] = tokens[i+1]
+        i += 2
+    elif t == "full" or ":" in t or registry.get_agent(t) or t in registry.list_domains():
+        scope_tokens.append(t)
+        i += 1
+    else:
+        # Anything else is the target (file path, glob, etc.)
+        if target is not None:
+            raise ValueError(f"Multiple targets found: {target!r} and {t!r}; only one allowed")
+        target = t
+        i += 1
+
+scope_text = " ".join(scope_tokens)  # passed to resolve_scope MCP tool
 ```
 
-(Or call via the registered MCP `list_agents` / `list_domains` tools and reproduce the resolution algorithm in the prompt — implementation detail. The helper exists in Python for testability; the slash command can either invoke it via Bash or reproduce the algorithm.)
+**Mutual exclusivity check** (E4=A — Marco approved): If both `--adaptive` and `--no-confirm` are present in `$ARGUMENTS`, abort with:
 
-### Step 3: Apply relevance filter
+> Error: `--adaptive` requires interactive consent (5-section review prompts). `--no-confirm` signals non-interactive context. Pick one — they cannot be combined.
 
-The relevance filter runs server-side inside `scan_agents`. Main session does NOT pre-filter. The init-page response carries `agents_excluded_by_relevance` records — surface these in the pre-execution summary.
+Exit BEFORE parsing scope. (Implementer: `validate_flags` helper in `scan_command.py` enforces this; the slash command body invokes it as the first action after token classification.)
+
+### Step 2: Resolve scope to agents list (via MCP tool)
+
+Use the `mcp__screw-agents__resolve_scope` tool with `scope_text: "<scope_tokens joined by space>"`. The tool returns `{agents: [...], summary: [...]}`:
+
+- `agents`: deduplicated, sorted list of agent names (security-critical — registry allowlist + cross-domain rejection enforced server-side per E3=C split).
+- `summary`: per-domain entries `[{"domain": str, "mode": "subset"|"full", "agents": [...]}, ...]` for the pre-execution summary line.
+
+If the call raises (ValueError / ScopeResolutionError on parse/resolve error), surface the error message verbatim to the user and abort. NO shell. NO `python -c`. The MCP layer JSON-serializes the input; no shell parsing happens.
+
+### Step 3: Init-page call — main session calls `scan_agents(cursor=null)` directly (E2=A architecture)
+
+**Architecture (E2=A — Marco approved):** main session calls `scan_agents` with `cursor=null` for the INIT PAGE only; subagent is dispatched later with the returned `next_cursor` to skip its own init call. This keeps the relevance-filter results visible in main session for the pre-execution summary, and avoids the duplicate init call.
+
+```
+mcp__screw-agents__scan_agents({
+    "agents": <agents from Step 2>,
+    "target": <parsed target>,
+    "project_root": <absolute project root>,
+    "cursor": null,  # init page
+    "thoroughness": <standard|deep>,
+    "format": <json|sarif|markdown|csv>,
+})
+```
+
+The init-page response provides:
+- `agents` — kept-after-relevance-filter list
+- `agents_excluded_by_relevance` — list of dicts with `agent_name`, `reason`, `agent_languages`, `target_languages` (Task 3 schema)
+- `total_files`, `next_cursor`, `trust_status` (if `project_root` provided)
 
 ### Step 4: Pre-execution summary
 
-Print to the user (stderr if `--no-confirm`, otherwise stdout):
+Render the pre-execution summary line using the `summary` field from Step 2 + the `agents_excluded_by_relevance` records from Step 3:
 
 ```
-Resolved scope: <N> agents will be scanned
-  domain <D1> (subset|full): <agent1>, <agent2>, ...
-  domain <D2> (subset|full): <agent3>, ...
-  ...
-
-Excluded by relevance filter (target language: <L>):
-  - <agent_X> (declares: <L_X>) — domain: <D>
-  ...
-
-Target: <target> (<F> files, <LOC> LOC)
+Scan target: <target>
+Agents: <kept count> kept, <excluded count> dropped by relevance filter
+  Kept (per-domain mode from `summary`):
+    domain <D1> (subset|full): <agent1>, <agent2>, ...
+    domain <D2> (subset|full): <agent3>, ...
+    ...
+  Excluded by relevance filter (target language: <L>):
+    - <agent_X> (declares: <L_X>) — domain: <D>
+    ...
+Trust: <trust_status summary>  (if project_root)
+Files scanned: <total_files>
 Thoroughness: <T>
 Adaptive mode: <enabled|disabled>
 Format: <F>
-
-Continue with this scope? [Y/n]
 ```
 
-If `--no-confirm` is set, skip the prompt; otherwise wait for user confirmation. Abort on 'n' / 'N' / non-empty non-Y answer.
+If `--no-confirm` is NOT passed, prompt the user "Proceed? [Y/n]" and wait for input. Abort on 'n' / 'N' / non-empty non-Y answer.
 
-### Step 5: Dispatch screw-scan
+If `--no-confirm` IS passed, log the summary line(s) for audit trail but skip the prompt; proceed immediately.
+
+### Step 5: Dispatch screw-scan subagent with init cursor
 
 ```
 Agent(
@@ -3505,9 +3785,10 @@ Agent(
   description="Security scan — <scope summary>",
   prompt="""
     Run the scan with these parameters:
-    - agents: <comma-separated list from Step 2>
+    - agents: <kept agents from Step 4>
     - target: <parsed target spec>
     - project_root: <absolute project root>
+    - cursor: <next_cursor from Step 3 init-page response>  ← NEW: skip subagent's init call
     - thoroughness: <standard|deep>
     - adaptive_flag: <true|false>
     - format: <json|sarif|markdown|csv>
@@ -3518,13 +3799,17 @@ Agent(
 )
 ```
 
+The `cursor` parameter tells `screw-scan` to SKIP its own `scan_agents(cursor=null)` call and start at the code page directly. This avoids duplicating the init call (E2=A architecture).
+
+> **Cross-task note (Task 8 fix-up):** `screw-scan.md` (Task 7) MUST honor a `cursor` input parameter that, when present, skips the subagent's own init-page call. If `screw-scan.md` does not yet support this, amend `screw-scan.md` Step 1 (Init page) accordingly as part of Task 8.
+
 ### Step 6: Parse subagent return
 
-The subagent's last turn ends with a fenced JSON block matching the `summary_counts` schema in `screw-scan.md`. Parse it. Capture `session_id` for the finalize call.
+The subagent's last turn ends with a fenced JSON block matching the structured-return schema in `screw-scan.md`. Parse it. Capture `session_id` for the finalize call.
 
-### Step 7: Adaptive script reviewer (optional)
+### Step 7: Adaptive review loop (preserved verbatim from current scan.md lines 146-442)
 
-If `adaptive_flag` is true AND the subagent's return indicates staged scripts pending review, dispatch `screw:screw-script-reviewer` per the existing post-C2 pattern. After it returns, optionally re-dispatch `screw-scan` with the same `session_id` to re-scan post-script-promotion.
+The entire adaptive review loop (5-section script review prompts, stage_adaptive_script → verify_trust → promote_staged_script ordering, reject_staged_script, execute_adaptive_script, accumulate_findings, record_exclusion) is preserved VERBATIM from the current pre-rewrite scan.md (lines 146-442). Implementer copies that block into the new body without modification beyond mechanical adjustments to scope-spec references.
 
 ### Step 8: Finalize
 
@@ -3542,25 +3827,55 @@ Surface the rendered report path to the user.
 
 - ScopeResolutionError from Step 2 → surface message, abort before any work.
 - Empty resolved agent list (e.g., all filtered) → abort with summary.
-- Subagent fatal_error → surface, abort, do not finalize.
-- `--adaptive` in non-interactive context → abort.
+- Subagent `fatal_error` → surface, abort, do not finalize.
+- `--adaptive` in non-interactive context → abort (caught by Step 1 mutual-exclusivity check).
+- `--adaptive` AND `--no-confirm` together → hard abort (E4=A).
 ```
 
-(This is a heavily abridged version of the rewrite. The actual `scan.md` will be ~600 LOC after expansion to include detailed examples, edge cases, and the existing finalize section preserved verbatim. Implementer expands the rewritten body to full detail using `screw-injection.md` (deleted in Task 7) as a reference for the dispatch + parse-return + finalize portions.)
+**Implementer expands the rewritten body to full detail using:**
+- The CURRENT pre-rewrite `scan.md` (lines 146-442) as reference for the surviving adaptive review loop (Steps 3a-3f). This block is preserved verbatim into the new Task 8 body.
+- The new `screw-scan.md` (Task 7) as reference for the structured-return schema scan.md must parse.
+- Spec §6.4-6.6 for the pre-execution summary, error cases, and migration notes.
+
+- [ ] **Step 6.5: Update `tests/test_adaptive_subagent_prompts.py` for the rewritten scan.md** (T8 plan-fix Edit 3)
+
+The 9 tests surviving from Task 7's per-agent migration assert on `scan.md` content. After Task 8 rewrites scan.md, those tests need updating:
+
+```bash
+uv run pytest tests/test_adaptive_subagent_prompts.py -v 2>&1 | tail -30
+```
+
+For each failing test, update the assertions to match the new scan.md body. Specifically:
+
+- `test_scan_md_references_all_required_orchestration_mcp_tools` — verify the new body references `stage_adaptive_script`, `promote_staged_script`, `reject_staged_script`, `execute_adaptive_script`, `accumulate_findings`, `verify_trust`, `finalize_scan_results`, `scan_agents`, `resolve_scope` (the new MCP tool).
+- `test_scan_md_phrase_grammar_locked` — re-confirm `approve`, `reject`, `confirm-high`, `--no-confirm`, `--adaptive` tokens present.
+- `test_scan_md_verifies_trust_before_promote` — re-confirm `verify_trust` → `promote_staged_script` ordering.
+- `test_scan_md_contains_subagent_return_schema_keys` — verify all C2-required keys + new enrichment keys (per Task 7 hybrid schema): `schema_version`, `scan_subagent`, `session_id`, `trust_status`, `yaml_findings_accumulated`, `adaptive_mode_engaged`, `pending_reviews`, `scan_metadata`, plus enrichment: `summary_counts`, `classification_summary`, `agents_excluded_by_relevance`, `context_required_matches_recorded`, `exclusions_applied_count`.
+- `test_scan_md_contains_full_scope_list_domains_branch` — verify `full` keyword path uses `list_domains` enumeration.
+
+Goal: ALL 9 tests pass after Step 6's rewrite. If any assertion no longer applies (e.g., body intentionally drops a phrase), update OR delete the test with explicit comment referencing this Task 8 plan-fix.
+
+Run after migration:
+```
+uv run pytest tests/test_adaptive_subagent_prompts.py -v 2>&1 | tail -15
+```
+
+Expected: 9 passed (or fewer if tests legitimately removed; document each removal in commit message).
 
 - [ ] **Step 7: Run all tests; confirm**
 
 ```
 uv run pytest tests/test_scan_command_parser.py -v 2>&1 | tail -10
+uv run pytest tests/test_adaptive_subagent_prompts.py -v 2>&1 | tail -15
 uv run pytest -q 2>&1 | tail -5
 ```
 
-Expected: parser tests PASS; full suite ~968 + 15 = ~983 passed.
+Expected: parser tests PASS (15 grammar + 1 cross-domain + 1 whitespace + 1 mutual-exclusion + 2 MCP-dispatch = 19 net new); test_adaptive_subagent_prompts.py 9 pass (assertions migrated); full suite **990 passed, 9 skipped** (971 Task 7 baseline + 19 net new).
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add plugins/screw/commands/scan.md src/screw_agents/scan_command.py tests/test_scan_command_parser.py
+git add plugins/screw/commands/scan.md src/screw_agents/scan_command.py src/screw_agents/engine.py src/screw_agents/server.py plugins/screw/agents/screw-scan.md tests/test_scan_command_parser.py tests/test_server.py tests/test_adaptive_subagent_prompts.py
 git commit -m "T-SCAN-REFACTOR Task 8: slash command rewrite — multi-scope syntax
 
 Replaces single-token scope arg (sqli|cmdi|ssti|xss|injection|full) with
@@ -3574,29 +3889,61 @@ the new grammar from spec section 6:
 The 3 forms are mutually exclusive; mixing raises ScopeResolutionError.
 
 src/screw_agents/scan_command.py (new module): pure-Python parser +
-resolver helpers extracted for testability. parse_scope_spec(text) -> 
-ParsedScope; resolve_scope(parsed, registry) -> list[str].
+resolver helpers extracted for testability:
+- parse_scope_spec(text) -> ParsedScope
+- resolve_scope(parsed, registry) -> list[str]  (security-critical, simple)
+- summarize_scope(parsed, registry) -> list[dict]  (E3=C: enriched
+  per-domain subset|full annotation for the pre-execution summary)
+- validate_flags(flags) -> None  (E4=A: --adaptive + --no-confirm hard error)
+
+src/screw_agents/engine.py + server.py: register resolve_scope as an
+MCP tool (E1=A: eliminates Bash + python -c shell-injection class).
+
+plugins/screw/agents/screw-scan.md: accept optional cursor input (E2=A:
+when present, skip subagent's own init-page call; main session calls
+scan_agents(cursor=null) for init page itself).
 
 plugins/screw/commands/scan.md: full rewrite. Workflow now:
-1. Parse scope tokens from \$ARGUMENTS
-2. Resolve to agent list via scan_command helpers (cross-domain rejection,
-   unknown-name rejection)
-3. Server applies relevance filter inside scan_agents — caller surfaces
-   results
-4. Pre-execution summary line (subset/full annotations + filter exclusions)
+1. Parse scope tokens from \$ARGUMENTS + validate flags (E4=A check)
+2. Resolve via mcp__screw-agents__resolve_scope tool (no shell)
+3. Init-page call (main session): scan_agents(cursor=null) — reads
+   relevance-filter exclusions for the summary line
+4. Pre-execution summary (per-domain subset|full + filter exclusions)
 5. Consent prompt (or skip with --no-confirm for CI)
-6. Dispatch universal screw-scan subagent with resolved agents list
-7. Parse structured return
-8. Optional screw-script-reviewer dispatch for adaptive flows
-9. finalize_scan_results
+6. Dispatch screw-scan subagent with cursor for code pages only
+7. Adaptive review loop (verbatim from current scan.md lines 146-442)
+8. finalize_scan_results
 
 Adaptive flow + chain-subagents architecture preserved.
 
-15 parser tests cover: bare-token agent, bare-token domain, full keyword,
-prefix-key forms (domains-only, agents-only, mixed), cross-domain
-rejection, unknown name rejection, mutual exclusivity, empty/malformed
-inputs, result determinism (sorted + dedup)."
+Net new tests in Task 8: 19 (15 grammar + 1 cross-domain + 1 whitespace
++ 1 mutual-exclusion + 2 MCP-dispatch). Plus 9 in test_adaptive_subagent_prompts.py
+re-asserted against rewritten scan.md.
+
+Post-Task-8: 971 + 19 = 990 passed, 9 skipped."
 ```
+
+---
+
+**Plan-fix additions (2026-04-26, post pre-audit on HEAD 9356593):**
+
+- **E1=A** (Marco approved): parser invocation moved from shell-injection-vulnerable Bash to MCP tool registration (`mcp__screw-agents__resolve_scope`). New tool routes through engine/server, no shell parsing. Eliminates injection class entirely.
+- **E2=A** (Marco approved): pre-execution summary architecture splits init/code-page responsibility. Main session calls `scan_agents(cursor=null)` for init page itself, surfaces `agents_excluded_by_relevance` in summary, dispatches subagent with cursor for code pages only. `screw-scan.md` amendment: subagent honors `cursor` input when present (skips its own init call).
+- **E3=C** (Marco approved): `resolve_scope` returns `list[str]` (security-critical, simple); new `summarize_scope` returns enriched per-domain "subset|full" annotation for the pre-execution summary line.
+- **E4=A** (Marco approved): `--adaptive` + `--no-confirm` are mutually exclusive; combining raises actionable error before scope parse. New `validate_flags` helper enforces this.
+- frontmatter `allowed-tools` expanded to cover adaptive review loop (`stage_adaptive_script`, `promote_staged_script`, `reject_staged_script`, `execute_adaptive_script`, `accumulate_findings`, `verify_trust`, `record_exclusion`); `Bash` dropped (E1=A removes Bash dependency).
+- New **Step 6.5** added: migrate 9 surviving tests in `test_adaptive_subagent_prompts.py` after scan.md rewrite.
+- Replaced deleted `screw-injection.md` reference with current pre-rewrite scan.md (lines 146-442) as the implementer's reference for the adaptive review loop.
+- 15th test added (cross-domain agent rejection with tmp_path-built fake registry); tautological test (`assert resolved == sorted(set(resolved))`) strengthened to assert concrete expected values.
+- Pre-parse algorithm pseudocode added to Step 1 (token classification with explicit branching for `--adaptive`/`--no-confirm`/`--thoroughness`/`--format`/scope/target).
+- Whitespace handling in prefix-key tokens: explicit error (`"Whitespace not allowed inside prefix-key"`), not silent re-interpretation.
+- Migration note for retired tools (`scan_full`, `scan_sqli`, ...) added to scan.md description frontmatter.
+- `ParsedScope` dataclass: added `form: Literal["bare-token", "full", "prefix-key"]` field for explicit form discrimination; `frozen=True` for immutability.
+- `ScopeResolutionError` base-class disambiguation (parse errors vs engine errors): deferred to backlog as `BACKLOG-T-SCAN-REFACTOR-T8-M1` (non-blocker, defense-in-depth typing).
+
+**Net new tests in Task 8:** 15 parser tests + 2 MCP-dispatch tests + 1 mutual-exclusion test + 1 whitespace test = **19**. Plus migration of 9 in `test_adaptive_subagent_prompts.py` (assertions update; counts unchanged).
+
+**Post-Task-8 expected:** 971 (Task 7 baseline) + 19 (new) = **990 passed, 9 skipped**.
 
 ---
 
