@@ -190,7 +190,7 @@ After all pages processed (when `next_cursor` is null), proceed to Step 3.5 (ada
 
 Adaptive mode generates LLM-authored analysis scripts for coverage gaps the static YAML agents could not resolve. This subagent handles scan + generate + lint (this file's scope); the main session orchestrator (`/screw:scan`) handles the rest of the flow (review, approve/reject, sign, execute). The full flow spans Layers 0a–g + 1–7 of the 15-layer defense stack (see `docs/specs/2026-04-13-phase-3-adaptive-analysis-learning-design.md` §5). The layers referenced directly in this step include Layer 0a (untrusted fence), Layer 0b (curated imports), Layer 0c (templated scaffold), Layer 0d (semantic review subagent), Layer 0e (injection blocklist), Layer 0f (per-session quota), Layer 1 (AST allowlist lint), and Layer 5 (sandbox execution).
 
-**Interactive consent:** the `--adaptive` flag IS user consent. It must only be passed in interactive sessions where the human can type `approve <name>` or `reject <name>` in response to the 5-section review. CI pipelines, piped-stdin contexts, and other non-interactive invocations MUST NOT pass `--adaptive`. If you are somehow invoked with `--adaptive` but cannot receive user input, refuse with: "Adaptive mode requires interactive approval — cannot proceed."
+**Interactive consent:** the `--adaptive` flag IS user consent. It must only be passed in interactive sessions where the human can type `approve <name>` or `reject <name>` in response to the 5-section review. CI pipelines, piped-stdin contexts, and other non-interactive invocations MUST NOT pass `--adaptive`. Main session enforces interactive consent BEFORE dispatching with `--adaptive` (see `SKILL.md` and `scan.md`). If the `--adaptive` flag reached you in the dispatch prompt, treat it as authorization-already-confirmed and proceed with the adaptive flow. You do not probe for interactivity yourself.
 
 Also verify `.screw/config.yaml` has `adaptive: true` at the project root (use the `Read` tool). If the config says `adaptive: false` but the user passed `--adaptive`, honor the command-line flag (it's an explicit opt-in for this run). If neither is set, skip adaptive mode with: "Adaptive mode not enabled for this project. Run `screw-agents init-trust` then set `adaptive: true` in `.screw/config.yaml` to enable."
 
@@ -202,7 +202,7 @@ If Step 3's page loop processed zero context_required matches across all agents 
 
 #### Step 3.5b: Detect coverage gaps per-agent
 
-Before proceeding to Step 4 (Persist YAML findings) and Step 5 (return), for each `agent_name` in the input agents list (skip agents that were filtered out by relevance — they have no findings and no recorded matches), call:
+Before proceeding to Step 4 (Persist YAML findings) and Step 5 (return), for each `agent_name` in `init["agents"]` (the post-relevance-filter kept-agents list returned by the `scan_agents` init page; agents filtered out are listed in `init["agents_excluded_by_relevance"]` and should NOT be processed in adaptive mode), call:
 
 ```
 mcp__screw-agents__detect_coverage_gaps({
@@ -236,7 +236,7 @@ For each gap that passes the quota gate: apply the per-gap pipeline below (sub-s
 
 If a gap's Step 3.5d-A Layer 0e blocklist check trips, do NOT emit a pending_review; append `{agent: gap.agent_name, file: gap.file, line: gap.line, matched_string: <blocklisted token>}` to `blocklist_skipped_gaps` and continue to the next gap (blocklist hits do NOT consume quota).
 
-**Session ID reuse:** pass the SAME `session_id` (originated by Step 3.5a's FIRST `record_context_required_match` call, then carried forward to Step 4's `accumulate_findings`) to every Step 3.5 MCP tool call (`detect_coverage_gaps`, `lint_adaptive_script`, and the Step 4 `accumulate_findings`). This ties all adaptive artifacts to the same session.
+**Session ID reuse:** pass the SAME `session_id` (originated by Step 3.5a's FIRST `record_context_required_match` call, then carried forward to Step 4's `accumulate_findings`) to every session-stateful Step 3.5 MCP tool call (`detect_coverage_gaps`, `record_context_required_match`, and the Step 4 `accumulate_findings`). `lint_adaptive_script` is a stateless AST utility and does NOT accept session_id. This ties all session-stateful adaptive artifacts to the same scan.
 
 #### Step 3.5d: Per-gap pipeline
 
@@ -270,7 +270,7 @@ Move to the next gap. (Blocklist hits do NOT consume quota.)
 
 Compute a deterministic name matching regex `^[a-z0-9][a-z0-9-]{2,62}$`:
 
-1. `agent_part` = `gap.agent_name` (the per-agent name attached to the gap by Step 3.5b — e.g., `sqli`, `cmdi`, `ssti`, `xss`, or whatever new agents the registry holds).
+1. `agent_part` = `gap.agent_name` (the per-agent name attached to the gap by Step 3.5b — e.g., `sqli`, `cmdi`, `ssti`, `xss`, or whatever new agents the registry holds). Normalize `agent_part`: replace any `_` with `-` so the script_name conforms to `^[a-z0-9][a-z0-9-]{2,62}$` (the AgentMeta validator allows underscores in agent names; the script-name regex does not). Example: `template_injection` → `template-injection`.
 2. `file_slug` = `gap.file` with:
    - path separators (`/`, `\`) replaced by `-`
    - file suffixes (`.py`, `.js`, `.ts`, `.rs`, etc.) removed
@@ -282,7 +282,7 @@ Compute a deterministic name matching regex `^[a-z0-9][a-z0-9-]{2,62}$`:
 3. `line_part` = `str(gap.line)`
 4. `hash6` = Compute AFTER generation (Step 3.5d-D): first 6 hex chars of sha256 of the generated script source.
 
-For Steps C through D you use `script_name_placeholder = f"{agent_part}-{file_slug}-{line_part}-TBD"`; after script generation succeeds, replace `TBD` with the computed `hash6` to get the final `script_name`. Verify the final name matches `^[a-z0-9][a-z0-9-]{2,62}$` before proceeding.
+For Steps C through D you use `script_name_placeholder = f"{agent_part}-{file_slug}-{line_part}-TBD"` (where `agent_part` has already had `_` → `-` normalization applied per Step 1 above); after script generation succeeds, replace `TBD` with the computed `hash6` to get the final `script_name`. Verify the final name matches `^[a-z0-9][a-z0-9-]{2,62}$` before proceeding.
 
 ##### C. Layers 0a–c — Construct the generation prompt
 
@@ -365,7 +365,7 @@ Emit ONLY the Python source code. No prose. No markdown fences.
 Emit the script source as your analysis output. Then:
 
 - If the emitted text is not valid Python (basic syntactic check via `compile(source, "<string>", "exec")` semantics — if unsure, rely on Step E's `lint_adaptive_script` which returns `syntax_error` for invalid Python), regenerate ONCE with the same prompt. If still not valid Python after the regenerate, abort this gap: "Adaptive generation failed for gap at `{gap.file}:{gap.line}`: produced text was not valid Python." Move to next gap.
-- Otherwise, compute `hash6 = sha256(source.encode("utf-8")).hexdigest()[:6]` and form `script_name = f"{agent_part}-{file_slug}-{line_part}-{hash6}"`.
+- Otherwise, compute `hash6 = sha256(source.encode("utf-8")).hexdigest()[:6]` and form `script_name = f"{agent_part}-{file_slug}-{line_part}-{hash6}"` (where `agent_part` has already had `_` → `-` normalization applied per Step 3.5d-B Step 1 above; without this step, agent names like `template_injection` would silently fail the `^[a-z0-9][a-z0-9-]{2,62}$` regex and abort the gap).
 - Verify `script_name` matches `^[a-z0-9][a-z0-9-]{2,62}$`. If not, adjust `file_slug` (further sanitize / truncate) and retry name formation. If still can't form a valid name, abort this gap with: "Cannot derive valid script name for gap at `{gap.file}:{gap.line}`."
 
 **Regenerate-once policy (precise semantics):** The ONLY failure mode that
@@ -467,6 +467,8 @@ mcp__screw-agents__accumulate_findings({
 
 The response contains `session_id` (server generates one on first call). Save it — Step 5's structured return needs it.
 
+**Session-id origination guarantee for clean-no-findings scans:** by the time you reach Step 5, a `session_id` MUST exist for the C2-required structured return. If your scan produced ZERO YAML findings AND zero context-required matches AND zero coverage gaps (i.e., none of `record_context_required_match`, `accumulate_findings`, or any other session-originating call has run yet — for example, a non-adaptive scan against code with no flagged patterns), call `accumulate_findings(project_root=..., findings_chunk=[], session_id=null)` once HERE to originate a session_id. The empty `findings_chunk` is accepted by the engine (engine.py:2167+); the resulting `session_id` is returned and used in Step 5's `session_id` field. Without this origination, the structured return would carry a null `session_id` and the main session would be unable to call `finalize_scan_results`.
+
 **Do NOT call `finalize_scan_results`.** Main session owns the finalize call so it can consolidate findings across adaptive script executions with your YAML findings in the same session.
 
 ### Step 5: Return structured payload to main session (hybrid schema per E2=C)
@@ -539,7 +541,7 @@ The main session reads your return and decides next steps:
 
 ## Behavior under errors
 
-- **Cursor binding mismatch from MCP layer** (`agents` list changed mid-flow, target changed): re-emit the structured return with a `fatal_error` field instead of `summary_counts`. Main session aborts the scan.
+- **Cursor binding mismatch from MCP layer** (`agents` list changed mid-flow, target changed) or any other fatal error: emit a degraded structured return preserving ALL C2-required keys (`schema_version`, `scan_subagent`, `session_id` (or `null` if no session originated), `trust_status` (or `null`), `yaml_findings_accumulated: 0`, `adaptive_mode_engaged: false`, `pending_reviews: []`, `scan_metadata`) AND add a top-level `fatal_error: <descriptive string>` field. The enrichment-tier keys (`summary_counts`, `classification_summary`, `agents_excluded_by_relevance`, `context_required_matches_recorded`, `exclusions_applied_count`) MAY be omitted in error returns. Main session detects `fatal_error` presence and surfaces it to the user; the scan is aborted.
 - **All agents filtered out by relevance filter on init page:** init page returns `agents=[]` and `next_cursor=null`. Your loop runs zero iterations. Return the structured payload with `summary_counts.high_confidence = summary_counts.medium_confidence = summary_counts.context_required = 0` and the full `agents_excluded_by_relevance` list. The main session shows the user the "all agents filtered" diagnostic.
 
 (Empty-`agents`-arg-from-main-session is not a runtime case for this subagent: `assemble_agents_scan` rejects empty lists at `engine.py:1777` before the dispatch reaches the MCP boundary. If this branch fires, the bug is upstream of the subagent.)

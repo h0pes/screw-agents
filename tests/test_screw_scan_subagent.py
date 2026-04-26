@@ -543,3 +543,28 @@ def test_screw_scan_body_instructs_fenced_json_return() -> None:
         or "fenced json" in full.lower()
         or "```json" in full
     ), "screw-scan.md missing instruction to emit fenced JSON return block."
+
+
+def test_skill_md_references_screw_scan_only() -> None:
+    """SKILL.md references the universal screw-scan subagent, not the deleted per-agent ones.
+
+    Regression guard: a bad merge could re-introduce deleted subagent names into SKILL.md
+    without breaking any other test. This test locks the post-Task-7 references.
+    """
+    skill_path = (
+        Path(__file__).parents[1]
+        / "plugins"
+        / "screw"
+        / "skills"
+        / "screw-review"
+        / "SKILL.md"
+    )
+    body = skill_path.read_text(encoding="utf-8")
+
+    assert "screw-scan" in body, (
+        "SKILL.md must reference the universal screw-scan subagent"
+    )
+    for retired in ("screw-sqli", "screw-cmdi", "screw-ssti", "screw-xss", "screw-injection"):
+        assert retired not in body, (
+            f"SKILL.md must not reference deleted subagent {retired!r}"
+        )

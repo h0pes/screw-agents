@@ -38,7 +38,15 @@ Before dispatching, check if `.screw/findings/` contains recent reports for the 
 
 ### 3. Delegate (or redirect)
 
-For specific-vulnerability and domain rows: dispatch the chosen subagent via the Agent tool. Pass along the user's target description so the subagent can interpret it.
+For specific-vulnerability and domain rows: dispatch `screw-scan` via the Agent tool. The dispatch prompt MUST include:
+
+- `target: <user's target description>` (file path, codebase root, glob, line range, etc.)
+- `agents: <list-from-mapping-table-above>` — pass the literal agent-names list from the matched row in the mapping table (§1). For domain-level scans, pass all agents in the domain (e.g., `agents: [sqli, cmdi, ssti, xss]` for the injection-input-handling domain).
+- `--adaptive` flag if the user explicitly requested adaptive mode (otherwise omit; the screw-scan subagent does NOT probe for interactivity itself — main session enforces consent before dispatch).
+
+Example dispatch prompt (for "scan src/ for SQLi"):
+
+> Run `screw-scan` with `agents: [sqli]`, `target: src/`. Loop `scan_agents` pages until `next_cursor` is null, accumulate findings, return the structured payload to the main session.
 
 For the broad/full row: do NOT dispatch. Respond to the user with this message verbatim:
 
