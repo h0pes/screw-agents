@@ -133,12 +133,12 @@ Entries already in `## Shipped` / `## Shipped (PR #6)` do NOT carry this tag —
 
 | Tag | Count | Key entries |
 |---|---|---|
-| `blocker` | 1 | T-FULL-P1 (scan_full scale) |
+| `blocker` | 0 | (none — T-FULL-P1 superseded by T-SCAN-REFACTOR 2026-04-25) |
 | `nice-to-have` | 90 | Performance, ergonomics, determinism polish; majority of PR6-01..78 cosmetic entries; sandbox hardening (Phase 3c) |
 | `phase-7-scoped` | 5 | T6-M1, T6-M4, T9-I1 (multi-process concurrency); T8-Sec2 (preexec thread-safety); BACKLOG-PR6-09 (registry compaction at scale) |
 | `retire` | 14 | Trust-layer T4-M6 + T1-M1 (flagged for Marco review — triggers repeatedly not fired) + 12 PR6-* cosmetic/docstring entries whose files are unlikely to be revisited |
 
-**Phase 4 gate:** the `blocker` count must drop to 0 before Phase 4's step 4.0 (D-01 Rust benchmark corpus) can start. Current blocker: **T-FULL-P1** (paginate `scan_full` + agent-relevance filter — Phase 4 autoresearch uses it in volume at 41-agent expansion). See `docs/PROJECT_STATUS.md` §"Phase 4 Prerequisites (hard gates)" for scheduling + estimated scope.
+**Phase 4 gate:** the `blocker` count is now 0. Phase 4 step 4.0 (D-01 Rust benchmark corpus) is the next prerequisite — see `docs/PROJECT_STATUS.md` §"Phase 4 Prerequisites (hard gates)". With T-SCAN-REFACTOR shipped, the per-agent autoresearch surface (`scan_agents([single_name])`) is ready for Phase 4 consumption.
 
 ---
 
@@ -422,7 +422,12 @@ evolvability concern.
 **Estimated scope:** ~100 LOC across 4 files + 9 test updates +
 1 new model. Small PR.
 
-### T-FULL-P1 — Paginate `assemble_full_scan` + apply lazy-fetch + agent-relevance filter
+### T-FULL-P1 — Paginate `assemble_full_scan` + apply lazy-fetch + agent-relevance filter — **SUPERSEDED 2026-04-25**
+**Superseded on branch:** `t-scan-refactor` (merge commit TBD on merge).
+**Forwarded to:** **T-SCAN-REFACTOR** — full architectural refactor that subsumed T-FULL-P1's scope. Instead of paginating `scan_full`, the work retired `scan_full` entirely, introduced `scan_agents` as the new paginated multi-agent primitive (with cursor binding generalized to `(target_hash, agents_hash)`), retired all per-agent `scan_<name>` MCP tools, collapsed 4 per-agent + 1 domain orchestrator subagents into one universal `screw-scan.md`, and rewrote the slash command for multi-scope syntax (`domains:`/`agents:` prefix keys). The relevance filter was preserved as `_filter_relevant_agents` in `engine.py`, applied server-side inside `scan_agents` init-page (returns `agents_excluded_by_relevance` records). Spec: `docs/specs/2026-04-25-t-scan-refactor-design.md`. Plan: `docs/PHASE_4_PREP_T_SCAN_REFACTOR_PLAN.md`.
+
+**Historical entry (original deferral, preserved verbatim for audit trail):**
+
 **Source:** X1-M1 (PR #9, 2026-04-17) — incremental dedup landed; full architectural fix deferred.
 **File:** `src/screw_agents/engine.py` `assemble_full_scan`, `plugins/screw/agents/screw-full-review.md`
 **Priority:** **HIGH** — `scan_full` is unusable at CWE-1400 expansion scale (41 agents per `docs/AGENT_CATALOG.md`).
@@ -514,6 +519,63 @@ At CWE-1400 expansion scale (41 agents × ~5-7k tokens prompt each + all code), 
 **Why deferred:** Two concurrent calls both compute the same `next_seq` — second write overwrites the first. Single-process CLI never sees this.
 **Trigger:** Phase 7 multi-process MCP risk surface.
 **Suggested fix:** Wrap read-modify-write in `fcntl.flock` on a sibling `.lock` file. Lower-cost alternative: document the limitation in the docstring as "Not safe for concurrent invocation — external serialization required."
+
+---
+
+## T-SCAN-REFACTOR follow-ups (slash command + relevance filter UX)
+
+### T-SCAN-FILTER-1 — `severity:` / `cwe:` / `exclude-agents:` slash command filters
+**Source:** T-SCAN-REFACTOR brainstorm (2026-04-25).
+**Phase-4 readiness:** `nice-to-have` — extends slash command grammar without changing MCP layer.
+**Why deferred:** Same prefix-key grammar slot as `domains:`/`agents:` (Section 6.1 of T-SCAN-REFACTOR spec). Defer until users surface a real need; today's two prefix keys cover documented use cases.
+**Trigger:** A user requests filtering by severity tier or CWE ID; OR a CI integration needs to suppress specific agents per-target.
+**Suggested fix:** Extend `parse_scope_spec` to recognize `severity:`, `cwe:`, `exclude-agents:` keys; thread through resolution algorithm; pass to `scan_agents` as additional filter args. ~80 LOC.
+
+### T-SCAN-LANG-1 — Tree-sitter language disambiguation for ambiguous extensions
+**Source:** T-SCAN-REFACTOR brainstorm D5 (2026-04-25).
+**Phase-4 readiness:** `nice-to-have` — relevance-filter accuracy improvement.
+**Why deferred:** V1 uses extension lookup + shebang fallback. The only realistic ambiguous case is `.h` (C vs C++); other extensions in `EXTENSION_MAP` are unambiguous. Cost (tree-sitter parse-success check per ambiguous file) not justified for V1.
+**Trigger:** Real-world project surfaces a misclassified `.h` file leading to wrong-language agent runs.
+**Suggested fix:** When `_detect_language` resolves to `c` AND the file has `.h` extension, parse with both `c` and `cpp` tree-sitter grammars; pick the one with fewer errors. ~30 LOC.
+
+### T-SCAN-MERGE-1 — Multi-session merge across sequential `/screw:scan` invocations
+**Source:** T-SCAN-REFACTOR brainstorm (2026-04-25).
+**Phase-4 readiness:** `nice-to-have`.
+**Why deferred:** Today each `/screw:scan` is its own session_id; running two scans against the same target requires explicit `accumulate_findings(session_id=existing)` calls. Real-world usage doesn't currently demand multi-session merge.
+**Trigger:** User asks "scan A, then scan B, give me one report".
+**Suggested fix:** Add `--merge-into <session_id>` flag to slash command; thread through `accumulate_findings`. ~40 LOC.
+
+### T-SCAN-RELEV-1 — Explicit `target_strategy.relevance_signals` YAML field for AST-based signals
+**Source:** T-SCAN-REFACTOR D4 (2026-04-25).
+**Phase-4 readiness:** `nice-to-have` — implicit derivation from `HeuristicEntry.languages` covers V1.
+**Why deferred:** Implicit derivation works on the existing schema. Adding an explicit field would require migrating all shipped agent YAMLs. Defer until a real use case emerges.
+**Trigger:** An agent author wants to declare AST-based or content-based relevance signals beyond language.
+**Suggested fix:** Extend `TargetStrategy` model with `relevance_signals: list[RelevanceSignal] | None = None`; teach `_filter_relevant_agents` to use explicit signals when present, fall back to implicit derivation otherwise. ~60 LOC + YAML migration of all shipped agents.
+
+### T-SCAN-LIST-1 — `/screw:scan list` discovery subcommand
+**Source:** T-SCAN-REFACTOR brainstorm (2026-04-25).
+**Phase-4 readiness:** `nice-to-have` — UX polish.
+**Why deferred:** Today users call `mcp__screw-agents__list_domains` / `list_agents` directly via Claude Code. A built-in `list` subcommand would be more discoverable but not load-bearing.
+**Trigger:** First-time user friction observed in Phase 4+ user testing.
+**Suggested fix:** Add `list` to the slash command's grammar (special bare-token); dispatch invokes `list_domains` + `list_agents`, formats output. ~40 LOC.
+
+### T-SCAN-AUDIT-1 — Hooks on `--no-confirm` invocations (audit logging)
+**Source:** T-SCAN-REFACTOR Section 16 (2026-04-25).
+**Phase-4 readiness:** `nice-to-have` — auditability for CI bypass.
+**Why deferred:** `--no-confirm` is opt-in by explicit user flag. Existing `--adaptive` consent pattern is the precedent.
+**Trigger:** Audit requirement (compliance, security review of CI behavior).
+**Suggested fix:** Add a Claude Code hook that fires on `/screw:scan ... --no-confirm` invocations and logs to `.screw/audit/`. ~20 LOC + hook configuration.
+
+---
+
+## T-SCAN-REFACTOR Documentation Backlog
+
+### T-SCAN-REFACTOR-DOC-1 — AGENT_CATALOG.md per-domain orchestrator deeper rewrite
+**Source:** T-SCAN-REFACTOR Task 9 (2026-04-25).
+**Phase-4 readiness:** `nice-to-have` — documentation depth.
+**Why deferred:** Task 9 EQ1=B did the full rewrite of `docs/AGENT_CATALOG.md` (preamble, summary table, all 18 per-domain orchestrator entries, build-order subagent counts). This entry tracks any deeper semantic adjustments that surface during day-to-day use of the catalog (e.g., per-agent dispatch examples, cross-references to `screw-scan` parameters).
+**Trigger:** A reader reports confusion about a per-domain entry, or a new agent is added that needs its dispatch example documented in the catalog.
+**Suggested fix:** Append per-agent dispatch examples (`/screw:scan agents:<name> <target>`) under each per-domain entry; cross-reference `docs/AGENT_AUTHORING.md` "Adding a new agent" section. ~50-100 LOC.
 
 ---
 

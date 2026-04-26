@@ -21,10 +21,10 @@ claude --plugin-dir ./plugins/screw
 
 Inside Claude Code you'll then see:
 
-- `/screw:scan <sqli|cmdi|ssti|xss|injection|full> [target]` — security scan
+- `/screw:scan <agent | domain | full | domains:foo,bar | agents:baz,qux> [target] [--adaptive | --no-confirm]` — security scan (post-T-SCAN-REFACTOR multi-scope syntax; `--adaptive` and `--no-confirm` are mutually exclusive)
 - `/screw:learn-report` — learning aggregation report (Phase 3a PR#2+)
-- `/agents` lists `screw-sqli`, `screw-cmdi`, `screw-ssti`, `screw-xss`,
-  `screw-injection`, `screw-full-review`, `screw-learning-analyst`
+- `/agents` lists `screw-scan` (universal scan runner), `screw-script-reviewer`
+  (adaptive review chain), `screw-learning-analyst` (learning mode)
 
 After editing a command, agent, or skill file, run `/reload-plugins` inside
 Claude Code to pick up changes without restarting.

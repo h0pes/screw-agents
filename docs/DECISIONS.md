@@ -330,6 +330,12 @@ Any of these three tripwires surfaces the obligation during Phase 4 kickoff. All
 
 ## ADR-016: Subagent Nesting Limitation and Full-Review Architecture
 
+> **SUPERSEDED 2026-04-25 by ADR-T-SCAN-REFACTOR**
+>
+> This ADR described the OLD architecture's dispatch via `screw-full-review` and proposed Phase 6 implications. Phase 3b-C2 (commit `fa2f42a`) deleted `screw-full-review`; T-SCAN-REFACTOR (this PR) collapsed all per-vuln + per-domain orchestrator subagents into a single universal `screw-scan.md` and rewired the slash command to grammar `bare-token | full | domains:|agents:`. Main session now owns dispatch orchestration entirely; subagents do NOT spawn other subagents (Claude Code architectural constraint, `sub-agents.md:711`). The ADR text below is preserved for audit trail.
+>
+> ---
+
 **Decision:** Accept Claude Code's subagent nesting limitation (max ~2 levels) and plan for Phase 6 to dispatch domain orchestrators directly from the skill rather than nesting through screw-full-review.
 
 **Context:** Phase 2 E2E testing (TC-4) revealed that Claude Code cannot reliably nest 3 levels of subagents: skill → screw-full-review → screw-injection. The screw-full-review subagent reported "can't nest subagents" and the skill adapted by dispatching screw-injection directly. This produced correct results because Phase 2 only has one domain (injection-input-handling).
@@ -344,3 +350,39 @@ Any of these three tripwires surfaces the obligation during Phase 4 kickoff. All
 **Action:** Redesign screw-full-review or remove it in Phase 6, replacing with direct orchestrator dispatch from the skill. The skill already has the routing logic. screw-full-review's only added value (consolidated executive report) can move to the skill itself.
 
 **Related:** ADR-015 (write_scan_results makes file-based result collection reliable).
+
+---
+
+## ADR-T-SCAN-REFACTOR — Universal scan subagent + multi-scope slash command (2026-04-25)
+
+### Status
+Accepted; landed on branch `t-scan-refactor`.
+
+### Context
+The pre-T-SCAN-REFACTOR architecture had: 4 per-vuln subagents (screw-sqli/cmdi/ssti/xss; ~414 LOC each, byte-identical modulo name), 1 domain orchestrator (screw-injection), per-agent MCP tools (`scan_<name>`), and a `scan_full` aggregator. The slash command had a single-domain syntax `/screw:scan <domain>`. This produced 4× duplicated subagent body and a domain-only dispatch surface.
+
+T-FULL-P1 was the last remaining `blocker`-tagged Phase-4 prereq — it called for paginating `scan_full` and adding an agent-relevance filter. Brainstorming surfaced that paginating a tool that was about to be retired was strictly worse than retiring `scan_full` outright and shipping a paginated successor. The wider refactor folded in: collapsing per-vuln subagent duplication (5 files into 1 universal), generalizing the cursor protocol so a single primitive serves both per-domain and arbitrary-agent-set scans, and rewriting the slash command for multi-scope expressiveness.
+
+### Decision
+1. **Universal subagent**: collapse all per-vuln + per-domain subagents into `screw-scan.md` (~559 LOC), parameterized by `agents: list[str]` from the dispatch prompt. Subagent does NOT dispatch other subagents (chain-subagents architecture, main session orchestrates).
+2. **MCP surface**: introduce `scan_agents` paginated multi-agent primitive with cursor binding `(target_hash, agents_hash)`. `scan_domain` becomes a thin wrapper. Retire `scan_full` and per-agent `scan_<name>` MCP tools (hard break, no compat shim per D7).
+3. **Slash command grammar**: support bare-token (single agent or domain), `full` keyword, and `domains:`/`agents:` prefix-key form. Add `--no-confirm` flag; mutually exclusive with `--adaptive`. Parse via `mcp__screw-agents__resolve_scope` MCP tool (no shell exec — closes injection class).
+4. **Relevance filter**: implicit per-agent language relevance via `HeuristicEntry.languages` declarations; fail-open for agents without declarations. Spec D4 + D6.
+5. **Schema validators**: lowercase-identifier regex on `AgentMeta.name`/`domain`; `SUPPORTED_LANGUAGES` membership on `HeuristicEntry.languages` + `CodeExample.language`.
+6. **Registry invariants**: agent names globally unique across domains; agent name not equal to any domain name (for slash-command bare-token disambiguation); YAML filename stem must match `meta.name` (copy-paste protection).
+
+### Consequences
+- ~1,300 LOC of subagent body deleted (5 files → 1 file).
+- ~270 LOC of adaptive-mode body inlined into universal subagent (parameterized by `agent_entry["agent_name"]`).
+- Cursor protocol generalized: same protocol covers single-domain and arbitrary-agent-set scans.
+- Slash command grammar more expressive (multi-domain, multi-agent, full-set in one syntax).
+- Eliminates shell-injection class via MCP-tool parser invocation.
+- 906 → 996 test count delta across the PR.
+- T-FULL-P1 subsumed; Phase 4 blocker count drops 1 → 0 (only D-01 Rust benchmark corpus remains, and D-01 IS Phase 4 step 4.0).
+
+### Cross-references
+- Spec: `docs/specs/2026-04-25-t-scan-refactor-design.md`
+- Plan: `docs/PHASE_4_PREP_T_SCAN_REFACTOR_PLAN.md`
+- Supersedes: ADR-016 (Phase 3b-C2 + T-SCAN-REFACTOR jointly).
+- Subsumes: T-FULL-P1 (DEFERRED_BACKLOG entry, marked SUPERSEDED 2026-04-25).
+- Forward references: T-SCAN-FILTER-1, T-SCAN-LANG-1, T-SCAN-MERGE-1, T-SCAN-RELEV-1, T-SCAN-LIST-1, T-SCAN-AUDIT-1 (DEFERRED_BACKLOG follow-up entries).

@@ -95,6 +95,86 @@ Every ingest script, the dedup pipeline, and the MoreFixes extractor import from
 
 ---
 
+## Tool & Subagent Inventory (post-T-SCAN-REFACTOR)
+
+### MCP tools (post-2026-04-25)
+
+**Scan tools:**
+- `scan_agents(agents, target, ...)` — paginated multi-agent primitive. Cursor binding `(target_hash, agents_hash)`. Returns init-page with `agents_excluded_by_relevance` + code-pages with per-agent prompts.
+- `scan_domain(domain, target, ...)` — convenience wrapper over `scan_agents`. Resolves all agents in a CWE-1400 domain.
+
+**Discovery tools:**
+- `list_agents(domain=None)` — enumerate registered agents (optionally filtered by domain).
+- `list_domains()` — enumerate domains.
+- `get_agent_prompt(agent_name)` — fetch the per-agent core prompt on demand (lazy fetch from subagents).
+
+**Adaptive tools** (Phase 3b):
+- `record_context_required_match`, `detect_coverage_gaps`, `accumulate_findings`, `lint_adaptive_script`, `stage_adaptive_script`, `promote_staged_script`, `reject_staged_script`, `execute_adaptive_script`, `verify_trust`.
+
+**Slash-command parser:**
+- `resolve_scope(scope_text)` — Task 8 helper; returns `{agents, summary}`. Used by `/screw:scan` to translate user input into an agent list. Closed allowlist (registry lookup) + no shell evaluation.
+
+**Output:**
+- `finalize_scan_results(session_id, formats=...)` — emit JSON/Markdown/SARIF/CSV reports. Default format list as of T19-M D7: `["json", "markdown", "csv"]`.
+- `record_exclusion`, `check_exclusions` — exclusion learning surface (Phase 2).
+
+**Retired (T-SCAN-REFACTOR Task 6):**
+- `scan_full` — replaced by `scan_agents(agents=list_agents().names, ...)` (or by the slash command's `full` keyword).
+- `scan_<name>` per-agent tools (sqli/cmdi/ssti/xss) — replaced by `scan_agents(agents=[<name>], ...)`.
+
+### Subagents (post-2026-04-25)
+
+- **`screw-scan.md`** — universal scan runner (~559 LOC). Replaces 5 deleted per-vuln + per-domain subagents (screw-sqli, screw-cmdi, screw-ssti, screw-xss, screw-injection — Task 7 of T-SCAN-REFACTOR). Dispatched with `agents: list[str]` from main session.
+- **`screw-script-reviewer.md`** — adaptive script review. Dispatched by main session per `pending_reviews` chain (chain-subagents architecture, Phase 3b-C2).
+- **`screw-learning-analyst.md`** — learning-mode analyst (Phase 3a).
+
+Subagents do NOT dispatch other subagents (Claude Code constraint, `sub-agents.md:711`). Main session is the sole orchestrator.
+
+### Slash command grammar (post-Task-8)
+
+`/screw:scan <scope-spec> <target> [--adaptive | --no-confirm | --thoroughness <L>] [--format <F>]`
+
+`--adaptive` and `--no-confirm` are mutually exclusive (adaptive mode requires interactive consent).
+
+Scope-spec forms (mutually exclusive):
+- **Bare-token**: single agent name (e.g., `sqli`) or domain name (e.g., `injection-input-handling`). Disambiguated via registry lookup; the `agent name ≠ domain name` invariant guarantees uniqueness.
+- **`full`** keyword: all registered agents (post-relevance-filter).
+- **Prefix-key**: `domains:foo,bar agents:baz,qux` — combine multiple domains and agents in one invocation.
+
+Examples:
+```
+/screw:scan sqli src/api/                    # single agent
+/screw:scan injection-input-handling src/    # whole domain
+/screw:scan full .                           # all agents
+/screw:scan agents:sqli,xss src/api/         # subset across domains
+/screw:scan domains:foo agents:baz src/      # mix
+/screw:scan domains:A,B agents:1A,2A,1B src/ # subset of A + subset of B
+```
+
+### Scan flow (chain-subagents architecture)
+
+```
+slash command       resolve_scope        scan_agents (init page)
+   ↓                    ↓                       ↓
+main session ──────────────────────────────────→  pre-execution summary
+   ↓                                                    ↓
+   ↓                                              user consent (or --no-confirm)
+   ↓                                                    ↓
+dispatch screw-scan ──────────────────────────────────────────→ scan_agents (code pages)
+   ↓                                                                  ↓
+   ↓                                                            accumulate_findings
+   ↓                                                                  ↓
+parse return (C2 + enrichment) ←─────────────────────────────── return structured payload
+   ↓
+optionally chain screw-script-reviewer (per pending_reviews)
+   ↓
+finalize_scan_results
+   ↓
+report (JSON, Markdown, SARIF, CSV per --format)
+```
+
+---
+
 ## Component Architecture
 
 ### Agent Definitions (`domains/`)
@@ -153,9 +233,9 @@ Reusable `IngestBase` abstract class with 8 dataset-specific subclasses. Each in
 ### Claude Code Integration (`plugins/screw/`)
 
 Thin orchestration wrappers calling MCP tools:
-- **Subagents** (`agents/`): Per-domain and orchestrator agents
+- **Subagents** (`agents/`): `screw-scan.md` (universal scan runner; T-SCAN-REFACTOR collapsed 5 per-vuln + per-domain subagents into this one), `screw-script-reviewer.md` (adaptive review chain), `screw-learning-analyst.md` (learning mode). Main session orchestrates dispatch (chain-subagents architecture).
 - **Skills** (`skills/`): Auto-invocation triggers
-- **Slash commands**: User-facing entry points
+- **Slash commands**: User-facing entry points (e.g., `/screw:scan` with multi-scope grammar, see "Tool & Subagent Inventory" above)
 
 ### Project-Level State (`.screw/`)
 
@@ -184,8 +264,8 @@ See `docs/PRD.md` §9 for the full taxonomy mapping and `docs/DECISIONS.md` ADR-
 | Phase 0.5 | **One-time** | Benchmark Infrastructure | **Complete** |
 | Phase 1 | **One-time** | MCP Server + Registry + Resolver + Formatter | **Complete** |
 | Phase 2 | Per-vuln | Claude Code Integration (subagents, skills, FP learning) | **Complete** |
-| Phase 3 | **One-time** | Adaptive Analysis & Learning | **Next** |
-| Phase 4 | **One-time** | Autoresearch & Self-Improvement | Pending |
+| Phase 3 | **One-time** | Adaptive Analysis & Learning | **Complete** (Phase 3a + Phase 3b + Phase 3b-C2) |
+| Phase 4 | **One-time** | Autoresearch & Self-Improvement | **Pending** (gated only on D-01 Rust benchmark corpus) |
 | Phase 5 | **One-time** | Multi-LLM Challenger | Pending |
 | Phase 6 | Mixed | Agent Expansion (per-vuln) + Ecosystem (one-time) | Pending |
 | Phase 7 | **One-time** | screw.nvim Integration | Pending |

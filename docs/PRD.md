@@ -175,17 +175,28 @@ core_prompt: |
   [Criteria for rating severity based on exploitability and impact]
 
 detection_heuristics:
-  # Precise patterns, not vague descriptions
+  # Precise patterns, not vague descriptions.
+  # Each entry carries an optional `languages` list (T-SCAN-REFACTOR Task 1
+  # validator: each language must appear in models.SUPPORTED_LANGUAGES).
+  # The union of `languages` across all heuristic tiers is the implicit
+  # relevance signal used by `_filter_relevant_agents` (T-SCAN-REFACTOR D4).
   high_confidence:
-    - "String concatenation or f-strings containing variable references within SQL query strings"
-    - "Use of ORM raw()/extra() methods with user-controlled parameters"
-    - "Dynamic table or column names derived from user input"
-    - "Parameterized queries where the query structure itself is dynamic"
+    - description: "String concatenation or f-strings containing variable references within SQL query strings"
+      languages: [python, javascript, typescript, ruby, php]
+    - description: "Use of ORM raw()/extra() methods with user-controlled parameters"
+      languages: [python, ruby, java]
+    - description: "Dynamic table or column names derived from user input"
+      languages: [python, javascript, typescript, java, go, ruby, php, c_sharp]
+    - description: "Parameterized queries where the query structure itself is dynamic"
+      languages: [python, javascript, typescript, java, go, ruby, php, c_sharp, rust]
   medium_confidence:
-    - "ORM filter() with dynamically constructed field lookups"
-    - "Stored procedure calls with string-interpolated parameters"
+    - description: "ORM filter() with dynamically constructed field lookups"
+      languages: [python, ruby]
+    - description: "Stored procedure calls with string-interpolated parameters"
+      languages: [java, c_sharp, php]
   context_required:
-    - "String variables passed to query methods (need to trace data flow)"
+    - description: "String variables passed to query methods (need to trace data flow)"
+      languages: [python, javascript, typescript, java, go, ruby, php, c_sharp, rust]
 
 bypass_techniques:
   # Knowledge that elevates the agent above basic pattern matching
@@ -237,7 +248,10 @@ target_strategy:
     - "**/*.rb"
     - "**/*.php"
   relevance_signals:
-    # Help target resolver find relevant code
+    # Legacy free-form keyword field (Phase 0/1) — kept for backwards compat
+    # with shipped YAMLs. Authoritative relevance signal post-T-SCAN-REFACTOR
+    # is the implicit derivation from `HeuristicEntry.languages` (D4 footnote
+    # below). See deferred T-SCAN-RELEV-1 for explicit AST-based signal proposal.
     - "SQL"
     - "query"
     - "execute"
@@ -249,6 +263,8 @@ target_strategy:
     - "orm"
     - "raw"
 ```
+
+> **Footnote — relevance derivation (T-SCAN-REFACTOR D4, 2026-04-25):** Per-agent language relevance is implicitly derived from the union of `HeuristicEntry.languages` across all three confidence tiers. `_filter_relevant_agents` in `engine.py` uses this set to drop agents whose declared languages don't intersect with the target's detected languages (extension lookup + shebang fallback per D5). Agents with no `languages` declarations on any heuristic fail-open — they are kept on every scan regardless of target language (spec §8.5). The legacy `target_strategy.relevance_signals` free-form keyword field is preserved for backwards compatibility with shipped YAMLs but is NOT consulted by the relevance filter; for explicit AST-based or content-based relevance signals, see deferred entry **T-SCAN-RELEV-1** in `docs/DEFERRED_BACKLOG.md`.
 
 ---
 
@@ -303,15 +319,34 @@ The MCP server's target resolver handles:
 
 ## 6. MCP Server Tools
 
-The MCP server dynamically registers tools from agent definitions:
+The MCP server dynamically registers tools from agent definitions. Post-T-SCAN-REFACTOR (2026-04-25), the scan surface is two tools (`scan_agents` + `scan_domain` thin wrapper); per-agent and `scan_full` tools have been retired.
 
 | Tool | Description |
 |---|---|
 | `list_domains` | List available security domains (18 domains derived from CWE-1400) |
 | `list_agents` | List agents within a domain, or all agents |
-| `scan_{agent_name}` | Run a specific agent (e.g., `scan_sqli`, `scan_ssti`) against a target |
-| `scan_domain` | Run all agents in a domain against a target |
-| `scan_full` | Run all agents across all domains |
+| `scan_agents` | Paginated multi-agent primitive. Args: `agents: list[str]`, `target`, optional cursor + page_size. Returns init page (with `agents_excluded_by_relevance` field) + code pages with per-agent prompts. Cursor binding `(target_hash, agents_hash)` |
+| `scan_domain` | Convenience shortcut for `scan_agents`; runs all agents in a CWE-1400 domain |
+| `resolve_scope` | Slash-command scope-spec parser. Returns `{agents, summary}`. Used by `/screw:scan` to translate user input. Closed allowlist (registry lookup) — no shell exec |
+| `get_agent_prompt` | Fetch a single agent's core prompt on demand. Used by subagents to lazy-fetch prompts page-by-page |
+| `accumulate_findings` | Collect findings across pages within a session |
+| `finalize_scan_results` | Emit JSON/Markdown/SARIF/CSV reports (default formats: `["json", "markdown", "csv"]` per T19-M D7) |
+| `record_exclusion` / `check_exclusions` | Exclusion learning (Phase 2 false-positive feedback loop) |
+| `record_context_required_match` / `detect_coverage_gaps` | Adaptive-mode signals (Phase 3b) |
+| `lint_adaptive_script` / `stage_adaptive_script` / `promote_staged_script` / `reject_staged_script` / `execute_adaptive_script` / `verify_trust` | Adaptive script lifecycle (Phase 3b) |
+
+**Multi-scope syntax (T-SCAN-REFACTOR):**
+- `/screw:scan domains:injection-input-handling agents:sqli,xss src/api/` — subset of one domain
+- `/screw:scan domains:A,B agents:1A,2A,1B src/api/` — subset of A + subset of B (where 1A, 2A are in A and 1B is in B)
+- `/screw:scan domains:A,B,C agents:1A,3C src/api/` — A subset, B implicit full (no agents listed for B), C subset
+- `/screw:scan agents:sqli,xss src/api/` — specific agents anywhere
+- `/screw:scan full src/api/` — every registered agent (post-relevance-filter)
+- `/screw:scan sqli src/api/` — bare-token single agent
+- `/screw:scan injection-input-handling src/api/` — bare-token whole domain
+
+**Retired (T-SCAN-REFACTOR Task 6, hard break, no compat shim):**
+- `scan_full` — replaced by `scan_agents(agents=list_agents().names, ...)` (or by the slash command's `full` keyword).
+- `scan_<name>` per-agent tools (sqli/cmdi/ssti/xss) — replaced by `scan_agents(agents=[<name>], ...)`.
 
 Each scan tool accepts:
 - `target`: Target specification (see above)
@@ -328,26 +363,29 @@ Each scan tool returns structured findings (see Section 8).
 
 When used directly in Claude Code without screw.nvim, the system provides a complete workflow:
 
-#### Subagents (`.claude/agents/`)
+#### Subagents (`plugins/screw/agents/`)
+
+Post-T-SCAN-REFACTOR (2026-04-25), the subagent surface collapses to a single universal scan runner plus two supporting subagents:
 
 ```
-.claude/agents/
-  screw-sqli.md           # SQL injection specialist
-  screw-xpath.md          # XPath injection specialist
-  screw-ssti.md           # Server-side template injection
-  screw-cmdi.md           # Command injection
-  screw-xss.md            # Cross-site scripting
-  screw-injection.md      # Domain orchestrator: all injection & input handling agents
-  screw-access-control.md # Broken access control, IDOR, SSRF
-  screw-crypto.md         # Cryptographic issues
-  screw-full-review.md    # Runs all domains
+plugins/screw/agents/
+  screw-scan.md              # Universal scan runner (Task 7 of T-SCAN-REFACTOR;
+                             # replaces 5 retired per-vuln + per-domain subagents).
+                             # Dispatched with `agents: list[str]` from main session.
+  screw-script-reviewer.md   # Adaptive script review (Phase 3b-C2 chain-subagents)
+  screw-learning-analyst.md  # Learning-mode analyst (Phase 3a)
 ```
 
-Each subagent:
-- Has a focused system prompt referencing the MCP tools
-- Uses `Read`, `Glob`, `Grep` to discover relevant code when no specific target is given
-- Calls the corresponding MCP scan tool
-- Produces both conversational output AND persistent file output
+The `screw-scan` subagent:
+- Has a focused system prompt referencing the MCP tools (paginated `scan_agents` + `get_agent_prompt`)
+- Walks the cursor protocol: init page (with `agents_excluded_by_relevance`) → code pages
+- Returns a structured C2+enrichment payload to main session (no nested subagent dispatch — Claude Code architectural constraint)
+
+Subagents do NOT dispatch other subagents. Main session is the sole orchestrator (chain-subagents architecture, Phase 3b-C2).
+
+Retired in T-SCAN-REFACTOR Task 7 (deleted from `plugins/screw/agents/`):
+- `screw-sqli.md`, `screw-cmdi.md`, `screw-ssti.md`, `screw-xss.md` (per-vuln subagents — byte-identical modulo agent name)
+- `screw-injection.md` (per-domain orchestrator)
 
 #### Skills (`.claude/skills/screw-review/`)
 
@@ -378,17 +416,18 @@ Findings are always written to the project filesystem for persistence:
 
 This report serves as the primary deliverable in standalone Claude Code mode. The user can review it, share it with the team, or use it as input for remediation work.
 
-#### Workflow in Claude Code
+#### Workflow in Claude Code (post-T-SCAN-REFACTOR)
 
-1. User: "Review src/api/ for injection vulnerabilities"
-2. Main agent delegates to `screw-injection` subagent
-3. Subagent uses Glob/Grep to discover relevant files in `src/api/`
-4. Subagent calls `mcp__screw-agents__scan_domain` with domain=injection-input-handling
-5. MCP server runs SQLi, XPath, SSTI, command injection, XSS agents in sequence
-6. Findings returned to subagent
-7. Subagent writes `.screw/findings/injection-2026-03-12.md` (detailed report) and `.screw/findings/injection-2026-03-12.json` (structured data)
-8. Subagent presents summary conversationally, offers to apply suggested fixes
-9. User reviews, asks follow-up questions, approves/rejects fixes
+1. User invokes `/screw:scan domains:injection-input-handling src/api/` (or any other multi-scope form).
+2. Main session orchestrator parses the slash command and resolves scope via `mcp__screw-agents__resolve_scope`, which returns `{agents: [...], summary: ...}`.
+3. Main session calls `mcp__screw-agents__scan_agents(agents, target, cursor=null)` to fetch the init page. The init page carries the pre-execution summary (number of agents, files in scope, `agents_excluded_by_relevance` records, thoroughness, format).
+4. Main session presents the pre-execution summary and prompts the user for consent (or skips on `--no-confirm`).
+5. Main session dispatches the universal `screw-scan` subagent with `cursor` + `agents` list.
+6. `screw-scan` walks the cursor protocol page-by-page, fetching prompts on demand via `get_agent_prompt`, accumulating findings via `accumulate_findings`, and returning a hybrid C2+enrichment structured payload to main session.
+7. Main session optionally chains `screw-script-reviewer` per `pending_reviews` (adaptive mode); it does NOT chain a per-vuln subagent (those have been retired).
+8. Main session calls `mcp__screw-agents__finalize_scan_results` to write `.screw/findings/<session>/findings.{json,md,csv,sarif}`.
+9. Main session presents summary conversationally, offers to apply suggested fixes.
+10. User reviews, asks follow-up questions, approves/rejects fixes.
 
 #### CLAUDE.md Integration
 
@@ -722,7 +761,7 @@ The curated YAML agent definitions handle the well-known vulnerability patterns 
 ```yaml
 name: querybuilder-sqli-check
 created: "2026-03-15T10:30:00Z"
-created_by: screw-sqli-agent
+created_by: screw-scan/sqli  # universal subagent + per-agent identifier
 domain: injection-input-handling
 description: >
   Traces data flow through custom QueryBuilder class in this project.
@@ -1312,31 +1351,37 @@ screw-agents/
 │   └── plugin.json                  # Plugin metadata, dependencies
 │
 ├── plugins/screw/                   # Claude Code plugin contents
-│   ├── agents/                      # Subagent definitions
-│   │   ├── screw-sqli.md
-│   │   ├── screw-xss.md
-│   │   ├── screw-cmdi.md
-│   │   ├── screw-ssti.md
-│   │   ├── screw-injection.md       # Domain orchestrator
-│   │   ├── screw-access-control.md
-│   │   ├── screw-crypto.md
-│   │   └── screw-full-review.md     # All-domain orchestrator
+│   ├── agents/                      # Subagent definitions (post-T-SCAN-REFACTOR)
+│   │   ├── screw-scan.md            # Universal scan runner (replaces 5 retired
+│   │   │                            # per-vuln + per-domain subagents)
+│   │   ├── screw-script-reviewer.md # Adaptive script review chain
+│   │   └── screw-learning-analyst.md # Learning-mode analyst (Phase 3a)
 │   │
 │   ├── skills/screw-review/
 │   │   └── SKILL.md                 # Auto-invocation skill
 │   │
 │   └── commands/                    # Slash commands
-│       ├── scan.md                  # /screw:scan
+│       ├── scan.md                  # /screw:scan (multi-scope grammar)
 │       ├── autoresearch.md          # /screw:autoresearch
 │       └── challenge.md             # /screw:challenge
 │
 ├── src/screw_agents/                # MCP server (Python package)
 │   ├── __init__.py
 │   ├── server.py                    # MCP server entry point
+│   ├── engine.py                    # Scan engine: assemble_agents_scan,
+│   │                                # _filter_relevant_agents, language detection
+│   ├── scan_command.py              # Slash command resolve_scope helper (Task 8)
 │   ├── registry.py                  # Agent YAML loading → tool registration
 │   ├── resolver.py                  # Target resolution (tree-sitter, git diff)
-│   ├── formatter.py                 # Output formatting (JSON, SARIF, Markdown)
+│   ├── formatter.py                 # Output formatting (JSON, SARIF, Markdown, CSV)
+│   ├── results.py                   # write_scan_results / finalize_scan_results
 │   ├── learning.py                  # Exclusions DB, FP learning
+│   ├── trust.py                     # Signing/verification for adaptive scripts
+│   ├── adaptive/                    # Adaptive script lifecycle (Phase 3b)
+│   │   ├── signing.py
+│   │   ├── stage.py
+│   │   ├── executor.py
+│   │   └── sandbox/                 # bwrap (Linux), sandbox-exec (macOS)
 │   ├── autoresearch/
 │   │   ├── loop.py                  # Mutate → evaluate → gate → log
 │   │   ├── benchmark.py             # Benchmark runner + scoring

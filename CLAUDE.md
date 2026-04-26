@@ -11,9 +11,12 @@
 
 ## Current State
 
-**Phase:** Pre-implementation. Architecture and product design phase is complete.
-**PRD:** `docs/PRD.md` (v0.4.3, ~1,430 lines) — the comprehensive product requirements document. READ THIS FIRST for full context on architecture, taxonomy, features, and implementation plan.
-**Next milestone:** Phase 0 — Knowledge Research Sprint (collecting and synthesizing security knowledge for agent YAML definitions).
+**Phase:** Phase 3b closed; Phase 4 prereq sweep complete (T-SCAN-REFACTOR final 2026-04-25); next milestone is Phase 4 step 4.0 (D-01 Rust benchmark corpus).
+**PRD:** `docs/PRD.md` (v0.4.3, ~1,470 lines) — the comprehensive product requirements document. READ THIS FIRST for full context on architecture, taxonomy, features, and implementation plan.
+**Test suite:** 996 passed, 9 skipped (HEAD baseline `c7fa9d9`, end-of-Task-8 of T-SCAN-REFACTOR).
+**Phase 4 readiness:** all blockers cleared; only D-01 (Rust benchmark corpus, ADR-014) remains as a hard gate, and D-01 IS Phase 4 step 4.0.
+**Subagent surface (post-T-SCAN-REFACTOR):** one universal `screw-scan.md` covers all registered agents (replaces 5 per-vuln + per-domain subagents). Supporting: `screw-script-reviewer.md` (adaptive review chain), `screw-learning-analyst.md` (learning mode).
+**MCP scan surface:** `scan_agents` (paginated multi-agent primitive) + `scan_domain` (thin wrapper) + `resolve_scope` (slash command parser). The retired surface (`scan_full`, per-agent `scan_<name>`) has been deleted — there is no compat shim.
 
 ## Architecture Overview (Quick Reference)
 

@@ -18,7 +18,7 @@ Items explicitly deferred from earlier phases that must be completed in later ph
 
 ---
 
-## Current Phase: Phase 3b closed — Phase 4 prereq sweep in progress
+## Current Phase: Phase 3b closed — all Phase-4 prereqs except D-01 shipped (T-SCAN-REFACTOR final, 2026-04-25)
 
 Architecture and product design is **complete** (PRD v0.4.3). Phases 0 / 0.5 / 1 / 1.7 / 2 all **complete**. **Phase 3a** is **complete** — PR #6-#9 series merged 2026-04-16/17. **Phase 3b (Adaptive Analysis & Learning Refinement)** is in progress:
 - **PR #4 (#10)** merged 2026-04-18 — adaptive-script executor pipeline + Layer 1 lint + Layer 5 sandbox + MCP tool.
@@ -28,9 +28,10 @@ Architecture and product design is **complete** (PRD v0.4.3). Phases 0 / 0.5 / 1
 - **Phase 3b-C2 (branch `phase-3b-c2-nested-dispatch-fix`)** merged 2026-04-24 — nested-dispatch fix. `/screw:scan` rewritten as main-session chain-subagents orchestrator: scan subagents now do scan + generate + lint, return structured JSON `pending_reviews` to main; main session owns reviewer dispatch, staging, `verify_trust` advisory-loud check (new spec §4.7 D7), promote, execute, accumulate, finalize. 4 per-agent subagents (sqli/cmdi/ssti/xss) truncated to byte-identical clones modulo agent name; `screw-full-review.md` deleted (second nested-dispatch instance, Option A fold+delete). Verified by T10 live round-trip: `stage_adaptive_script` reached from main, end-to-end adaptive flow works. Test count 942 → 918 passed (33 parametrized cases deleted + 9 new scan.md assertions). Adaptive mode is production-ready.
 - **BACKLOG-PR6-22 (branch `retire-sign-adaptive-script`)** merged 2026-04-24 — full C1 closure at the MCP boundary. `engine.sign_adaptive_script` method + tool descriptor + dispatcher entry deleted; the direct-sign path no longer exists for programmatic consumers. `tests/test_sign_adaptive_script.py` and `tests/test_adaptive_workflow.py` deleted (the latter fully subsumed by the staged E2E); `test_adaptive_executor.py::signed_script_setup` migrated to stage→promote; `adaptive/signing.py` docstrings updated. Phase 4's autoresearch module (BACKLOG-PR6-13) now has no direct-sign path to bind to — it MUST use `stage_adaptive_script` → `promote_staged_script`. Test suite: 918 → 898 passed, 8 skipped; zero regressions. Phase 4 blocker count drops 4 → 3.
 - **T19-M1/M2/M3 bundle (branch `phase-4-prep-t19m`)** merged 2026-04-24 — Phase-4 prereq closure. M3 migrates `Finding.merged_from_sources` from `list[str]` to `list[MergedSource]` (structured `{agent, severity}` Pydantic BaseModel). M1 surfaces the structured format in SARIF (`properties.mergedFromSources` per SARIF 2.1.0 §3.8) and CSV (appended `merged_sources` column, `"; "`-joined for merged; empty for unmerged; positional-parser-safe). M2 teaches `render_and_write`'s exclusion matcher to iterate primary + merged sources in deterministic primary-first, first-match-wins order; `exclusions_applied` entries gain `matched_via_agent` for audit trail. D7 flips default format list from `["json", "markdown"]` to `["json", "markdown", "csv"]`. Test suite: 898 → 906 passed, 8 skipped; zero regressions. Phase 4 blocker count drops 3 → 1 (only T-FULL-P1 remains; D-01 is Phase 4 step 4.0 itself).
+- **T-SCAN-REFACTOR (branch `t-scan-refactor`)** merged 2026-04-25 — Final Phase-4 prereq. Subsumes T-FULL-P1. Replaces 6-tool scan surface (`scan_full` + `scan_domain` + 4 per-agent) with `scan_agents` paginated primitive + `scan_domain` thin wrapper. Adds per-agent language relevance filter (`_filter_relevant_agents`) with extension + shebang detection. Cursor binding generalized to `(target_hash, agents_hash)` (Option β). Rewrites slash command for multi-scope syntax (`/screw:scan domains:A,B agents:1A,2A`). Collapses 5 subagents into universal `screw-scan.md`. Test suite: 906 → 996 passed, 9 skipped (HEAD baseline `c7fa9d9`). Phase 4 blocker count drops 1 → 0.
 - **Phase 3c (sandbox hardening sweep)** — deferred; see DEFERRED_BACKLOG §Phase 3c.
 
-Gates G1-G4 pass. **Phase 4 (Autoresearch) is gated on D-01 + T-FULL-P1 — see §"Phase 4 Prerequisites (hard gates)" below.**
+Gates G1-G4 pass. **Phase 4 (Autoresearch) is gated only on D-01 (Rust benchmark corpus) — all other prereqs shipped through T-SCAN-REFACTOR. See §"Phase 4 Prerequisites (hard gates)" below.**
 
 ### What's Done
 
@@ -419,7 +420,7 @@ Structured as a dependency graph with three parallel tracks converging at smoke 
 | Phase 3a | Prompt infrastructure (trust, learning aggregation, plugin-namespace, core-prompt dedup) | **Complete** (PR #6-#9 series, merged 2026-04-16/17) |
 | **Phase 3b** | **Adaptive Analysis & Learning Refinement** | **In-flight** — PR #4 (#10) + PR #5 (#11) merged 2026-04-18/20; PR #6 branch `phase-3b-c1-staging`, T0-T23 complete, merge pending T26 |
 | Phase 3c | Sandbox hardening sweep (seccomp filter + thread-safety + dedup) | **Deferred** — see `docs/DEFERRED_BACKLOG.md` §"Phase 3c (sandbox hardening follow-ups)" |
-| Phase 4 | Autoresearch & Self-Improvement — step 4.0 is D-01 (hard gate) | **Pending**, hard-gated on D-01 + T-FULL-P1 (see "Phase 4 Prerequisites" below) |
+| Phase 4 | Autoresearch & Self-Improvement — step 4.0 is D-01 (hard gate) | **Pending**, hard-gated only on D-01 |
 | Phase 5 | Multi-LLM Challenger System | Pending |
 | Phase 6 | Agent Expansion & Ecosystem | Pending |
 | Phase 7 | screw.nvim Integration (scan commands, review-before-import, exclusions) | Pending |
@@ -428,17 +429,12 @@ Structured as a dependency graph with three parallel tracks converging at smoke 
 
 ## Phase 4 Prerequisites (hard gates)
 
-Phase 4 (Autoresearch & Self-Improvement) cannot start until the following are in place:
+Phase 4 (Autoresearch & Self-Improvement) cannot start until the following are in place. As of 2026-04-25 (T-SCAN-REFACTOR merge), the **only remaining prerequisite is D-01** — the Rust benchmark corpus, which is itself Phase 4 step 4.0.
 
 ### D-01 — Rust benchmark corpus from RustSec (Deferred Obligations)
 **Status:** DEFERRED since Phase 0.5
 **Why gating:** Phase 4 step 4.0 IS D-01. See ADR-014 and `docs/research/benchmark-tier4-rust-modern.md`.
 **Estimated scope:** ~24 verified CVE candidates + synthetic SSTI fixtures. Medium effort.
-
-### T-FULL-P1 — Paginate scan_full + agent-relevance filter
-**Status:** DEFERRED since Phase 3a X1-M1 (PR #9)
-**Why gating:** `scan_full` is non-paginated and agent-relevance-blind. At the current ~10-agent count it's already marginal; at CWE-1400 expansion (41 agents per `docs/AGENT_CATALOG.md`) it's unusable. Phase 4 autoresearch uses `scan_full` in volume.
-**Estimated scope:** ~500-700 LOC (pagination + lazy fetch + relevance pre-filter). Separate focused PR.
 
 ### D-02 — Detection-rate validation thresholds (SAMPLE COMPLETE)
 **Status:** Pipeline validated (PR #3, 2026-04-11), full run + threshold optimization DEFERRED to Phase 4 autoresearch loop
