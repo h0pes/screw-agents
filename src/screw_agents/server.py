@@ -24,6 +24,18 @@ from screw_agents.registry import AgentRegistry
 logger = logging.getLogger(__name__)
 
 
+# T-SCAN-REFACTOR Task 6: positive list of MCP tool names retired by the refactor.
+# Used by ``_dispatch_tool`` to issue an actionable migration error when callers
+# invoke a name that *was* a real tool prior to the refactor. Per Marco-approved
+# Option B (quality-review escalation): we use a positive list rather than a
+# pattern match like ``name.startswith("scan_") and name not in {...}`` so that
+# future ``scan_<future>`` names that were never retired correctly fall through
+# to the generic ``Unknown tool`` branch instead of falsely claiming retirement.
+RETIRED_TOOL_NAMES = frozenset(
+    {"scan_full", "scan_sqli", "scan_xss", "scan_cmdi", "scan_ssti"}
+)
+
+
 def create_server(domains_dir: Path | None = None) -> tuple[Server, ScanEngine]:
     """Create and configure the MCP server with tool handlers.
 
@@ -268,10 +280,10 @@ def _dispatch_tool(
             thoroughness=args.get("thoroughness", "standard"),
         )
 
-    # T-SCAN-REFACTOR Task 6: actionable error for callers using retired tool names.
-    if name == "scan_full" or (
-        name.startswith("scan_") and name not in ("scan_domain", "scan_agents")
-    ):
+    # T-SCAN-REFACTOR Task 6: actionable error for callers using retired tool names
+    # (Marco-approved Option B from quality-review escalation: positive list, not
+    # pattern match — see ``RETIRED_TOOL_NAMES`` rationale at module level).
+    if name in RETIRED_TOOL_NAMES:
         raise ValueError(
             f"Tool {name!r} was retired in T-SCAN-REFACTOR. "
             f"Use scan_agents(agents=[...], target=...) for per-agent scans, "

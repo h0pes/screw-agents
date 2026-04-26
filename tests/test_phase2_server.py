@@ -183,6 +183,6 @@ class TestNewToolsRegistered:
         _, engine = create_server(domains_dir)
         tools = engine.list_tool_definitions()
         for t in tools:
-            if t["name"].startswith("scan_") or t["name"] in ("scan_domain", "scan_full"):
+            if t["name"].startswith("scan_") or t["name"] in ("scan_domain", "scan_agents"):
                 props = t["input_schema"].get("properties", {})
                 assert "project_root" in props, f"{t['name']} missing project_root"

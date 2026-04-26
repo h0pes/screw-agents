@@ -58,13 +58,33 @@ def test_scan_agents_dispatch_via_server(engine, tmp_path: Path) -> None:
 
 
 def test_retired_tool_names_raise_actionable_error(engine) -> None:
-    """Calling a retired tool name (scan_full, scan_<agent>) raises with migration hint.
+    """Calling a retired tool name (scan_full, scan_<agent>) raises with migration hint
+    pointing to scan_agents and scan_domain replacements.
 
     T-SCAN-REFACTOR Task 6 (Escalation I1): defense-in-depth UX. Caller
     migration mistakes (calling retired names against a post-refactor server)
     get a one-line migration hint pointing to scan_agents / scan_domain
     rather than a generic ``Unknown tool:`` dead-end.
+
+    Marco-approved Option B (quality-review escalation): positive list of
+    actually-retired names; future ``scan_<future>`` names fall to the
+    generic 'Unknown tool' branch (verified by the negative test below).
     """
     for retired_name in ("scan_full", "scan_sqli", "scan_xss"):
-        with pytest.raises(ValueError, match=r"was retired in T-SCAN-REFACTOR"):
+        with pytest.raises(ValueError) as exc_info:
             _dispatch_tool(engine, retired_name, {})
+        msg = str(exc_info.value)
+        assert "was retired in T-SCAN-REFACTOR" in msg
+        assert "scan_agents(" in msg
+        assert "scan_domain(" in msg
+
+
+def test_unknown_scan_prefixed_name_does_not_claim_retired(engine) -> None:
+    """A scan_-prefixed name that was never retired falls to the generic 'Unknown tool'
+    branch, not the retired-tool actionable-error branch. Guards against the over-broad
+    pattern-match anti-pattern (Marco-approved Option B: positive list semantics)."""
+    with pytest.raises(ValueError) as exc_info:
+        _dispatch_tool(engine, "scan_unknown_future_thing", {})
+    msg = str(exc_info.value)
+    assert "Unknown tool" in msg
+    assert "was retired" not in msg  # must not falsely claim retirement
