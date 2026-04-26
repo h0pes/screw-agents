@@ -232,11 +232,15 @@ def test_whitespace_in_prefix_key_raises_actionable(registry: AgentRegistry) -> 
 
     Without explicit handling, `foo` would be silently re-classified as
     a bare token. Pre-audit IMPORTANT (Edit 11): explicit error is
-    friendlier than silent re-interpretation.
+    friendlier than silent re-interpretation. The shell-style tokenizer
+    produces ``domains:`` as a token with empty ``rest`` — the parser
+    catches this and raises with a message naming the prefix key.
+    Quality review Minor 2: error wording generalized so the same
+    branch covers `agents:` (no value at all) too.
     """
     with pytest.raises(
         ScopeResolutionError,
-        match="Whitespace not allowed inside prefix-key",
+        match="Empty value after prefix key 'domains'",
     ):
         parse_scope_spec("domains: foo")
 
@@ -326,3 +330,32 @@ def test_parsed_scope_form_discriminator_and_frozen() -> None:
     parsed = parse_scope_spec("full")
     with pytest.raises(dataclasses.FrozenInstanceError):
         parsed.full_keyword = False  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
+# Quality review escalations: parser-layer hardening
+# ---------------------------------------------------------------------------
+
+
+def test_scope_size_limit_exceeded() -> None:
+    """Scope size > MAX_SCOPE_SIZE (50) raises with actionable message.
+
+    EQ1=B (Marco approved): cap at the parser layer so all callers
+    (MCP traffic, direct Python tests) hit the same guard. 50 covers
+    the future 41-agent CWE-1400 expansion plus headroom.
+    """
+    big_list = ",".join(f"agent_{i}" for i in range(60))
+    with pytest.raises(ScopeResolutionError, match="exceeds limit"):
+        parse_scope_spec(f"agents:{big_list}")
+
+
+def test_control_char_in_token_rejected() -> None:
+    """Control characters in CSV tokens are rejected at parse time.
+
+    EQ2=B (Marco approved): tokens must match
+    ``^[a-z0-9][a-z0-9_-]*$`` so NUL / other control characters,
+    uppercase, leading dash etc. are caught at the parser layer
+    rather than reaching the registry-layer "Unknown agent" rejection.
+    """
+    with pytest.raises(ScopeResolutionError, match="Invalid token"):
+        parse_scope_spec("agents:sqli,xss\x00")

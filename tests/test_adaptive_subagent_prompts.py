@@ -252,3 +252,24 @@ def test_scan_md_verifies_trust_before_promote() -> None:
         "promote_staged_script reference — ordering suggests verify_trust "
         "isn't instructed before promote (spec §4.7 D7 violated)"
     )
+
+
+# ---- T-SCAN-REFACTOR Task 8 EQ3=B: Bash NOT in allowed-tools ---------------
+
+
+def test_scan_md_does_not_allow_bash() -> None:
+    """E1=A locked: Bash MUST NOT be in scan.md's allowed-tools list.
+
+    The shell-injection vulnerability identified in Task 8 pre-audit was
+    eliminated by registering resolve_scope as an MCP tool (E1=A) and
+    dropping Bash from the slash command's allowed-tools. This test
+    locks that boundary against bad-merge regression — quality review
+    EQ3=B (Marco approved).
+    """
+    frontmatter, _ = _parse_subagent_file(_SCAN_COMMAND_FILE)
+    allowed = frontmatter.get("allowed-tools", [])
+    assert "Bash" not in allowed, (
+        "Bash MUST NOT be in scan.md allowed-tools — E1=A eliminated "
+        "shell-injection by routing the parser through the resolve_scope "
+        "MCP tool. Re-introducing Bash would re-expose the vulnerability."
+    )

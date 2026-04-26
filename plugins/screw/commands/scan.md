@@ -196,6 +196,14 @@ If `--no-confirm` IS passed, log the summary line for audit trail but skip the p
 
 If the kept-agents list is empty (everything filtered by relevance), abort with the summary; nothing to scan.
 
+If `init["next_cursor"]` is null AND `init["total_files"]` is 0 (no files matched the target but kept-agents survived relevance filter), abort gracefully:
+
+```
+No files matched target <target>. Nothing to scan.
+```
+
+Do not dispatch the subagent and do not call `finalize_scan_results` — there is no work for either to do.
+
 ### Step 5: Dispatch the screw-scan subagent with init cursor
 
 ```
@@ -550,7 +558,7 @@ mcp__screw-agents__finalize_scan_results({
     "session_id": <session_id from Step 6>,
     "agent_names": <kept-agents list from Step 4>,
     "scan_metadata": <scan_metadata from Step 6 — includes target + timestamp>,
-    "format": <format from $ARGUMENTS, default markdown>,
+    "formats": [<format from $ARGUMENTS, default markdown>],
 })
 ```
 

@@ -210,7 +210,7 @@ If Step 3's page loop processed zero context_required matches across all agents 
 
 #### Step 3.5b: Detect coverage gaps per-agent
 
-Before proceeding to Step 4 (Persist YAML findings) and Step 5 (return), for each `agent_name` in `init["agents"]` (the post-relevance-filter kept-agents list returned by the `scan_agents` init page; agents filtered out are listed in `init["agents_excluded_by_relevance"]` and should NOT be processed in adaptive mode), call:
+Before proceeding to Step 4 (Persist YAML findings) and Step 5 (return), for each `agent_name` in `init["agents"]` (Mode B — standalone subagent invocation, agents come from the `scan_agents` init page) OR in the input `agents` parameter (Mode A — production dispatch from `scan.md` Step 5, where the main session has already filtered for relevance and passes the resolved agents list directly via the dispatch prompt; in Mode A the subagent does not call `scan_agents` init itself), call:
 
 ```
 mcp__screw-agents__detect_coverage_gaps({
