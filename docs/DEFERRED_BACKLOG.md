@@ -2081,3 +2081,36 @@ Non-blocking minors surfaced during Task 6 pre-audit. Deferred past T-SCAN-REFAC
 **Remediation sketch:** Change base from `ValueError` to `Exception` (or a new `ScanCommandError`); update body to catch `ScopeResolutionError` specifically. ~2 LOC + minor body updates. Existing tests still pass since `match=...` on substrings.
 
 **Estimated scope:** 5 LOC + 0 new tests.
+
+### BACKLOG-T-SCAN-REFACTOR-T8-M2 — Cross-domain rejection through `_dispatch_tool`
+**Phase-4 readiness:** `non-blocker` — defense-in-depth coverage gap
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 8 quality review, 2026-04-26
+**File:** `tests/test_scan_command_parser.py` (new test)
+
+**Why deferred:** Cross-domain rejection currently tested only through `resolve_scope` directly. The `_dispatch_tool` path (server.py:122-127) wraps and re-raises ScopeResolutionError; no test exercises the wrapper layer.
+
+**Remediation sketch:** Add `test_resolve_scope_mcp_dispatch_cross_domain_rejection` exercising the MCP dispatch path with a 2-domain fake registry. ~10 LOC.
+
+**Estimated scope:** 10 LOC + 0 production changes.
+
+### BACKLOG-T-SCAN-REFACTOR-T8-M3 — `validate_flags` callable from slash command body
+**Phase-4 readiness:** `non-blocker` — testability vs runtime mismatch
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 8 quality review, 2026-04-26
+**File:** `src/screw_agents/scan_command.py::validate_flags`
+
+**Why deferred:** `validate_flags` signature is `list[str]`. The slash command body builds flags as a dict and inlines the equivalent mutual-exclusivity check. As a result, `validate_flags` is only called from Python tests, not from the runtime slash command.
+
+**Remediation sketch:** Either (a) document `validate_flags` is for testability + body inlines equivalent check; OR (b) reshape `validate_flags` to accept dict form; OR (c) register as MCP tool so body can call it. ~5-30 LOC depending on choice.
+
+**Estimated scope:** 5-30 LOC + 0-2 tests.
+
+### BACKLOG-T-SCAN-REFACTOR-T8-M4 — Hard timeout on subagent dispatch
+**Phase-4 readiness:** `non-blocker` — cross-cutting concern; runtime-dependent
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 8 quality review, 2026-04-26 (EQ4)
+**File:** `plugins/screw/commands/scan.md` Step 5
+
+**Why deferred:** scan.md Step 5 dispatches `screw-scan` with no explicit timeout. If subagent hangs (infinite loop in adaptive script generation pre-Layer-1), main session blocks. Claude Code's Agent tool semantics on timeout are runtime-dependent; addressing requires understanding the platform's behavior.
+
+**Remediation sketch:** Investigate Claude Code Agent tool timeout configuration. Add explicit timeout discussion in scan.md Step 5 with recommended value. Consider whether a hard timeout (e.g., 600s) should be enforced via runtime configuration. May require coordination with Claude Code SDK behavior.
+
+**Estimated scope:** 3-30 LOC depending on platform support. Requires research.
