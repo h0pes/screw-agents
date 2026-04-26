@@ -2339,12 +2339,12 @@ Net new tests in Task 5: **1** (dispatch test). Post-Task-5 expected: **977 pass
 **Goal:** Hard-break retirement of the three retired surfaces. Delete the engine method, the MCP tool registrations (the static `scan_full` block + the per-agent loop), the dispatch branches in `server.py`, and the corresponding tests.
 
 **Files:**
-- Modify: `src/screw_agents/engine.py` — delete `assemble_full_scan` (lines 1804-1871); delete `scan_full` registration in `list_tool_definitions` (lines 2328-2342); delete per-agent registration loop (lines 2372-2388).
-- Modify: `src/screw_agents/server.py` — delete `scan_full` branch (lines 254-259); delete per-agent fallback dispatch (lines 269-276).
-- Modify: `tests/test_engine.py` — delete `test_assemble_full_scan_*` tests (lines 303-411 area; 4 tests).
-- Modify: `tests/test_server.py` — delete or migrate `assert "scan_full" in names` (line 25).
-- Modify: `tests/test_phase2_server.py` — change `t["name"] in ("scan_domain", "scan_full")` (line 211) to `("scan_domain", "scan_agents")`.
-- Modify: `tests/test_prompt_dedup_roundtrip.py` — migrate `test_domain_scan_full_walk_*` tests (lines 25, 75) to use `scan_agents`.
+- Modify: `src/screw_agents/engine.py` — delete `assemble_full_scan` (lines 1985-2052); delete `scan_full` registration in `list_tool_definitions` (lines 2564-2578); delete per-agent registration loop (lines 2608-2624). Also update the `assemble_scan` docstring at line 1548 (drops dangling `assemble_full_scan` reference).
+- Modify: `src/screw_agents/server.py` — delete `scan_full` branch (lines 264-269); delete per-agent fallback dispatch (lines 279-286). Also update `_dispatch_tool` docstring example at line 78 (drops `scan_sqli` reference). Insert actionable-error branch above the generic `Unknown tool:` raise (Escalation I1).
+- Modify: `tests/test_engine.py` — delete 4 `test_assemble_full_scan_*` tests (currently at lines 304, 350, 373, 397). Delete per-agent assertions at lines 74 (`scan_sqli`) and 75 (`scan_cmdi`), and the `scan_full` assertion at line 79.
+- Modify: `tests/test_server.py` — delete the 4 per-agent assertions at lines 26-29 (`scan_sqli`, `scan_cmdi`, `scan_ssti`, `scan_xss`) and the `scan_full` assertion at line 33. Add 1 new test for the actionable-error branch (Escalation I1). After Task 6 the test keeps assertions only for `list_domains`, `list_agents`, `scan_domain`, `scan_agents`.
+- Modify: `tests/test_phase2_server.py` — delete `test_scan_tool_accepts_project_root` (line 163) and `test_scan_tool_without_project_root` (line 175). Both use `_dispatch_tool(engine, "scan_sqli", ...)` which is invalid after this task. Coverage preserved by `tests/test_server.py::test_scan_agents_dispatch_via_server` (Task 5).
+- Leave as-is: `tests/test_prompt_dedup_roundtrip.py`. The function names contain `scan_full` (a misnomer carried from a prior naming convention), but the bodies use `engine.assemble_domain_scan(...)` exclusively (verified by `grep -n 'assemble_full_scan\|assemble_domain_scan\|assemble_agents_scan' tests/test_prompt_dedup_roundtrip.py`). No code change required. Optional rename to `test_domain_scan_walk_*` deferred to backlog if not done in this task.
 
 **Pre-audit focus (mandatory):** before deletion, grep for `scan_full|assemble_full_scan` across `src/`, `tests/`, `plugins/`, and `docs/` (excluding docs/specs and PHASE_*_PLAN.md historical references). Catalog every remaining hit. Each should map to: (a) deletable test, (b) test to migrate to `scan_agents`, or (c) doc to update in Task 9.
 
@@ -2359,67 +2359,133 @@ Capture the output. Every per-agent `scan_<name>` MCP tool reference in `tests/`
 
 - [ ] **Step 2: Delete `assemble_full_scan` from `engine.py`**
 
-Open `src/screw_agents/engine.py`. Delete lines 1804-1871 (the entire `assemble_full_scan` method, from `def assemble_full_scan(` through its trailing `return result`).
+Open `src/screw_agents/engine.py`. Delete lines 1985-2052 (the entire `assemble_full_scan` method, from `def assemble_full_scan(` through its trailing `return result`). Re-verify the actual range with `grep -n 'def assemble_full_scan' src/screw_agents/engine.py` — the method body must be deleted in full, not by literal line numbers if drift has occurred since this plan-fix landed.
+
+Also update the `assemble_scan` docstring at engine.py line 1548 (re-verify position via `grep -n "assemble_full_scan" src/screw_agents/engine.py` — it should appear in two places: the method definition itself, and the docstring reference). The current docstring reads:
+
+```
+Used by ``assemble_domain_scan`` on code pages and by
+``assemble_full_scan``'s per-agent fan-out.
+```
+
+Replace `assemble_full_scan` with `assemble_agents_scan` (which now plays the per-agent fan-out role). Final form:
+
+```
+Used by ``assemble_domain_scan`` on code pages and by
+``assemble_agents_scan``'s per-agent fan-out.
+```
+
+After this sub-step, `grep -n 'assemble_full_scan' src/screw_agents/engine.py` should return zero matches.
 
 - [ ] **Step 3: Delete `scan_full` registration in `list_tool_definitions`**
 
-In the same file, delete lines 2328-2342 (the `tools.append({"name": "scan_full", ...})` block).
+In the same file, delete lines 2564-2578 (the `tools.append({"name": "scan_full", ...})` block). Re-verify with `grep -n '"name": "scan_full"' src/screw_agents/engine.py` before deleting.
 
 - [ ] **Step 4: Delete per-agent registration loop**
 
-In the same file, delete lines 2372-2388 (the `for agent in self._registry.agents.values(): tools.append({...})` loop).
+In the same file, delete lines 2608-2624 (the `for agent in self._registry.agents.values(): tools.append({...})` loop). Re-verify with `grep -n 'for agent in self._registry.agents.values' src/screw_agents/engine.py`.
 
-- [ ] **Step 5: Delete `scan_full` and per-agent dispatch branches in `server.py`**
+- [ ] **Step 5: Delete `scan_full` and per-agent dispatch branches in `server.py`, update docstring example, insert actionable-error branch**
 
-Open `src/screw_agents/server.py`. Delete lines 254-259 (the `if name == "scan_full":` branch). Delete lines 269-276 (the `if name.startswith("scan_"):` per-agent fallback). After deletion the dispatch block reads (`scan_domain` → `scan_agents` → `get_agent_prompt` → `raise ValueError(f"Unknown tool: {name!r}")`).
+Open `src/screw_agents/server.py`.
 
-- [ ] **Step 6: Delete `test_assemble_full_scan_*` tests**
+Sub-step 5a: Delete lines 264-269 (the `if name == "scan_full":` branch). Re-verify position via `grep -n 'if name == "scan_full"' src/screw_agents/server.py`.
 
-Open `tests/test_engine.py`. Delete the 4 functions:
-- `test_assemble_full_scan_with_project_root` (around line 303)
-- `test_assemble_full_scan_returns_dict_shape` (around line 349)
-- `test_assemble_full_scan_no_longer_emits_prompts` (around line 372)
-- `test_assemble_full_scan_includes_trust_status_when_project_root_set` (around line 396)
+Sub-step 5b: Delete lines 279-286 (the `if name.startswith("scan_"):` per-agent fallback). Re-verify via `grep -n 'Per-agent scan tools' src/screw_agents/server.py`. After both deletions the dispatch block reads (`scan_domain` → `scan_agents` → `get_agent_prompt` → actionable-error branch (added below) → generic `raise ValueError(f"Unknown tool: {name!r}")`).
 
-Also remove line 79: `assert "scan_full" in tool_names` (was kept through Task 5 alongside `assert "scan_agents" in tool_names`; now scan_full is gone).
-
-- [ ] **Step 7: Migrate or delete `scan_full` references in other test files**
-
-`tests/test_server.py` line 25:
+Sub-step 5c: Update the `_dispatch_tool` docstring example at line 78 (re-verify with `grep -n 'Tool name (e.g.' src/screw_agents/server.py`). The current line reads:
 
 ```python
-# Before:
-assert "scan_full" in names
-# After (delete the line entirely; scan_agents is asserted on the line below it):
+        name: Tool name (e.g. ``"list_domains"``, ``"scan_sqli"``).
 ```
 
-`tests/test_phase2_server.py` line 211:
+After Task 6 retires `scan_sqli`. Replace with:
 
 ```python
-# Before:
-if t["name"].startswith("scan_") or t["name"] in ("scan_domain", "scan_full"):
-# After:
-if t["name"].startswith("scan_") or t["name"] in ("scan_domain", "scan_agents"):
+        name: Tool name (e.g. ``"list_domains"``, ``"scan_agents"``).
 ```
 
-(This branch's intent was to apply the `project_root` injection to all scan-shaped tools; with `scan_agents` replacing `scan_full` and per-agent tools gone, the `startswith("scan_")` check still catches `scan_domain` and `scan_agents` — the `or t["name"] in (...)` clause becomes redundant but harmless. Leave it for the explicit-listing safety net. The change above just makes it match reality.)
-
-`tests/test_prompt_dedup_roundtrip.py` lines 25 and 75 (`test_domain_scan_full_walk_*`): rewrite both as `scan_agents`-based round-trips. Replace each test body's `engine.assemble_full_scan(target=target)` call with:
+Sub-step 5d (Escalation I1 — actionable error for retired tool names): immediately ABOVE the generic `raise ValueError(f"Unknown tool: {name!r}")` line, insert the following block:
 
 ```python
-        # The pre-T-SCAN-REFACTOR test exercised assemble_full_scan walking
-        # all agents. The post-T-SCAN-REFACTOR equivalent is
-        # assemble_agents_scan with all registered names, paginated.
-        all_agent_names = list(engine._registry.agents)
-        result = engine.assemble_agents_scan(
-            agents=all_agent_names,
-            target=target,
+    # T-SCAN-REFACTOR Task 6: actionable error for callers using retired tool names.
+    if name == "scan_full" or (
+        name.startswith("scan_") and name not in ("scan_domain", "scan_agents")
+    ):
+        raise ValueError(
+            f"Tool {name!r} was retired in T-SCAN-REFACTOR. "
+            f"Use scan_agents(agents=[...], target=...) for per-agent scans, "
+            f"or scan_agents(agents=list_agents().names, target=...) for full scans, "
+            f"or scan_domain(domain=..., target=...) for whole-domain scans."
         )
-        # init-page; no inline prompts (lazy-fetch via get_agent_prompt)
-        assert all("core_prompt" not in entry for entry in result["agents"])
 ```
 
-(Adjust the assertion bodies of both tests in the same way: replace any reference to a top-level `prompts` dict assertion with the lazy-fetch assertion above. The original tests were specifically validating prompt deduplication; the equivalent assertion for the new primitive is "no agent entry contains `core_prompt` on init-page".)
+Rationale: pre-audit Escalation I1 recommended Option B (defense-in-depth UX) over the generic `Unknown tool:` error. Caller migration mistakes (calling `scan_full` or `scan_sqli` against a post-T-SCAN-REFACTOR server) get a one-line migration hint rather than a generic dead-end. ~5 LOC. The condition is mutually exclusive with the dispatched names (`scan_domain` and `scan_agents` are checked above this branch), so it fires only on retired names.
+
+- [ ] **Step 6: Delete `test_assemble_full_scan_*` tests + per-agent and scan_full assertions in test_engine.py**
+
+Open `tests/test_engine.py`. Before editing, run `grep -nE 'def test_assemble_full_scan|assert "scan_(sqli|cmdi|ssti|xss|full)" in tool_names' tests/test_engine.py` and confirm the positions.
+
+Sub-step 6a: Delete the 4 `test_assemble_full_scan_*` functions:
+- `test_assemble_full_scan_with_project_root` (currently line 304)
+- `test_assemble_full_scan_returns_dict_shape` (currently line 350)
+- `test_assemble_full_scan_no_longer_emits_prompts` (currently line 373)
+- `test_assemble_full_scan_includes_trust_status_when_project_root_set` (currently line 397)
+
+Sub-step 6b: Delete the per-agent and scan_full assertion lines:
+- Line 74: `assert "scan_sqli" in tool_names`
+- Line 75: `assert "scan_cmdi" in tool_names`
+- Line 79: `assert "scan_full" in tool_names`
+
+After Sub-step 6b only `scan_domain`, `scan_agents`, `list_domains`, `list_agents` (and any other surviving non-scan tools) should remain in the test's `tool_names` assertions.
+
+(Note: the plan-fix pre-audit found only 2 per-agent assertions in test_engine.py (`scan_sqli`, `scan_cmdi`); the corresponding `scan_ssti`/`scan_xss` assertions live in test_server.py and are handled in Step 7.)
+
+- [ ] **Step 7: Migrate or delete `scan_full` and per-agent references in other test files**
+
+Before editing, run `grep -nE 'assert "scan_(sqli|cmdi|ssti|xss|full)" in names' tests/test_server.py` and `grep -n "test_scan_tool_accepts_project_root\|test_scan_tool_without_project_root" tests/test_phase2_server.py` to confirm positions.
+
+Sub-step 7a: `tests/test_server.py` — delete 5 lines (4 per-agent + 1 `scan_full`):
+
+```python
+# Lines 26-29 (per-agent assertions) — delete all four:
+assert "scan_sqli" in names
+assert "scan_cmdi" in names
+assert "scan_ssti" in names
+assert "scan_xss" in names
+
+# Line 33 (scan_full assertion) — delete:
+assert "scan_full" in names
+```
+
+After this sub-step the test should keep only assertions for `list_domains`, `list_agents`, `scan_domain`, `scan_agents` (any other surviving non-scan tools also remain).
+
+Sub-step 7b: `tests/test_phase2_server.py` — delete two now-stale tests (Escalation I2 — Marco-approved Option A: delete both):
+- `test_scan_tool_accepts_project_root` (currently line 163)
+- `test_scan_tool_without_project_root` (currently line 175)
+
+Both call `_dispatch_tool(engine, "scan_sqli", ...)` which becomes invalid after this task (the per-agent dispatch fallback is deleted in Step 5b, and the actionable-error branch added in Step 5d will reject `"scan_sqli"`). Coverage is preserved by `tests/test_server.py::test_scan_agents_dispatch_via_server` (added in Task 5), which exercises `_dispatch_tool` via `scan_agents` end-to-end. Net coverage loss: zero.
+
+Sub-step 7c: `tests/test_phase2_server.py` — also leave the conditional at the prior line ~210 (`if t["name"].startswith("scan_") or t["name"] in ("scan_domain", "scan_full"):`) intact in this task. It will become redundant after retirement (since `scan_domain` and `scan_agents` both start with `scan_`), but the explicit tuple is a belt-and-suspenders safety net. Tracked as `BACKLOG-T-SCAN-REFACTOR-T6-M2` for cleanup later. (If the implementer wants to update only the literal `scan_full` to `scan_agents` to match the post-Task-6 surface, that is acceptable, but no functional change is required.)
+
+Sub-step 7d: `tests/test_prompt_dedup_roundtrip.py` — **no code change required**. The function names contain `scan_full` (a misnomer carried from a prior naming convention), but the bodies use `engine.assemble_domain_scan(...)` exclusively. Verify with `grep -n 'assemble_full_scan\|assemble_domain_scan\|assemble_agents_scan' tests/test_prompt_dedup_roundtrip.py` — expect only `assemble_domain_scan` matches (3 calls). Optional follow-up: rename the misnomer test functions to `test_domain_scan_walk_*` for clarity; if not done now, deferred to backlog.
+
+Sub-step 7e (Escalation I1 — actionable-error test): add 1 new test in `tests/test_server.py` exercising the dispatcher branch added in Step 5d:
+
+```python
+def test_retired_tool_names_raise_actionable_error() -> None:
+    """Calling a retired tool name (scan_full, scan_<agent>) raises with migration hint."""
+    import pytest
+
+    from screw_agents.server import _dispatch_tool, create_server
+
+    _, engine = create_server(DOMAINS_DIR)
+    for retired_name in ("scan_full", "scan_sqli", "scan_xss"):
+        with pytest.raises(ValueError, match=r"was retired in T-SCAN-REFACTOR"):
+            _dispatch_tool(engine, retired_name, {})
+```
+
+Place it adjacent to the existing `test_scan_agents_dispatch_via_server` test. Adjust imports (`pytest`, `_dispatch_tool`, `create_server`, `DOMAINS_DIR`) to match the file's existing pattern — the example above is illustrative; copy from the surrounding tests rather than introducing new imports.
 
 - [ ] **Step 8: Run all migrated/affected tests**
 
@@ -2427,7 +2493,7 @@ if t["name"].startswith("scan_") or t["name"] in ("scan_domain", "scan_agents"):
 uv run pytest tests/test_engine.py tests/test_server.py tests/test_phase2_server.py tests/test_prompt_dedup_roundtrip.py -v 2>&1 | tail -30
 ```
 
-Expected: all PASS. Test count drops by ~6-8 (4 deleted full-scan tests + 2 migrated round-trip tests now have new function names if renamed).
+Expected: all PASS. Test count delta in this subset: -6 (4 `test_assemble_full_scan_*` from test_engine.py; 2 `test_scan_tool_*` from test_phase2_server.py) +1 (new `test_retired_tool_names_raise_actionable_error` in test_server.py) = -5 net. Assertion deletions in test_engine.py / test_server.py do not change function-count.
 
 - [ ] **Step 9: Run full test suite — confirm clean retirement**
 
@@ -2435,7 +2501,9 @@ Expected: all PASS. Test count drops by ~6-8 (4 deleted full-scan tests + 2 migr
 uv run pytest -q 2>&1 | tail -5
 ```
 
-Expected: 976 (post-Task-5) - ~8 (deletions: 4 test_assemble_full_scan_* + scan_full assertion + dispatch branch test artifacts) = **~968 passed, 9 skipped**. Zero failures.
+Expected: **972 passed, 9 skipped**. Math: 977 (Task-5 baseline at HEAD 0bb43a7) - 6 deletions (4 `test_assemble_full_scan_*` + 2 `test_scan_tool_*`) + 1 new test (Escalation I1 actionable-error) = 972. Zero failures.
+
+Re-verify the `test_assemble_full_scan_*` count with `grep -c "def test_assemble_full_scan" tests/test_engine.py` before relying on the math above; if drift has changed the count, recalculate.
 
 If a test fails because it called `engine.assemble_scan(name)` for a per-agent tool through some indirect path: the engine method `assemble_scan(name, ...)` itself is preserved (it's the per-agent helper used internally by both `assemble_agents_scan` and `assemble_domain_scan`); only the **MCP tool** dispatch branch was deleted. Direct `engine.assemble_scan(...)` calls in tests work unchanged.
 
@@ -2489,6 +2557,19 @@ Net effect: MCP scan-shaped tool surface goes from 6 (scan_full +
 scan_domain + 4 per-agent) to 2 (scan_agents + scan_domain). At
 CWE-1400 expansion would have been 43 → still 2."
 ```
+
+**Plan-fix additions (2026-04-26, post pre-audit on HEAD 0bb43a7):**
+- All cited line numbers re-pinned to HEAD 0bb43a7 (drift from Task 5: engine.py +63 — `assemble_full_scan` 1804→1985, scan_full registration 2328→2564, per-agent loop 2372→2608; server.py +10 — scan_full branch 254→264, per-agent fallback 269→279; test_server.py +33 — scan_full assertion 25→33).
+- Step 6 extended to delete per-agent assertions in `tests/test_engine.py` (lines 74 `scan_sqli`, 75 `scan_cmdi`) plus the existing `scan_full` assertion at line 79.
+- Step 7 extended to delete 4 per-agent assertions in `tests/test_server.py` (lines 26-29 `scan_sqli`, `scan_cmdi`, `scan_ssti`, `scan_xss`) plus the `scan_full` assertion at line 33.
+- Step 7 corrected: `tests/test_prompt_dedup_roundtrip.py` does NOT contain `assemble_full_scan` calls (function names are misnomers; bodies use `assemble_domain_scan` — verified by grep). No code change needed; optional rename deferred.
+- Step 7 extended (Escalation I2 — Marco-approved Option A): delete `test_scan_tool_accepts_project_root` (line 163) and `test_scan_tool_without_project_root` (line 175) from `tests/test_phase2_server.py`. Both call `_dispatch_tool(engine, "scan_sqli", ...)` which is invalid post-Task-6. Coverage preserved by Task 5's `test_scan_agents_dispatch_via_server`.
+- Test count math corrected: 977 (Task 5 baseline at HEAD 0bb43a7) - 6 deletions (4 `test_assemble_full_scan_*` + 2 `test_scan_tool_*`) + 1 new test (Edit 11 actionable error) = **972 passed, 9 skipped**.
+- Sub-steps added to Step 2 / Step 5 to update stale docstrings: `engine.py:1548` `assemble_full_scan` reference → `assemble_agents_scan`; `server.py:78` `scan_sqli` example → `scan_agents`.
+- Decision on `engine.py:2518` `scan_agents` description: keep "supersedes `scan_full` and the per-agent `scan_<name>` tools (retired)" wording as a migration-discoverability hint. Tracked for removal as `BACKLOG-T-SCAN-REFACTOR-T6-M1` (after a quiet 2-3 PR period).
+- Escalation I1 (pre-audit recommendation B): actionable error for retired tool names. New ~5 LOC dispatcher branch above the generic `Unknown tool:` raise + 1 test exercising `scan_full` / `scan_sqli` / `scan_xss` paths.
+- Escalation I2 confirmed Option A (delete the two per-agent dispatch tests) over alternatives.
+- 2 new backlog entries added: `BACKLOG-T-SCAN-REFACTOR-T6-M1` (description cleanup) and `BACKLOG-T-SCAN-REFACTOR-T6-M2` (`tests/test_phase2_server.py` redundant tuple conditional).
 
 ---
 

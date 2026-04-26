@@ -1930,3 +1930,33 @@ Non-blocking minors surfaced during Task 5 pre-audit. Deferred past T-SCAN-REFAC
 **Remediation sketch:** Sweep `list_tool_definitions` for `—` characters in description strings; replace with `--` or rephrase to avoid the dash entirely. ~10 LOC.
 
 **Estimated scope:** ~10 LOC in 1 file + 0 tests.
+
+## T-SCAN-REFACTOR Task 6 minors (discovered 2026-04-26)
+
+Non-blocking minors surfaced during Task 6 pre-audit. Deferred past T-SCAN-REFACTOR merge; natural resolution point listed per entry.
+
+### BACKLOG-T-SCAN-REFACTOR-T6-M1 — Remove "supersedes scan_full and per-agent" wording from scan_agents description
+**Phase-4 readiness:** `non-blocker` — migration-discoverability shim
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 6 pre-audit, 2026-04-26
+**File:** `src/screw_agents/engine.py::list_tool_definitions` scan_agents description (~line 2518; re-verify after Task 6 deletions shift line numbers).
+
+**Why deferred:** Task 5 added the wording ("T-SCAN-REFACTOR primitive — supersedes scan_full and the per-agent scan_<name> tools (retired).") to help users mentally migrating from scan_full / per-agent tools. After Task 6 retires those tools, the wording remains as a hint for any caller still typing the old name. After a quiet period (2-3 PRs without anyone asking about scan_full), this hint is dead weight and can be dropped.
+
+**Natural resolution point:** any backend cleanup PR after T-SCAN-REFACTOR merges and Phase-4 begins.
+
+**Remediation sketch:** Drop "supersedes scan_full and the per-agent scan_<name> tools (retired)" from the description string. ~1 LOC.
+
+**Estimated scope:** 1 LOC + 0 tests.
+
+### BACKLOG-T-SCAN-REFACTOR-T6-M2 — Simplify redundant tool-name conditional in test_phase2_server.py
+**Phase-4 readiness:** `non-blocker` — cosmetic cleanup
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 6 pre-audit, 2026-04-26
+**File:** `tests/test_phase2_server.py` near line 210 (re-verify exact line after Task 6 deletes the two `test_scan_tool_*` functions earlier in the file, which will shift positions).
+
+**Why deferred:** After Task 6 retirements, the conditional `t["name"].startswith("scan_") or t["name"] in ("scan_domain", "scan_full")` (or the post-Task-6 form `... in ("scan_domain", "scan_agents")`) is redundant — both `scan_domain` and `scan_agents` start with `scan_`. The explicit tuple was a belt-and-suspenders safety net that's no longer load-bearing once `scan_full` is gone.
+
+**Natural resolution point:** any test-cleanup PR after T-SCAN-REFACTOR merges.
+
+**Remediation sketch:** Drop the `or t["name"] in (...)` clause; the `startswith("scan_")` check alone catches all three tools (`scan_domain`, `scan_agents`, plus any future scan-shaped tool). ~1 LOC.
+
+**Estimated scope:** 1 LOC + 0 tests.
