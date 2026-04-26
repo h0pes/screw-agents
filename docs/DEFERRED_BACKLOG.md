@@ -577,6 +577,35 @@ At CWE-1400 expansion scale (41 agents × ~5-7k tokens prompt each + all code), 
 **Trigger:** A reader reports confusion about a per-domain entry, or a new agent is added that needs its dispatch example documented in the catalog.
 **Suggested fix:** Append per-agent dispatch examples (`/screw:scan agents:<name> <target>`) under each per-domain entry; cross-reference `docs/AGENT_AUTHORING.md` "Adding a new agent" section. ~50-100 LOC.
 
+### T-SCAN-REFACTOR-DOC-2 — Cosmetic doc cleanups (LOC counts, paths, ADR numbering)
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 9 quality review, 2026-04-26
+**Phase-4 readiness:** `non-blocker` — cosmetic precision
+
+**Why deferred:** Several cosmetic gaps in shipped Task 9 docs identified post-merge:
+- `screw-scan.md` LOC stated `~559` (actual 569; +10 from fix-ups)
+- PRD line count `~1,470` (actual 1,512)
+- AGENT_CATALOG line 12 mentions "Phase 6/7 future"; Phase 7 is screw.nvim not agent expansion
+- ADR-T-SCAN-REFACTOR breaks ADR-001..016 sequential numbering (named per Marco-approved EQ3)
+- CONTRIBUTING.md:24 compressed grammar omits `--thoroughness`/`--format`
+- PRD.md:390 stale path `.claude/skills/screw-review/` (actual `plugins/screw/skills/screw-review/`)
+- PRD.md:1364-1366 aspirational `autoresearch.md`, `challenge.md` slash commands not in `plugins/screw/commands/`
+- PRD.md:328 `scan_agents` description loose: "code pages with per-agent prompts" — prompts NOT returned by default; subagent fetches via `get_agent_prompt`
+- PROJECT_STATUS.md:443 stale T-FULL-P1 guidance in Phase-4 prep instructions
+
+**Remediation sketch:** Sweep all 9 docs for cosmetic precision; update LOC counts after final PR squash; verify all cited file paths exist; align ADR numbering convention. ~30 LOC of edits across multiple files.
+
+**Estimated scope:** 30 LOC, 0 code changes, 0 tests.
+
+### T-SCAN-REFACTOR-CODE-1 — `engine.py:2629` stale `finalize_scan_results` tool description default
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 9 quality review, 2026-04-26
+**Phase-4 readiness:** `non-blocker` — code-side staleness
+
+**Why deferred:** `engine.py::list_tool_definitions` for `finalize_scan_results` claims default formats are `['json', 'markdown']` but actual default in `results.py:163` is `['json', 'markdown', 'csv']` (T19-M D7 shipped 2026-04-24). PRD §6 documents the correct default; engine description is stale. Code-side bug (Task 9 is docs-only so out of immediate scope).
+
+**Remediation sketch:** Update `engine.py:2629-2631` description string to match `results.py:163`. ~1 LOC. Also verify the JSON schema's `default` field if present.
+
+**Estimated scope:** 1 LOC + 0 tests.
+
 ---
 
 ## Project-wide (not Phase-tagged)
