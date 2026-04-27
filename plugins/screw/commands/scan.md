@@ -1,6 +1,7 @@
 ---
 name: screw:scan
 description: "Run a security scan with screw-agents. Usage: /screw:scan <scope-spec> [target] [--thoroughness standard|deep] [--format json|sarif|markdown|csv] [--adaptive] [--no-confirm]. Migration: bare-token form (`/screw:scan sqli`) is preserved. The retired `scan_full` and per-agent (`scan_sqli`, ...) MCP tools are replaced by `scan_agents` (Task 6); for full-coverage scans use `/screw:scan full` or call `scan_agents(agents=list_agents().names)` directly."
+argument-hint: <scope-spec> [target] [--adaptive | --no-confirm | --thoroughness standard|deep | --format json|sarif|markdown|csv] [--help]
 allowed-tools:
   - Read
   - Task
@@ -73,7 +74,7 @@ The three forms are mutually exclusive. Mixing (e.g., `full domains:A` or `sqli 
 
 - `[target]` (last positional, optional, defaults to codebase root): bare path, `src/api/**` glob, `git_diff:BASE`, `function:NAME@FILE`, `class:NAME@FILE`, `commits:RANGE`.
 - `--thoroughness standard|deep` (default `standard`): passed to scan tool.
-- `--format json|sarif|markdown|csv` (default `markdown`): passed to `finalize_scan_results`.
+- `--format json|sarif|markdown|csv` (default `["json", "markdown", "csv"]`; pass `--format <one>` to restrict): passed to `finalize_scan_results`. The default matches the engine's `results.py:163` default.
 - `--adaptive` (optional flag, default disabled): enable adaptive analysis mode. Requires `.screw/config.yaml` with `script_reviewers` populated and an interactive session. CI/piped contexts MUST NOT pass `--adaptive`. The `--adaptive` flag IS the user consent.
 - `--no-confirm` (optional flag, default false): skip the pre-execution `Continue?` prompt. CI / piped contexts MUST pass this. The summary line still prints to stderr-equivalent for audit.
 
@@ -82,6 +83,44 @@ The three forms are mutually exclusive. Mixing (e.g., `full domains:A` or `sqli 
 ## Workflow
 
 ### Step 1: Pre-parse `$ARGUMENTS` and validate flags
+
+**Help flag short-circuit:** if `$ARGUMENTS` contains `--help` (or is exactly `--help`), the body MUST print the help block below and return without dispatching the subagent. Help block content:
+
+```
+/screw:scan — universal security scan slash command
+
+GRAMMAR
+  /screw:scan <scope-spec> [target] [flags]
+
+SCOPE-SPEC FORMS (mutually exclusive)
+  - bare-token: single agent name OR domain name
+      e.g.,  /screw:scan sqli src/
+             /screw:scan injection-input-handling src/
+  - full keyword: all registered agents
+      e.g.,  /screw:scan full src/
+  - prefix-key form: combine domains + agents
+      e.g.,  /screw:scan domains:foo,bar src/
+             /screw:scan agents:sqli,xss src/
+             /screw:scan domains:foo agents:bar src/
+
+FLAGS
+  --adaptive                    Enable adaptive review flow (interactive only; mutually exclusive with --no-confirm)
+  --no-confirm                  Skip pre-execution confirmation prompt (CI / non-interactive contexts)
+  --thoroughness standard|deep  Scan depth (default: standard)
+  --format <fmt>                Single output format from {json, markdown, csv, sarif}; if omitted, all 3 defaults are emitted (json, markdown, csv)
+
+DISCOVERY
+  To list available domains:    invoke MCP tool `mcp__screw-agents__list_domains`
+  To list available agents:     invoke MCP tool `mcp__screw-agents__list_agents`
+  Or run them inside Claude Code: `/mcp` shows the registered server + tool list
+
+EXAMPLES
+  /screw:scan sqli src/
+  /screw:scan full src/ --no-confirm --format json
+  /screw:scan domains:injection-input-handling agents:sqli,xss src/ --adaptive
+```
+
+Then exit cleanly — no further steps. The `--help` short-circuit runs BEFORE `validate_flags` mutual-exclusivity check below, so `--help` combined with any other flag still prints help and exits.
 
 Pre-parse algorithm — token classification (T-SCAN-REFACTOR Task 8 plan-fix Edit 10):
 
@@ -558,7 +597,7 @@ mcp__screw-agents__finalize_scan_results({
     "session_id": <session_id from Step 6>,
     "agent_names": <kept-agents list from Step 4>,
     "scan_metadata": <scan_metadata from Step 6 — includes target + timestamp>,
-    "formats": [<format from $ARGUMENTS, default markdown>],
+    "formats": [<format from $ARGUMENTS, default ["json", "markdown", "csv"] (engine default per results.py:163, T19-M D7); if --format <one> passed, single-element list [<one>]>],
 })
 ```
 
