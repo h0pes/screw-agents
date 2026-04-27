@@ -566,6 +566,68 @@ At CWE-1400 expansion scale (41 agents × ~5-7k tokens prompt each + all code), 
 **Trigger:** Audit requirement (compliance, security review of CI behavior).
 **Suggested fix:** Add a Claude Code hook that fires on `/screw:scan ... --no-confirm` invocations and logs to `.screw/audit/`. ~20 LOC + hook configuration.
 
+### T-SCAN-REFACTOR-RT-1 — Subagent classification non-determinism on identical target
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 10 round-trip 1+2, 2026-04-27
+**Phase-4 readiness:** `non-blocker` — LLM-driven classification stability concern, not a wiring bug
+
+**Why deferred:** Same dao.py:9 f-string SQLi pattern, same `sqli` agent's `py-dbapi-fstring` heuristic, two consecutive round-trips:
+- RT1 (`/screw:scan domains:injection-input-handling agents:sqli src/ --no-confirm`) → classified context-required → 0 findings + 1 coverage gap
+- RT2 (`/screw:scan full src/ --no-confirm`) → classified medium-confidence → 1 active finding (severity HIGH, CWE-89)
+
+Same heuristic-pattern match, two different verdicts on identical input. The heuristic itself is tagged `severity: context-required` because static analysis can't confirm `qb` is a SQL DB cursor or that `user_id` is user-controlled — so both classifications are defensible given the ambiguity. But users running the same scan twice would expect repeatable results. This is LLM non-determinism at the subagent's analysis layer.
+
+**Remediation sketch:** Investigate options:
+- (a) Tighter agent prompt instruction: "if the heuristic is tagged context-required, ALWAYS surface as gap, never as active finding"
+- (b) Engine-side enforcement: when `severity: context-required` heuristic matches, force gap classification regardless of LLM judgment
+- (c) Accept LLM non-determinism; document as expected behavior in user-facing docs
+- (d) Add a determinism test (parametrized over 5+ runs of the same scan, assert verdict stable)
+
+Option (b) is the strongest from a determinism standpoint; (c) is the lowest-cost; (d) is defense-in-depth.
+
+**Estimated scope:** Depends on chosen option: (a) ~5 LOC prompt edit, (b) ~10 LOC engine logic + tests, (c) doc-only, (d) ~30 LOC test infrastructure.
+
+### T-SCAN-REFACTOR-RT-2 — Subagent narrative inconsistencies in terminal output
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 10 round-trip 2, 2026-04-27
+**Phase-4 readiness:** `non-blocker` — terminal-narrative quality concern, not a correctness bug
+
+**Why deferred:** RT2's terminal output contained three suspect narrative claims that the actual report files (json/md/csv) do NOT corroborate:
+
+1. **"3 tool uses"** for 4-agent dispatch — counter-intuitive (RT1 was 5 tool uses for 1 agent). Possible explanations: subagent's accounting omits cached tool-schema lookups, OR the count is per "round" not per individual call. Either way, the displayed count misleads users into thinking the multi-agent dispatch was lightweight when it actually wasn't.
+
+2. **"cmdi, ssti, xss: 0 findings (no resolved files / empty code on their pages)"** — pagination is file-strided, not agent-strided; all 4 agents see the same dao.py page in the single-file fixture. This narrative is confabulated; the engine actually fans out per-agent prompt-fetches against the SAME page. Correct end result (0 findings for those 3 agents because their detection patterns don't match dao.py's SQL content), wrong explanation in the narrative.
+
+3. **"medium confidence per scan classification, escalated to high severity by finalize"** — the markdown report at `injection-2026-04-27T12-46-51.md` shows `Severity: HIGH, Confidence: Medium`. Whether engine-side severity-from-confidence escalation is real or LLM-confabulated needs verification by reading `engine.py::finalize_scan_results` + `results.py::render_and_write` carefully. If real, the rule should be documented. If confabulated, the subagent prompt should not claim escalation it didn't perform.
+
+**Remediation sketch:** Triage each:
+- For (1): document the tool-count semantics, OR remove the count from the user-facing summary (it's confusing without context).
+- For (2): tighten the subagent prompt's "summarize per-agent breakdown" section to match actual pagination semantics; add an example showing "all agents see the same page; per-agent finding counts reflect heuristic match against the same code".
+- For (3): verify by reading code; if real, document the rule + add to PRD §5; if confabulated, remove the claim from the subagent prompt.
+
+**Estimated scope:** Investigation ~30 min; remediation ~10-20 LOC of subagent prompt + 1-2 LOC docs.
+
+### T-SCAN-REFACTOR-RT-3 — Coverage gaps absent from rendered reports
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 10 round-trip 1, 2026-04-27
+**Phase-4 readiness:** `non-blocker` — UX gap; gap data is captured but not surfaced to user-facing report
+
+**Why deferred:** RT1's terminal narrative reported "1 context-required gap at dao.py:9" but the rendered markdown report (`sqli-2026-04-27T07-06-19.md`, 137 bytes) shows only:
+```
+# Security Scan Report
+...
+## Summary
+No findings detected.
+```
+
+The coverage gap is in the structured payload (subagent return → `coverage_gaps` field, or `pending_reviews` in adaptive mode) but `results.py::render_and_write` does not include a "Coverage Gaps" section in the markdown output. Users who only read the file get "No findings detected" without seeing the gap that surfaced in-session.
+
+**Remediation sketch:**
+- Update `results.py` markdown renderer to include a "## Coverage Gaps (context-required, deep mode would expand)" section listing each gap with file:line + heuristic id + agent name.
+- Update JSON output to include a `coverage_gaps: [...]` top-level field.
+- Update CSV to add gap rows with a discriminator column (e.g., `record_type: gap` vs `record_type: finding`).
+- Update markdown header summary to surface gap count alongside finding count.
+- Update spec / PRD §5 if necessary (the report-shape description).
+
+**Estimated scope:** ~30-50 LOC across `results.py` + 5-8 new tests in `test_results.py`. Update `screw-scan.md` subagent prompt to ensure `coverage_gaps` field is in the C2 return schema (already specified in plan-fix Edit 5; verify the implementation actually emits it).
+
 ---
 
 ## T-SCAN-REFACTOR Documentation Backlog
