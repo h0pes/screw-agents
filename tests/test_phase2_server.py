@@ -159,31 +159,6 @@ class TestAccumulateFinalizeTools:
         assert (staging_dir / "result.json").exists()
 
 
-class TestScanToolProjectRoot:
-    def test_scan_tool_accepts_project_root(self, engine, domains_dir, tmp_path):
-        fixtures_dir = Path(__file__).resolve().parent.parent / "benchmarks" / "fixtures"
-        vuln_dir = fixtures_dir / "sqli" / "vulnerable"
-        py_files = list(vuln_dir.glob("*.py"))
-        if not py_files:
-            pytest.skip("no Python fixtures")
-        result = _dispatch_tool(engine, "scan_sqli", {
-            "target": {"type": "file", "path": str(py_files[0])},
-            "project_root": str(tmp_path),
-        })
-        assert "exclusions" in result
-
-    def test_scan_tool_without_project_root(self, engine, domains_dir):
-        fixtures_dir = Path(__file__).resolve().parent.parent / "benchmarks" / "fixtures"
-        vuln_dir = fixtures_dir / "sqli" / "vulnerable"
-        py_files = list(vuln_dir.glob("*.py"))
-        if not py_files:
-            pytest.skip("no Python fixtures")
-        result = _dispatch_tool(engine, "scan_sqli", {
-            "target": {"type": "file", "path": str(py_files[0])},
-        })
-        assert "exclusions" not in result
-
-
 class TestNewToolsRegistered:
     def test_format_output_in_tool_list(self, domains_dir):
         _, engine = create_server(domains_dir)
@@ -208,6 +183,6 @@ class TestNewToolsRegistered:
         _, engine = create_server(domains_dir)
         tools = engine.list_tool_definitions()
         for t in tools:
-            if t["name"].startswith("scan_") or t["name"] in ("scan_domain", "scan_full"):
+            if t["name"].startswith("scan_") or t["name"] in ("scan_domain", "scan_agents"):
                 props = t["input_schema"].get("properties", {})
                 assert "project_root" in props, f"{t['name']} missing project_root"

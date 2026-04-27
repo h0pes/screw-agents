@@ -63,6 +63,58 @@ def language_from_path(path: str | Path) -> str | None:
     return EXTENSION_MAP.get(suffix)
 
 
+# Shebang interpreter → canonical language name. Restricted to languages
+# present in EXTENSION_MAP / SUPPORTED_LANGUAGES so the rest of the
+# pipeline (tree-sitter parsing, agent language declarations) stays
+# coherent. Bash, perl, etc. map to None even if a shebang line points
+# at them, since we have no parsers for those.
+SHEBANG_MAP: dict[str, str] = {
+    "python": "python",
+    "python2": "python",
+    "python3": "python",
+    "ruby": "ruby",
+    "node": "javascript",
+    "nodejs": "javascript",
+    "ts-node": "typescript",
+    "tsnode": "typescript",
+    "deno": "typescript",
+    "php": "php",
+}
+
+
+def language_from_shebang(first_line: str) -> str | None:
+    """Detect language from a shebang line.
+
+    Walks the shebang tokens left-to-right, skipping interpreter flags
+    (anything starting with '-') and the 'env' wrapper. Returns the
+    canonical language name for the first remaining token whose basename
+    appears in SHEBANG_MAP, or None if no token matches.
+
+    Handles real-world shebang forms including interpreter flags and
+    `env -S` split-args:
+        '#!/usr/bin/env python3'              -> 'python'
+        '#!/usr/bin/python3 -O'               -> 'python'      (interpreter flag)
+        '#!/usr/bin/env python3 -O'           -> 'python'
+        '#!/usr/bin/env -S python3 -O'        -> 'python'      (env -S)
+        '#!/usr/bin/env node --harmony'       -> 'javascript'  (node flag)
+        '#!/bin/bash'                         -> None          (bash not supported)
+        '#!/usr/bin/env perl'                 -> None          (perl not supported)
+        'not a shebang'                       -> None
+    """
+    if not first_line.startswith("#!"):
+        return None
+    parts = first_line[2:].strip().split()
+    for token in parts:
+        if token.startswith("-"):
+            continue  # interpreter or env flag (e.g., -O, -u, -S, --harmony)
+        interpreter = token.rsplit("/", 1)[-1]
+        if interpreter == "env":
+            continue  # env is a wrapper; the real interpreter follows
+        # First non-flag non-env token IS the interpreter; supported or not.
+        return SHEBANG_MAP.get(interpreter)
+    return None
+
+
 @lru_cache(maxsize=None)
 def get_language(name: str) -> Language:
     """Return a tree-sitter Language for the given canonical name.

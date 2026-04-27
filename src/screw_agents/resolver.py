@@ -12,7 +12,7 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from screw_agents.treesitter import get_parser
+from screw_agents.treesitter import get_parser, language_from_path, language_from_shebang
 
 # tree-sitter node types for function/method definitions across languages.
 _FUNCTION_NODE_TYPES = {
@@ -89,10 +89,23 @@ def _read_file(path: str) -> str:
     return p.read_text(encoding="utf-8", errors="replace")
 
 
-def _detect_language(path: str) -> str | None:
-    """Detect language from file extension."""
-    from screw_agents.treesitter import language_from_path
-    return language_from_path(path)
+def _detect_language(path: str, content: str | None = None) -> str | None:
+    """Detect language from file extension first, then shebang line.
+
+    Args:
+        path: File path. Extension lookup runs first (cheap, deterministic).
+        content: Optional file content. Used only when extension lookup
+            returns None — first-line shebang is parsed for an interpreter
+            hint. If `content` is None, shebang detection is skipped (caller
+            doesn't have content handy and we don't pay an extra read).
+    """
+    lang = language_from_path(path)
+    if lang is not None:
+        return lang
+    if content is None:
+        return None
+    first_line = content.split("\n", 1)[0]
+    return language_from_shebang(first_line)
 
 
 def _resolve_file(target: dict) -> list[ResolvedCode]:
@@ -101,7 +114,7 @@ def _resolve_file(target: dict) -> list[ResolvedCode]:
     return [ResolvedCode(
         file_path=path,
         content=content,
-        language=_detect_language(path),
+        language=_detect_language(path, content),
     )]
 
 
@@ -128,7 +141,7 @@ def _resolve_glob(target: dict) -> list[ResolvedCode]:
         results.append(ResolvedCode(
             file_path=path,
             content=content,
-            language=_detect_language(path),
+            language=_detect_language(path, content),
         ))
     return results
 
@@ -155,7 +168,7 @@ def _resolve_lines(target: dict) -> list[ResolvedCode]:
     return [ResolvedCode(
         file_path=path,
         content=selected,
-        language=_detect_language(path),
+        language=_detect_language(path, content),
         line_start=start,
         line_end=end,
     )]
@@ -184,7 +197,7 @@ def _resolve_function(target: dict) -> list[ResolvedCode]:
     path = target["file"]
     name = target["name"]
     content = _read_file(path)
-    lang = _detect_language(path)
+    lang = _detect_language(path, content)
 
     if lang is None:
         raise ValueError(f"Cannot detect language for {path}")
@@ -207,7 +220,7 @@ def _resolve_class(target: dict) -> list[ResolvedCode]:
     path = target["file"]
     name = target["name"]
     content = _read_file(path)
-    lang = _detect_language(path)
+    lang = _detect_language(path, content)
 
     if lang is None:
         raise ValueError(f"Cannot detect language for {path}")
@@ -246,7 +259,7 @@ def _resolve_codebase(target: dict) -> list[ResolvedCode]:
         results.append(ResolvedCode(
             file_path=str(path),
             content=content,
-            language=_detect_language(str(path)),
+            language=_detect_language(str(path), content),
         ))
     return results
 
@@ -282,10 +295,11 @@ def _parse_unified_diff(diff_text: str, cwd: str) -> list[ResolvedCode]:
     for line in diff_text.splitlines(keepends=True):
         if line.startswith("diff --git"):
             if current_file and current_lines:
+                content = "".join(current_lines)
                 results.append(ResolvedCode(
                     file_path=current_file,
-                    content="".join(current_lines),
-                    language=_detect_language(current_file),
+                    content=content,
+                    language=_detect_language(current_file, content),
                     metadata={"source": "git_diff"},
                 ))
             current_lines = []
@@ -298,10 +312,11 @@ def _parse_unified_diff(diff_text: str, cwd: str) -> list[ResolvedCode]:
             current_lines.append(line)
 
     if current_file and current_lines:
+        content = "".join(current_lines)
         results.append(ResolvedCode(
             file_path=current_file,
-            content="".join(current_lines),
-            language=_detect_language(current_file),
+            content=content,
+            language=_detect_language(current_file, content),
             metadata={"source": "git_diff"},
         ))
 

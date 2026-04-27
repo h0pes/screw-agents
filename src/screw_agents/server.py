@@ -24,6 +24,18 @@ from screw_agents.registry import AgentRegistry
 logger = logging.getLogger(__name__)
 
 
+# T-SCAN-REFACTOR Task 6: positive list of MCP tool names retired by the refactor.
+# Used by ``_dispatch_tool`` to issue an actionable migration error when callers
+# invoke a name that *was* a real tool prior to the refactor. Per Marco-approved
+# Option B (quality-review escalation): we use a positive list rather than a
+# pattern match like ``name.startswith("scan_") and name not in {...}`` so that
+# future ``scan_<future>`` names that were never retired correctly fall through
+# to the generic ``Unknown tool`` branch instead of falsely claiming retirement.
+RETIRED_TOOL_NAMES = frozenset(
+    {"scan_full", "scan_sqli", "scan_xss", "scan_cmdi", "scan_ssti"}
+)
+
+
 def create_server(domains_dir: Path | None = None) -> tuple[Server, ScanEngine]:
     """Create and configure the MCP server with tool handlers.
 
@@ -75,7 +87,7 @@ def _dispatch_tool(
 
     Args:
         engine: The ScanEngine instance.
-        name: Tool name (e.g. ``"list_domains"``, ``"scan_sqli"``).
+        name: Tool name (e.g. ``"list_domains"``, ``"scan_agents"``).
         args: Tool arguments dict.
 
     Returns:
@@ -89,6 +101,31 @@ def _dispatch_tool(
 
     if name == "list_agents":
         return engine.list_agents(domain=args.get("domain"))
+
+    # T-SCAN-REFACTOR Task 8 (E1=A): resolve_scope MCP tool. Replaces the
+    # shell-injection-vulnerable Bash + python -c invocation in
+    # plugins/screw/commands/scan.md. Args are JSON-serialized over the
+    # MCP layer; no shell parsing happens.
+    if name == "resolve_scope":
+        from screw_agents.scan_command import (
+            ScopeResolutionError,
+            parse_scope_spec,
+            resolve_scope,
+            summarize_scope,
+        )
+
+        scope_text = args["scope_text"]
+        try:
+            parsed = parse_scope_spec(scope_text)
+            agents = resolve_scope(parsed, engine._registry)
+            summary = summarize_scope(parsed, engine._registry)
+        except ScopeResolutionError:
+            # Re-raise as ValueError; the MCP server upstream wraps any
+            # ValueError into a tool-error response with the message
+            # surfaced verbatim — that's exactly what the slash command
+            # body needs to see for actionable user feedback.
+            raise
+        return {"agents": agents, "summary": summary}
 
     # --- Phase 2: new tools ---
 
@@ -251,11 +288,14 @@ def _dispatch_tool(
             page_size=args.get("page_size", 50),
         )
 
-    if name == "scan_full":
-        return engine.assemble_full_scan(
+    if name == "scan_agents":
+        return engine.assemble_agents_scan(
+            agents=args["agents"],
             target=args["target"],
             thoroughness=args.get("thoroughness", "standard"),
             project_root=project_root,
+            cursor=args.get("cursor"),
+            page_size=args.get("page_size", 50),
         )
 
     # Phase 3a X1-M1 (T12): per-agent prompt fetch
@@ -265,14 +305,15 @@ def _dispatch_tool(
             thoroughness=args.get("thoroughness", "standard"),
         )
 
-    # Per-agent scan tools: scan_{agent_name}
-    if name.startswith("scan_"):
-        agent_name = name[len("scan_"):]
-        return engine.assemble_scan(
-            agent_name=agent_name,
-            target=args["target"],
-            thoroughness=args.get("thoroughness", "standard"),
-            project_root=project_root,
+    # T-SCAN-REFACTOR Task 6: actionable error for callers using retired tool names
+    # (Marco-approved Option B from quality-review escalation: positive list, not
+    # pattern match — see ``RETIRED_TOOL_NAMES`` rationale at module level).
+    if name in RETIRED_TOOL_NAMES:
+        raise ValueError(
+            f"Tool {name!r} was retired in T-SCAN-REFACTOR. "
+            f"Use scan_agents(agents=[...], target=...) for per-agent scans, "
+            f"or scan_agents(agents=list_agents().names, target=...) for full scans, "
+            f"or scan_domain(domain=..., target=...) for whole-domain scans."
         )
 
     raise ValueError(f"Unknown tool: {name!r}")

@@ -3,26 +3,25 @@
 > Complete inventory of all planned individual agents, organized by CWE-1400 domain.
 > Derived from PRD §9 (Agent Registry: Phased Build Order) and §9 (Domain-to-Agent Mapping).
 >
-> Last updated: 2026-04-11
+> Last updated: 2026-04-25 (T-SCAN-REFACTOR full rewrite)
 
 ## Reading This Document
 
-- **Domain** = CWE-1400 category (structural backbone). Each domain gets one orchestrator subagent.
-- **Agent** = individual vulnerability specialist. Each gets its own YAML definition + subagent `.md`.
-- **Phase** = when the agent's YAML is researched and built (Phase 0 = done, Phase 2/7 = future).
+- **Domain** = CWE-1400 category (structural backbone).
+- **Agent** = individual vulnerability specialist. Each is a YAML file in `domains/<domain-dir>/<agent>.yaml`. **At runtime, ALL agents are dispatched via the single universal `screw-scan.md` subagent (T-SCAN-REFACTOR, 2026-04-25); per-agent .md subagent files are NOT created.**
+- **Phase** = when the agent's YAML is researched and built (Phase 0 = done, Phase 6/7 = future).
 - **YAML** = agent definition in `domains/<domain-dir>/`. The real knowledge lives here.
-- **Subagent** = Claude Code `.md` file in `plugins/screw/agents/`. Thin wrapper calling MCP tools.
+- **Dispatch** = main session calls universal `screw-scan` subagent with `agents: list[str]` (resolved from the slash command's scope spec via `mcp__screw-agents__resolve_scope`). No per-agent or per-domain orchestrator subagent file exists post-T-SCAN-REFACTOR.
 
 ## Summary
 
-| Metric | Count |
-|---|---|
-| Domains (CWE-1400 categories) | 18 |
-| Domain orchestrator subagents | 18 |
-| Individual agents (planned) | 41 |
-| Individual agent subagents | 41 |
-| Full-review orchestrator | 1 |
-| **Total subagent `.md` files** | **60** |
+| Layer | Count | Files |
+|---|---|---|
+| Domains (CWE-1400 categories) | 18 | `domains/<domain>/` directories |
+| Agents (planned at full CWE-1400 expansion) | 41 | `domains/<domain>/<agent>.yaml` YAML files |
+| Universal scan subagent | 1 | `plugins/screw/agents/screw-scan.md` |
+| Supporting subagents | 2 | `screw-script-reviewer.md`, `screw-learning-analyst.md` |
+| **Total subagent .md files** | **3** | (was 60 in pre-T-SCAN-REFACTOR design) |
 
 ---
 
@@ -37,7 +36,7 @@
 | 1 | `broken_access` — IDOR, privilege escalation, missing authz | CWE-862, CWE-863, CWE-284 | #11, #16 | 2 (expansion) | Planned |
 | 2 | `ssrf` — Server-side request forgery | CWE-918 | #19 | 2 (expansion) | Planned |
 
-**Orchestrator:** `screw-access-control.md`
+**Dispatch:** universal `screw-scan.md` via `/screw:scan access-control` (or `/screw:scan domains:access-control`).
 
 ---
 
@@ -52,7 +51,7 @@
 | 1 | `type_confusion` — Incorrect type comparison, type juggling (PHP), loose equality | CWE-697, CWE-843 | — | 7 | Planned |
 | 2 | `regex_dos` — ReDoS, incorrect regex validation bypass | CWE-185, CWE-1333 | — | 7 | Planned |
 
-**Orchestrator:** `screw-comparison.md`
+**Dispatch:** universal `screw-scan.md` via `/screw:scan comparison` (or `/screw:scan domains:comparison`).
 
 > Note: CWE-1254 (incorrect comparison logic in hardware) is out of scope for software code review.
 
@@ -69,7 +68,7 @@
 | 1 | `xxe` — XML External Entity injection | CWE-611 | — | 3+ | Planned |
 | 2 | `unsafe_reflection` — Unsafe reflection, dynamic class loading | CWE-470 | — | 3+ | Planned |
 
-**Orchestrator:** `screw-component-interaction.md`
+**Dispatch:** universal `screw-scan.md` via `/screw:scan component-interaction` (or `/screw:scan domains:component-interaction`).
 
 ---
 
@@ -85,7 +84,7 @@
 | 2 | `use_after_free` — Use-after-free, double free | CWE-416, CWE-415 | #4 (416) | 3+ | Planned |
 | 3 | `null_deref` — Null pointer dereference | CWE-476 | #12 | 3+ | Planned |
 
-**Orchestrator:** `screw-memory-safety.md`
+**Dispatch:** universal `screw-scan.md` via `/screw:scan memory-safety` (or `/screw:scan domains:memory-safety`).
 
 > Primary languages: C, C++, Rust (unsafe blocks). Less relevant for managed languages.
 
@@ -101,7 +100,7 @@
 |---|---|---|---|---|---|
 | 1 | `race_condition` — Race conditions, TOCTOU | CWE-362, CWE-367 | #21 (362) | 3+ | Planned |
 
-**Orchestrator:** `screw-concurrency.md`
+**Dispatch:** universal `screw-scan.md` via `/screw:scan concurrency` (or `/screw:scan domains:concurrency`).
 
 ---
 
@@ -117,7 +116,7 @@
 | 2 | `hardcoded_secrets` — Hardcoded passwords, API keys, private keys in source | CWE-798, CWE-321 | #18 (798) | 2 (expansion) | Planned |
 | 3 | `insecure_random` — Predictable PRNG, insufficient entropy | CWE-330, CWE-338 | — | 7 | Planned |
 
-**Orchestrator:** `screw-cryptography.md`
+**Dispatch:** universal `screw-scan.md` via `/screw:scan cryptography` (or `/screw:scan domains:cryptography`).
 
 > Note: PRD Phase 2 groups `weak_crypto` + `hardcoded_secrets` as one agent initially. Splitting them into two agents is recommended because detection heuristics are fundamentally different (algorithmic analysis vs. secret pattern matching). The orchestrator runs both regardless.
 
@@ -134,7 +133,7 @@
 | 1 | `open_redirect` — Unvalidated redirect/forward | CWE-601 | — | 7 | Planned |
 | 2 | `resource_exposure` — Exposure of resource to wrong sphere, information leak via URL | CWE-668, CWE-610 | — | 7 | Planned |
 
-**Orchestrator:** `screw-exposed-resource.md`
+**Dispatch:** universal `screw-scan.md` via `/screw:scan exposed-resource` (or `/screw:scan domains:exposed-resource`).
 
 > Note: SSRF (CWE-918) could structurally belong here (CWE-610 is a parent), but the PRD places it under Access Control (Domain 1) following OWASP 2025's consolidation of SSRF into A01.
 
@@ -151,7 +150,7 @@
 | 1 | `path_traversal` — Directory traversal, file inclusion | CWE-22, CWE-73 | #5 (22) | 2 (expansion) | Planned |
 | 2 | `file_upload` — Unrestricted file upload, MIME type bypass | CWE-434 | #10 (434) | 7 | Planned |
 
-**Orchestrator:** `screw-file-handling.md`
+**Dispatch:** universal `screw-scan.md` via `/screw:scan file-handling` (or `/screw:scan domains:file-handling`).
 
 ---
 
@@ -165,7 +164,7 @@
 |---|---|---|---|---|---|
 | 1 | `error_handling` — Missing error checks, fail-open logic, uncaught exceptions | CWE-754, CWE-755, CWE-252 | — | 3+ | Planned |
 
-**Orchestrator:** `screw-exceptional-conditions.md`
+**Dispatch:** universal `screw-scan.md` via `/screw:scan exceptional-conditions` (or `/screw:scan domains:exceptional-conditions`).
 
 > Note: CWE-209 (verbose errors leaking info) overlaps with Domain 18 (Sensitive Info). The error_handling agent focuses on control-flow consequences of bad error handling; info leakage via errors is Domain 18's sensitive_data agent's responsibility.
 
@@ -190,7 +189,7 @@
 | 9 | `header_injection` — HTTP header/response splitting | CWE-113 | — | 3+ | Planned |
 | 10 | `log_injection` — Log injection/forging | CWE-117 | — | 3+ | Planned |
 
-**Orchestrator:** `screw-injection.md`
+**Dispatch:** universal `screw-scan.md` via `/screw:scan injection-input-handling` (or `/screw:scan domains:injection-input-handling`). For per-agent dispatch use `/screw:scan agents:sqli` (or `cmdi`/`ssti`/`xss`).
 
 > Largest domain by agent count. The 3 merged CWE-1400 categories (Input Validation + Neutralization + Injection) reflect the tight coupling: neutralization failures and injection attacks are consequences of input validation failures.
 
@@ -206,7 +205,7 @@
 |---|---|---|---|---|---|
 | 1 | `integer_overflow` — Integer overflow/underflow, truncation | CWE-190, CWE-191 | #14 (190) | 7 | Planned |
 
-**Orchestrator:** `screw-incorrect-calculation.md`
+**Dispatch:** universal `screw-scan.md` via `/screw:scan incorrect-calculation` (or `/screw:scan domains:incorrect-calculation`).
 
 > Note: CWE-369 (divide by zero) and CWE-682 (incorrect calculation) are typically caught by compilers/linters. The integer_overflow agent focuses on security-relevant overflow (e.g., allocation size calculations, length checks).
 
@@ -222,7 +221,7 @@
 |---|---|---|---|---|---|
 | 1 | `control_flow` — Infinite loops, uncontrolled recursion, missing break | CWE-835, CWE-674, CWE-691 | — | 7 | Planned |
 
-**Orchestrator:** `screw-control-flow.md`
+**Dispatch:** universal `screw-scan.md` via `/screw:scan control-flow` (or `/screw:scan domains:control-flow`).
 
 > Lower security relevance — primarily a reliability/DoS concern. Single agent covers the domain since these are closely related control-flow failures.
 
@@ -239,7 +238,7 @@
 | 1 | `csrf` — Cross-site request forgery | CWE-352 | #9 | 3+ | Planned |
 | 2 | `jwt_validation` — JWT signature bypass, algorithm confusion, missing claims validation | CWE-347 | — | 3+ | Planned |
 
-**Orchestrator:** `screw-data-authenticity.md`
+**Dispatch:** universal `screw-scan.md` via `/screw:scan data-authenticity` (or `/screw:scan domains:data-authenticity`).
 
 ---
 
@@ -253,7 +252,7 @@
 |---|---|---|---|---|---|
 | 1 | `insecure_design` — Security-relevant design flaws, missing security controls | CWE-710, CWE-477 | — | 3+ | Planned |
 
-**Orchestrator:** `screw-coding-practices.md`
+**Dispatch:** universal `screw-scan.md` via `/screw:scan coding-practices` (or `/screw:scan domains:coding-practices`).
 
 > Broadest and most subjective domain. The agent focuses on concrete, detectable anti-patterns (e.g., deprecated API usage, missing security headers in framework setup) rather than abstract "bad design."
 
@@ -269,7 +268,7 @@
 |---|---|---|---|---|---|
 | 1 | `auth_failures` — Broken authentication, weak password policy, missing MFA checks | CWE-287, CWE-307, CWE-522 | #13 (287) | 2 (expansion) | Planned |
 
-**Orchestrator:** `screw-protection-mechanism.md`
+**Dispatch:** universal `screw-scan.md` via `/screw:scan protection-mechanism` (or `/screw:scan domains:protection-mechanism`).
 
 ---
 
@@ -283,7 +282,7 @@
 |---|---|---|---|---|---|
 | 1 | `resource_exhaustion` — DoS via resource exhaustion, unbounded allocation, missing rate limits | CWE-400, CWE-770 | — | 3+ | Planned |
 
-**Orchestrator:** `screw-resource-control.md`
+**Dispatch:** universal `screw-scan.md` via `/screw:scan resource-control` (or `/screw:scan domains:resource-control`).
 
 ---
 
@@ -297,7 +296,7 @@
 |---|---|---|---|---|---|
 | 1 | `resource_leak` — Unclosed handles, file descriptors, DB connections, memory leaks | CWE-404, CWE-401, CWE-772 | — | 7 | Planned |
 
-**Orchestrator:** `screw-resource-lifecycle.md`
+**Dispatch:** universal `screw-scan.md` via `/screw:scan resource-lifecycle` (or `/screw:scan domains:resource-lifecycle`).
 
 > Primarily a reliability concern but security-relevant when leaked resources enable DoS or information disclosure (e.g., leaked temp files with sensitive data).
 
@@ -314,7 +313,7 @@
 | 1 | `sensitive_data` — PII/secrets in responses, verbose error messages, debug endpoints | CWE-200, CWE-209 | — | 2 (expansion) | Planned |
 | 2 | `log_leakage` — Sensitive data written to logs, insufficient log sanitization | CWE-532 | — | 3+ | Planned |
 
-**Orchestrator:** `screw-sensitive-info.md`
+**Dispatch:** universal `screw-scan.md` via `/screw:scan sensitive-info` (or `/screw:scan domains:sensitive-info`).
 
 > Note: CWE-798 (hardcoded credentials) is covered by Domain 6's `hardcoded_secrets` agent, not here. Detection is algorithmic pattern matching (secret scanning), which aligns better with the Cryptography domain's tooling.
 
@@ -322,14 +321,16 @@
 
 ## Build Order by Phase
 
-| Phase | Agents | Domains Touched | Status |
+| Phase | Agents (YAML files) | Domains Touched | Status |
 |---|---|---|---|
-| **0** (research) | sqli, cmdi, ssti, xss | 1 (injection) | **Complete** |
-| **2** (expansion) | xpath, deserialization, broken_access, ssrf, weak_crypto, hardcoded_secrets, auth_failures, path_traversal, sensitive_data | 5 (injection, access-control, cryptography, protection-mechanism, file-handling, sensitive-info) | **Agent YAML: Phase 6. Subagent .md: Phase 2 only for existing 4 agents** |
+| **0** (research) | sqli, cmdi, ssti, xss | 1 (injection) | **Complete** — 4 YAMLs in `domains/injection-input-handling/` |
+| **2** (expansion) | xpath, deserialization, broken_access, ssrf, weak_crypto, hardcoded_secrets, auth_failures, path_traversal, sensitive_data | 5 (injection, access-control, cryptography, protection-mechanism, file-handling, sensitive-info) | Agent YAML: Phase 6 |
 | **3+** | xxe, unsafe_reflection, error_handling, race_condition, csrf, jwt_validation, resource_exhaustion, insecure_design, ldap_injection, nosql_injection, header_injection, log_injection, log_leakage, buffer_overflow, use_after_free, null_deref | 10 | Planned |
 | **6** (full coverage) | type_confusion, regex_dos, open_redirect, resource_exposure, file_upload, integer_overflow, control_flow, resource_leak, insecure_random | 7 | Planned |
 
-> **Clarification on "Phase 2" overloading:** The PRD uses "Phase 2" in two contexts: (a) Phase 2 of the *implementation plan* = Claude Code Integration (subagents, skills, filesystem output) for the existing 4 agents; (b) "Phase 2 agents" in §9 = the next 8 agent YAMLs to be researched. The YAML research for expansion agents happens in Phase 6 (Agent Expansion). Phase 2 of the implementation plan builds Claude Code integration for whatever agents exist at the time (currently 4).
+**Subagent .md file count:** post-T-SCAN-REFACTOR (2026-04-25), the subagent count is fixed at **3** (`screw-scan.md` universal + `screw-script-reviewer.md` + `screw-learning-analyst.md`) regardless of how many agents are added. Adding a new agent is a YAML-only change — no new subagent .md file is created. See `docs/AGENT_AUTHORING.md` "Adding a new agent (post-T-SCAN-REFACTOR)" for the workflow.
+
+> **Clarification on "Phase 2" overloading:** The PRD uses "Phase 2" in two contexts: (a) Phase 2 of the *implementation plan* = Claude Code Integration (subagents, skills, filesystem output) for the existing 4 agents; (b) "Phase 2 agents" in §9 = the next 8 agent YAMLs to be researched. The YAML research for expansion agents happens in Phase 6 (Agent Expansion). Phase 2 of the implementation plan built Claude Code integration; T-SCAN-REFACTOR (2026-04-25) collapsed all per-vuln subagents into a single universal `screw-scan.md`, so future agents need only their YAML.
 
 ---
 

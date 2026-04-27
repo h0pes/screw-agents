@@ -8,10 +8,13 @@ metadata.
 
 from __future__ import annotations
 
+import re
 from typing import Any, ClassVar, Literal, TypedDict
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic.main import IncEx
+
+from screw_agents.treesitter import SUPPORTED_LANGUAGES
 
 
 # ---------------------------------------------------------------------------
@@ -60,6 +63,19 @@ class AgentMeta(BaseModel):
     sans_top25: dict[str, Any] | None = None
     cwe_top25: dict[str, Any] | None = None
 
+    @field_validator("name", "domain")
+    @classmethod
+    def _lowercase_identifier(cls, v: str) -> str:
+        if not re.fullmatch(r"[a-z][a-z0-9_-]*", v):
+            raise ValueError(
+                f"AgentMeta name/domain must match '^[a-z][a-z0-9_-]*$' "
+                f"(lowercase letter followed by letters/digits/underscores/hyphens); "
+                f"got {v!r}. T-SCAN-REFACTOR Task 1 (Section 10.2 reinforcement): "
+                f"the bare-token slash command parser will case-fold user input; "
+                f"enforcing lowercase at load time eliminates case-only collisions."
+            )
+        return v
+
 
 class HeuristicEntry(BaseModel):
     """A structured heuristic entry with id, pattern, and language metadata."""
@@ -69,6 +85,20 @@ class HeuristicEntry(BaseModel):
     id: str
     pattern: str
     languages: list[str] = []
+
+    @field_validator("languages")
+    @classmethod
+    def _validate_supported_languages(cls, v: list[str]) -> list[str]:
+        invalid = [lang for lang in v if lang not in SUPPORTED_LANGUAGES]
+        if invalid:
+            raise ValueError(
+                f"HeuristicEntry.languages contains values not in SUPPORTED_LANGUAGES: {invalid}. "
+                f"Allowed: {sorted(SUPPORTED_LANGUAGES)}. "
+                f"T-SCAN-REFACTOR Task 2: enforces canonical language names so the "
+                f"relevance filter cannot silently exclude due to spelling drift "
+                f"(e.g., 'csharp' vs 'c_sharp', 'Python' vs 'python')."
+            )
+        return v
 
 
 # Detection heuristic entries can be plain strings (minimal form) or structured
@@ -138,6 +168,19 @@ class CodeExample(BaseModel):
     code: str
     explanation: str = ""
     label: str = ""
+
+    @field_validator("language")
+    @classmethod
+    def _validate_supported_language(cls, v: str) -> str:
+        if v not in SUPPORTED_LANGUAGES:
+            raise ValueError(
+                f"CodeExample.language {v!r} is not in SUPPORTED_LANGUAGES. "
+                f"Allowed: {sorted(SUPPORTED_LANGUAGES)}. "
+                f"T-SCAN-REFACTOR Task 2 fix-up: enforces canonical language "
+                f"names so few-shot examples cannot drift from the relevance "
+                f"filter's vocabulary (e.g., 'csharp' vs 'c_sharp')."
+            )
+        return v
 
 
 class FewShotExamples(BaseModel):

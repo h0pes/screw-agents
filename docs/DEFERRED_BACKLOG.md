@@ -133,12 +133,12 @@ Entries already in `## Shipped` / `## Shipped (PR #6)` do NOT carry this tag —
 
 | Tag | Count | Key entries |
 |---|---|---|
-| `blocker` | 1 | T-FULL-P1 (scan_full scale) |
+| `blocker` | 0 | (none — T-FULL-P1 superseded by T-SCAN-REFACTOR 2026-04-25) |
 | `nice-to-have` | 90 | Performance, ergonomics, determinism polish; majority of PR6-01..78 cosmetic entries; sandbox hardening (Phase 3c) |
 | `phase-7-scoped` | 5 | T6-M1, T6-M4, T9-I1 (multi-process concurrency); T8-Sec2 (preexec thread-safety); BACKLOG-PR6-09 (registry compaction at scale) |
 | `retire` | 14 | Trust-layer T4-M6 + T1-M1 (flagged for Marco review — triggers repeatedly not fired) + 12 PR6-* cosmetic/docstring entries whose files are unlikely to be revisited |
 
-**Phase 4 gate:** the `blocker` count must drop to 0 before Phase 4's step 4.0 (D-01 Rust benchmark corpus) can start. Current blocker: **T-FULL-P1** (paginate `scan_full` + agent-relevance filter — Phase 4 autoresearch uses it in volume at 41-agent expansion). See `docs/PROJECT_STATUS.md` §"Phase 4 Prerequisites (hard gates)" for scheduling + estimated scope.
+**Phase 4 gate:** the `blocker` count is now 0. Phase 4 step 4.0 (D-01 Rust benchmark corpus) is the next prerequisite — see `docs/PROJECT_STATUS.md` §"Phase 4 Prerequisites (hard gates)". With T-SCAN-REFACTOR shipped, the per-agent autoresearch surface (`scan_agents([single_name])`) is ready for Phase 4 consumption.
 
 ---
 
@@ -422,7 +422,12 @@ evolvability concern.
 **Estimated scope:** ~100 LOC across 4 files + 9 test updates +
 1 new model. Small PR.
 
-### T-FULL-P1 — Paginate `assemble_full_scan` + apply lazy-fetch + agent-relevance filter
+### T-FULL-P1 — Paginate `assemble_full_scan` + apply lazy-fetch + agent-relevance filter — **SUPERSEDED 2026-04-25**
+**Superseded on branch:** `t-scan-refactor` (merge commit TBD on merge).
+**Forwarded to:** **T-SCAN-REFACTOR** — full architectural refactor that subsumed T-FULL-P1's scope. Instead of paginating `scan_full`, the work retired `scan_full` entirely, introduced `scan_agents` as the new paginated multi-agent primitive (with cursor binding generalized to `(target_hash, agents_hash)`), retired all per-agent `scan_<name>` MCP tools, collapsed 4 per-agent + 1 domain orchestrator subagents into one universal `screw-scan.md`, and rewrote the slash command for multi-scope syntax (`domains:`/`agents:` prefix keys). The relevance filter was preserved as `_filter_relevant_agents` in `engine.py`, applied server-side inside `scan_agents` init-page (returns `agents_excluded_by_relevance` records). Spec: `docs/specs/2026-04-25-t-scan-refactor-design.md`. Plan: `docs/PHASE_4_PREP_T_SCAN_REFACTOR_PLAN.md`.
+
+**Historical entry (original deferral, preserved verbatim for audit trail):**
+
 **Source:** X1-M1 (PR #9, 2026-04-17) — incremental dedup landed; full architectural fix deferred.
 **File:** `src/screw_agents/engine.py` `assemble_full_scan`, `plugins/screw/agents/screw-full-review.md`
 **Priority:** **HIGH** — `scan_full` is unusable at CWE-1400 expansion scale (41 agents per `docs/AGENT_CATALOG.md`).
@@ -514,6 +519,204 @@ At CWE-1400 expansion scale (41 agents × ~5-7k tokens prompt each + all code), 
 **Why deferred:** Two concurrent calls both compute the same `next_seq` — second write overwrites the first. Single-process CLI never sees this.
 **Trigger:** Phase 7 multi-process MCP risk surface.
 **Suggested fix:** Wrap read-modify-write in `fcntl.flock` on a sibling `.lock` file. Lower-cost alternative: document the limitation in the docstring as "Not safe for concurrent invocation — external serialization required."
+
+---
+
+## T-SCAN-REFACTOR follow-ups (slash command + relevance filter UX)
+
+### T-SCAN-FILTER-1 — `severity:` / `cwe:` / `exclude-agents:` slash command filters
+**Source:** T-SCAN-REFACTOR brainstorm (2026-04-25).
+**Phase-4 readiness:** `nice-to-have` — extends slash command grammar without changing MCP layer.
+**Why deferred:** Same prefix-key grammar slot as `domains:`/`agents:` (Section 6.1 of T-SCAN-REFACTOR spec). Defer until users surface a real need; today's two prefix keys cover documented use cases.
+**Trigger:** A user requests filtering by severity tier or CWE ID; OR a CI integration needs to suppress specific agents per-target.
+**Suggested fix:** Extend `parse_scope_spec` to recognize `severity:`, `cwe:`, `exclude-agents:` keys; thread through resolution algorithm; pass to `scan_agents` as additional filter args. ~80 LOC.
+
+### T-SCAN-LANG-1 — Tree-sitter language disambiguation for ambiguous extensions
+**Source:** T-SCAN-REFACTOR brainstorm D5 (2026-04-25).
+**Phase-4 readiness:** `nice-to-have` — relevance-filter accuracy improvement.
+**Why deferred:** V1 uses extension lookup + shebang fallback. The only realistic ambiguous case is `.h` (C vs C++); other extensions in `EXTENSION_MAP` are unambiguous. Cost (tree-sitter parse-success check per ambiguous file) not justified for V1.
+**Trigger:** Real-world project surfaces a misclassified `.h` file leading to wrong-language agent runs.
+**Suggested fix:** When `_detect_language` resolves to `c` AND the file has `.h` extension, parse with both `c` and `cpp` tree-sitter grammars; pick the one with fewer errors. ~30 LOC.
+
+### T-SCAN-MERGE-1 — Multi-session merge across sequential `/screw:scan` invocations
+**Source:** T-SCAN-REFACTOR brainstorm (2026-04-25).
+**Phase-4 readiness:** `nice-to-have`.
+**Why deferred:** Today each `/screw:scan` is its own session_id; running two scans against the same target requires explicit `accumulate_findings(session_id=existing)` calls. Real-world usage doesn't currently demand multi-session merge.
+**Trigger:** User asks "scan A, then scan B, give me one report".
+**Suggested fix:** Add `--merge-into <session_id>` flag to slash command; thread through `accumulate_findings`. ~40 LOC.
+
+### T-SCAN-RELEV-1 — Explicit `target_strategy.relevance_signals` YAML field for AST-based signals
+**Source:** T-SCAN-REFACTOR D4 (2026-04-25).
+**Phase-4 readiness:** `nice-to-have` — implicit derivation from `HeuristicEntry.languages` covers V1.
+**Why deferred:** Implicit derivation works on the existing schema. Adding an explicit field would require migrating all shipped agent YAMLs. Defer until a real use case emerges.
+**Trigger:** An agent author wants to declare AST-based or content-based relevance signals beyond language.
+**Suggested fix:** Extend `TargetStrategy` model with `relevance_signals: list[RelevanceSignal] | None = None`; teach `_filter_relevant_agents` to use explicit signals when present, fall back to implicit derivation otherwise. ~60 LOC + YAML migration of all shipped agents.
+
+### T-SCAN-LIST-1 — `/screw:scan list` discovery subcommand
+**Source:** T-SCAN-REFACTOR brainstorm (2026-04-25).
+**Phase-4 readiness:** `nice-to-have` — UX polish.
+**Why deferred:** Today users call `mcp__screw-agents__list_domains` / `list_agents` directly via Claude Code. A built-in `list` subcommand would be more discoverable but not load-bearing.
+**Trigger:** First-time user friction observed in Phase 4+ user testing.
+**Suggested fix:** Add `list` to the slash command's grammar (special bare-token); dispatch invokes `list_domains` + `list_agents`, formats output. ~40 LOC.
+
+### T-SCAN-AUDIT-1 — Hooks on `--no-confirm` invocations (audit logging)
+**Source:** T-SCAN-REFACTOR Section 16 (2026-04-25).
+**Phase-4 readiness:** `nice-to-have` — auditability for CI bypass.
+**Why deferred:** `--no-confirm` is opt-in by explicit user flag. Existing `--adaptive` consent pattern is the precedent.
+**Trigger:** Audit requirement (compliance, security review of CI behavior).
+**Suggested fix:** Add a Claude Code hook that fires on `/screw:scan ... --no-confirm` invocations and logs to `.screw/audit/`. ~20 LOC + hook configuration.
+
+### T-SCAN-REFACTOR-RT-1 — Subagent classification non-determinism on identical target
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 10 round-trip 1+2+3, 2026-04-27
+**Phase-4 readiness:** `non-blocker` — LLM-driven classification stability concern, not a wiring bug
+
+**Why deferred:** Same dao.py f-string SQLi pattern, same `sqli` agent's `py-dbapi-fstring` heuristic, three consecutive round-trips:
+- RT1 (`/screw:scan domains:injection-input-handling agents:sqli src/ --no-confirm`) → classified context-required → 0 findings + 1 coverage gap (no line-number issue since no finding emitted)
+- RT2 (`/screw:scan full src/ --no-confirm`) → classified medium-confidence → 1 active finding (severity HIGH, CWE-89, dao.py:**9** — WRONG line; actual vulnerable line is 8 per fixture source)
+- RT3 (`/screw:scan domains:injection-input-handling agents:sqli src/ --adaptive`) → classified high-confidence directly → 1 active finding (severity HIGH, CWE-89, dao.py:**8** — CORRECT line)
+
+Three consecutive runs of the same agent against the same target produced three different verdicts AND, in two of three runs, two different line numbers. The combination of classification non-determinism (this entry) and line-number drift (T-SCAN-REFACTOR-RT-5 below) compounds: a user re-running the same scan would see different findings AND different file locations. The heuristic itself is tagged `severity: context-required` because static analysis can't confirm `qb` is a SQL DB cursor or that `user_id` is user-controlled — so all three classifications are defensible given the ambiguity. But users running the same scan multiple times would expect repeatable results. This is LLM non-determinism at the subagent's analysis layer.
+
+**Remediation sketch:** Investigate options:
+- (a) Tighter agent prompt instruction: "if the heuristic is tagged context-required, ALWAYS surface as gap, never as active finding"
+- (b) Engine-side enforcement: when `severity: context-required` heuristic matches, force gap classification regardless of LLM judgment
+- (c) Accept LLM non-determinism; document as expected behavior in user-facing docs
+- (d) Add a determinism test (parametrized over 5+ runs of the same scan, assert verdict stable)
+
+Option (b) is the strongest from a determinism standpoint; (c) is the lowest-cost; (d) is defense-in-depth.
+
+**Estimated scope:** Depends on chosen option: (a) ~5 LOC prompt edit, (b) ~10 LOC engine logic + tests, (c) doc-only, (d) ~30 LOC test infrastructure.
+
+### T-SCAN-REFACTOR-RT-2 — Subagent narrative inconsistencies in terminal output
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 10 round-trip 2, 2026-04-27
+**Phase-4 readiness:** `non-blocker` — terminal-narrative quality concern, not a correctness bug
+
+**Why deferred:** RT2's terminal output contained three suspect narrative claims that the actual report files (json/md/csv) do NOT corroborate:
+
+1. **"3 tool uses"** for 4-agent dispatch — counter-intuitive (RT1 was 5 tool uses for 1 agent). Possible explanations: subagent's accounting omits cached tool-schema lookups, OR the count is per "round" not per individual call. Either way, the displayed count misleads users into thinking the multi-agent dispatch was lightweight when it actually wasn't.
+
+2. **"cmdi, ssti, xss: 0 findings (no resolved files / empty code on their pages)"** — pagination is file-strided, not agent-strided; all 4 agents see the same dao.py page in the single-file fixture. This narrative is confabulated; the engine actually fans out per-agent prompt-fetches against the SAME page. Correct end result (0 findings for those 3 agents because their detection patterns don't match dao.py's SQL content), wrong explanation in the narrative.
+
+3. **"medium confidence per scan classification, escalated to high severity by finalize"** — the markdown report at `injection-2026-04-27T12-46-51.md` shows `Severity: HIGH, Confidence: Medium`. Whether engine-side severity-from-confidence escalation is real or LLM-confabulated needs verification by reading `engine.py::finalize_scan_results` + `results.py::render_and_write` carefully. If real, the rule should be documented. If confabulated, the subagent prompt should not claim escalation it didn't perform.
+
+**Remediation sketch:** Triage each:
+- For (1): document the tool-count semantics, OR remove the count from the user-facing summary (it's confusing without context).
+- For (2): tighten the subagent prompt's "summarize per-agent breakdown" section to match actual pagination semantics; add an example showing "all agents see the same page; per-agent finding counts reflect heuristic match against the same code".
+- For (3): verify by reading code; if real, document the rule + add to PRD §5; if confabulated, remove the claim from the subagent prompt.
+
+**Estimated scope:** Investigation ~30 min; remediation ~10-20 LOC of subagent prompt + 1-2 LOC docs.
+
+### T-SCAN-REFACTOR-RT-3 — Coverage gaps absent from rendered reports
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 10 round-trip 1, 2026-04-27
+**Phase-4 readiness:** `non-blocker` — UX gap; gap data is captured but not surfaced to user-facing report
+
+**Why deferred:** RT1's terminal narrative reported "1 context-required gap at dao.py:9" but the rendered markdown report (`sqli-2026-04-27T07-06-19.md`, 137 bytes) shows only:
+```
+# Security Scan Report
+...
+## Summary
+No findings detected.
+```
+
+The coverage gap is in the structured payload (subagent return → `coverage_gaps` field, or `pending_reviews` in adaptive mode) but `results.py::render_and_write` does not include a "Coverage Gaps" section in the markdown output. Users who only read the file get "No findings detected" without seeing the gap that surfaced in-session.
+
+**Remediation sketch:**
+- Update `results.py` markdown renderer to include a "## Coverage Gaps (context-required, deep mode would expand)" section listing each gap with file:line + heuristic id + agent name.
+- Update JSON output to include a `coverage_gaps: [...]` top-level field.
+- Update CSV to add gap rows with a discriminator column (e.g., `record_type: gap` vs `record_type: finding`).
+- Update markdown header summary to surface gap count alongside finding count.
+- Update spec / PRD §5 if necessary (the report-shape description).
+
+**Estimated scope:** ~30-50 LOC across `results.py` + 5-8 new tests in `test_results.py`. Update `screw-scan.md` subagent prompt to ensure `coverage_gaps` field is in the C2 return schema (already specified in plan-fix Edit 5; verify the implementation actually emits it).
+
+### T-SCAN-REFACTOR-RT-4 — `confirm-high` missing from screw-script-reviewer Section 5 help text
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 10 round-trip 3 (--adaptive flow), 2026-04-27
+**Phase-4 readiness:** `non-blocker` — pre-existing Phase 3a/3b defect surfaced via T10 RT3, not introduced by T-SCAN-REFACTOR
+
+**Why deferred:** The `screw:screw-script-reviewer` subagent's 5-section review output, Section 5 ("Your decision"), enumerates only 4 of the 5 valid commands the underlying engine supports:
+
+Listed in current output:
+- `approve <name>` (default low-risk path)
+- `reject <name> <reason>` (default reject)
+- `approve <name> confirm-stale` (when staging is older than 24h)
+- `approve <name> confirm-<8hex-prefix>` (when approval registry is lost)
+
+Missing from the listed set:
+- `approve <name> confirm-high` — required when the Layer 0d reviewer rates the script as `risk=high`
+
+The omission was surfaced during RT3's interactive review of 3 risk=low scripts: the final summary correctly stated "No confirm-high approvals required (all 3 scripts rated risk=low by Layer 0d)" but the per-script Section 5 help block did NOT mention `confirm-high` as an option. A user faced with a future risk=high script would have no in-band guidance on the required incantation.
+
+This is a screw-script-reviewer prompt template gap; T-SCAN-REFACTOR Task 7 did NOT modify screw-script-reviewer.md (only the per-vuln subagents collapsed into screw-scan.md). Pre-existing.
+
+**Remediation sketch:** Update `plugins/screw/agents/screw-script-reviewer.md` Section 5 template to include `approve <name> confirm-high` (When the script is rated risk=high by the Layer 0d reviewer). Order suggestion (lowest friction first):
+- `approve <name>` — default for risk=low
+- `approve <name> confirm-high` — required when Layer 0d rates risk=high
+- `approve <name> confirm-stale` — when staging is older than 24h
+- `approve <name> confirm-<8hex-prefix>` — when approval registry is lost
+- `reject <name> <reason>` — discard with reason
+
+**Estimated scope:** ~5 LOC subagent prompt edit + add 1 invariant test in `tests/test_screw_script_reviewer_subagent.py` (or wherever existing tests live) asserting all 5 confirmation forms are mentioned. Verify the test actually finds the file (Phase 3a/3b shipped this subagent in a separate file from screw-scan.md).
+
+### T-SCAN-REFACTOR-RT-5 — Line-number drift between runs on identical fixture
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 10 round-trips 1+2+3, 2026-04-27
+**Phase-4 readiness:** `non-blocker` — LLM-classification correctness concern; correlates with RT-1
+
+**Why deferred:** Same `/tmp/screw-roundtrip-qb/src/dao.py` fixture across three round-trips. The actual vulnerable f-string is at line 8 (`result1 = qb.execute(f"SELECT * FROM users WHERE id = {user_id}")`); lines 9 and 10 are constant-SQL safe. Round-trip outputs:
+
+- **RT1** — no finding emitted (gap only); no line-number issue surfaced
+- **RT2** — finding at `dao.py:9` (WRONG — line 9 is `qb.execute("SELECT * FROM users WHERE active = 1")`, a constant-SQL line; the f-string is at line 8)
+- **RT3** — finding at `dao.py:8` (CORRECT)
+
+Two-out-of-three runs produced wrong line numbers. The agent's per-line analysis is unstable; users who re-scan would not only see different verdicts (RT-1) but different file:line locations.
+
+**Remediation sketch:** Add a post-finalize verification pass:
+- For each emitted finding, the engine reads the cited file:line and asserts the heuristic's regex pattern actually matches at that line.
+- If the line doesn't match, fall back to the nearest line within ±3 lines whose content matches; emit a WARN log noting the line correction; if no match found within ±3 lines, drop the finding (false-positive at wrong location is worse than no finding).
+- Alternative cheaper fix: agent prompt instruction "always include the LITERAL code at the cited line in the finding's `code_snippet` field; engine compares to file content as a last-resort check before emit."
+
+Scope: ~30 LOC engine logic + 5-8 tests. The `code_snippet` field already exists in the finding schema; the verification step would compare it to the actual file content at the cited line.
+
+**Estimated scope:** 30 LOC + 5-8 tests + small subagent prompt edit (~5 LOC).
+
+---
+
+## T-SCAN-REFACTOR Documentation Backlog
+
+### T-SCAN-REFACTOR-DOC-1 — AGENT_CATALOG.md per-domain orchestrator deeper rewrite
+**Source:** T-SCAN-REFACTOR Task 9 (2026-04-25).
+**Phase-4 readiness:** `nice-to-have` — documentation depth.
+**Why deferred:** Task 9 EQ1=B did the full rewrite of `docs/AGENT_CATALOG.md` (preamble, summary table, all 18 per-domain orchestrator entries, build-order subagent counts). This entry tracks any deeper semantic adjustments that surface during day-to-day use of the catalog (e.g., per-agent dispatch examples, cross-references to `screw-scan` parameters).
+**Trigger:** A reader reports confusion about a per-domain entry, or a new agent is added that needs its dispatch example documented in the catalog.
+**Suggested fix:** Append per-agent dispatch examples (`/screw:scan agents:<name> <target>`) under each per-domain entry; cross-reference `docs/AGENT_AUTHORING.md` "Adding a new agent" section. ~50-100 LOC.
+
+### T-SCAN-REFACTOR-DOC-2 — Cosmetic doc cleanups (LOC counts, paths, ADR numbering)
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 9 quality review, 2026-04-26
+**Phase-4 readiness:** `non-blocker` — cosmetic precision
+
+**Why deferred:** Several cosmetic gaps in shipped Task 9 docs identified post-merge:
+- `screw-scan.md` LOC stated `~559` (actual 569; +10 from fix-ups)
+- PRD line count `~1,470` (actual 1,512)
+- AGENT_CATALOG line 12 mentions "Phase 6/7 future"; Phase 7 is screw.nvim not agent expansion
+- ADR-T-SCAN-REFACTOR breaks ADR-001..016 sequential numbering (named per Marco-approved EQ3)
+- CONTRIBUTING.md:24 compressed grammar omits `--thoroughness`/`--format`
+- PRD.md:390 stale path `.claude/skills/screw-review/` (actual `plugins/screw/skills/screw-review/`)
+- PRD.md:1364-1366 aspirational `autoresearch.md`, `challenge.md` slash commands not in `plugins/screw/commands/`
+- PRD.md:328 `scan_agents` description loose: "code pages with per-agent prompts" — prompts NOT returned by default; subagent fetches via `get_agent_prompt`
+- PROJECT_STATUS.md:443 stale T-FULL-P1 guidance in Phase-4 prep instructions
+
+**Remediation sketch:** Sweep all 9 docs for cosmetic precision; update LOC counts after final PR squash; verify all cited file paths exist; align ADR numbering convention. ~30 LOC of edits across multiple files.
+
+**Estimated scope:** 30 LOC, 0 code changes, 0 tests.
+
+### T-SCAN-REFACTOR-CODE-1 — `engine.py:2629` stale `finalize_scan_results` tool description default
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 9 quality review, 2026-04-26
+**Phase-4 readiness:** `non-blocker` — code-side staleness
+
+**Why deferred:** `engine.py::list_tool_definitions` for `finalize_scan_results` claims default formats are `['json', 'markdown']` but actual default in `results.py:163` is `['json', 'markdown', 'csv']` (T19-M D7 shipped 2026-04-24). PRD §6 documents the correct default; engine description is stale. Code-side bug (Task 9 is docs-only so out of immediate scope).
+
+**Remediation sketch:** Update `engine.py:2629-2631` description string to match `results.py:163`. ~1 LOC. Also verify the JSON schema's `default` field if present.
+
+**Estimated scope:** 1 LOC + 0 tests.
 
 ---
 
@@ -1762,3 +1965,355 @@ Non-blocking minors surfaced during T4 (per-agent screw-sqli.md truncation) pre-
 **Why deferred:** Plan's prescribed new Step 5 return JSON (plan lines 1269-1284) includes `adaptive_quota_note` and `blocklist_skipped_gaps` keys. Grep on scan.md (post-T2) shows zero consumer references for either. The keys are informational, carried for possible future main-session surfacing (e.g., summary of quota exhaustion events or blocklist skips), but currently dead payload.
 
 **Remediation sketch:** Either (a) wire into scan.md Step 5 summary (one extra section for each) to surface to the user, OR (b) drop the keys from per-agent Step 5 JSON and remove the corresponding spec §5.1 entries. Option (a) preserves information flow and matches the spec's intent; do it alongside the scan.md polish PR referenced by PA-T4-M1.
+
+---
+
+## T-SCAN-REFACTOR Task 1 minors (discovered 2026-04-25)
+
+Non-blocking minors surfaced during Task 1 quality review. Deferred past T-SCAN-REFACTOR merge; natural resolution point listed per entry.
+
+### BACKLOG-T-SCAN-REFACTOR-T1-M2 — Test helper hardcodes CWE-89 / SQLi remediation
+**Phase-4 readiness:** `non-blocker` — test-helper polish; no correctness impact
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 1 quality review, 2026-04-25 (QR-T1-M2)
+**File:** `tests/test_registry_invariants.py::_write_minimal_agent_yaml`
+
+**Why deferred:** The minimal-agent YAML helper hardcodes `cwes.primary: "CWE-89"` and `remediation.preferred: "use parameterized queries"` — both SQLi-flavored, regardless of the test's actual subject. Acceptable for current usage (5 tests, all about registry invariants — none care about the specific CWE/remediation), but slightly misleading if the helper is reused in future tests where CWE specificity matters. Could be parameterized later with sensible defaults; not worth doing now.
+
+**Remediation sketch:** When a future test needs a different CWE or remediation, parameterize the helper: `_write_minimal_agent_yaml(path, *, name, domain, cwe="CWE-89", remediation="use parameterized queries")`. Update existing 5 callers to either pass new args or keep the defaults. ~5 LOC.
+
+**Estimated scope:** 5 LOC + 0 new tests (existing tests still cover the helper through real use).
+
+---
+
+## T-SCAN-REFACTOR Task 2 minors (discovered 2026-04-25)
+
+Non-blocking minors surfaced during Task 2 pre-audit. Deferred past T-SCAN-REFACTOR merge; natural resolution point listed per entry.
+
+### BACKLOG-T-SCAN-REFACTOR-T2-M1 — Parametrized SHEBANG_MAP coverage
+**Phase-4 readiness:** `non-blocker` — test-debt; mechanical-lookup-only path
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 2 pre-audit, 2026-04-25 (PA-T2-M1)
+**File:** `tests/test_relevance_filter.py` (shebang test block)
+
+**Why deferred:** Plan ships SHEBANG_MAP with 10 entries (`python`, `python2`, `python3`, `ruby`, `node`, `nodejs`, `ts-node`, `tsnode`, `deno`, `php`) but tests only assert 6 variants (python3, python, ruby, node, php, plus negatives). `python2`, `nodejs`, `ts-node`, `tsnode`, `deno` have no positive assertion. Low-risk because the lookup is a flat dict (any key in `SHEBANG_MAP` works mechanically), but a defense-in-depth parametrized test would catch a future typo in the map.
+
+**Remediation sketch:** Replace the 6 individual shebang tests with a `@pytest.mark.parametrize` over all 10 keys in `SHEBANG_MAP`, asserting each maps to its declared canonical language. ~10 LOC net.
+
+**Estimated scope:** 10 LOC (test refactor) + 0 production code changes.
+
+### BACKLOG-T-SCAN-REFACTOR-T2-M2 — Multi-language `target_codes` union test
+**Phase-4 readiness:** `non-blocker` — test-debt; mechanical union of detected languages
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 2 pre-audit, 2026-04-25 (PA-T2-M2)
+**File:** `tests/test_relevance_filter.py` (filter test block)
+
+**Why deferred:** Plan tests pass exactly one `ResolvedCode` chunk per case. There is no test for `target_codes = [py_chunk, java_chunk, php_chunk]` exercising the language-union loop in `_filter_relevant_agents`. The loop is trivial; missing test is acceptable test-debt.
+
+**Remediation sketch:** Add one test `test_filter_unions_languages_across_target_chunks` that constructs three `ResolvedCode` chunks (different languages) and asserts an agent declaring only one of those languages is kept. ~15 LOC.
+
+**Estimated scope:** 15 LOC test + 0 production code changes.
+
+### BACKLOG-T-SCAN-REFACTOR-T2-M3 — Per-agent-empty-languages WARN-log if D6 hardens
+**Phase-4 readiness:** `non-blocker` — speculative; depends on future D6 evolution
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 2 pre-audit, 2026-04-25 (PA-T2-M3)
+**File:** `src/screw_agents/engine.py::_filter_relevant_agents`
+
+**Why deferred:** Spec §8.2 mandates a WARN log only for the empty-`target_languages` branch (covered in Task 2). The empty-`agent_languages` branch (D6 fail-open: agent has no `languages:` declarations) is silent. If D6 ever moves off fail-open (e.g., to "log+exclude" or "fail-closed"), the silent branch would benefit from a WARN log too. Currently spec-aligned at "fail-open silent."
+
+**Remediation sketch:** When/if a future spec revision changes the D6 policy, mirror the empty-`target_languages` WARN log in the empty-`agent_languages` branch. ~3 LOC.
+
+**Estimated scope:** 3 LOC + 0 new tests (existing tests cover both branches structurally).
+
+### BACKLOG-T-SCAN-REFACTOR-T2-M4 — `_agent_supported_languages` returns mutable `set`
+**Phase-4 readiness:** `non-blocker` — typing-strictness polish; no correctness impact
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 2 quality review, 2026-04-25 (QR-T2-M2)
+**File:** `src/screw_agents/engine.py::_agent_supported_languages`
+
+**Why deferred:** Returns `set[str]`, communicating that the result is mutable. No caller mutates today, but `frozenset[str]` would document immutability and prevent accidental future mutation downstream. Defense-in-depth typing.
+
+**Remediation sketch:** Change return type to `frozenset[str]`. Wrap the constructed set in `frozenset(...)` before returning. Update tests if any assert exact type via `is` or compare via mutation.
+
+**Estimated scope:** 3 LOC + 0 test changes (existing equality assertions still work).
+
+### BACKLOG-T-SCAN-REFACTOR-T2-M5 — `HeuristicEntry.languages` validator allows duplicates
+**Phase-4 readiness:** `non-blocker` — defense-in-depth; duplicates are silently deduped by set-update downstream
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 2 quality review, 2026-04-25 (QR-T2-M3)
+**File:** `src/screw_agents/models.py::HeuristicEntry._validate_supported_languages`
+
+**Why deferred:** Validator currently accepts `["python", "python"]`. Set-update in `_agent_supported_languages` silently dedupes, so no functional impact, but duplicates indicate a YAML copy-paste bug. Catching them at validation time would surface the bug at registry boot.
+
+**Remediation sketch:** Add a duplicate check in the validator: `if len(set(v)) != len(v): raise ValueError(...)`. ~3 LOC + 1 new test.
+
+**Estimated scope:** 3 LOC + 1 test.
+
+### BACKLOG-T-SCAN-REFACTOR-T2-M6 — Resolver-layer integration tests for shebang path
+**Phase-4 readiness:** `non-blocker` — coverage gap; current shebang flow tested only at engine layer
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 2 quality review, 2026-04-25 (QR-T2-M7)
+**File:** `tests/test_resolver.py` (or new file) — covering `_resolve_file`, `_resolve_glob`, `_resolve_lines`, `_resolve_function`, `_resolve_class`, `_resolve_codebase`, `_parse_unified_diff` × 2.
+
+**Why deferred:** None of the 8 resolver call sites that thread `content` to `_detect_language` has an integration test exercising the extensionless-with-shebang path through the actual resolver function. Shebang flow is tested only at the engine layer (`tests/test_relevance_filter.py:184-188`) and via `_detect_language` direct unit tests added in Task 2 fix-up. The resolver-layer integration gap could mask a regression where `_detect_language` returns the right value but `ResolvedCode.language` ends up wrong (e.g., overwritten downstream).
+
+**Remediation sketch:** For each of the 8 call sites, add one integration test passing an extensionless file with a Python shebang and asserting `ResolvedCode.language == "python"`. ~30 LOC. Could fold into existing M1 (parametrized SHEBANG_MAP coverage) for shared fixture setup.
+
+**Estimated scope:** ~30 LOC (8 tests) + 0 production code changes.
+
+## T-SCAN-REFACTOR Task 3 minors (discovered 2026-04-25)
+
+Non-blocking minors surfaced during Task 3 quality review. Deferred past T-SCAN-REFACTOR merge; natural resolution point listed per entry.
+
+### BACKLOG-T-SCAN-REFACTOR-T3-M1 — INFO entry log for `assemble_agents_scan`
+**Phase-4 readiness:** `non-blocker` — observability-debt; no functional gap
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 3 quality review, 2026-04-25 (QR-T3-M5)
+**File:** `src/screw_agents/engine.py::assemble_agents_scan` and `engine.py::assemble_domain_scan` wrapper (post-Task-4)
+
+**Why deferred:** `assemble_agents_scan` is silent at function entry. A future debug story (e.g., "why is this slash command picking these agents?") would benefit from an INFO log capturing agents/target_type/page_index. `assemble_domain_scan` is similarly silent; consistency wins on the no-log side. Adding the log to BOTH methods (or to a shared helper) would close the gap consistently.
+
+Task 4 (post-2026-04-25) made `assemble_domain_scan` a thin wrapper over `assemble_agents_scan`; the wrapper layer should ALSO get the INFO-level log when this entry is addressed, so domain-scoped vs agents-scoped invocations are distinguishable in logs (e.g., `logger.info("scan_domain wrapper: domain=%s → delegating to assemble_agents_scan", domain)`).
+
+**Remediation sketch:** Add `logger.info("assemble_agents_scan: agents=%s target_type=%s page=%d", agents, target.get("type"), offset)` near function entry. Mirror in `assemble_domain_scan`. ~3 LOC × 2 methods. Also add `logger.info("scan_domain wrapper: domain=%s → assemble_agents_scan(agents=%d)", domain, len(agent_names))` to `assemble_domain_scan` near function entry. Total scope grows from "2 methods" to "2 methods + wrapper layer" — same conceptual fix, mirrored across both call surfaces.
+
+**Estimated scope:** 6 LOC + 0 new tests (logging tests are typically integration-test territory).
+
+### BACKLOG-T-SCAN-REFACTOR-T3-M2 — Cursor schema version field
+**Phase-4 readiness:** `non-blocker` — speculative future-proofing
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 3 quality review, 2026-04-25 (QR-T3-M6)
+**File:** `src/screw_agents/engine.py::assemble_agents_scan` cursor encoding
+
+**Why deferred:** Current cursor schema is `{target_hash, agents_hash, offset}`. If a future cursor schema changes (e.g., add a `kept_agent_names` snapshot to skip per-page filter re-application), backwards compatibility could be checked via a version field. Cursors are ephemeral (single-scan-session lifetime), so the practical risk is low.
+
+**Remediation sketch:** Add `"v": 1` to cursor payload; decode rejects non-1 versions with a "Cursor version unsupported; refresh by retrying without cursor" message. ~3 LOC + 1 test.
+
+**Estimated scope:** 3 LOC + 1 test.
+
+## T-SCAN-REFACTOR Task 4 minors (discovered 2026-04-25)
+
+Non-blocking minors surfaced during Task 4 quality review. Deferred past T-SCAN-REFACTOR merge; natural resolution point listed per entry.
+
+### BACKLOG-T-SCAN-REFACTOR-T4-M1 — Close-match suggestions for unknown-domain error
+**Phase-4 readiness:** `non-blocker` — UX polish; existing error already lists all available domains
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 4 quality review, 2026-04-25 (QR-T4-M2)
+**File:** `src/screw_agents/engine.py::assemble_domain_scan` (Unknown-domain error path)
+
+**Why deferred:** The "Unknown or empty domain" error at `engine.py:1655-1658` enumerates `sorted(self._registry.list_domains().keys())` — actionable for an 18-domain registry, where the user can scan the list and spot their typo. Adding `difflib.get_close_matches(domain, available, n=3)` for "Did you mean 'injection-input-handling'?" suggestions would be marginally tighter UX but the marginal value is small for the current registry size. YAGNI applies; revisit if the registry grows past ~50 domains where scanning becomes inconvenient.
+
+**Remediation sketch:**
+```python
+import difflib
+suggestions = difflib.get_close_matches(domain, available, n=3, cutoff=0.6)
+suggestion_clause = f" Did you mean: {suggestions}?" if suggestions else ""
+raise ValueError(
+    f"Unknown or empty domain: {domain!r}.{suggestion_clause} "
+    f"Available domains: {available}."
+)
+```
+~3 LOC + 1 test (e.g., `engine.assemble_domain_scan(domain="injection-input-handlng", ...)` should suggest the correctly-spelled domain).
+
+**Estimated scope:** 3 LOC + 1 test.
+
+## T-SCAN-REFACTOR Task 5 minors (discovered 2026-04-25)
+
+Non-blocking minors surfaced during Task 5 pre-audit. Deferred past T-SCAN-REFACTOR merge; natural resolution point listed per entry.
+
+### BACKLOG-T-SCAN-REFACTOR-T5-M1 — Schema-rejection tests for scan_* tool input schemas
+**Phase-4 readiness:** `non-blocker` — defense-in-depth at MCP boundary; engine layer already enforces semantics
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 5 pre-audit, 2026-04-25 (PA-T5-G4)
+**File:** TBD — likely `tests/test_tool_schemas.py` (new file)
+
+**Why deferred:** Engine-layer validation (Tasks 3+4) covers semantic checks (agents non-empty, no duplicates, page_size in [1, 500], unknown agents). The JSON schema layer ALSO enforces these (`minItems`, `uniqueItems` via plan-fix Edit 10, `minimum`/`maximum`) but no test exercises the schema-layer rejection path. MCP-aware clients that validate against `tools[i]["input_schema"]` before round-tripping would benefit from coverage. Cross-tool concern: same gap exists for `scan_domain`, `scan_full`, and per-agent `scan_<name>` tools.
+
+**Remediation sketch:** Use `jsonschema.validate(instance, schema)` against `tools[i]["input_schema"]` for each tool. Cover: `agents=[]` → fails `minItems`, `agents=["a","a"]` → fails `uniqueItems`, `page_size=0` → fails `minimum`, `page_size=10000` → fails `maximum`, `target` missing → fails `required`. ~30 LOC for one test file covering 4 tools × ~3 cases each.
+
+**Estimated scope:** 30 LOC + 0 production code changes. New test file.
+
+### BACKLOG-T-SCAN-REFACTOR-T5-M2 — En-dash style inconsistency in tool descriptions
+**Phase-4 readiness:** `non-blocker` — pure cosmetic
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 5 quality review, 2026-04-25 (QR-T5-M2)
+**File:** `src/screw_agents/engine.py::list_tool_definitions` (scan_agents at line 2517, scan_domain at line 2475)
+
+**Why deferred:** scan_agents and scan_domain descriptions use en-dash `—` characters; other tool descriptions in the same `list_tool_definitions` (scan_full, list_agents, get_agent_prompt, etc.) avoid em/en dashes entirely. Style inconsistency only — readers parse both forms identically.
+
+**Remediation sketch:** Sweep `list_tool_definitions` for `—` characters in description strings; replace with `--` or rephrase to avoid the dash entirely. ~10 LOC.
+
+**Estimated scope:** ~10 LOC in 1 file + 0 tests.
+
+## T-SCAN-REFACTOR Task 6 minors (discovered 2026-04-26)
+
+Non-blocking minors surfaced during Task 6 pre-audit. Deferred past T-SCAN-REFACTOR merge; natural resolution point listed per entry.
+
+### BACKLOG-T-SCAN-REFACTOR-T6-M1 — Remove "supersedes scan_full and per-agent" wording from scan_agents description
+**Phase-4 readiness:** `non-blocker` — migration-discoverability shim
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 6 pre-audit, 2026-04-26
+**File:** `src/screw_agents/engine.py::list_tool_definitions` scan_agents description (~line 2518; re-verify after Task 6 deletions shift line numbers).
+
+**Why deferred:** Task 5 added the wording ("T-SCAN-REFACTOR primitive — supersedes scan_full and the per-agent scan_<name> tools (retired).") to help users mentally migrating from scan_full / per-agent tools. After Task 6 retires those tools, the wording remains as a hint for any caller still typing the old name. After a quiet period (2-3 PRs without anyone asking about scan_full), this hint is dead weight and can be dropped.
+
+**Natural resolution point:** any backend cleanup PR after T-SCAN-REFACTOR merges and Phase-4 begins.
+
+**Remediation sketch:** Drop "supersedes scan_full and the per-agent scan_<name> tools (retired)" from the description string. ~1 LOC.
+
+**Estimated scope:** 1 LOC + 0 tests.
+
+### BACKLOG-T-SCAN-REFACTOR-T6-M2 — Simplify redundant tool-name conditional in test_phase2_server.py
+**Phase-4 readiness:** `non-blocker` — cosmetic cleanup
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 6 pre-audit, 2026-04-26
+**File:** `tests/test_phase2_server.py` near line 210 (re-verify exact line after Task 6 deletes the two `test_scan_tool_*` functions earlier in the file, which will shift positions).
+
+**Why deferred:** After Task 6 retirements, the conditional `t["name"].startswith("scan_") or t["name"] in ("scan_domain", "scan_full")` (or the post-Task-6 form `... in ("scan_domain", "scan_agents")`) is redundant — both `scan_domain` and `scan_agents` start with `scan_`. The explicit tuple was a belt-and-suspenders safety net that's no longer load-bearing once `scan_full` is gone.
+
+**Natural resolution point:** any test-cleanup PR after T-SCAN-REFACTOR merges.
+
+**Remediation sketch:** Drop the `or t["name"] in (...)` clause; the `startswith("scan_")` check alone catches all three tools (`scan_domain`, `scan_agents`, plus any future scan-shaped tool). ~1 LOC.
+
+**Estimated scope:** 1 LOC + 0 tests.
+
+### BACKLOG-T-SCAN-REFACTOR-T6-M3 — `test_server.py:42` docstring cites stale precedent
+**Phase-4 readiness:** `non-blocker` — cosmetic; documentation freshness
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 6 quality review, 2026-04-26
+**File:** `tests/test_server.py:42` (test docstring)
+
+**Why deferred:** The docstring on `test_scan_agents_dispatch_via_server` claims "matches the precedent at `tests/test_phase2_server.py:36+`" — but those line numbers now contain `format_output` tests, not a `_dispatch_tool` precedent. The docstring is stale; the precedent reference doesn't help future readers locate the canonical pattern.
+
+**Remediation sketch:** Either remove the precedent reference (test stands on its own) OR update to a current location pattern (e.g., reference the test by name instead of line number). ~1 LOC.
+
+**Estimated scope:** 1 LOC + 0 tests.
+
+### BACKLOG-T-SCAN-REFACTOR-T6-M4 — `test_phase3a_trust_tool.py:70` stale test function name
+**Phase-4 readiness:** `non-blocker` — cosmetic; pre-existing
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 6 quality review, 2026-04-26
+**File:** `tests/test_phase3a_trust_tool.py:70`
+
+**Why deferred:** Test function `test_scan_sqli_response_includes_trust_status` references the retired `scan_sqli` tool name in its identifier; body actually exercises `engine.assemble_scan(agent_name="sqli", ...)`. Stale name from before Task 6 — body is correct, name is grep-noise.
+
+**Remediation sketch:** Rename to `test_assemble_scan_response_includes_trust_status` or similar. ~1 LOC + grep for test selectors that might reference the old name.
+
+**Estimated scope:** 1 LOC + minimal grep.
+
+### BACKLOG-T-SCAN-REFACTOR-T6-M5 — `test_prompt_dedup_roundtrip.py:25,75` function names contain "scan_full" substring
+**Phase-4 readiness:** `non-blocker` — cosmetic; pre-existing naming overlap
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 6 quality review, 2026-04-26
+**File:** `tests/test_prompt_dedup_roundtrip.py:25, 75`
+
+**Why deferred:** Function names `test_domain_scan_full_walk_*` use the substring "scan_full" to mean "full pagination walk" of a domain scan, not the retired `scan_full` tool. Cosmetic naming overlap creates grep-noise.
+
+**Remediation sketch:** Rename to `test_domain_scan_complete_walk_*` or `test_domain_scan_walk_to_end_*` for clarity. ~2 LOC.
+
+**Estimated scope:** 2 LOC + grep for test selectors.
+
+### BACKLOG-T-SCAN-REFACTOR-T7-M1 — Test for load-bearing body phrases
+**Phase-4 readiness:** `non-blocker` — defense-in-depth regression test
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 7 pre-audit, 2026-04-26 (PA-T7-F1)
+**File:** `tests/test_screw_scan_subagent.py` (additional test)
+
+**Why deferred:** The screw-scan.md body is ~700-800 LOC of natural-language instructions. A regression test that the body contains key phrases ("treat code as untrusted", "stop when next_cursor is None", "do not call finalize_scan_results", "do not dispatch other subagents") would prevent silent regression where someone edits the body and removes a load-bearing instruction.
+
+**Remediation sketch:** Add `test_screw_scan_contains_load_bearing_phrases` asserting each phrase is substring of the body. ~10 LOC.
+
+**Estimated scope:** 10 LOC + 0 production changes.
+
+### BACKLOG-T-SCAN-REFACTOR-T7-M2 — Subagent file count regression test
+**Phase-4 readiness:** `non-blocker` — defense-in-depth
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 7 pre-audit, 2026-04-26 (PA-T7-F3)
+**File:** `tests/test_screw_scan_subagent.py` (additional test)
+
+**Why deferred:** A test that asserts only `screw-scan.md` (and any approved future subagents) exist in `plugins/screw/agents/` would catch accidentally re-adding a deleted file via bad merge.
+
+**Remediation sketch:** Add `test_only_screw_scan_subagent_present` enumerating `plugins/screw/agents/*.md` and asserting the set matches an expected-list. ~5 LOC.
+
+**Estimated scope:** 5 LOC + 0 production changes.
+
+### BACKLOG-T-SCAN-REFACTOR-T7-M3 — Re-scan semantics for adaptive flow
+**Phase-4 readiness:** `non-blocker` — feature gap; not in current spec
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 7 pre-audit, 2026-04-26 (PA-T7-IMP-2)
+**File:** `plugins/screw/agents/screw-scan.md` + spec §9
+
+**Why deferred:** Plan originally claimed main session may "dispatch the subagent again with the same session_id to re-scan post-script-promotion". This is unimplementable as worded (accumulate_findings generates a new session per call). Re-scan is a real adaptive workflow need but requires explicit semantics: idempotency? reset accumulator? new session with reference to old? Current Task 7 drops the claim; future work should design re-scan semantics.
+
+**Remediation sketch:** Spec out re-scan semantics in spec §9. Implement in a follow-up PR after T-SCAN-REFACTOR ships.
+
+**Estimated scope:** Spec ~30 LOC + implementation ~50 LOC + 2-3 tests.
+
+### BACKLOG-T-SCAN-REFACTOR-T7-M4 — `verify_trust` duplicate call in screw-scan.md
+**Phase-4 readiness:** `non-blocker` — efficiency, not correctness
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 7 quality review, 2026-04-26 (QR-T7-M1)
+**File:** `plugins/screw/agents/screw-scan.md` Step 1
+
+**Why deferred:** Step 1 calls `verify_trust` separately, but `init["trust_status"]` is already populated by `scan_agents` (engine.py:1924-1927). One extra MCP round-trip per scan. Not security-critical; cleanup opportunity.
+
+**Remediation sketch:** Replace standalone `verify_trust` call with `trust_status = init["trust_status"]`. Update body to read from init payload. ~3 LOC.
+
+**Estimated scope:** 3 LOC + 0 tests.
+
+### BACKLOG-T-SCAN-REFACTOR-T7-M5 — `verify_trust` error-path graceful degradation
+**Phase-4 readiness:** `non-blocker` — defense-in-depth
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 7 quality review, 2026-04-26 (QR-T7-M4)
+**File:** `plugins/screw/agents/screw-scan.md` Step 1
+
+**Why deferred:** `verify_trust` may raise ValueError on malformed `.screw/learning/exclusions.yaml` (engine.py:259-264). Body has no graceful-degradation guidance — LLM has no fallback.
+
+**Remediation sketch:** Add error-handling block to Step 1: "If verify_trust raises, set trust_status to null, add trust_error field to structured return with the error message, and continue scan." ~5 LOC body addition.
+
+**Estimated scope:** 5 LOC + 1 test.
+
+### BACKLOG-T-SCAN-REFACTOR-T7-M6 — Hard iteration cap on scan_agents page loop
+**Phase-4 readiness:** `non-blocker` — defense-in-depth against pathological MCP behavior
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 7 quality review, 2026-04-26 (QR-T7-L)
+**File:** `plugins/screw/agents/screw-scan.md` Step 3
+
+**Why deferred:** `while next_cursor is not None: ...` has no hard cap. A pathological MCP layer that always returns non-null cursor would loop until token-budget exhaust. Cursor-binding-mismatch error covers tampering, but a buggy server could cause infinite loops. Spec D7 fence-collision precedent set a 3-attempt cap; analogous hard cap on pages (e.g., 100) would mirror that defense.
+
+**Remediation sketch:** Add `if pages_processed > 100: emit fatal_error and abort` to scan_agents loop. ~3 LOC.
+
+**Estimated scope:** 3 LOC + 1 test.
+
+### BACKLOG-T-SCAN-REFACTOR-T7-M7 — MCP tool error graceful-degradation guidance
+**Phase-4 readiness:** `non-blocker` — defense-in-depth
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 7 quality review, 2026-04-26 (QR-T7-L)
+**File:** `plugins/screw/agents/screw-scan.md` (new section)
+
+**Why deferred:** Body assumes every MCP call succeeds. If `accumulate_findings` raises, LLM has no fallback — likely crashes the subagent. A "Behavior under errors" subsection covering tool-error paths would help.
+
+**Remediation sketch:** Add "Behavior under MCP tool errors" subsection covering: (a) accumulate_findings failure → retry once, then emit fatal_error preserving partial findings; (b) get_agent_prompt failure → skip that agent, log to scan_metadata; (c) verify_trust failure → see T7-M5; (d) other tool failures → emit fatal_error with tool name + error message. ~10 LOC body + 1-2 tests.
+
+**Estimated scope:** 10 LOC + 2 tests.
+
+### BACKLOG-T-SCAN-REFACTOR-T8-M1 — ScopeResolutionError base class disambiguation
+**Phase-4 readiness:** `non-blocker` — defense-in-depth typing
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 8 pre-audit, 2026-04-26
+**File:** `src/screw_agents/scan_command.py::ScopeResolutionError`
+
+**Why deferred:** `ScopeResolutionError` extends `ValueError`. Engine layer also raises `ValueError`. Body catching `ValueError` for parse errors could confuse with engine errors. A distinct base class would cleanly separate parse errors from engine errors.
+
+**Remediation sketch:** Change base from `ValueError` to `Exception` (or a new `ScanCommandError`); update body to catch `ScopeResolutionError` specifically. ~2 LOC + minor body updates. Existing tests still pass since `match=...` on substrings.
+
+**Estimated scope:** 5 LOC + 0 new tests.
+
+### BACKLOG-T-SCAN-REFACTOR-T8-M2 — Cross-domain rejection through `_dispatch_tool`
+**Phase-4 readiness:** `non-blocker` — defense-in-depth coverage gap
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 8 quality review, 2026-04-26
+**File:** `tests/test_scan_command_parser.py` (new test)
+
+**Why deferred:** Cross-domain rejection currently tested only through `resolve_scope` directly. The `_dispatch_tool` path (server.py:122-127) wraps and re-raises ScopeResolutionError; no test exercises the wrapper layer.
+
+**Remediation sketch:** Add `test_resolve_scope_mcp_dispatch_cross_domain_rejection` exercising the MCP dispatch path with a 2-domain fake registry. ~10 LOC.
+
+**Estimated scope:** 10 LOC + 0 production changes.
+
+### BACKLOG-T-SCAN-REFACTOR-T8-M3 — `validate_flags` callable from slash command body
+**Phase-4 readiness:** `non-blocker` — testability vs runtime mismatch
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 8 quality review, 2026-04-26
+**File:** `src/screw_agents/scan_command.py::validate_flags`
+
+**Why deferred:** `validate_flags` signature is `list[str]`. The slash command body builds flags as a dict and inlines the equivalent mutual-exclusivity check. As a result, `validate_flags` is only called from Python tests, not from the runtime slash command.
+
+**Remediation sketch:** Either (a) document `validate_flags` is for testability + body inlines equivalent check; OR (b) reshape `validate_flags` to accept dict form; OR (c) register as MCP tool so body can call it. ~5-30 LOC depending on choice.
+
+**Estimated scope:** 5-30 LOC + 0-2 tests.
+
+### BACKLOG-T-SCAN-REFACTOR-T8-M4 — Hard timeout on subagent dispatch
+**Phase-4 readiness:** `non-blocker` — cross-cutting concern; runtime-dependent
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 8 quality review, 2026-04-26 (EQ4)
+**File:** `plugins/screw/commands/scan.md` Step 5
+
+**Why deferred:** scan.md Step 5 dispatches `screw-scan` with no explicit timeout. If subagent hangs (infinite loop in adaptive script generation pre-Layer-1), main session blocks. Claude Code's Agent tool semantics on timeout are runtime-dependent; addressing requires understanding the platform's behavior.
+
+**Remediation sketch:** Investigate Claude Code Agent tool timeout configuration. Add explicit timeout discussion in scan.md Step 5 with recommended value. Consider whether a hard timeout (e.g., 600s) should be enforced via runtime configuration. May require coordination with Claude Code SDK behavior.
+
+**Estimated scope:** 3-30 LOC depending on platform support. Requires research.

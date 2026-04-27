@@ -71,12 +71,10 @@ def test_engine_prompt_includes_heuristics(engine, fixtures_dir):
 def test_engine_list_tools(engine):
     tools = engine.list_tool_definitions()
     tool_names = {t["name"] for t in tools}
-    assert "scan_sqli" in tool_names
-    assert "scan_cmdi" in tool_names
     assert "list_domains" in tool_names
     assert "list_agents" in tool_names
     assert "scan_domain" in tool_names
-    assert "scan_full" in tool_names
+    assert "scan_agents" in tool_names
 
 
 def test_full_pipeline_all_agents(engine, fixtures_dir):
@@ -300,20 +298,6 @@ class TestAssembleScanExclusions:
         # Domain-level trust_status is present when project_root is set
         assert "trust_status" in result
 
-    def test_assemble_full_scan_with_project_root(self, engine, fixtures_dir, tmp_path):
-        """Full scan passes project_root through."""
-        vuln_dir = fixtures_dir / "sqli" / "vulnerable"
-        py_files = list(vuln_dir.glob("*.py"))
-        if not py_files:
-            pytest.skip("no Python fixtures")
-        target = {"type": "file", "path": str(py_files[0])}
-        result = engine.assemble_full_scan(target=target, project_root=tmp_path)
-        for r in result["agents"]:
-            assert "exclusions" in r
-        # Top-level trust_status is present when project_root is set
-        assert "trust_status" in result
-
-
 def test_assemble_scan_default_includes_core_prompt(tmp_path: Path):
     """Regression: assemble_scan's default behavior is unchanged — core_prompt
     is present in the result. Phase 3a per-agent callers (scan_sqli, scan_cmdi,
@@ -344,67 +328,6 @@ def test_assemble_scan_include_prompt_false_omits_core_prompt(tmp_path: Path):
     assert "code" in result
     assert "resolved_files" in result
     assert "meta" in result
-
-
-def test_assemble_full_scan_returns_dict_shape(tmp_path: Path):
-    """assemble_full_scan returns a dict with an `agents` list. Per-agent
-    entries carry no core_prompt (subagents fetch prompts lazily via
-    get_agent_prompt)."""
-    (tmp_path / "a.py").write_text(
-        "cursor.execute('SELECT * FROM t WHERE x = ' + user_input)\n"
-    )
-    engine = ScanEngine.from_defaults()
-    target = {"type": "glob", "pattern": str(tmp_path / "*.py")}
-
-    result = engine.assemble_full_scan(target)
-
-    assert isinstance(result, dict)
-    assert "agents" in result
-    assert isinstance(result["agents"], list)
-
-    for agent_entry in result["agents"]:
-        assert "agent_name" in agent_entry
-        assert "core_prompt" not in agent_entry
-        assert "code" in agent_entry
-        assert "meta" in agent_entry
-
-
-def test_assemble_full_scan_no_longer_emits_prompts(tmp_path: Path):
-    """X1-M1 extension: scan_full drops the top-level `prompts` dict for the
-    same reason scan_domain's init page did — aggregate prompts across N
-    agents exceed the inline tool-response budget. Subagents fetch each
-    agent's prompt via the `get_agent_prompt` MCP tool lazily."""
-    (tmp_path / "a.py").write_text(
-        "cursor.execute('SELECT * FROM t WHERE x = ' + user_input)\n"
-    )
-    engine = ScanEngine.from_defaults()
-    target = {"type": "glob", "pattern": str(tmp_path / "*.py")}
-
-    result = engine.assemble_full_scan(target)
-
-    assert isinstance(result, dict)
-    assert "prompts" not in result, "full_scan must not emit aggregate prompts dict"
-    assert "agents" in result
-
-    for agent_entry in result["agents"]:
-        assert "agent_name" in agent_entry
-        assert "meta" in agent_entry
-        assert "core_prompt" not in agent_entry
-        assert "code" in agent_entry
-
-
-def test_assemble_full_scan_includes_trust_status_when_project_root_set(tmp_path: Path):
-    """trust_status appears at the top level of the full-scan response when
-    project_root is provided. Bare tmp_path (no .screw/) still yields a
-    present, all-zero trust_status dict."""
-    (tmp_path / "a.py").write_text("cursor.execute('SELECT 1')\n")
-    engine = ScanEngine.from_defaults()
-    target = {"type": "glob", "pattern": str(tmp_path / "*.py")}
-
-    result = engine.assemble_full_scan(target, project_root=tmp_path)
-
-    assert "trust_status" in result
-    assert "exclusion_quarantine_count" in result["trust_status"]
 
 
 def test_get_agent_prompt_returns_expected_shape(tmp_path: Path):

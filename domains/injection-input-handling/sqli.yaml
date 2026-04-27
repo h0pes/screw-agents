@@ -367,11 +367,11 @@ detection_heuristics:
     # C#
     - id: cs-sqlcmd-interp
       pattern: "SqlCommand / OleDbCommand with string interpolation or concatenation"
-      languages: [csharp]
+      languages: [c_sharp]
       example: "new SqlCommand($\"SELECT * FROM users WHERE id = {id}\", conn)"
     - id: cs-ef-raw-concat
       pattern: "ExecuteSqlRaw / FromSqlRaw with string concatenation or String.Format"
-      languages: [csharp]
+      languages: [c_sharp]
       example: "context.Database.ExecuteSqlRaw(\"DELETE FROM Users WHERE Name = '\" + name + \"'\")"
     # Rust
     - id: rs-sqlx-format
@@ -398,19 +398,19 @@ detection_heuristics:
   medium_confidence:
     - id: any-orderby-user-input
       pattern: "ORDER BY / sort field derived from user input without allowlist validation"
-      languages: [python, java, javascript, typescript, go, ruby, php, csharp]
+      languages: [python, java, javascript, typescript, go, ruby, php, c_sharp]
       note: "ORDER BY cannot be parameterized. Allowlist is the only protection."
       cves: ["CVE-2024-49203", "CVE-2024-35181", "CVE-2024-35182", "CVE-2021-35042"]
     - id: any-table-column-interp
       pattern: "Table or column name derived from user input without allowlist"
-      languages: [python, java, javascript, typescript, go, ruby, php, csharp]
+      languages: [python, java, javascript, typescript, go, ruby, php, c_sharp]
     - id: any-graphql-orderby
       pattern: "GraphQL resolver constructing SQL from orderBy/sortBy/filter arguments"
       languages: [javascript, typescript, python, java]
       cves: ["CVE-2024-37843"]
     - id: any-file-import-sql
       pattern: "CSV/Excel file import building INSERT/UPDATE SQL from parsed field data"
-      languages: [python, java, javascript, typescript, php, csharp]
+      languages: [python, java, javascript, typescript, php, c_sharp]
     - id: py-django-jsonfield
       pattern: "Django values() / values_list() with user-controlled JSON key lookups"
       languages: [python]
@@ -438,7 +438,7 @@ detection_heuristics:
       note: "CVSS 10.0 — bypasses parameterization under specific conditions."
     - id: any-sysadmin-conn
       pattern: "Database connection using sa, root, or sysadmin credentials from application code"
-      languages: [python, java, javascript, typescript, go, ruby, php, csharp]
+      languages: [python, java, javascript, typescript, go, ruby, php, c_sharp]
       note: "Enables xp_cmdshell RCE on MSSQL, superuser escalation on PostgreSQL."
     - id: any-llm-text-to-sql
       pattern: "LLM text-to-SQL pipeline — LangChain SQLDatabaseChain, LlamaIndex NLSQLTableQueryEngine, Vanna AI, or custom NL-to-SQL"
@@ -449,15 +449,15 @@ detection_heuristics:
   context_required:
     - id: any-raw-method-check
       pattern: "ORM .raw() / .execute() / $queryRaw methods — check whether parameterized"
-      languages: [python, java, javascript, typescript, go, ruby, php, csharp]
+      languages: [python, java, javascript, typescript, go, ruby, php, c_sharp]
       note: "Many raw query APIs accept both safe (parameterized) and unsafe (concatenated) forms."
     - id: any-stored-proc-dynamic
       pattern: "Stored procedure calls — check if procedure internally uses dynamic SQL"
-      languages: [python, java, csharp, php]
+      languages: [python, java, c_sharp, php]
       note: "Look for sp_execute, EXEC('...' + @param) inside the stored procedure body."
     - id: any-second-order
       pattern: "Async/background worker reading stored data for query construction"
-      languages: [python, java, javascript, typescript, go, ruby, php, csharp]
+      languages: [python, java, javascript, typescript, go, ruby, php, c_sharp]
       note: "Data crosses a store-then-retrieve boundary. Flag GDPR exports, user-configurable sort settings, dashboard widgets."
     - id: any-interservice-data
       pattern: "Inter-service data used in SQL without re-validation at trust boundary"
@@ -465,7 +465,7 @@ detection_heuristics:
       note: "Microservice boundary — data from another service should not be trusted for SQL construction."
     - id: any-config-sql
       pattern: "Configuration-sourced values used in SQL — verify the configuration source"
-      languages: [python, java, javascript, typescript, go, ruby, php, csharp]
+      languages: [python, java, javascript, typescript, go, ruby, php, c_sharp]
       note: "Usually safe, but if config is user-editable (e.g., admin panel), it becomes a source."
     - id: any-pdo-emulated
       pattern: "PDO with ATTR_EMULATE_PREPARES = true and multi-byte character set"
@@ -702,7 +702,7 @@ few_shot_examples:
         );
       explanation: "Variable interpolated without prepare(). Fix: $wpdb->get_results($wpdb->prepare('SELECT * FROM {$wpdb->prefix}users WHERE id = %d', $id))"
 
-    - language: csharp
+    - language: c_sharp
       label: "EF Core ExecuteSqlRaw with String.Format"
       code: |
         string name = request.Query["name"];
@@ -878,7 +878,7 @@ few_shot_examples:
             .await?;
       explanation: "SeaORM entity API generates parameterized SQL. Safe. Contrast with Statement::from_string(format!(...)) which is vulnerable."
 
-    - language: csharp
+    - language: c_sharp
       label: "EF Core FromSqlInterpolated (safe despite $ syntax)"
       code: |
         var users = context.Users.FromSqlInterpolated(

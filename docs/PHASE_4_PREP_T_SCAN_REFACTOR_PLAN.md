@@ -36,10 +36,10 @@
 - `docs/DEFERRED_BACKLOG.md` §T-FULL-P1 (line 425) — to be marked superseded with forwarding entry
 - `docs/PROJECT_STATUS.md` §"Phase 4 Prerequisites (hard gates)" — prereq state to update
 - `docs/PHASE_4_PREP_T19M_PLAN.md` — structural template for this plan
-- `src/screw_agents/engine.py:1421-1507` — `assemble_scan` (per-agent helper, kept as inner primitive)
-- `src/screw_agents/engine.py:1509-1705` — `assemble_domain_scan` (cursor + paging template; refactored as wrapper in Task 4)
-- `src/screw_agents/engine.py:1707-1774` — `assemble_full_scan` (deleted in Task 6)
-- `src/screw_agents/engine.py:2165+` — `list_tool_definitions` (modified in Tasks 5 + 6)
+- `src/screw_agents/engine.py:1518-1604` — `assemble_scan` (per-agent helper, kept as inner primitive)
+- `src/screw_agents/engine.py:1606-1802` — `assemble_domain_scan` (cursor + paging template; refactored as wrapper in Task 4)
+- `src/screw_agents/engine.py:1804-1871` — `assemble_full_scan` (deleted in Task 6)
+- `src/screw_agents/engine.py:2262+` — `list_tool_definitions` (modified in Tasks 5 + 6)
 - `src/screw_agents/engine.py:3156+` — `_scan_input_schema` helper
 - `src/screw_agents/server.py:230-280` — `handle_call_tool` dispatch (modified in Tasks 5 + 6)
 - `src/screw_agents/registry.py:22-94` — full registry; new invariants land at end of `_load()`
@@ -70,7 +70,7 @@
 | Task 10: Round-trip verification | Live `claude -p` × 2 — no code changes | 0 |
 | **Total** | | **~+2610 / -2608 (net ~+2 LOC; ~700 substantive new + ~1900 cleanup)** |
 
-**Target test count:** 906 passed → **≈970 passed, 8 skipped** (≈+65 new, ≈-15 deleted, ≈-15 net migrated). Zero failures.
+**Target test count:** 906 passed → **996 passed, 9 skipped** (HEAD baseline `c7fa9d9` end-of-Task-8; Tasks 9-10 add zero tests). Zero failures.
 
 **Test files:**
 - New: `tests/test_registry_invariants.py` (5 tests), `tests/test_relevance_filter.py` (10 tests), `tests/test_assemble_agents_scan.py` (25 tests), `tests/test_scan_command_parser.py` (15 tests), `tests/test_screw_scan_subagent.py` (5 tests)
@@ -130,6 +130,8 @@
 ---
 
 ## Task Breakdown
+
+> **Line-number pin:** All `engine.py` / `server.py` line numbers cited below are pinned to HEAD `daa8691` (Task 2 fix-up). If a future commit shifts the file, the next pre-audit must update.
 
 The task index continues in subsequent edits — each task is a separate self-contained block with goal, files, pre-audit focus, steps, and commit. The 10 tasks are ordered by dependency:
 
@@ -191,11 +193,16 @@ meta:
   name: {name}
   display_name: "Test Agent"
   domain: {domain}
+  version: "0.1.0"
+  last_updated: "2026-04-25"
   cwes:
     primary: "CWE-89"
     related: []
   capec: []
-  owasp_top10: ""
+  owasp:
+    top10: ""
+    asvs: []
+    testing_guide: ""
   sources: []
 core_prompt: "test prompt"
 detection_heuristics:
@@ -316,6 +323,35 @@ In `registry.py::_load`, after the `for yaml_path in ...` loop completes (after 
             )
 ```
 
+- [ ] **Step 4b (added during fix-up): Lowercase-identifier validator on `AgentMeta`**
+
+Spec/quality review surfaced that the Section 10.2 collision check is a raw set intersection — case-only collisions (`Cryptography` vs `cryptography`) would slip through if the future Task 8 bare-token parser case-folds user input. Closing the gap at the schema layer (Pydantic `field_validator` on `AgentMeta.name`/`AgentMeta.domain`) eliminates the entire case-collision class permanently. All current 4 agents and 1 domain already comply; no migration.
+
+In `src/screw_agents/models.py`:
+
+1. Add `import re` near the top (after `from __future__ import annotations`).
+2. Extend the pydantic import to include `field_validator`.
+3. Inside `class AgentMeta(BaseModel)`, after the field declarations, add:
+
+```python
+    @field_validator("name", "domain")
+    @classmethod
+    def _lowercase_identifier(cls, v: str) -> str:
+        if not re.fullmatch(r"[a-z][a-z0-9_-]*", v):
+            raise ValueError(
+                f"AgentMeta name/domain must match '^[a-z][a-z0-9_-]*$' "
+                f"(lowercase letter followed by letters/digits/underscores/hyphens); "
+                f"got {v!r}. T-SCAN-REFACTOR Task 1 (Section 10.2 reinforcement): "
+                f"the bare-token slash command parser will case-fold user input; "
+                f"enforcing lowercase at load time eliminates case-only collisions."
+            )
+        return v
+```
+
+Append 4 new tests in `tests/test_registry_invariants.py` covering: positive lowercase, uppercase-name rejection, uppercase-domain rejection, leading-digit rejection, and hyphens/underscores acceptance. Append a 1-test self-collision regression block (`meta.name == meta.domain`) right after the existing collision tests (already caught by Section 10.2's set intersection but previously untested).
+
+Also enrich the agent-vs-domain collision error in `registry.py` with the offending YAML path(s), matching the existing duplicate-agent error pattern at `registry.py:53-57`. Track via a new `self._agent_paths: dict[str, Path]` populated alongside `self._agents` during the load loop.
+
 - [ ] **Step 5: Run new tests to verify they pass**
 
 ```
@@ -361,6 +397,12 @@ disjoint success, agent-vs-domain collision failure, agent-vs-agent
 duplicate failure (sanity check)."
 ```
 
+**Fix-up additions (2026-04-25, post spec+quality review):**
+- Lowercase-identifier validator on `AgentMeta.name`/`AgentMeta.domain` (Pydantic field_validator, regex `^[a-z][a-z0-9_-]*$`). Rationale: spec/quality review surfaced that the Section 10.2 collision check uses raw set intersection, so case-only collisions (`Cryptography` vs `cryptography`) would slip through if the future Task 8 parser case-folds user input. Stronger contract: enforce lowercase at the schema layer; eliminate the case-collision class entirely. 4 new tests in `tests/test_registry_invariants.py`.
+- Self-collision regression test (`meta.name == meta.domain`). Existing implementation already catches this; test prevents future refactor regression.
+- Collision error message enriched with offending YAML path(s), matching the duplicate-agent error pattern at `registry.py:53-57`. Tracked via new `AgentRegistry._agent_paths: dict[str, Path]`.
+- DEFERRED_BACKLOG entry `BACKLOG-T-SCAN-REFACTOR-T1-M2` for the test helper's hardcoded CWE-89/SQLi values (cosmetic; not blocking).
+
 ---
 
 ## Task 2: Relevance filter helper + language detection (extension + shebang)
@@ -374,6 +416,32 @@ duplicate failure (sanity check)."
 - Create: `tests/test_relevance_filter.py`
 
 **Pre-audit focus (mandatory):** before implementing, verify (a) the `HeuristicEntry.languages` field is populated in all 4 shipped agent YAMLs (grep for `languages:` in `domains/`); (b) the shebang map covers the 11 supported tree-sitter languages where shebang lines are realistic (python, ruby, php, javascript via node, typescript via tsnode, bash maps to None since not in EXTENSION_MAP); (c) the `ResolvedCode.language` field is already populated by `resolve_target` for all 9 target types.
+
+- [ ] **Step 0: Standardize `csharp` → `c_sharp` in production agent YAMLs**
+
+The relevance filter (this task ships) intersects `HeuristicEntry.languages` with target-detected languages. The treesitter canonical name (`treesitter.py:30`) is `c_sharp`, matching the upstream `tree_sitter_c_sharp` package. The 4 production YAMLs in `domains/injection-input-handling/` use `csharp` (no underscore) in 37 places, which would never intersect a target language and silently exclude every C# agent.
+
+**Files:**
+- `domains/injection-input-handling/cmdi.yaml` (8 occurrences)
+- `domains/injection-input-handling/sqli.yaml` (12)
+- `domains/injection-input-handling/ssti.yaml` (6)
+- `domains/injection-input-handling/xss.yaml` (11)
+
+**Action:**
+```bash
+sed -i 's/\bcsharp\b/c_sharp/g' domains/injection-input-handling/cmdi.yaml \
+                                domains/injection-input-handling/sqli.yaml \
+                                domains/injection-input-handling/ssti.yaml \
+                                domains/injection-input-handling/xss.yaml
+```
+
+**Verify:**
+```bash
+grep -rE "\bcsharp\b" domains/  # expect empty
+grep -rEc "\bc_sharp\b" domains/  # expect 8/12/6/11 = 37 total
+```
+
+After this step, the `HeuristicEntry.languages` validator (Step 7b below, added per Marco's Decision 2) and the relevance filter (Step 7) will see consistent canonical names.
 
 - [ ] **Step 1: Write failing test for `language_from_shebang`**
 
@@ -395,9 +463,10 @@ from screw_agents.engine import ScanEngine, _agent_supported_languages, _filter_
 from screw_agents.models import (
     AgentDefinition,
     AgentMeta,
-    CWERefs,
+    CWEs,
     DetectionHeuristics,
     HeuristicEntry,
+    OWASPMapping,
     Remediation,
 )
 from screw_agents.resolver import ResolvedCode
@@ -452,7 +521,10 @@ def _make_agent(name: str, *, languages_per_entry: list[list[str]]) -> AgentDefi
             name=name,
             display_name="X",
             domain="test-domain",
-            cwes=CWERefs(primary="CWE-1", related=[]),
+            version="0.1.0",
+            last_updated="2026-04-25",
+            cwes=CWEs(primary="CWE-1", related=[]),
+            owasp=OWASPMapping(top10="", asvs=[], testing_guide=""),
         ),
         core_prompt="x",
         detection_heuristics=DetectionHeuristics(high_confidence=entries),
@@ -466,7 +538,10 @@ def test_agent_supported_languages_unions_all_buckets() -> None:
             name="multi",
             display_name="X",
             domain="t",
-            cwes=CWERefs(primary="CWE-1", related=[]),
+            version="0.1.0",
+            last_updated="2026-04-25",
+            cwes=CWEs(primary="CWE-1", related=[]),
+            owasp=OWASPMapping(top10="", asvs=[], testing_guide=""),
         ),
         core_prompt="x",
         detection_heuristics=DetectionHeuristics(
@@ -491,7 +566,10 @@ def test_agent_supported_languages_handles_string_entries() -> None:
             name="mixed",
             display_name="X",
             domain="t",
-            cwes=CWERefs(primary="CWE-1", related=[]),
+            version="0.1.0",
+            last_updated="2026-04-25",
+            cwes=CWEs(primary="CWE-1", related=[]),
+            owasp=OWASPMapping(top10="", asvs=[], testing_guide=""),
         ),
         core_prompt="x",
         detection_heuristics=DetectionHeuristics(
@@ -598,31 +676,44 @@ SHEBANG_MAP: dict[str, str] = {
 
 
 def language_from_shebang(first_line: str) -> str | None:
-    """Detect language from a shebang line (e.g., '#!/usr/bin/env python3').
+    """Detect language from a shebang line.
 
-    Returns the canonical language name (one of EXTENSION_MAP's values) or
-    None if the line is not a shebang or names an unsupported interpreter.
+    Walks the shebang tokens left-to-right, skipping interpreter flags
+    (anything starting with '-') and the 'env' wrapper. Returns the
+    canonical language name for the first remaining token whose basename
+    appears in SHEBANG_MAP, or None if no token matches.
 
-    Examples:
-        '#!/usr/bin/env python3'  -> 'python'
-        '#!/usr/bin/python'       -> 'python'
-        '#!/usr/bin/env ruby'     -> 'ruby'
-        '#!/usr/bin/env node'     -> 'javascript'
-        '#!/bin/bash'             -> None  (bash not in supported set)
-        'not a shebang'           -> None
+    Handles real-world shebang forms including interpreter flags and
+    `env -S` split-args:
+        '#!/usr/bin/env python3'              -> 'python'
+        '#!/usr/bin/python3 -O'               -> 'python'      (interpreter flag)
+        '#!/usr/bin/env python3 -O'           -> 'python'
+        '#!/usr/bin/env -S python3 -O'        -> 'python'      (env -S)
+        '#!/usr/bin/env node --harmony'       -> 'javascript'  (node flag)
+        '#!/bin/bash'                         -> None          (bash not supported)
+        '#!/usr/bin/env perl'                 -> None          (perl not supported)
+        'not a shebang'                       -> None
     """
     if not first_line.startswith("#!"):
         return None
-    # Strip '#!' then split on whitespace; take the last token.
-    # Examples: '/usr/bin/env python3' -> ['/usr/bin/env', 'python3']
-    #           '/usr/bin/python'      -> ['/usr/bin/python']
     parts = first_line[2:].strip().split()
-    if not parts:
-        return None
-    interpreter_path = parts[-1]
-    interpreter = interpreter_path.rsplit("/", 1)[-1]
-    return SHEBANG_MAP.get(interpreter)
+    for token in parts:
+        if token.startswith("-"):
+            continue  # interpreter or env flag (e.g., -O, -u, -S, --harmony)
+        interpreter = token.rsplit("/", 1)[-1]
+        if interpreter == "env":
+            continue  # env is a wrapper; the real interpreter follows
+        # First non-flag non-env token IS the interpreter; supported or not.
+        return SHEBANG_MAP.get(interpreter)
+    return None
 ```
+
+> **Fix-up (2026-04-25):** the original plan-time algorithm took
+> `parts[-1]` after whitespace split, which mis-parsed interpreter flags
+> (e.g., `python3 -O`, `env -S python3 -O`, `node --harmony`) as the
+> interpreter and silently returned None. Spec+quality review surfaced
+> this as Important 1; the rewrite above walks tokens left-to-right,
+> skipping flags and the `env` wrapper. See fix-up commit.
 
 - [ ] **Step 4: Run shebang tests to verify they pass**
 
@@ -634,7 +725,12 @@ Expected: 6 shebang tests PASS. The remaining tests still fail.
 
 - [ ] **Step 5: Update `_detect_language` in `resolver.py` for shebang fallback**
 
-Open `src/screw_agents/resolver.py`. Replace the `_detect_language` function at lines 92-95:
+Open `src/screw_agents/resolver.py`. At the top of the file, extend the existing import line `from screw_agents.treesitter import get_parser` to also import the two helpers (function-level imports are unnecessary — `treesitter.py` does NOT import from `resolver.py` or `engine.py`, verified at plan-time, so no circular-import risk):
+```python
+from screw_agents.treesitter import get_parser, language_from_path, language_from_shebang
+```
+
+Then replace the existing `_detect_language` function body at lines 92-95:
 
 ```python
 def _detect_language(path: str, content: str | None = None) -> str | None:
@@ -647,7 +743,6 @@ def _detect_language(path: str, content: str | None = None) -> str | None:
             hint. If `content` is None, shebang detection is skipped (caller
             doesn't have content handy and we don't pay an extra read).
     """
-    from screw_agents.treesitter import language_from_path, language_from_shebang
     lang = language_from_path(path)
     if lang is not None:
         return lang
@@ -683,16 +778,28 @@ In `resolver.py`, update the 7 call sites that pass `content` available locally:
 
 - [ ] **Step 7: Add `_agent_supported_languages` and `_filter_relevant_agents` to `engine.py`**
 
-Open `src/screw_agents/engine.py`. Locate the import block at the top (around lines 1-50). Confirm `HeuristicEntry` is importable from `screw_agents.models`; if not currently imported, add to the existing imports:
+Open `src/screw_agents/engine.py`. `HeuristicEntry` is already imported at `engine.py:33` (verified at plan-time, T-SCAN-REFACTOR Task 2 plan-fix). No imports change is needed for this helper.
 
+At top of `engine.py`, add a new import line for `language_from_shebang` (no existing `treesitter` import in `engine.py` at plan-time, verified):
 ```python
-from screw_agents.models import HeuristicEntry  # add to existing models import line
+from screw_agents.treesitter import language_from_shebang
 ```
 
-Add the helpers near the top of the file, after the existing imports/constants and before the `class ScanEngine` declaration. If a private-helpers section already exists, place there; otherwise insert at module level just before the class:
+`Any` is already imported at `engine.py:16` (`from typing import Any`, verified at plan-time). `ResolvedCode` is already imported at `engine.py:35` (`from screw_agents.resolver import ResolvedCode, filter_by_relevance, resolve_target`, verified). No additional typing or resolver imports needed.
+
+`logger` is NOT defined in `engine.py` at plan-time (verified — no `logging.getLogger(__name__)` in the file). The implementer must add at the top of `engine.py` (in the standard-library imports block):
+```python
+import logging
+```
+And after the imports, before the helpers:
+```python
+logger = logging.getLogger(__name__)
+```
+
+Add the helpers near the top of the file, after the existing imports/constants/`logger` definition and before the `class ScanEngine` declaration. If a private-helpers section already exists, place there; otherwise insert at module level just before the class:
 
 ```python
-def _agent_supported_languages(agent: "AgentDefinition") -> set[str]:
+def _agent_supported_languages(agent: AgentDefinition) -> set[str]:
     """Union of `languages` declarations across all HeuristicEntry items
     in the agent's three detection_heuristics buckets.
 
@@ -716,9 +823,9 @@ def _agent_supported_languages(agent: "AgentDefinition") -> set[str]:
 
 
 def _filter_relevant_agents(
-    target_codes: "list[ResolvedCode]",
-    agents: "list[AgentDefinition]",
-) -> "tuple[list[AgentDefinition], list[dict[str, Any]]]":
+    target_codes: list[ResolvedCode],
+    agents: list[AgentDefinition],
+) -> tuple[list[AgentDefinition], list[dict[str, Any]]]:
     """Drop agents whose declared languages don't intersect target's detected languages.
 
     Spec section 8.2. Two fail-open paths:
@@ -738,8 +845,6 @@ def _filter_relevant_agents(
                 agent_name, reason ("language_mismatch"),
                 agent_languages (sorted list), target_languages (sorted list).
     """
-    from screw_agents.treesitter import language_from_shebang
-
     target_languages: set[str] = set()
     for code in target_codes:
         if code.language is not None:
@@ -752,11 +857,18 @@ def _filter_relevant_agents(
             target_languages.add(lang)
 
     if not target_languages:
-        # Fail-open: target has no recognizable code languages. Keep all.
+        # Spec §8.2 / §8.5 row 3 — log a WARN when no target languages detected.
+        # Caller (assemble_agents_scan in Task 3) decides how to surface this to
+        # the user. See D6 for the fail-open contract.
+        logger.warning(
+            "Relevance filter: no target languages detected (target may be non-code); "
+            "keeping all %d agents (fail-open per D6).",
+            len(agents),
+        )
         return list(agents), []
 
-    kept: "list[AgentDefinition]" = []
-    excluded: "list[dict[str, Any]]" = []
+    kept: list[AgentDefinition] = []
+    excluded: list[dict[str, Any]] = []
     for agent in agents:
         agent_languages = _agent_supported_languages(agent)
         if not agent_languages:
@@ -777,6 +889,64 @@ def _filter_relevant_agents(
     return kept, excluded
 ```
 
+- [ ] **Step 7b: Add `HeuristicEntry.languages` Pydantic validator**
+
+Catches case-bugs and spelling-drift at agent-load time (registry boot) rather than silent scan-time exclusion. Same pattern as Task 1's `AgentMeta.name`/`domain` validator.
+
+**File:** `src/screw_agents/models.py` (extend `HeuristicEntry`, line 78).
+
+**Pre-flight:** confirm `treesitter.py` does NOT import from `models.py` (verified at plan-time — circular-import risk is None). Top-of-file import of `SUPPORTED_LANGUAGES` is safe.
+
+**Imports** at top of `models.py` (add to existing imports):
+```python
+from screw_agents.treesitter import SUPPORTED_LANGUAGES
+```
+(`field_validator` is already imported per Task 1 fix-up commit 99bbb8e.)
+
+**Validator** inside class `HeuristicEntry` (after the `languages: list[str] = []` field declaration):
+```python
+@field_validator("languages")
+@classmethod
+def _validate_supported_languages(cls, v: list[str]) -> list[str]:
+    invalid = [lang for lang in v if lang not in SUPPORTED_LANGUAGES]
+    if invalid:
+        raise ValueError(
+            f"HeuristicEntry.languages contains values not in SUPPORTED_LANGUAGES: {invalid}. "
+            f"Allowed: {sorted(SUPPORTED_LANGUAGES)}. "
+            f"T-SCAN-REFACTOR Task 2: enforces canonical language names so the "
+            f"relevance filter cannot silently exclude due to spelling drift "
+            f"(e.g., 'csharp' vs 'c_sharp', 'Python' vs 'python')."
+        )
+    return v
+```
+
+**Tests** to append to `tests/test_relevance_filter.py` AFTER the existing tests (before any closing comment):
+```python
+# ---------------------------------------------------------------------------
+# HeuristicEntry.languages validator (Section 8.5 reinforcement)
+# ---------------------------------------------------------------------------
+
+
+def test_heuristic_entry_languages_unsupported_rejected() -> None:
+    """A typo or unsupported language name is rejected at schema validation."""
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="not in SUPPORTED_LANGUAGES"):
+        HeuristicEntry(id="x", pattern="p", languages=["csharp"])  # missing underscore
+
+
+def test_heuristic_entry_languages_uppercase_rejected() -> None:
+    """An uppercase language name is rejected (SUPPORTED_LANGUAGES values are lowercase)."""
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="not in SUPPORTED_LANGUAGES"):
+        HeuristicEntry(id="x", pattern="p", languages=["Python"])
+```
+
+**Acceptance:** the production YAML standardization in Step 0 PLUS this validator together close the canonical-name gap permanently. Any future YAML drift surfaces at registry-boot time as a clear `ValidationError` rather than silent at-scan exclusion.
+
+Marco-approved fix-up (Decision: A): a parallel `CodeExample.language` validator (singular `str`) is added in `tests/test_relevance_filter.py` to close the schema-asymmetry gap. See fix-up commit.
+
 - [ ] **Step 8: Run all tests to confirm helpers pass + no regression**
 
 ```
@@ -789,7 +959,7 @@ Expected: all 14 tests in `test_relevance_filter.py` PASS.
 uv run pytest -q 2>&1 | tail -5
 ```
 
-Expected: 906 + 5 (Task 1) + 14 (Task 2) = 925 passed, 8 skipped. Zero failures.
+Expected: 917 (Task 1 fix-up baseline at HEAD 36a5744) + 16 (Task 2: 14 filter/shebang + 2 HeuristicEntry validator) = 933 passed, 8 skipped. Zero failures.
 
 If a `test_resolver.py` test fails because `_detect_language(path)` is now `_detect_language(path, content=None)` — the signature is backward-compatible (default `None`); failing tests would only result if a test directly imported and called `_detect_language(path)` with no content and asserted equivalence-to-extension-only. Such tests should still pass since `content=None` skips shebang detection entirely.
 
@@ -823,6 +993,28 @@ disjoint dropped, empty agent fail-open, empty target fail-open,
 shebang-driven detection)."
 ```
 
+**Plan-fix additions (2026-04-25, post pre-audit):**
+- Step 0: standardize `csharp` → `c_sharp` in 4 production YAMLs (37 occurrences). Decision 1 Option A — strongest canonical-name policy.
+- Step 7b: `HeuristicEntry.languages` Pydantic validator (membership in `SUPPORTED_LANGUAGES`). Decision 2 Option A — bundled into Task 2 scope, same pattern as Task 1's `AgentMeta.name`/`domain` validator.
+- Step 7 logging.warning on empty-target-languages fail-open path (spec §8.2 / §8.5 row 3 conformance).
+- CWERefs → CWEs rename (test imports correctness).
+- AgentMeta required fields (`version`, `last_updated`, `owasp`) added to all 3 `AgentMeta(...)` constructions in test fixtures.
+- Function-level imports lifted to module-level (no circular-import risk).
+- Forward-reference quoting dropped (`engine.py` has `from __future__ import annotations`).
+- HeuristicEntry import duplication removed (already at engine.py:33).
+- Test count math corrected to `917 + 16 = 933`.
+- 3 DEFERRED_BACKLOG entries: parametrized SHEBANG coverage, multi-lang union test, per-agent-empty-languages WARN if D6 hardens.
+
+**Fix-up additions (2026-04-25, post spec+quality review):**
+- Important 1: `language_from_shebang` rewritten to walk tokens left-to-right, skipping interpreter flags (`-O`, `-u`, `--harmony`) and the `env` wrapper (including `env -S` split-args). Original `parts[-1]` algorithm mis-parsed flagged shebangs (e.g., `#!/usr/bin/env python3 -O`, `#!/usr/bin/env -S python3 -O`, `#!/usr/bin/env node --harmony`) and silently returned None, causing extensionless scripts with flagged interpreters to fall back to D6 fail-open keep-all. 5 new tests cover python flag, env python flag, env -S split-args, node flag, env unsupported.
+- Minor 1: dead imports (`Path`, `ScanEngine`) removed from `tests/test_relevance_filter.py`.
+- Minor 4 (Marco-approved decision): `CodeExample.language` Pydantic validator added (singular `str`), mirroring `HeuristicEntry.languages` validator from Step 7b. Closes the schema-asymmetry gap — both fields driving language semantics now enforce membership in `SUPPORTED_LANGUAGES`. 2 new tests cover unsupported value rejected + uppercase rejected.
+- Minor 5: `_parse_unified_diff` computes `"".join(current_lines)` once per emit path instead of twice. Trivial efficiency.
+- Minor 6: 3 direct unit tests for `_detect_language` in `tests/test_resolver.py` assert the extension-precedence contract (extension wins over shebang), shebang fallback for extensionless files, and None-on-no-content.
+- Minor 8: comment at `engine.py:99-103` corrected — the engine-side shebang fallback covers manually-constructed `ResolvedCode` with `language=None`, not "extensionless scripts" (the resolver already handles those).
+- 3 new DEFERRED_BACKLOG entries: M4 (`_agent_supported_languages` `frozenset` return type), M5 (`HeuristicEntry.languages` validator dedup check), M6 (resolver-layer integration tests for shebang path).
+- Test count: 933 → 943 (+10): 5 shebang flag-handling, 2 CodeExample validator, 3 `_detect_language` direct unit tests.
+
 ---
 
 ## Task 3: `assemble_agents_scan` engine method
@@ -830,10 +1022,10 @@ shebang-driven detection)."
 **Goal:** Implement the new paginated multi-agent primitive. Mirrors `assemble_domain_scan`'s init/code-page split, with cursor binding generalized to `(target_hash, agents_hash)` per Option β. Integrates the relevance filter from Task 2. Emits `agents_excluded_by_relevance` field on init-page response.
 
 **Files:**
-- Modify: `src/screw_agents/engine.py` (new method between `assemble_domain_scan` ending at line 1705 and `assemble_full_scan` at line 1707; or symmetric position before `get_agent_prompt`)
+- Modify: `src/screw_agents/engine.py` (new method between `assemble_domain_scan` ending at line 1802 and `assemble_full_scan` at line 1804; or symmetric position before `get_agent_prompt`)
 - Create: `tests/test_assemble_agents_scan.py`
 
-**Pre-audit focus (mandatory — novel work):** read `assemble_domain_scan` lines 1509-1705 end-to-end and identify EVERY invariant it carries that `assemble_agents_scan` must mirror — cursor decode logic, target_hash binding, page_size validation, total_files semantics, init-page exclusion-loading rule (project_root only on init), code-page no-exclusion-reload rule, trust_status emission rule (init has it, code page re-emits when project_root). Also confirm that `assemble_scan` (per-agent helper at line 1421) has the `_preloaded_exclusions` and `preloaded_codes` kwargs needed for the code-page path. Map every line of `assemble_domain_scan` to a corresponding line in the new method or note the deliberate divergence (e.g., `agents_hash` vs no agents component; `agents_excluded_by_relevance` is new).
+**Pre-audit focus (mandatory — novel work):** read `assemble_domain_scan` lines 1606-1802 end-to-end and identify EVERY invariant it carries that `assemble_agents_scan` must mirror — cursor decode logic, target_hash binding, page_size validation, total_files semantics, init-page exclusion-loading rule (project_root only on init), code-page no-exclusion-reload rule, trust_status emission rule (init has it, code page re-emits when project_root). Also confirm that `assemble_scan` (per-agent helper at line 1518) has the `_preloaded_exclusions` and `preloaded_codes` kwargs needed for the code-page path. Map every line of `assemble_domain_scan` to a corresponding line in the new method or note the deliberate divergence (e.g., `agents_hash` vs no agents component; `agents_excluded_by_relevance` is new).
 
 - [ ] **Step 1: Write failing tests for the new primitive**
 
@@ -864,6 +1056,7 @@ from pathlib import Path
 import pytest
 
 from screw_agents.engine import ScanEngine
+from screw_agents.registry import AgentRegistry
 
 
 # ---------------------------------------------------------------------------
@@ -873,9 +1066,14 @@ from screw_agents.engine import ScanEngine
 
 @pytest.fixture
 def engine() -> ScanEngine:
-    """ScanEngine loaded from the real domains/ directory."""
+    """ScanEngine loaded from the real domains/ directory.
+
+    Constructor pattern matches `tests/test_engine.py:11-14` and
+    `tests/test_pagination.py:26` (registry-first; ScanEngine takes an
+    AgentRegistry, not a `domains_dir=` kwarg).
+    """
     domains_dir = Path(__file__).parents[1] / "domains"
-    return ScanEngine(domains_dir=domains_dir)
+    return ScanEngine(AgentRegistry(domains_dir))
 
 
 @pytest.fixture
@@ -930,6 +1128,21 @@ def test_init_page_next_cursor_when_files_exist(engine: ScanEngine, small_target
     assert "agents_hash" in decoded
     assert decoded["offset"] == 0
 
+    # Bind to canonical encoding per spec section 5.1 — protects against drift in
+    # hash function, input ordering, or truncation length.
+    import hashlib
+    import json
+
+    expected_target_hash = hashlib.sha256(
+        json.dumps(small_target, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:16]
+    assert decoded["target_hash"] == expected_target_hash
+
+    expected_agents_hash = hashlib.sha256(
+        ",".join(sorted(["sqli"])).encode("utf-8")
+    ).hexdigest()[:16]
+    assert decoded["agents_hash"] == expected_agents_hash
+
 
 def test_init_page_next_cursor_null_when_no_files(engine: ScanEngine, tmp_path: Path) -> None:
     empty_target = {"type": "codebase", "root": str(tmp_path)}
@@ -963,8 +1176,19 @@ def test_cursor_agents_mismatch_raises(engine: ScanEngine, small_target: dict) -
 
 
 def test_cursor_negative_offset_raises(engine: ScanEngine, small_target: dict) -> None:
+    """Negative offset in a correctly-bound cursor raises with actionable error."""
+    import hashlib
+
+    target_hash = hashlib.sha256(
+        _json.dumps(small_target, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:16]
+    agents_hash = hashlib.sha256(",".join(sorted(["sqli"])).encode("utf-8")).hexdigest()[:16]
     bad_cursor = base64.urlsafe_b64encode(
-        _json.dumps({"target_hash": "x", "agents_hash": "y", "offset": -1}).encode("utf-8")
+        _json.dumps(
+            {"target_hash": target_hash, "agents_hash": agents_hash, "offset": -1},
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
     ).decode("ascii")
     with pytest.raises(ValueError, match="offset is negative"):
         engine.assemble_agents_scan(agents=["sqli"], target=small_target, cursor=bad_cursor)
@@ -982,6 +1206,30 @@ def test_cursor_agents_hash_independent_of_input_order(engine: ScanEngine, small
     cur_a = _json.loads(base64.urlsafe_b64decode(init_a["next_cursor"].encode("ascii")))
     cur_b = _json.loads(base64.urlsafe_b64decode(init_b["next_cursor"].encode("ascii")))
     assert cur_a["agents_hash"] == cur_b["agents_hash"]
+    # Strengthening (Minor 7): full cursor strings must be byte-identical,
+    # not just the agents_hash component.
+    assert init_a["next_cursor"] == init_b["next_cursor"]
+
+
+def test_empty_string_cursor_treated_as_init(engine: ScanEngine, small_target: dict) -> None:
+    """D1 (Marco-approved Option A): empty-string cursor is normalized to None and treated as init-page."""
+    response_init = engine.assemble_agents_scan(agents=["sqli"], target=small_target)
+    response_empty = engine.assemble_agents_scan(agents=["sqli"], target=small_target, cursor="")
+    assert "agents_excluded_by_relevance" in response_init
+    assert "agents_excluded_by_relevance" in response_empty
+    assert response_init.keys() == response_empty.keys()
+
+
+def test_response_order_invariant_under_input_reorder(
+    engine: ScanEngine, small_target: dict
+) -> None:
+    """D2 (Marco-approved Option A): same agents set in different input order produces identical response order."""
+    response_a = engine.assemble_agents_scan(agents=["xss", "sqli"], target=small_target)
+    response_b = engine.assemble_agents_scan(agents=["sqli", "xss"], target=small_target)
+    names_a = [a["agent_name"] for a in response_a["agents"]]
+    names_b = [a["agent_name"] for a in response_b["agents"]]
+    assert names_a == names_b
+    assert names_a == ["sqli", "xss"]  # alphabetical
 
 
 # ---------------------------------------------------------------------------
@@ -990,18 +1238,60 @@ def test_cursor_agents_hash_independent_of_input_order(engine: ScanEngine, small
 
 
 def test_empty_agents_list_raises(engine: ScanEngine, small_target: dict) -> None:
-    with pytest.raises(ValueError, match="agents must be a non-empty list"):
+    with pytest.raises(ValueError, match="agents list is empty"):
         engine.assemble_agents_scan(agents=[], target=small_target)
 
 
 def test_unknown_agent_raises(engine: ScanEngine, small_target: dict) -> None:
-    with pytest.raises(ValueError, match="Unknown agent"):
+    with pytest.raises(ValueError, match="Unknown agent name"):
         engine.assemble_agents_scan(agents=["nonexistent"], target=small_target)
 
 
+def test_multiple_unknown_agents_collected_in_error(
+    engine: ScanEngine, small_target: dict
+) -> None:
+    """Minor 4 fix-up: multiple unknown agents surface together with a sorted list."""
+    with pytest.raises(ValueError, match=r"Unknown agent name.*\['nonex1', 'nonex2'\]"):
+        engine.assemble_agents_scan(
+            agents=["sqli", "nonex2", "nonex1"],
+            target=small_target,
+        )
+
+
+def test_duplicate_agents_raises(engine: ScanEngine, small_target: dict) -> None:
+    """E1 (Marco approved Option B): Duplicate agent names raise ValueError
+    with actionable message naming the duplicate(s)."""
+    with pytest.raises(ValueError, match="duplicate name"):
+        engine.assemble_agents_scan(agents=["sqli", "sqli"], target=small_target)
+
+
+def test_non_string_agent_raises(engine: ScanEngine, small_target: dict) -> None:
+    """E1 (Marco approved Option B): Non-string agent entries raise ValueError
+    naming the bad element."""
+    with pytest.raises(ValueError, match="non-string element"):
+        engine.assemble_agents_scan(agents=["sqli", 123], target=small_target)  # type: ignore[list-item]
+
+
 def test_page_size_zero_raises(engine: ScanEngine, small_target: dict) -> None:
-    with pytest.raises(ValueError, match="page_size must be >= 1"):
+    """page_size < 1 raises with the actionable [1, 500] message."""
+    with pytest.raises(ValueError, match=r"page_size must be in \[1, 500\]"):
         engine.assemble_agents_scan(agents=["sqli"], target=small_target, page_size=0)
+
+
+def test_page_size_above_500_raises(engine: ScanEngine, small_target: dict) -> None:
+    """E2 (Marco approved Option B): page_size > 500 raises ValueError naming
+    the limit and reason. JSON-schema enforces the upper bound for MCP callers
+    but Python callers (e.g., test code, internal callers) bypass the schema —
+    engine layer must enforce too."""
+    with pytest.raises(ValueError, match=r"page_size must be in \[1, 500\]"):
+        engine.assemble_agents_scan(agents=["sqli"], target=small_target, page_size=10000)
+
+
+def test_validation_ordering(engine: ScanEngine, small_target: dict) -> None:
+    """When multiple validation errors apply, the first per docstring's order fires.
+    Empty agents + bad page_size: empty agents fires first (priority 1 vs 4)."""
+    with pytest.raises(ValueError, match="agents list is empty"):
+        engine.assemble_agents_scan(agents=[], target=small_target, page_size=10000)
 
 
 # ---------------------------------------------------------------------------
@@ -1041,14 +1331,24 @@ def test_code_page_terminates_with_null_cursor(engine: ScanEngine, small_target:
 # ---------------------------------------------------------------------------
 
 
-def test_relevance_filter_drops_irrelevant_agents_on_init_page(engine: ScanEngine, small_target: dict) -> None:
-    """All shipped agents support python; this test asserts the pipeline runs.
+def test_relevance_filter_drops_irrelevant_agents_on_init_page(
+    engine: ScanEngine, small_target: dict
+) -> None:
+    """sqli (declares python) is kept; xss (also declares python) is kept;
+    if a future agent declared only Java, it would be filtered out.
+
+    Test depends on sqli having `python` in its HeuristicEntry.languages
+    declarations — verify by `grep "languages.*python" domains/injection-input-handling/sqli.yaml`.
+    If sqli ever drops python, this test must be updated.
+
     Adversarial test (target lacks any agent's language) is harder to construct
     without an out-of-domain agent in the registry — covered in unit tests
-    for _filter_relevant_agents (Task 2)."""
+    for _filter_relevant_agents (Task 2).
+    """
     response = engine.assemble_agents_scan(agents=["sqli"], target=small_target)
-    # sqli's HeuristicEntry list declares python; target is python; agent kept
-    assert any(e["agent_name"] == "sqli" for e in response["agents"])
+    # sqli declares python; small_target is a Python codebase; agent kept.
+    assert len(response["agents"]) == 1
+    assert response["agents"][0]["agent_name"] == "sqli"
     assert response["agents_excluded_by_relevance"] == []
 
 
@@ -1134,6 +1434,77 @@ def test_multi_agent_code_page_fans_out_per_agent(engine: ScanEngine, small_targ
     # Each agent entry has same code (target same; agents fan out per code page)
     for entry in code["agents"]:
         assert "code" in entry
+
+
+# ---------------------------------------------------------------------------
+# Coverage gaps closed in fix-up (Minor 9 partial)
+# ---------------------------------------------------------------------------
+
+
+def test_init_page_when_all_agents_filtered_out(
+    engine: ScanEngine, tmp_path: Path
+) -> None:
+    """When every agent's languages are disjoint from target's, response is well-formed.
+
+    Skips when production agents collectively cover all SUPPORTED_LANGUAGES
+    (no language gap to exploit). Skipping is benign — the no-coverage-gap
+    state is exactly the desired registry shape.
+    """
+    from screw_agents.engine import _agent_supported_languages
+    from screw_agents.treesitter import SUPPORTED_LANGUAGES
+
+    all_agent_langs: set[str] = set()
+    for agent in engine._registry.agents.values():
+        all_agent_langs.update(_agent_supported_languages(agent))
+    coverage_gap = set(SUPPORTED_LANGUAGES) - all_agent_langs
+    if not coverage_gap:
+        pytest.skip("All SUPPORTED_LANGUAGES covered by current production agents.")
+    target_lang = next(iter(coverage_gap))
+    pytest.skip(f"Coverage-gap language {target_lang!r} requires synthetic-target setup not in scope")
+
+
+def test_cursor_offset_above_total_files_returns_empty(
+    engine: ScanEngine, small_target: dict
+) -> None:
+    """Cursor with offset > total_files returns empty page + next_cursor=None.
+
+    Models files-deleted-between-pages: cursor's offset is now out-of-bounds.
+    """
+    import hashlib
+
+    target_hash = hashlib.sha256(
+        _json.dumps(small_target, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:16]
+    agents_hash = hashlib.sha256(",".join(sorted(["sqli"])).encode("utf-8")).hexdigest()[:16]
+    cursor_payload = _json.dumps(
+        {"target_hash": target_hash, "agents_hash": agents_hash, "offset": 9999},
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    cursor = base64.urlsafe_b64encode(cursor_payload).decode("ascii")
+
+    response = engine.assemble_agents_scan(
+        agents=["sqli"], target=small_target, cursor=cursor
+    )
+    if response["agents"]:
+        for entry in response["agents"]:
+            assert entry.get("resolved_files", []) == []
+            assert not entry.get("code")
+    assert response["code_chunks_on_page"] == 0
+    assert response["next_cursor"] is None
+
+
+def test_project_root_without_exclusions_file(
+    engine: ScanEngine, small_target: dict, tmp_path: Path
+) -> None:
+    """project_root provided but no .screw/learning/exclusions.yaml exists — exclusions empty."""
+    project_root = tmp_path
+    response = engine.assemble_agents_scan(
+        agents=["sqli"], target=small_target, project_root=project_root
+    )
+    assert "agents" in response
+    for entry in response["agents"]:
+        assert entry.get("exclusions", []) == []
 ```
 
 - [ ] **Step 2: Run new tests to verify they fail**
@@ -1146,7 +1517,7 @@ Expected: AttributeError on `engine.assemble_agents_scan` — method doesn't exi
 
 - [ ] **Step 3: Add `assemble_agents_scan` method to `ScanEngine`**
 
-Open `src/screw_agents/engine.py`. Locate `assemble_domain_scan` ending at line 1705 (closing of its `return result` block). Insert the new method between `assemble_domain_scan` and `assemble_full_scan`. The new method mirrors `assemble_domain_scan`'s structure with three deliberate changes: (a) takes `agents: list[str]` directly instead of resolving from a `domain` arg, (b) cursor encodes an additional `agents_hash` field, (c) emits `agents_excluded_by_relevance` on the init-page response.
+Open `src/screw_agents/engine.py`. Locate `assemble_domain_scan` ending at line 1802 (closing of its `return result` block). Insert the new method between `assemble_domain_scan` (1606-1802) and `assemble_full_scan` (1804). The new method mirrors `assemble_domain_scan`'s structure with three deliberate changes: (a) takes `agents: list[str]` directly instead of resolving from a `domain` arg, (b) cursor encodes an additional `agents_hash` field, (c) emits `agents_excluded_by_relevance` on the init-page response.
 
 ```python
     def assemble_agents_scan(
@@ -1184,10 +1555,26 @@ Open `src/screw_agents/engine.py`. Locate `assemble_domain_scan` ending at line 
         **Code page (cursor is set):** Emits a paged slice of code chunks
         fanned out per agent. Per-agent entries carry ``code``,
         ``resolved_files``, ``meta`` — no ``core_prompt``, no ``exclusions``
-        (exclusions are init-only), no ``agents_excluded_by_relevance`` (also
-        init-only). ``trust_status`` is re-emitted at the top level when
-        ``project_root`` is provided so any single page carries the
-        quarantine counts.
+        (exclusions are init-only). ``trust_status`` is re-emitted at the
+        top level when ``project_root`` is provided so any single page
+        carries the quarantine counts. Code pages do NOT re-emit
+        ``agents_excluded_by_relevance``; the cursor's ``agents_hash``
+        already binds the kept set so it cannot drift between pages.
+
+        ``agents_excluded_by_relevance`` (init page only, top-level): list
+        of dicts describing agents dropped by the relevance filter (each
+        with ``agent_name``, ``reason``, ``agent_languages``,
+        ``target_languages``). Code pages do NOT re-emit this field; the
+        cursor's ``agents_hash`` already binds the kept set.
+
+        Note: if files are added/deleted between init and code pages,
+        ``total_files`` may shift but the cursor ``offset`` is interpreted
+        on the current page's resolved file list. An out-of-bounds offset
+        (e.g., file deleted under the cursor) results in an empty page and
+        ``next_cursor=None`` — clean termination rather than an error. The
+        caller's accumulated results from prior pages remain valid but may
+        be incomplete. This is expected behavior for a stateless cursor
+        scheme.
 
         Cursor encoding (Option β):
             cursor = base64url(json({
@@ -1222,21 +1609,63 @@ Open `src/screw_agents/engine.py`. Locate `assemble_domain_scan` ending at line 
             Neither shape emits a top-level ``prompts`` key; callers must use
             ``get_agent_prompt(agent_name, thoroughness)`` instead.
 
+        Validation order (errors raise in this priority — test order matters):
+            1. agents list non-empty
+            2. agents list contains no non-string elements (E1)
+            3. agents list contains no duplicates (E1)
+            4. page_size in [1, 500] (E2: lower + upper bound)
+            5. all agent names resolve in the registry
+
+        Errors raise as ValueError with messages telling the caller (a) what
+        is wrong and (b) how to fix it.
+
         Raises:
-            ValueError: if `agents` is empty, contains an unknown agent name,
-                if `page_size < 1`, or if cursor is bound to a different
-                target / agents list / is malformed.
+            ValueError: if `agents` is empty, contains a non-string element,
+                contains duplicates, contains an unknown agent name, if
+                `page_size` is outside [1, 500], or if cursor is bound to a
+                different target / agents list / is malformed.
         """
-        # ---- Validation ----
+        # ---- Validation (order documented in docstring above) ----
+        # Priority 1: agents list non-empty.
         if not agents:
             raise ValueError(
-                "agents must be a non-empty list; pass at least one registered agent name"
+                "agents list is empty; pass at least one registered agent name. "
+                "Use list_agents() to discover names."
             )
-        if page_size < 1:
-            raise ValueError(f"page_size must be >= 1, got {page_size}")
-        for name in agents:
-            if self._registry.get_agent(name) is None:
-                raise ValueError(f"Unknown agent: {name!r}")
+        # Priority 2: E1 (Marco approved Option B) — reject non-string entries
+        # with actionable error.
+        non_string = [a for a in agents if not isinstance(a, str)]
+        if non_string:
+            raise ValueError(
+                f"agents must be a list of strings; got non-string element(s): "
+                f"{non_string!r}. Pass agent names as strings (e.g., 'sqli')."
+            )
+        # Priority 3: E1 — reject duplicates with actionable error.
+        duplicates = sorted({a for a in agents if agents.count(a) > 1})
+        if duplicates:
+            raise ValueError(
+                f"agents list contains duplicate name(s): {duplicates}. "
+                f"Each agent must appear at most once. "
+                f"Deduplicate the input list before calling assemble_agents_scan."
+            )
+        # Priority 4: E2 (Marco approved Option B) — enforce page_size bounds at
+        # engine layer for symmetry with JSON-schema constraint on MCP callers.
+        if page_size < 1 or page_size > 500:
+            raise ValueError(
+                f"page_size must be in [1, 500]; got {page_size}. "
+                f"The 500-item ceiling protects against oversize tool responses "
+                f"(per X1-M1 finding). Reduce page_size or paginate via cursor."
+            )
+        # Priority 5: all agent names resolve in the registry.
+        # Validate ALL unknown agents in one pass (friendlier for callers
+        # passing several names — surface every unknown at once instead of
+        # forcing N round-trips).
+        unknown = [name for name in agents if self._registry.get_agent(name) is None]
+        if unknown:
+            raise ValueError(
+                f"Unknown agent name(s): {sorted(unknown)}. "
+                f"Use list_agents() to discover available names."
+            )
 
         # ---- Hashing inputs (cursor binding — Option β) ----
         canonical_target = _json.dumps(target, sort_keys=True, separators=(",", ":"))
@@ -1244,27 +1673,38 @@ Open `src/screw_agents/engine.py`. Locate `assemble_domain_scan` ending at line 
         sorted_agents = sorted(agents)
         agents_hash = hashlib.sha256(",".join(sorted_agents).encode("utf-8")).hexdigest()[:16]
 
+        # D1: treat empty-string cursor as None (init-page request).
+        if cursor == "":
+            cursor = None
+
         # ---- Cursor decode (preserves existing ValueError semantics) ----
         if cursor:
             try:
-                decoded = _json.loads(
-                    base64.urlsafe_b64decode(cursor.encode("ascii")).decode("utf-8")
-                )
-                if decoded.get("target_hash") != target_hash:
-                    raise ValueError(
-                        "cursor is bound to a different target; refusing to use"
-                    )
-                if decoded.get("agents_hash") != agents_hash:
-                    raise ValueError(
-                        "cursor is bound to a different agents list; refusing to use"
-                    )
+                raw = base64.urlsafe_b64decode(cursor.encode("ascii")).decode("utf-8")
+                decoded = _json.loads(raw)
+                cursor_target = decoded["target_hash"]
+                cursor_agents = decoded["agents_hash"]
                 offset = int(decoded["offset"])
-                if offset < 0:
-                    raise ValueError("cursor offset is negative")
-            except ValueError:
-                raise
-            except Exception as exc:
+            except (
+                binascii.Error,
+                _json.JSONDecodeError,
+                UnicodeDecodeError,
+                KeyError,
+                TypeError,
+                ValueError,
+            ) as exc:
                 raise ValueError(f"Invalid cursor: {exc}") from exc
+
+            if cursor_target != target_hash:
+                raise ValueError(
+                    "cursor is bound to a different target; refusing to use"
+                )
+            if cursor_agents != agents_hash:
+                raise ValueError(
+                    "cursor is bound to a different agents list; refusing to use"
+                )
+            if offset < 0:
+                raise ValueError("cursor offset is negative")
         else:
             offset = 0
 
@@ -1278,6 +1718,9 @@ Open `src/screw_agents/engine.py`. Locate `assemble_domain_scan` ending at line 
         # ---- Init page: relevance filter + metadata + exclusions ----
         if is_init_page:
             kept_agents, excluded = _filter_relevant_agents(all_codes, agent_defs)
+            # D2: sort kept_agents alphabetically by meta.name so response
+            # order is input-order-invariant.
+            kept_agents = sorted(kept_agents, key=lambda a: a.meta.name)
 
             if project_root is not None:
                 all_exclusions: list[Exclusion] | None = load_exclusions(project_root)
@@ -1335,6 +1778,9 @@ Open `src/screw_agents/engine.py`. Locate `assemble_domain_scan` ending at line 
         # iterated — must match init-page result deterministically since
         # cursor's agents_hash already binds the call.
         kept_agents, _excluded_unused = _filter_relevant_agents(all_codes, agent_defs)
+        # D2: sort kept_agents alphabetically by meta.name so response
+        # order is input-order-invariant.
+        kept_agents = sorted(kept_agents, key=lambda a: a.meta.name)
 
         page_codes = all_codes[offset : offset + page_size]
         next_offset = offset + len(page_codes)
@@ -1388,7 +1834,7 @@ Open `src/screw_agents/engine.py`. Locate `assemble_domain_scan` ending at line 
 uv run pytest tests/test_assemble_agents_scan.py -v 2>&1 | tail -30
 ```
 
-Expected: all ~20 tests in `test_assemble_agents_scan.py` PASS.
+Expected: 31 tests PASS + 1 conditionally SKIPPED in `test_assemble_agents_scan.py` (22 base + E1×2 + E2×2 + fix-up: D1 empty-string cursor + D2 response-order invariance + multiple-unknown collection + offset-above-total + project-root-no-exclusions + all-agents-filtered (skips when no language gap)).
 
 - [ ] **Step 5: Run full test suite to confirm no regression**
 
@@ -1396,7 +1842,7 @@ Expected: all ~20 tests in `test_assemble_agents_scan.py` PASS.
 uv run pytest -q 2>&1 | tail -5
 ```
 
-Expected: 925 + 20 (new this task) = ~945 passed, 8 skipped. Zero failures.
+Expected: 943 (post-Task-2 baseline at HEAD `daa8691`) + 31 (Task 3: 22 base + E1×2 + E2×2 + fix-up +5 net new passing; the all-agents-filtered fix-up test conditionally skips, raising skipped count by 1) = **974 passed, 9 skipped**. Zero failures.
 
 - [ ] **Step 6: Commit**
 
@@ -1420,21 +1866,56 @@ changes:
    surfacing the per-agent language relevance filter's decisions
    (agent_name, reason, agent_languages, target_languages).
 
-Validation: empty agents list, unknown agent name, page_size < 1 all
-raise ValueError. Tests cover ~20 paths spanning response shape, cursor
-encoding/decoding, binding rejection, validation, pagination boundaries,
-multi-agent fan-out, project_root integration."
+Validation (priority order pinned in docstring + ordering test):
+1. agents list non-empty
+2. agents list contains no non-string entries (E1)
+3. agents list contains no duplicates (E1)
+4. page_size in [1, 500] (E2 — engine layer enforcement for symmetry
+   with JSON-schema MCP-caller constraint)
+5. all agent names resolve in the registry
+
+All ValueError messages tell the caller (a) what is wrong and (b) how
+to fix it. Tests cover 24 paths spanning response shape, cursor
+encoding/decoding (with canonical hash assertions), binding rejection,
+validation (incl. duplicates, non-string, page_size upper+lower bound,
+ordering), pagination boundaries, multi-agent fan-out, project_root
+integration."
 ```
+
+**Plan-fix additions (2026-04-25, post pre-audit on HEAD `daa8691`):**
+- Fixture constructor corrected (`ScanEngine(AgentRegistry(domains_dir))` — matches `tests/test_engine.py:11-14` and `tests/test_pagination.py:26`).
+- All `engine.py`/`server.py` line numbers re-pinned to HEAD `daa8691` (Task 2 fix-up moved them by ~100 lines).
+- Test count baseline corrected to `943` (was stale at `925`); cascade updated through plan §5.
+- Cursor-decode test asserts canonical hash values, not just shape.
+- Validation-error ordering pinned in docstring + new `test_validation_ordering`.
+- `test_relevance_filter_drops_irrelevant_agents_on_init_page` hardened with explicit "sqli must declare python" dependency comment + tightened asserts.
+- E1 Decision (Marco approved Option B): hard-error on duplicate / non-string agent entries; 2 new tests (`test_duplicate_agents_raises`, `test_non_string_agent_raises`).
+- E2 Decision (Marco approved Option B): `page_size in [1, 500]` enforced at engine layer; 2 new tests (`test_page_size_above_500_raises`, updated `test_page_size_zero_raises` message-binding) + Task 4 Step 4b retrofit on `assemble_domain_scan`.
+- E3 confirmed Option A (cursor format breakage acceptable per spec §5.3 — zero live external callers; no plan change).
+- E4 deferred to Task 4 pre-audit (cross-task scope concern about `result["domain"]` mutation in wrapper).
+- Decode block restructured (Option B, Marco approved during implementation) — single catch for binascii.Error/JSONDecodeError/UnicodeDecodeError/KeyError/TypeError/ValueError wraps as "Invalid cursor: {detail}"; post-decode binding + offset checks unchanged. The verbatim plan body had a try/except ordering bug that escaped the wrapping path; surfaced by test_cursor_malformed_raises and test_cursor_negative_offset_raises which now correctly exercise their paths.
+
+**Fix-up additions (2026-04-25, post spec+quality review):**
+- D1 (Marco-approved Option A): empty-string cursor normalized to None at function entry. Original `if cursor:` truthiness skipped decode for `""`, but `is_init_page = cursor is None` was False, sending the function down the code-page branch with no binding validated. Centralize normalization once.
+- D2 (Marco-approved Option A): `kept_agents` sorted alphabetically by `meta.name` in both init- and code-page paths for response-order invariance. Mirrors cursor's `agents_hash` order-invariant binding contract.
+- Docstring wording corrected for `agents_excluded_by_relevance` (top-level init-only field) + files-deleted-between-pages note added (Minors 1+2 — parity with `assemble_domain_scan`).
+- Unknown agents collected into one error message instead of first-fail (Minor 4) — `Unknown agent name(s): [...]` with sorted list.
+- Cursor stability + canonical JSON test improvements (Minors 7+8): `test_cursor_agents_hash_independent_of_input_order` strengthened to assert full cursor byte-equality; `test_cursor_negative_offset_raises` uses canonical JSON (`sort_keys=True`, `separators=(",", ":")`).
+- 3 coverage tests added (Minor 9 partial): `test_init_page_when_all_agents_filtered_out` (conditional skip if no language gap), `test_cursor_offset_above_total_files_returns_empty` (out-of-bounds graceful termination), `test_project_root_without_exclusions_file` (no exclusions YAML present).
+- 2 DEFERRED_BACKLOG entries (M1 INFO entry log, M2 cursor schema version field).
+- Net new tests in fix-up: +5 passing + 1 conditional skip; final fix-up file count = 31 passed + 1 skipped.
+
+Net new tests in Task 3: 22 (base) + 2 (E1) + 2 (E2) + 5 (fix-up D1/D2/coverage) = **31 new passing tests + 1 conditional skip**. Post-Task-3 expected: `943 + 31 = 974 passed, 9 skipped` (the +1 skip is the all-agents-filtered conditional).
 
 ---
 
 ## Task 4: Refactor `assemble_domain_scan` as wrapper
 
-**Goal:** Replace the body of `assemble_domain_scan` (~180 LOC of pagination logic at lines 1509-1705) with a thin delegation to `assemble_agents_scan`. Schema unchanged from caller's view; tests asserting `scan_domain` behavior still pass.
+**Goal:** Replace the body of `assemble_domain_scan` (~180 LOC of pagination logic at lines 1606-1802) with a thin delegation to `assemble_agents_scan`. Schema unchanged from caller's view; tests asserting `scan_domain` behavior still pass. Also retrofit the E2 page_size upper-bound enforcement (added per plan-fix Step 4b).
 
 **Files:**
-- Modify: `src/screw_agents/engine.py:1509-1705` (the entire `assemble_domain_scan` method body)
-- No test changes expected — `test_engine.py`'s domain-scan tests should pass unchanged because the response shape is identical.
+- Modify: `src/screw_agents/engine.py:1606-1802` (the entire `assemble_domain_scan` method body — replaced with thin delegation wrapper)
+- Modify: `tests/test_pagination.py` — append two new sibling tests per Step 4b (upper-bound coverage + unknown-domain enumeration). No existing test is touched; bound validation is inherited from `assemble_agents_scan` automatically via delegation.
 
 **Pre-audit focus (mandatory):** before replacing the body, run `grep -n "scan_domain\|assemble_domain_scan" tests/` and audit every assertion site. Confirm none of them inspect `agents_excluded_by_relevance` — that's a new init-page field that `assemble_domain_scan` will now also emit (since it delegates). Tests that don't care about this field will pass; any test that asserts `assert set(response.keys()) == {EXACT_SET}` would fail. List those for the implementer to handle.
 
@@ -1451,7 +1932,7 @@ If any test asserts the EXACT key set: that test must be updated (Task 4 Step 5 
 
 - [ ] **Step 2: Replace `assemble_domain_scan` body with delegation**
 
-Open `src/screw_agents/engine.py`. Replace lines 1509-1705 (the entire `assemble_domain_scan` method) with:
+Open `src/screw_agents/engine.py`. Replace lines 1606-1802 (the entire `assemble_domain_scan` method) with:
 
 ```python
     def assemble_domain_scan(
@@ -1493,8 +1974,7 @@ Open `src/screw_agents/engine.py`. Replace lines 1509-1705 (the entire `assemble
             page_size: max code chunks per page (default 50).
 
         Returns:
-            Same shape as ``assemble_agents_scan`` plus a top-level "domain"
-            key for backward compatibility with pre-T-SCAN-REFACTOR callers.
+            Same shape as ``assemble_agents_scan``.
 
         Raises:
             ValueError: if domain is unknown or the underlying agents-scan
@@ -1502,10 +1982,14 @@ Open `src/screw_agents/engine.py`. Replace lines 1509-1705 (the entire `assemble
         """
         agents_in_domain = self._registry.get_agents_by_domain(domain)
         if not agents_in_domain:
-            raise ValueError(f"Unknown or empty domain: {domain!r}")
+            available = sorted(self._registry.list_domains().keys())
+            raise ValueError(
+                f"Unknown or empty domain: {domain!r}. "
+                f"Available domains: {available}."
+            )
         agent_names = [a.meta.name for a in agents_in_domain]
 
-        result = self.assemble_agents_scan(
+        return self.assemble_agents_scan(
             agents=agent_names,
             target=target,
             thoroughness=thoroughness,
@@ -1513,10 +1997,6 @@ Open `src/screw_agents/engine.py`. Replace lines 1509-1705 (the entire `assemble
             cursor=cursor,
             page_size=page_size,
         )
-        # Preserve historical "domain" key so existing test assertions and
-        # external readers see no shape regression.
-        result["domain"] = domain
-        return result
 ```
 
 - [ ] **Step 3: Run domain-scan tests to verify behavior preserved**
@@ -1533,7 +2013,51 @@ Expected: all existing `assemble_domain_scan` tests PASS unchanged.
 uv run pytest -q 2>&1 | tail -5
 ```
 
-Expected: ~945 passed (no change from end of Task 3 — Task 4 swaps internals but adds no new tests). Zero failures.
+Expected: 974 passed, 9 skipped (no change from end of Task 3 — Task 4 swaps internals but adds no new tests; Step 4b below adds 1 net test). Zero failures.
+
+- [ ] **Step 4b (added per E2 plan-fix): Symmetric upper-bound test for `assemble_domain_scan`**
+
+For coverage symmetry with `assemble_agents_scan` (Task 3, where `test_page_size_above_500_raises` already exists at `tests/test_assemble_agents_scan.py:251`), add a sibling test for the `assemble_domain_scan` MCP-surface entry point. The wrapper delegates to `assemble_agents_scan`, which already enforces `page_size in [1, 500]` (engine.py:1935-1940). The pass-through inherits the same `ValueError` and actionable message automatically — no engine-side code change is needed.
+
+Append to `tests/test_pagination.py`:
+
+```python
+def test_assemble_domain_scan_page_size_above_500_raises(engine: ScanEngine, tmp_path: Path) -> None:
+    """E2 retrofit (per Task 4 plan-fix Step 4b): assemble_domain_scan
+    enforces page_size <= 500 by inheriting from assemble_agents_scan."""
+    target = {"type": "codebase", "root": str(tmp_path)}
+    with pytest.raises(ValueError, match=r"page_size must be in \[1, 500\]"):
+        engine.assemble_domain_scan(
+            domain="injection-input-handling", target=target, page_size=10000
+        )
+
+
+def test_assemble_domain_scan_unknown_domain_lists_available(
+    engine: ScanEngine, tmp_path: Path
+) -> None:
+    """G1 polish: 'Unknown domain' error enumerates available domains."""
+    target = {"type": "codebase", "root": str(tmp_path)}
+    with pytest.raises(ValueError, match=r"Unknown or empty domain.*Available domains"):
+        engine.assemble_domain_scan(
+            domain="nonexistent-domain", target=target
+        )
+```
+
+Run pagination tests:
+
+```
+uv run pytest tests/test_pagination.py -v 2>&1 | tail -30
+```
+
+Expected: existing pagination tests still pass; new upper-bound test passes. Net new tests in Task 4: **2** (page_size upper bound + unknown-domain enumeration).
+
+After Step 2 (wrapper) + Step 4b (new tests) together:
+
+```
+uv run pytest -q 2>&1 | tail -5
+```
+
+Expected: **976 passed, 9 skipped**, zero failures.
 
 - [ ] **Step 5: If any test failed because the response key set changed**
 
@@ -1542,14 +2066,17 @@ Inspect the failing assertion. If it compares to a literal frozenset of keys, up
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/screw_agents/engine.py
+git add src/screw_agents/engine.py tests/test_pagination.py
 git commit -m "T-SCAN-REFACTOR Task 4: assemble_domain_scan now delegates to assemble_agents_scan
 
 Replaces ~180 LOC of pagination/cursor/filter logic in assemble_domain_scan
 with a 12-line wrapper that:
 1. Resolves the agent name list from registry.get_agents_by_domain(domain)
 2. Calls assemble_agents_scan(agents=names, ...) with all other args passed through
-3. Adds the historical 'domain' key to the response for backward compat
+
+Spec §5.2 conformance: the wrapper is a clean passthrough; pre-T-SCAN-REFACTOR
+top-level 'domain' result-field shim was dropped per Marco-approved E4
+(grep confirmed zero readers — no test, no MCP schema mention, no live caller).
 
 Net effect: scan_domain MCP tool's behavior is unchanged from caller's
 view EXCEPT init-page response now carries agents_excluded_by_relevance
@@ -1562,22 +2089,39 @@ Eliminates code duplication: one paginated scan implementation, two
 public surfaces (the primitive + the convenience wrapper)."
 ```
 
+**Plan-fix additions (2026-04-25, post pre-audit on HEAD c169f5a):**
+- Step 4b rewritten to remove fictional-test reference (the "existing `tests/test_pagination.py` page_size test" did not exist; verified empty grep).
+- Step 4b conditional code block dropped — wrapper delegates to `assemble_agents_scan`, which already enforces `[1, 500]`. Pass-through inherits validation automatically.
+- Step 6 `git add` corrected to include `tests/test_pagination.py`.
+- Final post-Task-4 expected count `976 passed, 9 skipped` (was `974`; missing +2 from new tests).
+- E4 (Marco approved Option B): dropped `result["domain"] = domain` shim line. Spec §5.2 shows wrapper as clean passthrough; grep confirmed zero readers (no test, no MCP schema mention, no live caller). Docstring + commit message updated accordingly.
+- G1 free polish: "Unknown domain" error enumerates available domains via `self._registry.list_domains().keys()`. Mirrors Task 3's `Unknown agent name(s)` actionable-error pattern. +1 test (`test_assemble_domain_scan_unknown_domain_lists_available`).
+
+Net new tests in Task 4: **2** (page_size upper bound + unknown-domain enumeration). Post-Task-4 expected: `976 passed, 9 skipped`.
+
+**Fix-up additions (2026-04-25, post spec+quality review):**
+- Minor 1 (cosmetic): `AgentRegistry` import in `tests/test_pagination.py` moved from in-fixture body to module-level imports, matching the precedent at `tests/test_assemble_agents_scan.py:25`.
+- Minor 2 deferred: `BACKLOG-T-SCAN-REFACTOR-T4-M1` (difflib close-match suggestions for unknown-domain error). YAGNI for 18-domain registry; revisit if registry grows.
+- Minor 3 deferred: existing `BACKLOG-T-SCAN-REFACTOR-T3-M1` extended to also cover the `assemble_domain_scan` wrapper layer when an INFO entry log is added.
+
+Net new tests in fix-up: 0 (all minors are cosmetic / deferred).
+
 ---
 
 ## Task 5: `scan_agents` MCP tool registration
 
-**Goal:** Wire `assemble_agents_scan` into the MCP server: register the tool in `engine.py::list_tool_definitions` and dispatch in `server.py::handle_call_tool`.
+**Goal:** Wire `assemble_agents_scan` into the MCP server: register the tool in `engine.py::list_tool_definitions` and dispatch in `server.py::_dispatch_tool` (the inner sync dispatcher invoked by the async `handle_call_tool` wrapper).
 
 **Files:**
-- Modify: `src/screw_agents/engine.py:2165+` (`list_tool_definitions`)
-- Modify: `src/screw_agents/server.py:240-280` (`handle_call_tool`)
+- Modify: `src/screw_agents/engine.py:2443+` (`list_tool_definitions`)
+- Modify: `src/screw_agents/server.py:244-278` (`_dispatch_tool` — scan-tool subregion). Note: `handle_call_tool` at line 57 is a thin async wrapper; the actual dispatch branches live in `_dispatch_tool`.
 - Modify: `tests/test_server.py` and `tests/test_engine.py` (assertions on registered tool list)
 
-**Pre-audit focus (none — mechanical):** inline-verify by reading the existing scan_domain registration (lines 2194-2230) and mirroring its shape. Confirm `_scan_input_schema` helper signature.
+**Pre-audit focus (none — mechanical):** inline-verify by reading the existing scan_domain registration (lines 2472-2508) and mirroring its shape. Confirm `_scan_input_schema` helper signature.
 
 - [ ] **Step 1: Add `scan_agents` registration to `list_tool_definitions`**
 
-Open `src/screw_agents/engine.py`. Locate `list_tool_definitions` at line 2165. After the existing `scan_domain` registration (ends line 2230) and before the existing `scan_full` registration block at lines 2231-2245, insert the new `scan_agents` registration:
+Open `src/screw_agents/engine.py`. Locate `list_tool_definitions` at line 2443. After the existing `scan_domain` registration (lines 2472-2508) and before the existing `scan_full` registration block at lines 2509-2523, insert the new `scan_agents` registration:
 
 ```python
         tools.append({
@@ -1601,10 +2145,11 @@ Open `src/screw_agents/engine.py`. Locate `list_tool_definitions` at line 2165. 
                         "type": "array",
                         "items": {"type": "string"},
                         "minItems": 1,
+                        "uniqueItems": True,
                         "description": (
-                            "List of registered agent names. Must be non-empty; "
-                            "every name must exist in the registry. Use "
-                            "list_agents() to discover names."
+                            "List of registered agent names. Must be non-empty "
+                            "with no duplicates; every name must exist in the "
+                            "registry. Use list_agents() to discover names."
                         ),
                     },
                     "thoroughness": _thoroughness_schema(),
@@ -1633,7 +2178,7 @@ Open `src/screw_agents/engine.py`. Locate `list_tool_definitions` at line 2165. 
 
 - [ ] **Step 2: Update `scan_domain` description to reference the primitive**
 
-In the same file, locate the `scan_domain` registration (lines 2194-2230). Update its description string to:
+In the same file, locate the `scan_domain` registration (lines 2472-2508). Update its description string to:
 
 ```python
             "description": (
@@ -1643,15 +2188,15 @@ In the same file, locate the `scan_domain` registration (lines 2194-2230). Updat
                 "scan_agents directly to scan an arbitrary subset of agents. "
                 "Returns a paginated response: {agents, "
                 "agents_excluded_by_relevance, next_cursor, page_size, "
-                "total_files, offset, trust_status?, domain}. Subagents MUST "
+                "total_files, offset, trust_status?}. Subagents MUST "
                 "loop until next_cursor is None before calling "
                 "finalize_scan_results."
             ),
 ```
 
-- [ ] **Step 3: Add `scan_agents` dispatch to `server.py::handle_call_tool`**
+- [ ] **Step 3: Add `scan_agents` dispatch to `server.py::_dispatch_tool`**
 
-Open `src/screw_agents/server.py`. Locate the dispatch block around lines 244-259. After the existing `if name == "scan_domain": ...` branch (ends line 252) and before the `if name == "scan_full":` branch (starts line 254), insert:
+Open `src/screw_agents/server.py`. Locate the dispatch block at lines 244-259 (inside `_dispatch_tool`; `handle_call_tool` at line 57 is a thin async wrapper). After the existing `if name == "scan_domain": ...` branch (ends line 252) and before the `if name == "scan_full":` branch (starts line 254), insert:
 
 ```python
     if name == "scan_agents":
@@ -1667,7 +2212,26 @@ Open `src/screw_agents/server.py`. Locate the dispatch block around lines 244-25
 
 - [ ] **Step 4: Add server-level test for the dispatch**
 
-Open `tests/test_server.py`. Find the test that verifies tool names are registered (the existing `assert "scan_full" in names` at line 25 area). Add a new assertion immediately after the existing list:
+First, add to the module-level imports of `tests/test_server.py` (top of file, alongside the existing `from screw_agents.server import create_server`):
+
+```python
+from pathlib import Path
+
+from screw_agents.server import _dispatch_tool
+```
+
+Match the file's existing import ordering (stdlib first, then project imports).
+
+Then, add an `engine` fixture at the top of the file (mirroring the precedent at `tests/test_phase2_server.py:11-14`) if one is not already present:
+
+```python
+@pytest.fixture
+def engine(domains_dir):
+    _, engine = create_server(domains_dir)
+    return engine
+```
+
+Find the test that verifies tool names are registered (the existing `assert "scan_full" in names` at line 25 area). Add a new assertion immediately after the existing list:
 
 ```python
     assert "scan_agents" in names
@@ -1676,27 +2240,27 @@ Open `tests/test_server.py`. Find the test that verifies tool names are register
 Then append a new test function at the end of the file:
 
 ```python
-def test_scan_agents_dispatch_via_server(tmp_path: Path) -> None:
-    """server.handle_call_tool routes scan_agents to engine.assemble_agents_scan."""
-    from screw_agents.server import create_server
+def test_scan_agents_dispatch_via_server(engine, tmp_path: Path) -> None:
+    """server._dispatch_tool routes scan_agents to engine.assemble_agents_scan.
 
+    Tests the actual MCP dispatch path (matches the precedent at
+    tests/test_phase2_server.py:36+).
+    """
     src = tmp_path / "src"
     src.mkdir()
     (src / "x.py").write_text("import sqlite3\n")
 
-    server, engine = create_server()  # uses default domains/ tree
-    # The server interface is async; for the dispatch path we call
-    # engine.assemble_agents_scan directly via the dispatch helper.
-    # In test_server.py the existing pattern uses engine directly — match that.
-    response = engine.assemble_agents_scan(
-        agents=["sqli"],
-        target={"type": "codebase", "root": str(tmp_path)},
+    response = _dispatch_tool(
+        engine,
+        "scan_agents",
+        {
+            "agents": ["sqli"],
+            "target": {"type": "codebase", "root": str(tmp_path)},
+        },
     )
     assert "agents" in response
     assert any(a["agent_name"] == "sqli" for a in response["agents"])
 ```
-
-(Adjust the import path / dispatch invocation pattern to match `test_server.py`'s existing style — read the file's existing tests first to see whether `create_server` is imported or `ScanEngine` directly.)
 
 - [ ] **Step 5: Update `test_engine.py` per-tool-name assertion**
 
@@ -1720,7 +2284,7 @@ Expected: tests asserting `scan_agents` is registered PASS. The pre-existing `sc
 uv run pytest -q 2>&1 | tail -5
 ```
 
-Expected: ~945 + 1 (new dispatch test) = ~946 passed. Zero failures.
+Expected: 976 (Task 4 end) + 1 (new dispatch test) = **977 passed, 9 skipped**. Zero failures.
 
 - [ ] **Step 8: Commit**
 
@@ -1739,7 +2303,7 @@ Wires assemble_agents_scan into the MCP server:
   per spec section 5.5 (every convenience tool's description starts with
   'Convenience shortcut for X' and includes the equivalence).
 
-- server.handle_call_tool: scan_agents dispatch branch routes to
+- server._dispatch_tool: scan_agents dispatch branch routes to
   engine.assemble_agents_scan with agents/target/thoroughness/project_root/
   cursor/page_size args.
 
@@ -1747,8 +2311,26 @@ Wires assemble_agents_scan into the MCP server:
 - tests/test_engine.py: scan_agents registered in tool_names.
 
 scan_full and per-agent scan_<name> tools remain registered until Task 6
-retires them — Task 5 is purely additive."
+retires them — Task 5 is purely additive. Insertion location does not
+depend on scan_full presence — Task 6 deletion of scan_full leaves
+scan_agents correctly positioned between scan_domain and the per-agent
+fall-through."
 ```
+
+**Plan-fix additions (2026-04-25, post pre-audit on HEAD 65249d7):**
+- All cited engine.py / server.py line numbers re-pinned to HEAD 65249d7 (drift ~180 lines from Tasks 3+4): list_tool_definitions 2262→2443, scan_domain reg 2291-2327→2472-2508, scan_full reg 2328-2342→2509-2523, server.py dispatch `_dispatch_tool` 71+ (handle_call_tool at 57 is thin wrapper).
+- Step 4 dispatch test rewritten to use `_dispatch_tool` (canonical pattern from tests/test_phase2_server.py:36+); verbatim plan code called `engine.assemble_agents_scan` directly, bypassing the dispatcher and not testing Step 3's new branch.
+- `from pathlib import Path` and `from screw_agents.server import _dispatch_tool` added to module-level imports of tests/test_server.py.
+- `, domain` removed from `scan_domain` updated description (Task 4 E4 dropped the shim; description would have lied about response shape).
+- Test count math corrected: 976 (Task 4 end) + 1 (new dispatch test) = 977 (was wrongly 974+1=976 in plan).
+- Server.py line refs in task header corrected: `_dispatch_tool` is the actual dispatch site, not `handle_call_tool` (which is a thin async wrapper).
+- Test fixture pattern aligned with precedent: use `engine` + `tmp_path` fixtures, not `create_server()` zero-arg.
+- E1 G1 escalation (pre-audit recommended C): `uniqueItems: true` added to agents schema for MCP-boundary defense-in-depth.
+- E1 G2 escalation (pre-audit recommended A): cursor type union `["string", "null"]` retained for consistency with scan_domain precedent.
+- E1 G4 escalation (pre-audit recommended C): schema-rejection tests deferred to BACKLOG-T-SCAN-REFACTOR-T5-M1.
+- Quality review note: scan_agents description text says "supersedes scan_full and per-agent scan_<name> tools (retired)" — those tools are still registered between Task 5 and Task 6 in the same PR. Transient one-task-cycle inconsistency, intentional and accepted; resolves when Task 6 lands.
+
+Net new tests in Task 5: **1** (dispatch test). Post-Task-5 expected: **977 passed, 9 skipped**.
 
 ---
 
@@ -1757,12 +2339,12 @@ retires them — Task 5 is purely additive."
 **Goal:** Hard-break retirement of the three retired surfaces. Delete the engine method, the MCP tool registrations (the static `scan_full` block + the per-agent loop), the dispatch branches in `server.py`, and the corresponding tests.
 
 **Files:**
-- Modify: `src/screw_agents/engine.py` — delete `assemble_full_scan` (lines 1707-1774); delete `scan_full` registration in `list_tool_definitions` (lines 2231-2245); delete per-agent registration loop (lines 2275-2291).
-- Modify: `src/screw_agents/server.py` — delete `scan_full` branch (lines 254-259); delete per-agent fallback dispatch (lines 269-276).
-- Modify: `tests/test_engine.py` — delete `test_assemble_full_scan_*` tests (lines 303-411 area; 4 tests).
-- Modify: `tests/test_server.py` — delete or migrate `assert "scan_full" in names` (line 25).
-- Modify: `tests/test_phase2_server.py` — change `t["name"] in ("scan_domain", "scan_full")` (line 211) to `("scan_domain", "scan_agents")`.
-- Modify: `tests/test_prompt_dedup_roundtrip.py` — migrate `test_domain_scan_full_walk_*` tests (lines 25, 75) to use `scan_agents`.
+- Modify: `src/screw_agents/engine.py` — delete `assemble_full_scan` (lines 1985-2052); delete `scan_full` registration in `list_tool_definitions` (lines 2564-2578); delete per-agent registration loop (lines 2608-2624). Also update the `assemble_scan` docstring at line 1548 (drops dangling `assemble_full_scan` reference).
+- Modify: `src/screw_agents/server.py` — delete `scan_full` branch (lines 264-269); delete per-agent fallback dispatch (lines 279-286). Also update `_dispatch_tool` docstring example at line 78 (drops `scan_sqli` reference). Insert actionable-error branch above the generic `Unknown tool:` raise (Escalation I1).
+- Modify: `tests/test_engine.py` — delete 4 `test_assemble_full_scan_*` tests (currently at lines 304, 350, 373, 397). Delete per-agent assertions at lines 74 (`scan_sqli`) and 75 (`scan_cmdi`), and the `scan_full` assertion at line 79.
+- Modify: `tests/test_server.py` — delete the 4 per-agent assertions at lines 26-29 (`scan_sqli`, `scan_cmdi`, `scan_ssti`, `scan_xss`) and the `scan_full` assertion at line 33. Add 1 new test for the actionable-error branch (Escalation I1). After Task 6 the test keeps assertions only for `list_domains`, `list_agents`, `scan_domain`, `scan_agents`.
+- Modify: `tests/test_phase2_server.py` — delete `test_scan_tool_accepts_project_root` (line 163) and `test_scan_tool_without_project_root` (line 175). Both use `_dispatch_tool(engine, "scan_sqli", ...)` which is invalid after this task. Coverage preserved by `tests/test_server.py::test_scan_agents_dispatch_via_server` (Task 5).
+- Leave as-is: `tests/test_prompt_dedup_roundtrip.py`. The function names contain `scan_full` (a misnomer carried from a prior naming convention), but the bodies use `engine.assemble_domain_scan(...)` exclusively (verified by `grep -n 'assemble_full_scan\|assemble_domain_scan\|assemble_agents_scan' tests/test_prompt_dedup_roundtrip.py`). No code change required. Optional rename to `test_domain_scan_walk_*` deferred to backlog if not done in this task.
 
 **Pre-audit focus (mandatory):** before deletion, grep for `scan_full|assemble_full_scan` across `src/`, `tests/`, `plugins/`, and `docs/` (excluding docs/specs and PHASE_*_PLAN.md historical references). Catalog every remaining hit. Each should map to: (a) deletable test, (b) test to migrate to `scan_agents`, or (c) doc to update in Task 9.
 
@@ -1777,67 +2359,133 @@ Capture the output. Every per-agent `scan_<name>` MCP tool reference in `tests/`
 
 - [ ] **Step 2: Delete `assemble_full_scan` from `engine.py`**
 
-Open `src/screw_agents/engine.py`. Delete lines 1707-1774 (the entire `assemble_full_scan` method, from `def assemble_full_scan(` through its trailing `return result`).
+Open `src/screw_agents/engine.py`. Delete lines 1985-2052 (the entire `assemble_full_scan` method, from `def assemble_full_scan(` through its trailing `return result`). Re-verify the actual range with `grep -n 'def assemble_full_scan' src/screw_agents/engine.py` — the method body must be deleted in full, not by literal line numbers if drift has occurred since this plan-fix landed.
+
+Also update the `assemble_scan` docstring at engine.py line 1548 (re-verify position via `grep -n "assemble_full_scan" src/screw_agents/engine.py` — it should appear in two places: the method definition itself, and the docstring reference). The current docstring reads:
+
+```
+Used by ``assemble_domain_scan`` on code pages and by
+``assemble_full_scan``'s per-agent fan-out.
+```
+
+Replace `assemble_full_scan` with `assemble_agents_scan` (which now plays the per-agent fan-out role). Final form:
+
+```
+Used by ``assemble_domain_scan`` on code pages and by
+``assemble_agents_scan``'s per-agent fan-out.
+```
+
+After this sub-step, `grep -n 'assemble_full_scan' src/screw_agents/engine.py` should return zero matches.
 
 - [ ] **Step 3: Delete `scan_full` registration in `list_tool_definitions`**
 
-In the same file, delete lines 2231-2245 (the `tools.append({"name": "scan_full", ...})` block).
+In the same file, delete lines 2564-2578 (the `tools.append({"name": "scan_full", ...})` block). Re-verify with `grep -n '"name": "scan_full"' src/screw_agents/engine.py` before deleting.
 
 - [ ] **Step 4: Delete per-agent registration loop**
 
-In the same file, delete lines 2275-2291 (the `for agent in self._registry.agents.values(): tools.append({...})` loop).
+In the same file, delete lines 2608-2624 (the `for agent in self._registry.agents.values(): tools.append({...})` loop). Re-verify with `grep -n 'for agent in self._registry.agents.values' src/screw_agents/engine.py`.
 
-- [ ] **Step 5: Delete `scan_full` and per-agent dispatch branches in `server.py`**
+- [ ] **Step 5: Delete `scan_full` and per-agent dispatch branches in `server.py`, update docstring example, insert actionable-error branch**
 
-Open `src/screw_agents/server.py`. Delete lines 254-259 (the `if name == "scan_full":` branch). Delete lines 269-276 (the `if name.startswith("scan_"):` per-agent fallback). After deletion the dispatch block reads (`scan_domain` → `scan_agents` → `get_agent_prompt` → `raise ValueError(f"Unknown tool: {name!r}")`).
+Open `src/screw_agents/server.py`.
 
-- [ ] **Step 6: Delete `test_assemble_full_scan_*` tests**
+Sub-step 5a: Delete lines 264-269 (the `if name == "scan_full":` branch). Re-verify position via `grep -n 'if name == "scan_full"' src/screw_agents/server.py`.
 
-Open `tests/test_engine.py`. Delete the 4 functions:
-- `test_assemble_full_scan_with_project_root` (around line 303)
-- `test_assemble_full_scan_returns_dict_shape` (around line 349)
-- `test_assemble_full_scan_no_longer_emits_prompts` (around line 372)
-- `test_assemble_full_scan_includes_trust_status_when_project_root_set` (around line 396)
+Sub-step 5b: Delete lines 279-286 (the `if name.startswith("scan_"):` per-agent fallback). Re-verify via `grep -n 'Per-agent scan tools' src/screw_agents/server.py`. After both deletions the dispatch block reads (`scan_domain` → `scan_agents` → `get_agent_prompt` → actionable-error branch (added below) → generic `raise ValueError(f"Unknown tool: {name!r}")`).
 
-Also remove line 79: `assert "scan_full" in tool_names` (was kept through Task 5 alongside `assert "scan_agents" in tool_names`; now scan_full is gone).
-
-- [ ] **Step 7: Migrate or delete `scan_full` references in other test files**
-
-`tests/test_server.py` line 25:
+Sub-step 5c: Update the `_dispatch_tool` docstring example at line 78 (re-verify with `grep -n 'Tool name (e.g.' src/screw_agents/server.py`). The current line reads:
 
 ```python
-# Before:
-assert "scan_full" in names
-# After (delete the line entirely; scan_agents is asserted on the line below it):
+        name: Tool name (e.g. ``"list_domains"``, ``"scan_sqli"``).
 ```
 
-`tests/test_phase2_server.py` line 211:
+After Task 6 retires `scan_sqli`. Replace with:
 
 ```python
-# Before:
-if t["name"].startswith("scan_") or t["name"] in ("scan_domain", "scan_full"):
-# After:
-if t["name"].startswith("scan_") or t["name"] in ("scan_domain", "scan_agents"):
+        name: Tool name (e.g. ``"list_domains"``, ``"scan_agents"``).
 ```
 
-(This branch's intent was to apply the `project_root` injection to all scan-shaped tools; with `scan_agents` replacing `scan_full` and per-agent tools gone, the `startswith("scan_")` check still catches `scan_domain` and `scan_agents` — the `or t["name"] in (...)` clause becomes redundant but harmless. Leave it for the explicit-listing safety net. The change above just makes it match reality.)
-
-`tests/test_prompt_dedup_roundtrip.py` lines 25 and 75 (`test_domain_scan_full_walk_*`): rewrite both as `scan_agents`-based round-trips. Replace each test body's `engine.assemble_full_scan(target=target)` call with:
+Sub-step 5d (Escalation I1 — actionable error for retired tool names): immediately ABOVE the generic `raise ValueError(f"Unknown tool: {name!r}")` line, insert the following block:
 
 ```python
-        # The pre-T-SCAN-REFACTOR test exercised assemble_full_scan walking
-        # all agents. The post-T-SCAN-REFACTOR equivalent is
-        # assemble_agents_scan with all registered names, paginated.
-        all_agent_names = list(engine._registry.agents)
-        result = engine.assemble_agents_scan(
-            agents=all_agent_names,
-            target=target,
+    # T-SCAN-REFACTOR Task 6: actionable error for callers using retired tool names.
+    if name == "scan_full" or (
+        name.startswith("scan_") and name not in ("scan_domain", "scan_agents")
+    ):
+        raise ValueError(
+            f"Tool {name!r} was retired in T-SCAN-REFACTOR. "
+            f"Use scan_agents(agents=[...], target=...) for per-agent scans, "
+            f"or scan_agents(agents=list_agents().names, target=...) for full scans, "
+            f"or scan_domain(domain=..., target=...) for whole-domain scans."
         )
-        # init-page; no inline prompts (lazy-fetch via get_agent_prompt)
-        assert all("core_prompt" not in entry for entry in result["agents"])
 ```
 
-(Adjust the assertion bodies of both tests in the same way: replace any reference to a top-level `prompts` dict assertion with the lazy-fetch assertion above. The original tests were specifically validating prompt deduplication; the equivalent assertion for the new primitive is "no agent entry contains `core_prompt` on init-page".)
+Rationale: pre-audit Escalation I1 recommended Option B (defense-in-depth UX) over the generic `Unknown tool:` error. Caller migration mistakes (calling `scan_full` or `scan_sqli` against a post-T-SCAN-REFACTOR server) get a one-line migration hint rather than a generic dead-end. ~5 LOC. The condition is mutually exclusive with the dispatched names (`scan_domain` and `scan_agents` are checked above this branch), so it fires only on retired names.
+
+- [ ] **Step 6: Delete `test_assemble_full_scan_*` tests + per-agent and scan_full assertions in test_engine.py**
+
+Open `tests/test_engine.py`. Before editing, run `grep -nE 'def test_assemble_full_scan|assert "scan_(sqli|cmdi|ssti|xss|full)" in tool_names' tests/test_engine.py` and confirm the positions.
+
+Sub-step 6a: Delete the 4 `test_assemble_full_scan_*` functions:
+- `test_assemble_full_scan_with_project_root` (currently line 304)
+- `test_assemble_full_scan_returns_dict_shape` (currently line 350)
+- `test_assemble_full_scan_no_longer_emits_prompts` (currently line 373)
+- `test_assemble_full_scan_includes_trust_status_when_project_root_set` (currently line 397)
+
+Sub-step 6b: Delete the per-agent and scan_full assertion lines:
+- Line 74: `assert "scan_sqli" in tool_names`
+- Line 75: `assert "scan_cmdi" in tool_names`
+- Line 79: `assert "scan_full" in tool_names`
+
+After Sub-step 6b only `scan_domain`, `scan_agents`, `list_domains`, `list_agents` (and any other surviving non-scan tools) should remain in the test's `tool_names` assertions.
+
+(Note: the plan-fix pre-audit found only 2 per-agent assertions in test_engine.py (`scan_sqli`, `scan_cmdi`); the corresponding `scan_ssti`/`scan_xss` assertions live in test_server.py and are handled in Step 7.)
+
+- [ ] **Step 7: Migrate or delete `scan_full` and per-agent references in other test files**
+
+Before editing, run `grep -nE 'assert "scan_(sqli|cmdi|ssti|xss|full)" in names' tests/test_server.py` and `grep -n "test_scan_tool_accepts_project_root\|test_scan_tool_without_project_root" tests/test_phase2_server.py` to confirm positions.
+
+Sub-step 7a: `tests/test_server.py` — delete 5 lines (4 per-agent + 1 `scan_full`):
+
+```python
+# Lines 26-29 (per-agent assertions) — delete all four:
+assert "scan_sqli" in names
+assert "scan_cmdi" in names
+assert "scan_ssti" in names
+assert "scan_xss" in names
+
+# Line 33 (scan_full assertion) — delete:
+assert "scan_full" in names
+```
+
+After this sub-step the test should keep only assertions for `list_domains`, `list_agents`, `scan_domain`, `scan_agents` (any other surviving non-scan tools also remain).
+
+Sub-step 7b: `tests/test_phase2_server.py` — delete two now-stale tests (Escalation I2 — Marco-approved Option A: delete both):
+- `test_scan_tool_accepts_project_root` (currently line 163)
+- `test_scan_tool_without_project_root` (currently line 175)
+
+Both call `_dispatch_tool(engine, "scan_sqli", ...)` which becomes invalid after this task (the per-agent dispatch fallback is deleted in Step 5b, and the actionable-error branch added in Step 5d will reject `"scan_sqli"`). Coverage is preserved by `tests/test_server.py::test_scan_agents_dispatch_via_server` (added in Task 5), which exercises `_dispatch_tool` via `scan_agents` end-to-end. Net coverage loss: zero.
+
+Sub-step 7c: `tests/test_phase2_server.py` — also leave the conditional at the prior line ~210 (`if t["name"].startswith("scan_") or t["name"] in ("scan_domain", "scan_full"):`) intact in this task. It will become redundant after retirement (since `scan_domain` and `scan_agents` both start with `scan_`), but the explicit tuple is a belt-and-suspenders safety net. Tracked as `BACKLOG-T-SCAN-REFACTOR-T6-M2` for cleanup later. (If the implementer wants to update only the literal `scan_full` to `scan_agents` to match the post-Task-6 surface, that is acceptable, but no functional change is required.)
+
+Sub-step 7d: `tests/test_prompt_dedup_roundtrip.py` — **no code change required**. The function names contain `scan_full` (a misnomer carried from a prior naming convention), but the bodies use `engine.assemble_domain_scan(...)` exclusively. Verify with `grep -n 'assemble_full_scan\|assemble_domain_scan\|assemble_agents_scan' tests/test_prompt_dedup_roundtrip.py` — expect only `assemble_domain_scan` matches (3 calls). Optional follow-up: rename the misnomer test functions to `test_domain_scan_walk_*` for clarity; if not done now, deferred to backlog.
+
+Sub-step 7e (Escalation I1 — actionable-error test): add 1 new test in `tests/test_server.py` exercising the dispatcher branch added in Step 5d:
+
+```python
+def test_retired_tool_names_raise_actionable_error() -> None:
+    """Calling a retired tool name (scan_full, scan_<agent>) raises with migration hint."""
+    import pytest
+
+    from screw_agents.server import _dispatch_tool, create_server
+
+    _, engine = create_server(DOMAINS_DIR)
+    for retired_name in ("scan_full", "scan_sqli", "scan_xss"):
+        with pytest.raises(ValueError, match=r"was retired in T-SCAN-REFACTOR"):
+            _dispatch_tool(engine, retired_name, {})
+```
+
+Place it adjacent to the existing `test_scan_agents_dispatch_via_server` test. Adjust imports (`pytest`, `_dispatch_tool`, `create_server`, `DOMAINS_DIR`) to match the file's existing pattern — the example above is illustrative; copy from the surrounding tests rather than introducing new imports.
 
 - [ ] **Step 8: Run all migrated/affected tests**
 
@@ -1845,7 +2493,7 @@ if t["name"].startswith("scan_") or t["name"] in ("scan_domain", "scan_agents"):
 uv run pytest tests/test_engine.py tests/test_server.py tests/test_phase2_server.py tests/test_prompt_dedup_roundtrip.py -v 2>&1 | tail -30
 ```
 
-Expected: all PASS. Test count drops by ~6-8 (4 deleted full-scan tests + 2 migrated round-trip tests now have new function names if renamed).
+Expected: all PASS. Test count delta in this subset: -6 (4 `test_assemble_full_scan_*` from test_engine.py; 2 `test_scan_tool_*` from test_phase2_server.py) +1 (new `test_retired_tool_names_raise_actionable_error` in test_server.py) = -5 net. Assertion deletions in test_engine.py / test_server.py do not change function-count.
 
 - [ ] **Step 9: Run full test suite — confirm clean retirement**
 
@@ -1853,7 +2501,9 @@ Expected: all PASS. Test count drops by ~6-8 (4 deleted full-scan tests + 2 migr
 uv run pytest -q 2>&1 | tail -5
 ```
 
-Expected: ~946 - ~8 (deletions) = ~938 passed, 8 skipped. Zero failures.
+Expected: **972 passed, 9 skipped**. Math: 977 (Task-5 baseline at HEAD 0bb43a7) - 6 deletions (4 `test_assemble_full_scan_*` + 2 `test_scan_tool_*`) + 1 new test (Escalation I1 actionable-error) = 972. Zero failures.
+
+Re-verify the `test_assemble_full_scan_*` count with `grep -c "def test_assemble_full_scan" tests/test_engine.py` before relying on the math above; if drift has changed the count, recalculate.
 
 If a test fails because it called `engine.assemble_scan(name)` for a per-agent tool through some indirect path: the engine method `assemble_scan(name, ...)` itself is preserved (it's the per-agent helper used internally by both `assemble_agents_scan` and `assemble_domain_scan`); only the **MCP tool** dispatch branch was deleted. Direct `engine.assemble_scan(...)` calls in tests work unchanged.
 
@@ -1908,29 +2558,49 @@ scan_domain + 4 per-agent) to 2 (scan_agents + scan_domain). At
 CWE-1400 expansion would have been 43 → still 2."
 ```
 
+**Plan-fix additions (2026-04-26, post pre-audit on HEAD 0bb43a7):**
+- All cited line numbers re-pinned to HEAD 0bb43a7 (drift from Task 5: engine.py +63 — `assemble_full_scan` 1804→1985, scan_full registration 2328→2564, per-agent loop 2372→2608; server.py +10 — scan_full branch 254→264, per-agent fallback 269→279; test_server.py +33 — scan_full assertion 25→33).
+- Step 6 extended to delete per-agent assertions in `tests/test_engine.py` (lines 74 `scan_sqli`, 75 `scan_cmdi`) plus the existing `scan_full` assertion at line 79.
+- Step 7 extended to delete 4 per-agent assertions in `tests/test_server.py` (lines 26-29 `scan_sqli`, `scan_cmdi`, `scan_ssti`, `scan_xss`) plus the `scan_full` assertion at line 33.
+- Step 7 corrected: `tests/test_prompt_dedup_roundtrip.py` does NOT contain `assemble_full_scan` calls (function names are misnomers; bodies use `assemble_domain_scan` — verified by grep). No code change needed; optional rename deferred.
+- Step 7 extended (Escalation I2 — Marco-approved Option A): delete `test_scan_tool_accepts_project_root` (line 163) and `test_scan_tool_without_project_root` (line 175) from `tests/test_phase2_server.py`. Both call `_dispatch_tool(engine, "scan_sqli", ...)` which is invalid post-Task-6. Coverage preserved by Task 5's `test_scan_agents_dispatch_via_server`.
+- Test count math corrected: 977 (Task 5 baseline at HEAD 0bb43a7) - 6 deletions (4 `test_assemble_full_scan_*` + 2 `test_scan_tool_*`) + 1 new test (Edit 11 actionable error) = **972 passed, 9 skipped**.
+- Sub-steps added to Step 2 / Step 5 to update stale docstrings: `engine.py:1548` `assemble_full_scan` reference → `assemble_agents_scan`; `server.py:78` `scan_sqli` example → `scan_agents`.
+- Decision on `engine.py:2518` `scan_agents` description: keep "supersedes `scan_full` and the per-agent `scan_<name>` tools (retired)" wording as a migration-discoverability hint. Tracked for removal as `BACKLOG-T-SCAN-REFACTOR-T6-M1` (after a quiet 2-3 PR period).
+- Escalation I1 (pre-audit recommendation B): actionable error for retired tool names. New ~5 LOC dispatcher branch above the generic `Unknown tool:` raise + 1 test exercising `scan_full` / `scan_sqli` / `scan_xss` paths.
+- Escalation I2 confirmed Option A (delete the two per-agent dispatch tests) over alternatives.
+- 2 new backlog entries added: `BACKLOG-T-SCAN-REFACTOR-T6-M1` (description cleanup) and `BACKLOG-T-SCAN-REFACTOR-T6-M2` (`tests/test_phase2_server.py` redundant tuple conditional).
+
 ---
 
 ## Task 7: Universal `screw-scan.md` subagent + delete 5 old subagent files
 
-**Goal:** Collapse 4 per-agent subagents (`screw-sqli`, `screw-cmdi`, `screw-ssti`, `screw-xss`; 414 LOC each, byte-identical modulo name) and 1 domain orchestrator (`screw-injection`; 222 LOC) into a single universal `screw-scan.md` (~420 LOC) parameterized by `agents: list[str]` from the dispatch prompt.
+**Goal:** Collapse 4 per-agent subagents (`screw-sqli`, `screw-cmdi`, `screw-ssti`, `screw-xss`; 414 LOC each, byte-identical modulo name) and 1 domain orchestrator (`screw-injection`; 222 LOC) into a single universal `screw-scan.md` (~700-800 LOC after E1=A inline adaptive body port) parameterized by `agents: list[str]` from the dispatch prompt.
 
 **Files:**
-- Create: `plugins/screw/agents/screw-scan.md`
+- Create: `plugins/screw/agents/screw-scan.md` (~700-800 LOC after E1=A inline adaptive body)
 - Delete: `plugins/screw/agents/screw-sqli.md`, `screw-cmdi.md`, `screw-ssti.md`, `screw-xss.md`, `screw-injection.md`
-- Modify: `plugins/screw/plugin.json` (or equivalent registration file — confirm path during pre-audit) — drop the 5 deleted subagent registrations, add `screw-scan` registration.
-- Create: `tests/test_screw_scan_subagent.py` — 5 tests for file presence, frontmatter, return-payload size regression.
+- Modify: `plugins/screw/skills/screw-review/SKILL.md` — replace 5 deleted subagent names with `screw-scan` (lines 28-32; cross-task coherence)
+- Create: `tests/test_screw_scan_subagent.py` — 10-15 tests covering file presence, frontmatter, body invariants, return-schema documentation
+- No manifest edits required — subagents are registered by file presence in `plugins/screw/agents/*.md`. The actual `plugins/screw/.claude-plugin/plugin.json` carries no subagent registry; deleting the 5 files and adding `screw-scan.md` is sufficient.
 
-**Pre-audit focus (mandatory — novel work):** before writing `screw-scan.md`, read `screw-sqli.md` end-to-end (414 lines) and identify EVERY procedural element that must be parameterized by agent name vs preserved verbatim. Read `screw-injection.md` (222 lines) to confirm the domain-orchestrator's dispatch responsibilities are now subsumed by main session (per C2 finding). Read `plugins/screw/plugin.json` (or scan `plugins/screw/` for the registration mechanism — could be a `marketplace.json`, `plugin.json`, or implicit by file presence) to know exactly which file lists subagent names.
+**Pre-audit focus (mandatory — novel work):** before writing `screw-scan.md`, read `screw-sqli.md` end-to-end (414 lines) and identify EVERY procedural element that must be parameterized by agent name vs preserved verbatim. Read `screw-injection.md` (222 lines) to confirm the domain-orchestrator's dispatch responsibilities are now subsumed by main session (per C2 finding). Plugin registration mechanism already confirmed: subagents are registered by file presence (no manifest edit needed).
 
-- [ ] **Step 1: Pre-audit — confirm registration mechanism**
+- [ ] **Step 1: Pre-audit — read existing per-agent body to plan inline adaptive port (E1=A)**
+
+The 5 deleted subagent files are byte-identical modulo agent name. `screw-sqli.md` is the canonical source for the per-agent procedural body. `screw-injection.md` adds the orchestrator-shared-quota logic.
 
 ```
-ls /home/marco/Programming/AI/screw-agents/plugins/screw/
-cat /home/marco/Programming/AI/screw-agents/plugins/screw/plugin.json 2>/dev/null || echo 'no plugin.json'
-find /home/marco/Programming/AI/screw-agents/plugins/screw/ -maxdepth 2 -type f -name '*.json' -o -name '*.yaml' -o -name '*.yml'
+sed -n '1,84p'   /home/marco/Programming/AI/screw-agents/plugins/screw/agents/screw-sqli.md
+sed -n '85,353p' /home/marco/Programming/AI/screw-agents/plugins/screw/agents/screw-sqli.md   # adaptive body to port verbatim
+sed -n '354,414p' /home/marco/Programming/AI/screw-agents/plugins/screw/agents/screw-sqli.md   # return schema (mirror in screw-scan.md)
+sed -n '106,167p' /home/marco/Programming/AI/screw-agents/plugins/screw/agents/screw-injection.md  # orchestrator quota logic
 ```
 
-Identify the file (if any) that explicitly registers subagents. If subagents are registered implicitly by file presence in `plugins/screw/agents/*.md`, no manifest edit is required; deleting the 5 files and adding `screw-scan.md` suffices.
+Inventory the procedural elements that need parameterization vs verbatim preservation:
+
+- **Agent-specific text → parameterize via `{agent_entry["agent_name"]}`:** all hardcoded `sqli` / `xss` / `cmdi` / `ssti` references, fence_token derivation seed, per-agent quota keys.
+- **Security guards → preserve verbatim:** Layer 0a (UNTRUSTED_CODE_ delimiters), 0b (no nested dispatch), 0c (Read-only enforcement), 0d (script length cap), 0e (blocklist), 0f (quota).
 
 - [ ] **Step 2: Read the existing subagent template**
 
@@ -1947,15 +2617,18 @@ Create `/home/marco/Programming/AI/screw-agents/plugins/screw/agents/screw-scan.
 ```markdown
 ---
 name: screw-scan
-description: Universal security scan runner — analyzes code against a custom set of agents specified by the dispatcher. Replaces 4 per-agent subagents and 1 domain orchestrator. Handles paginated scan_agents calls, lazy prompt fetching, finding accumulation, and structured-payload return.
+description: Universal security scan runner — analyzes code against a custom set of agents specified by the dispatcher. Replaces 4 per-agent subagents and 1 domain orchestrator. Handles paginated scan_agents calls, lazy prompt fetching, finding accumulation, adaptive Layer 0 (gap detection + script lint + pending review emission), and structured-payload return.
 tools:
   - Read
+  - Glob
   - Grep
   - mcp__screw-agents__scan_agents
   - mcp__screw-agents__get_agent_prompt
   - mcp__screw-agents__accumulate_findings
   - mcp__screw-agents__record_context_required_match
   - mcp__screw-agents__verify_trust
+  - mcp__screw-agents__detect_coverage_gaps
+  - mcp__screw-agents__lint_adaptive_script
 model: opus
 ---
 
@@ -1986,7 +2659,13 @@ Call `verify_trust` once at the start. The result is advisory — surface in you
 trust = mcp__screw-agents__verify_trust({"project_root": <project_root>})
 ```
 
-Capture `trust["verified"]`, `trust["quarantined_count"]`, and any `trust["warning_message"]`.
+Capture the four counts the engine returns:
+- `trust["exclusion_quarantine_count"]` (int)
+- `trust["exclusion_active_count"]` (int)
+- `trust["script_quarantine_count"]` (int)
+- `trust["script_active_count"]` (int)
+
+These mirror the schema documented in `screw-sqli.md:386-398` (the existing per-agent return contract); see also `engine.py::verify_trust`.
 
 ### Step 2: Init page
 
@@ -2005,7 +2684,7 @@ init = mcp__screw-agents__scan_agents({
 Capture for use across pages:
 - `init["agents"]` — surviving agents after relevance filter (may be a subset of the input list)
 - `init["agents_excluded_by_relevance"]` — list of `{agent_name, reason, agent_languages, target_languages}` records — echo these in your final return so main session can show the user
-- For each agent entry in `init["agents"]`: capture `entry["meta"]` (CWE classifications, etc.) and `entry["exclusions"]` (filter findings against this list before emission)
+- For each agent entry in `init["agents"]`: capture `entry["meta"]` (CWE classifications, etc.) and `entry["exclusions"]` — note: `exclusions` is informational only. The server applies exclusions in MergedSource pre-filtering (per T19-M1/M2/M3 / PR #15). Do NOT re-apply exclusions client-side; that would double-suppress findings.
 - `init["next_cursor"]` — opaque token for first code page
 
 Initialize a per-agent prompt cache:
@@ -2040,7 +2719,7 @@ For each `agent_entry` in `page["agents"]`:
 
 2. **Analyze** — apply the cached `core_prompt` to `agent_entry["code"]`. Use `agent_entry["meta"]` for CWE classification labels in any findings you emit.
 
-3. **For each detected vulnerability:** construct a finding dict per the schema in `models.py::Finding` (id, agent, location, classification, analysis, remediation, triage). Apply the per-agent exclusion list captured from the init page — drop any finding matching an exclusion's scope. For exclusions you DO suppress, record the suppression in your structured return's `exclusions_applied` accounting (the main session's `finalize_scan_results` records these too; double-counting is suppressed by session-id dedup).
+3. **For each detected vulnerability:** construct a finding dict per the schema in `models.py::Finding` (id, agent, location, classification, analysis, remediation, triage). Do NOT filter findings against `agent_entry["exclusions"]` — the server already applied those exclusions in MergedSource pre-filtering before the page reached you (T19-M1/M2/M3 / PR #15). Client-side re-application would double-suppress. The exclusions list is exposed in the page payload for awareness only; if you want to mirror the server's accounting in your structured return, increment `exclusions_applied_count` to track what the server reports — do not infer it from your own filtering.
 
 4. **For each context-required pattern match where you decided NOT to emit a finding** (adaptive D1 signal): call `record_context_required_match`:
    ```python
@@ -2068,27 +2747,37 @@ For each `agent_entry` in `page["agents"]`:
 
 After all pages processed (when `next_cursor` is null), proceed to Step 4.
 
-### Step 4: Return structured payload
+### Step 4: Return structured payload (hybrid schema per E2=C)
 
-End your turn with ONE fenced JSON code block matching this schema:
+End your turn with ONE fenced JSON code block matching this schema. The C2-required keys (top group) MUST be present so `scan.md`'s parser keeps working — that contract is locked by `tests/test_adaptive_subagent_prompts.py:497-512` and mirrored in the existing `screw-sqli.md:386-410` per-agent return. The new enrichment keys (bottom group) deliver the spec §7.1 deliverable.
 
 ````json
 {
-  "session_id": "<opaque token>",
-  "summary_counts": {
-    "findings_total": <int>,
-    "findings_by_severity": {"high": <int>, "medium": <int>, "low": <int>, "critical": <int>},
-    "findings_by_agent": {"<agent_name>": <int>, ...}
-  },
-  "classification_summary": {
-    "cwes_seen": ["CWE-89", "CWE-79", ...],
-    "owasp_top10_seen": ["A03:2025", ...]
-  },
+  "schema_version": "1.0",
+  "scan_subagent": "screw-scan",
+  "session_id": "<uuid>",
   "trust_status": {
-    "verified": true,
-    "quarantined_count": 0,
-    "warning_message": null
+    "exclusion_quarantine_count": <int>,
+    "exclusion_active_count": <int>,
+    "script_quarantine_count": <int>,
+    "script_active_count": <int>
   },
+  "yaml_findings_accumulated": <int>,
+  "adaptive_mode_engaged": <bool>,
+  "adaptive_quota_note": "<string|null>",
+  "pending_reviews": [<list of pending review descriptors>],
+  "blocklist_skipped_gaps": [<list>],
+  "scan_metadata": {
+    "agents_run": <list[str]>,
+    "pages_processed": <int>,
+    "total_files_scanned": <int>
+  },
+  "summary_counts": {
+    "high_confidence": <int>,
+    "medium_confidence": <int>,
+    "context_required": <int>
+  },
+  "classification_summary": {<by-CWE breakdown>},
   "agents_excluded_by_relevance": [
     {"agent_name": "<name>", "reason": "language_mismatch",
      "agent_languages": [...], "target_languages": [...]}
@@ -2098,18 +2787,25 @@ End your turn with ONE fenced JSON code block matching this schema:
 }
 ````
 
+**Schema notes:**
+- The first group (`schema_version` … `scan_metadata`) is the C2 contract. `scan.md`'s parser (locked by `test_adaptive_subagent_prompts.py:497-512`) reads these keys; renaming or omitting them breaks the orchestrator. Mirror exactly the shape used in `screw-sqli.md:386-410`.
+- The second group (`summary_counts`, `classification_summary`, `agents_excluded_by_relevance`, `context_required_matches_recorded`, `exclusions_applied_count`) is the new universal-subagent enrichment from spec §7.1 — additive, not C2-blocking.
+- `trust_status` is the engine-real 4-count form (no invented `verified` / `quarantined_count` / `warning_message`).
+
 **CRITICAL — Concern A from spec section 11.2:** your structured return **MUST NOT** include findings inline. Findings live in `.screw/staging/{session_id}/findings.json` after `accumulate_findings`. Your return is a summary only. The main session will call `finalize_scan_results(session_id, format)` which renders + writes the report.
 
 The main session reads your return and decides next steps:
-- If adaptive_flag and any `staged scripts` flagged: it dispatches `screw-script-reviewer`.
-- After the script reviewer (if any), it may dispatch you again with the same session_id to re-scan post-script-promotion.
+- If `adaptive_mode_engaged` is true and `pending_reviews` is non-empty: main session dispatches `screw-script-reviewer` (per C2 chain-subagents pattern).
 - Finally it calls `finalize_scan_results(session_id, format)` to render and write the report.
+
+(Re-scan semantics — re-dispatching screw-scan to incorporate promoted scripts within the same session — is a real adaptive workflow need but is unimplementable as a same-session_id call: `accumulate_findings` generates a fresh session per call. Tracked as `BACKLOG-T-SCAN-REFACTOR-T7-M3` for follow-up spec + implementation.)
 
 ## Behavior under errors
 
 - **Cursor binding mismatch from MCP layer** (`agents` list changed mid-flow, target changed): re-emit the structured return with a `fatal_error` field instead of `summary_counts`. Main session aborts the scan.
-- **Empty `agents` arg from main session:** unreachable in normal flow (slash command rejects empty resolution), but if encountered, return `{"fatal_error": "No agents provided to scan"}`.
-- **All agents filtered out by relevance filter on init page:** init page returns `agents=[]` and `next_cursor=null`. Your loop runs zero iterations. Return the structured payload with `summary_counts.findings_total = 0` and the full `agents_excluded_by_relevance` list. The main session shows the user the "all agents filtered" diagnostic.
+- **All agents filtered out by relevance filter on init page:** init page returns `agents=[]` and `next_cursor=null`. Your loop runs zero iterations. Return the structured payload with `summary_counts.high_confidence = summary_counts.medium_confidence = summary_counts.context_required = 0` and the full `agents_excluded_by_relevance` list. The main session shows the user the "all agents filtered" diagnostic.
+
+(Empty-`agents`-arg-from-main-session is not a runtime case for this subagent: `assemble_agents_scan` rejects empty lists at `engine.py:1777` before the dispatch reaches the MCP boundary. If this branch fires, the bug is upstream of the subagent.)
 
 ## Reasoning for design decisions
 
@@ -2120,7 +2816,40 @@ The main session reads your return and decides next steps:
 - **No nested subagent dispatch.** Per `sub-agents.md:711`. Adaptive script reviewer is dispatched by main session, not by this subagent.
 ```
 
-(Total: ~420 LOC. Adjust the procedural details if `screw-sqli.md`'s pattern differs in nuance — the goal is parametric equivalence, not literal copy.)
+(After Step 3.5's adaptive port: ~700-800 LOC total. Adjust the procedural details if `screw-sqli.md`'s pattern differs in nuance — the goal is parametric equivalence, not literal copy.)
+
+- [ ] **Step 3.5: Inline adaptive-mode body (E1=A — Marco-approved)**
+
+The universal subagent must absorb the existing adaptive-mode procedural body — without this port, the per-agent adaptive flow regresses. Insert a new "Step 3.5: Adaptive Mode" section in `screw-scan.md` AFTER the per-page scan loop (Step 3) and BEFORE the structured-return assembly (Step 4 in the body).
+
+**Port instructions for the implementer:**
+
+1. **Read the canonical adaptive body verbatim.**
+   - Source A: `plugins/screw/agents/screw-sqli.md` lines 85-353 — the per-agent adaptive procedural body (Layer 0a-f, fence_token derivation, lint, pending_review emission, blocklist, quota).
+   - Source B: `plugins/screw/agents/screw-injection.md` lines 106-167 — orchestrator-specific shared-quota logic across agents.
+
+2. **Port verbatim** into `screw-scan.md`'s new Step 3.5 section, replacing every agent-specific text occurrence with `{agent_entry["agent_name"]}` parameterization:
+   - Hardcoded `sqli` / `xss` / `cmdi` / `ssti` references → substitute `{agent_entry["agent_name"]}`.
+   - `fence_token` derivation seed → use `{agent_entry["agent_name"]}` as the seed.
+   - Per-agent quotas (from injection orchestrator's quota-sharing logic) → key on `{agent_entry["agent_name"]}` so the universal subagent enforces per-agent quotas across the agents list it received.
+
+3. **Preserve verbatim — do NOT rewrite the security guards:**
+   - **Layer 0a:** UNTRUSTED_CODE_ delimiters convention (prompt-injection guard).
+   - **Layer 0b:** No nested subagent dispatch (per `sub-agents.md:711`).
+   - **Layer 0c:** Read-only enforcement (no Edit/Write/Bash/Task tools — frontmatter excludes them; runtime check matches).
+   - **Layer 0d:** Adaptive script length cap.
+   - **Layer 0e:** Blocklist check before script proposal.
+   - **Layer 0f:** Per-agent quota cap.
+
+4. **Tooling additions** the body now uses (already added to frontmatter — see Step 3):
+   - `mcp__screw-agents__detect_coverage_gaps` — to identify pending-review opportunities.
+   - `mcp__screw-agents__lint_adaptive_script` — to validate proposed scripts before staging.
+
+5. **Surface in the structured return:** the fields `adaptive_mode_engaged`, `adaptive_quota_note`, `pending_reviews`, and `blocklist_skipped_gaps` (already in the Step 4 schema) get populated from the Step 3.5 logic.
+
+**Don't try to write the ~270 LOC port inline in this plan**: instruct the implementer to copy `screw-sqli.md:85-353` verbatim and apply the parameterization rules above, then layer in `screw-injection.md:106-167`'s quota-sharing semantics keyed on agent name. The result is parametric-equivalent to the existing per-agent + orchestrator behavior.
+
+After Step 3.5, the body grows from ~420 LOC to ~700-800 LOC. The description in the frontmatter already reflects the adaptive scope ("adaptive Layer 0 (gap detection + script lint + pending review emission)").
 
 - [ ] **Step 4: Delete the 5 old subagent files**
 
@@ -2132,138 +2861,99 @@ rm /home/marco/Programming/AI/screw-agents/plugins/screw/agents/screw-xss.md
 rm /home/marco/Programming/AI/screw-agents/plugins/screw/agents/screw-injection.md
 ```
 
-- [ ] **Step 5: Update plugin manifest if it exists**
+- [ ] **Step 5: Update SKILL.md to reference `screw-scan` (cross-task coherence)**
 
-If Step 1's pre-audit identified a manifest file (e.g., `plugin.json`) that explicitly registers subagents by name, edit it: remove the 5 deleted subagent entries; add `screw-scan` entry. If no explicit manifest exists (registration is by file presence), skip this step.
+Subagent registration is by file presence — no manifest edit is needed in `plugins/screw/.claude-plugin/plugin.json` (confirmed; that file carries no subagent registry).
 
-- [ ] **Step 6: Write subagent regression tests**
+However, `plugins/screw/skills/screw-review/SKILL.md:28-32` references the 5 deleted per-agent subagent names. This is technically a Task 9 (docs sync) item but the file-presence change creates a behavior gap if not addressed in Task 7: skill text would point at non-existent subagents.
 
-Create `tests/test_screw_scan_subagent.py`:
+Edit `plugins/screw/skills/screw-review/SKILL.md` (lines ~28-32) to replace the 5 per-agent subagent names with `screw-scan`. Keep the surrounding skill prose intact; only the subagent-name list entries change.
 
-```python
-"""Tests for T-SCAN-REFACTOR Task 7: universal screw-scan subagent.
+- [ ] **Step 6: Write subagent regression tests (10-15 tests; specific list below)**
 
-Spec section 7. Verifies file presence, frontmatter declarations,
-and the return-payload size discipline (Concern A from spec section 11.2).
-"""
+Create `tests/test_screw_scan_subagent.py`. The implementer MUST write at least the following tests (post-E1=A and pre-Step-6b counts; Step 6b adds migrated security-invariant assertions):
 
-from __future__ import annotations
+1. **`test_screw_scan_subagent_file_exists`** — file presence at `plugins/screw/agents/screw-scan.md`.
+2. **`test_retired_per_agent_subagents_are_deleted`** — `screw-sqli.md`, `screw-cmdi.md`, `screw-ssti.md`, `screw-xss.md`, `screw-injection.md` no longer exist.
+3. **`test_other_subagents_unchanged`** — `screw-script-reviewer.md` and `screw-learning-analyst.md` still present (separate concerns).
+4. **`test_screw_scan_frontmatter_parses_yaml`** — frontmatter is valid YAML between leading/trailing `---` lines.
+5. **`test_screw_scan_frontmatter_name_matches_filename_stem`** — Task 1 invariant; `name: screw-scan` matches the file stem.
+6. **`test_screw_scan_frontmatter_declares_required_tools`** — tools list includes `Read`, `Glob`, `Grep`, `mcp__screw-agents__scan_agents`, `mcp__screw-agents__get_agent_prompt`, `mcp__screw-agents__accumulate_findings`, `mcp__screw-agents__record_context_required_match`, `mcp__screw-agents__verify_trust`, `mcp__screw-agents__detect_coverage_gaps`, `mcp__screw-agents__lint_adaptive_script`.
+7. **`test_screw_scan_frontmatter_excludes_dispatch_or_mutation_tools`** — tools list does NOT contain `Edit`, `Write`, `Bash`, `Task`, or `Agent` (Layer 0b/0c invariants — read-only + no nested dispatch).
+8. **`test_screw_scan_uses_opus_model`** — frontmatter `model: opus` per `feedback_opus_for_all_subagents` memory.
+9. **`test_screw_scan_body_states_no_nested_dispatch`** — body contains the C2 invariant phrase (e.g., "do not dispatch other subagents").
+10. **`test_screw_scan_body_contains_adaptive_layer_markers`** — body contains the Layer 0a-f markers (`Layer 0a` … `Layer 0f`) ported from screw-sqli.md (security invariants).
+11. **`test_screw_scan_body_states_next_cursor_stop_condition`** — body contains the explicit "while next_cursor is non-null" / "next_cursor is null" stop condition.
+12. **`test_screw_scan_body_does_not_call_finalize_scan_results`** — body must NOT mention `finalize_scan_results` as something the subagent calls (that's main session's job).
+13. **`test_screw_scan_return_schema_includes_c2_contract_keys`** — body's documented JSON schema mentions all C2-required keys: `schema_version`, `scan_subagent`, `session_id`, `trust_status`, `yaml_findings_accumulated`, `adaptive_mode_engaged`, `pending_reviews`, `scan_metadata`. Locked by parser at `tests/test_adaptive_subagent_prompts.py:497-512`.
+14. **`test_screw_scan_body_uses_untrusted_code_delimiter`** — body contains `UNTRUSTED_CODE_` delimiter convention (Layer 0a, prompt-injection guard).
+15. **`test_screw_scan_body_forbids_inline_findings`** — body's MUST-NOT-inline-findings discipline (Concern A from spec section 11.2): mentions `MUST NOT`, `accumulate_findings`, and `staging`.
 
-from pathlib import Path
+Use a shared `_read_frontmatter(path) -> dict` helper that parses YAML between leading/trailing `---` lines (mirror the existing helper pattern in `tests/test_adaptive_subagent_prompts.py`).
 
-import pytest
-import yaml
+Step 6b (test migration) below adds further tests by porting per-agent security-invariant assertions from `tests/test_adaptive_subagent_prompts.py`.
 
+- [ ] **Step 6b: Migrate per-agent test assertions from `test_adaptive_subagent_prompts.py` (E3=C — Marco-approved)**
 
-SUBAGENT_DIR = Path(__file__).parents[1] / "plugins" / "screw" / "agents"
-SCREW_SCAN_PATH = SUBAGENT_DIR / "screw-scan.md"
+The existing `tests/test_adaptive_subagent_prompts.py` (605 LOC, ~23 tests) splits cleanly along the universal-vs-orchestrator boundary:
 
+- **Per-agent assertions** (those referencing `screw-{sqli,cmdi,ssti,xss,injection}.md` body content directly, including the per-agent parameterization fixtures `_PER_AGENT_FILES` and `_ORCHESTRATOR_FILE`) → migrate to `tests/test_screw_scan_subagent.py` (Task 7 owns).
+- **scan.md / orchestrator assertions** (those reading `plugins/screw/commands/scan.md` and asserting on the slash-command-side parser/orchestrator behavior, e.g., `tests/test_adaptive_subagent_prompts.py:497-512` which locks the C2 contract keys) → STAY in `test_adaptive_subagent_prompts.py`. Task 8 will update those when `scan.md` is rewritten.
 
-# ---------------------------------------------------------------------------
-# File presence
-# ---------------------------------------------------------------------------
+**Migration procedure:**
 
+1. **Identify per-agent tests** by grepping for the deleted subagent filenames:
+   ```bash
+   grep -nE "screw-(sqli|cmdi|ssti|xss|injection)\.md" tests/test_adaptive_subagent_prompts.py
+   ```
+   Each match maps to a per-agent test that must be migrated or dropped.
 
-def test_screw_scan_subagent_file_exists() -> None:
-    assert SCREW_SCAN_PATH.is_file(), f"missing {SCREW_SCAN_PATH}"
+2. **Migrate** the per-agent tests to `tests/test_screw_scan_subagent.py`:
+   - Drop the per-agent-name parameterization (no longer needed — only one subagent file).
+   - Re-target assertions at `plugins/screw/agents/screw-scan.md`.
+   - Preserve security-invariant assertions verbatim (Layer 0a/0b/0c/0d/0e/0f, fence_token, prompt-injection guards, no-nested-dispatch).
+   - Where the original test asserted a body-text invariant per agent (e.g., "screw-sqli.md mentions UNTRUSTED_CODE_"), the migrated test asserts the same invariant once on `screw-scan.md`.
 
+3. **Leave in place** the tests that read `scan.md` / orchestrator / parser behavior. Specifically, the assertions at `test_adaptive_subagent_prompts.py:497-512` which lock the parser keys (`schema_version`, `scan_subagent`, `session_id`, `trust_status`, `yaml_findings_accumulated`, `adaptive_mode_engaged`, `pending_reviews`, `scan_metadata`) — Task 8 will update them when `scan.md` is rewritten, but they MUST keep passing through Task 7 (the universal subagent's return schema preserves these keys per E2=C).
 
-def test_retired_per_agent_subagents_are_deleted() -> None:
-    for old_name in ("screw-sqli.md", "screw-cmdi.md", "screw-ssti.md", "screw-xss.md", "screw-injection.md"):
-        path = SUBAGENT_DIR / old_name
-        assert not path.exists(), f"{old_name} should be deleted in T-SCAN-REFACTOR Task 7"
+4. **Delete** the per-agent constant `_PER_AGENT_FILES` dict and `_ORCHESTRATOR_FILE` references from `test_adaptive_subagent_prompts.py`. Drop any `pytest.parametrize` over per-agent tuples that no longer have targets.
 
-
-def test_other_subagents_unchanged() -> None:
-    """screw-script-reviewer and screw-learning-analyst remain untouched."""
-    assert (SUBAGENT_DIR / "screw-script-reviewer.md").is_file()
-    assert (SUBAGENT_DIR / "screw-learning-analyst.md").is_file()
-
-
-# ---------------------------------------------------------------------------
-# Frontmatter
-# ---------------------------------------------------------------------------
-
-
-def _read_frontmatter(path: Path) -> dict:
-    """Parse YAML frontmatter between leading '---' lines."""
-    text = path.read_text(encoding="utf-8")
-    if not text.startswith("---\n"):
-        raise ValueError(f"{path} has no leading frontmatter delimiter")
-    end_idx = text.index("\n---\n", 4)
-    fm_text = text[4:end_idx]
-    return yaml.safe_load(fm_text)
-
-
-def test_screw_scan_frontmatter_declares_required_tools() -> None:
-    fm = _read_frontmatter(SCREW_SCAN_PATH)
-    tools = fm.get("tools", [])
-    required = {
-        "mcp__screw-agents__scan_agents",
-        "mcp__screw-agents__get_agent_prompt",
-        "mcp__screw-agents__accumulate_findings",
-        "mcp__screw-agents__record_context_required_match",
-        "mcp__screw-agents__verify_trust",
-    }
-    assert required.issubset(set(tools)), f"missing tools: {required - set(tools)}"
-
-
-def test_screw_scan_uses_opus_model() -> None:
-    """Per feedback_opus_for_all_subagents memory."""
-    fm = _read_frontmatter(SCREW_SCAN_PATH)
-    assert fm.get("model") == "opus"
-
-
-def test_screw_scan_does_not_declare_agent_tool() -> None:
-    """Subagents cannot dispatch other subagents (sub-agents.md:711)."""
-    fm = _read_frontmatter(SCREW_SCAN_PATH)
-    tools = set(fm.get("tools", []))
-    # Neither 'Agent' (current name) nor 'Task' (deprecated alias) should appear.
-    assert "Agent" not in tools
-    assert "Task" not in tools
-
-
-# ---------------------------------------------------------------------------
-# Return-payload size discipline (Concern A — spec section 11.2)
-# ---------------------------------------------------------------------------
-
-
-def test_screw_scan_body_forbids_inline_findings() -> None:
-    """The subagent's procedural template must instruct it NOT to inline
-    findings in the structured return — staging-only via accumulate_findings."""
-    text = SCREW_SCAN_PATH.read_text(encoding="utf-8")
-    # Heuristic check for the explicit "MUST NOT include findings inline" warning
-    assert "MUST NOT" in text and "findings" in text.lower()
-    assert "accumulate_findings" in text
-    assert "staging" in text.lower()
-```
+5. **Verify migration:**
+   ```bash
+   uv run pytest tests/test_adaptive_subagent_prompts.py -v 2>&1 | tail -30
+   uv run pytest tests/test_screw_scan_subagent.py -v 2>&1 | tail -30
+   ```
+   Some tests in `test_adaptive_subagent_prompts.py` may fail because `scan.md` still references the deleted subagent names — those failures are expected (Task 8 fixes them). Document the expected residual failures in the Step 9 commit message; do not "fix" them by editing scan.md (that's Task 8's deliverable).
 
 - [ ] **Step 7: Run subagent tests**
 
 ```
-uv run pytest tests/test_screw_scan_subagent.py -v 2>&1 | tail -25
+uv run pytest tests/test_screw_scan_subagent.py -v 2>&1 | tail -40
 ```
 
-Expected: all 7 tests PASS.
+Expected: all 10-15+ tests PASS (count depends on Step 6b migration scope).
 
 - [ ] **Step 8: Run full test suite**
 
 ```
-uv run pytest -q 2>&1 | tail -5
+uv run pytest --collect-only -q | wc -l    # baseline collection count post-migration
+uv run pytest -q 2>&1 | tail -10
 ```
 
-Expected: ~938 + 7 = ~945 passed, 8 skipped. Zero failures.
+**Expected count formula:** `973 (post-Task-6 baseline at HEAD 89e9bad) - X (deleted from test_adaptive_subagent_prompts.py via Step 6b) + Y (new in test_screw_scan_subagent.py from Step 6 + migrated tests from Step 6b) = Z passed, 9 skipped`. Implementer computes X, Y, Z from actual collection (run `--collect-only -q | wc -l` before and after to confirm). Specify the resolved numbers in the commit message.
 
-If any other test fails because it referenced one of the 5 deleted subagents by file name: that test is owed to Task 7 — update it to assert `screw-scan.md` exists instead.
+If any test fails because `scan.md` still references one of the 5 deleted subagents by file name: that test is owed to **Task 8** (slash-command rewrite), not Task 7 — leave the failure in place and document it in the commit message; Task 8's fix-up will resolve it. Do NOT edit `scan.md` here.
 
 - [ ] **Step 9: Commit**
 
 ```bash
-git add plugins/screw/agents/screw-scan.md plugins/screw/agents/ tests/test_screw_scan_subagent.py
-# (the deleted files are staged via the implicit git rm in 'git add' on the directory)
+git add plugins/screw/agents/screw-scan.md plugins/screw/agents/ \
+        plugins/screw/skills/screw-review/SKILL.md \
+        tests/test_screw_scan_subagent.py tests/test_adaptive_subagent_prompts.py
+# (the deleted subagent files are staged via the implicit git rm in 'git add' on the agents/ directory)
 git commit -m "T-SCAN-REFACTOR Task 7: universal screw-scan subagent
 
-Collapses 5 subagent files into 1:
+Collapses 5 subagent files into 1 universal subagent:
 
 Deleted (-1878 LOC of duplicate markdown):
 - plugins/screw/agents/screw-sqli.md       (414 LOC)
@@ -2272,32 +2962,80 @@ Deleted (-1878 LOC of duplicate markdown):
 - plugins/screw/agents/screw-xss.md        (414 LOC)
 - plugins/screw/agents/screw-injection.md  (222 LOC)
 
-Created (+~420 LOC):
+Created (+~700-800 LOC after E1=A inline adaptive port):
 - plugins/screw/agents/screw-scan.md — universal scan runner
   parameterized by agents: list[str] from dispatch prompt; calls
   scan_agents (paginated) + get_agent_prompt (lazy) + accumulate_findings
-  + record_context_required_match + verify_trust. Returns a lean
-  structured payload (Concern A: findings stage to disk, not inline).
+  + record_context_required_match + verify_trust + detect_coverage_gaps
+  + lint_adaptive_script. Inline adaptive Layer 0a-f body ported verbatim
+  from screw-sqli.md:85-353 + screw-injection.md:106-167 (orchestrator
+  quota), parameterized by agent_entry['agent_name']. Returns a hybrid
+  structured payload preserving the C2 contract keys (schema_version,
+  scan_subagent, session_id, trust_status, yaml_findings_accumulated,
+  adaptive_mode_engaged, pending_reviews, scan_metadata) AND adding new
+  enrichment keys (summary_counts, classification_summary,
+  agents_excluded_by_relevance, context_required_matches_recorded,
+  exclusions_applied_count). Concern A: findings stage to disk, not
+  inline.
+
+Modified:
+- plugins/screw/skills/screw-review/SKILL.md — replaced 5 deleted
+  subagent name references with screw-scan (cross-task coherence).
 
 Unchanged: screw-script-reviewer.md, screw-learning-analyst.md (separate
 concerns; do not dispatch scan tools).
 
-7 regression tests cover: file presence (new + deleted), frontmatter
-tool declaration, opus model, no Agent tool (subagents can't dispatch),
-body's MUST-NOT-inline-findings discipline."
+Test migration (E3=C):
+- tests/test_screw_scan_subagent.py — 10-15+ new tests (file presence,
+  frontmatter, body invariants, return schema, security guards).
+- tests/test_adaptive_subagent_prompts.py — per-agent assertions migrated
+  out (parametrization over deleted files dropped); scan.md /
+  orchestrator assertions left in place for Task 8.
+
+Test count: 973 (post-Task-6 baseline) - X (deleted) + Y (new) = Z
+passed, 9 skipped. (Implementer fills X, Y, Z.)
+
+Some tests in test_adaptive_subagent_prompts.py may fail residually
+because scan.md still references the 5 deleted subagent names; Task 8's
+slash-command rewrite resolves them. Documented; not regressions."
 ```
+
+**Plan-fix additions (2026-04-26, post pre-audit on HEAD 89e9bad):**
+
+Pre-audit found 6 CRITICAL, 7 IMPORTANT, and 3 escalation candidates. All applied per Marco's decisions (E1=A inline adaptive body, E2=C hybrid return schema, E3=C split test migration). Sixteen edits:
+
+- **CRITICAL #1 — Plugin-manifest mis-identification (PA-T7-C1):** Step 1's "modify `plugins/screw/plugin.json`" instruction dropped. Confirmed `plugins/screw/.claude-plugin/plugin.json` is the actual manifest path AND it carries no subagent registry (registration is by file presence). Files: block + Step 1 + Step 5 simplified accordingly.
+- **CRITICAL #2 — Frontmatter tools list incomplete (PA-T7-C2):** Added `Glob` (needed for glob target specs) and the two adaptive tools `mcp__screw-agents__detect_coverage_gaps` + `mcp__screw-agents__lint_adaptive_script` (needed for E1=A inline adaptive body).
+- **CRITICAL #3 — Invented `trust_status` schema (PA-T7-C3):** Replaced fabricated `{verified, quarantined_count, warning_message}` shape with the engine-real 4-count form `{exclusion_quarantine_count, exclusion_active_count, script_quarantine_count, script_active_count}`. Mirrors `engine.py::verify_trust` and `screw-sqli.md:386-398`. Updated everywhere it appeared in the plan.
+- **CRITICAL #4 + ESCALATION E1=A — Inline adaptive body (PA-T7-C4):** Added Step 3.5 instructing implementer to port `screw-sqli.md:85-353` (per-agent adaptive body) + `screw-injection.md:106-167` (orchestrator quota) verbatim, parameterized by `agent_entry["agent_name"]`, with security guards (Layer 0a-f, fence_token, prompt-injection delimiters) preserved. Body grows from ~420 LOC to ~700-800 LOC. LOC estimate updated in Files: block + goal + commit-message draft.
+- **CRITICAL #5 + ESCALATION E2=C — Hybrid return schema (PA-T7-C5):** Replaced single-shape return schema with the hybrid form preserving the C2 contract keys (`schema_version`, `scan_subagent`, `session_id`, `trust_status`, `yaml_findings_accumulated`, `adaptive_mode_engaged`, `adaptive_quota_note`, `pending_reviews`, `blocklist_skipped_gaps`, `scan_metadata`) AND adding the new enrichment keys (`summary_counts`, `classification_summary`, `agents_excluded_by_relevance`, `context_required_matches_recorded`, `exclusions_applied_count`). C2 keys locked by parser at `tests/test_adaptive_subagent_prompts.py:497-512`.
+- **CRITICAL #6 — Server-side exclusion ownership (PA-T7-C6):** Two body sentences ("Apply the per-agent exclusion list…") replaced with text matching `screw-sqli.md:48`: `exclusions` is informational only; server applies them in MergedSource pre-filtering (T19-M1/M2/M3 / PR #15). Client-side re-application would double-suppress.
+- **IMPORTANT #1 — Dead-branch "empty agents arg" (PA-T7-IMP-1):** Dropped from "Behavior under errors". `assemble_agents_scan` rejects empty lists at `engine.py:1777`; the branch is unreachable.
+- **IMPORTANT #2 + BACKLOG-T7-M3 — Dead "re-dispatch with same session_id" claim (PA-T7-IMP-2):** Dropped. Unimplementable as worded (`accumulate_findings` generates a new session per call). Re-scan semantics is a real adaptive workflow need but requires explicit spec; deferred to `BACKLOG-T-SCAN-REFACTOR-T7-M3`.
+- **IMPORTANT #3 — LOC estimate update:** Files block, goal block, and commit-message draft updated from ~420 → ~700-800 to reflect the E1=A port.
+- **IMPORTANT #4 — SKILL.md cross-task coherence (PA-T7-IMP-3):** Added Step 5 sub-task: update `plugins/screw/skills/screw-review/SKILL.md:28-32` to reference `screw-scan` (was: 5 deleted per-agent subagent names). Without this, the skill text points at non-existent subagents on Task 7 merge.
+- **IMPORTANT #5 — Test count math:** Plan baseline corrected to 973 (post-Task-6 at HEAD 89e9bad, not 961). Step 8 expected output rewritten as a formula `973 - X + Y = Z` with implementer computing X (deleted from `test_adaptive_subagent_prompts.py`), Y (new in `test_screw_scan_subagent.py`), Z (final).
+- **IMPORTANT #6 — Step 6 test list (PA-T7-IMP-4):** Step 6 grew from "5 tests" / 7 functions to a specific list of 10-15 tests covering file presence, frontmatter (parses, name match, required-tools, Glob/adaptive tools, no Edit/Write/Bash/Task, model: opus), body invariants (no nested dispatch, Layer 0a-f markers, next_cursor stop, no `finalize_scan_results` call, `UNTRUSTED_CODE_` delimiter, no inline findings), and return-schema documentation (C2 contract keys present).
+- **IMPORTANT #7 + ESCALATION E3=C — Split test migration (PA-T7-IMP-5):** Added Step 6b: per-agent assertions in `tests/test_adaptive_subagent_prompts.py` (those reading the 5 deleted subagent files) migrate to `tests/test_screw_scan_subagent.py`; scan.md / orchestrator assertions (including the parser-key lock at lines 497-512) STAY for Task 8 to update. `_PER_AGENT_FILES` and `_ORCHESTRATOR_FILE` constants dropped. Residual test failures from scan.md still referencing deleted subagents are expected and Task-8-owned; documented in commit message.
+- **3 backlog entries added:** `BACKLOG-T-SCAN-REFACTOR-T7-M1` (load-bearing-phrase regression test), `BACKLOG-T-SCAN-REFACTOR-T7-M2` (subagent file-count regression test), `BACKLOG-T-SCAN-REFACTOR-T7-M3` (re-scan semantics for adaptive flow).
 
 ---
 
 ## Task 8: Slash command rewrite — multi-scope syntax + parser + summary + errors
 
-**Goal:** Rewrite `plugins/screw/commands/scan.md` for the new grammar (bare-token | `full` | `domains:`/`agents:` prefix-key form), the resolution algorithm, the relevance filter integration, the pre-execution summary line, error cases, and `--no-confirm` flag.
+**Goal:** Rewrite `plugins/screw/commands/scan.md` for the new grammar (bare-token | `full` | `domains:`/`agents:` prefix-key form), the resolution algorithm, the relevance filter integration, the pre-execution summary line, error cases, `--no-confirm` flag, and `--adaptive`/`--no-confirm` mutual exclusivity.
 
 **Files:**
-- Modify: `plugins/screw/commands/scan.md` — full rewrite (~480 LOC current, ~600 LOC after)
-- Create: `tests/test_scan_command_parser.py` — 15 tests for grammar + resolution + error cases
+- Modify: `plugins/screw/commands/scan.md` — full rewrite (~480 LOC current, ~620 LOC after)
+- Create: `src/screw_agents/scan_command.py` — pure-Python parser + `resolve_scope` + `summarize_scope` + `validate_flags` helpers
+- Modify: `src/screw_agents/engine.py` — register `resolve_scope` MCP tool
+- Modify: `src/screw_agents/server.py` — dispatch `resolve_scope` MCP tool
+- Modify: `plugins/screw/agents/screw-scan.md` — accept optional `cursor` input parameter (skip subagent's own init-page call when present)
+- Create: `tests/test_scan_command_parser.py` — 15 parser tests + 1 mutual-exclusion test + 1 whitespace test
+- Modify: `tests/test_server.py` (or `tests/test_scan_command_parser.py`) — 2 MCP-dispatch tests for `resolve_scope` tool
+- Modify: `tests/test_adaptive_subagent_prompts.py` — update assertions for the rewritten scan.md (Step 6.5)
 
-**Pre-audit focus (mandatory — novel UX):** read the current `scan.md` end-to-end (480 LOC). Identify every workflow step that survives the rewrite vs replaces. Specifically: (a) Step 1 (parse arguments + dispatch) is replaced; (b) Step 1b (full-scope domain loop) is replaced; (c) Step 2 (parse subagent return) survives but reads `screw-scan`'s new payload shape; (d) finalize step survives. Confirm `$ARGUMENTS` is the input variable per `skills.md:213` (Claude Code docs). Confirm the slash-command parser runs in main session per `sub-agents.md:11, 685` (chain-subagents pattern).
+**Pre-audit focus (mandatory — novel UX):** read the current `scan.md` end-to-end (480 LOC). Identify every workflow step that survives the rewrite vs replaces. Specifically: (a) Step 1 (parse arguments + dispatch) is replaced; (b) Step 1b (full-scope domain loop) is replaced; (c) the entire adaptive review loop (current scan.md lines 146-442) survives verbatim; (d) finalize step survives. Confirm `$ARGUMENTS` is the input variable per `skills.md:213` (Claude Code docs). Confirm the slash-command parser runs in main session per `sub-agents.md:11, 685` (chain-subagents pattern).
 
 - [ ] **Step 1: Pre-audit — read current scan.md and identify replaceable sections**
 
@@ -2458,10 +3196,78 @@ def test_malformed_prefix_key_raises(registry: AgentRegistry) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_resolved_list_is_sorted_and_unique(registry: AgentRegistry) -> None:
-    parsed = parse_scope_spec("agents:sqli,xss,sqli")  # duplicate
+def test_resolved_list_dedup_explicit(registry: AgentRegistry) -> None:
+    """Duplicates in input are deduplicated; output is sorted.
+
+    Strengthened from the prior tautological `assert resolved == sorted(set(resolved))`
+    to assert concrete expected values (per pre-audit IMPORTANT finding).
+    """
+    parsed = parse_scope_spec("agents:sqli,xss,sqli")  # 'sqli' appears twice
     resolved = resolve_scope(parsed, registry)
-    assert resolved == sorted(set(resolved))
+    assert resolved == ["sqli", "xss"]
+    assert len(resolved) == 2  # sqli appeared twice in input
+
+
+# ---------------------------------------------------------------------------
+# Cross-domain rejection (15th test — security boundary, T8 plan-fix Edit 8)
+# ---------------------------------------------------------------------------
+
+
+def test_cross_domain_agent_rejection(tmp_path: Path) -> None:
+    """If `domains:` is given AND `agents:` names cross-belong, parser rejects.
+
+    Today's registry has 1 domain so the path is unreachable with real YAMLs;
+    test uses a tmp_path-built fake registry with 2 fake domains. Closes the
+    security-boundary gap flagged in pre-audit Edit 8.
+    """
+    # Build 2-domain fake registry. Implementer fills in minimal valid YAMLs
+    # for `agent_x` (in domain-a) and `agent_y` (in domain-b) per the YAML
+    # schema in domains/<domain>/<agent>.yaml.
+    d1 = tmp_path / "domain-a"
+    d1.mkdir()
+    # ... write minimal valid YAML for agent_x in domain-a
+    d2 = tmp_path / "domain-b"
+    d2.mkdir()
+    # ... write minimal valid YAML for agent_y in domain-b
+    fake_registry = AgentRegistry(tmp_path)
+
+    parsed = parse_scope_spec("domains:domain-a agents:agent_y")
+    with pytest.raises(ScopeResolutionError, match="not in any of the listed domains|domain-a"):
+        resolve_scope(parsed, fake_registry)
+
+
+# ---------------------------------------------------------------------------
+# Whitespace handling in prefix-key tokens (T8 plan-fix Edit 11)
+# ---------------------------------------------------------------------------
+
+
+def test_whitespace_in_prefix_key_raises_actionable(registry: AgentRegistry) -> None:
+    """`domains: foo` (space after colon) raises an actionable error.
+
+    Without explicit handling, `foo` would be silently re-classified as a
+    bare token. Pre-audit IMPORTANT (Edit 11): explicit error is friendlier
+    than silent re-interpretation.
+    """
+    parsed = parse_scope_spec("domains: foo")
+    with pytest.raises(ScopeResolutionError, match="Whitespace not allowed inside prefix-key"):
+        resolve_scope(parsed, registry)
+
+
+# ---------------------------------------------------------------------------
+# Mutual exclusivity: --adaptive + --no-confirm (E4=A, T8 plan-fix Edit 7)
+# ---------------------------------------------------------------------------
+
+
+def test_adaptive_and_no_confirm_mutually_exclusive() -> None:
+    """Combining --adaptive and --no-confirm raises with actionable message.
+
+    E4=A (Marco approved): hard error — `--adaptive` needs interactive consent,
+    `--no-confirm` signals non-interactive context. They cannot be combined.
+    """
+    from screw_agents.scan_command import validate_flags
+
+    with pytest.raises(ValueError, match="cannot be combined"):
+        validate_flags(["--adaptive", "--no-confirm"])
 ```
 
 - [ ] **Step 3: Run new tests to verify they fail**
@@ -2490,6 +3296,7 @@ Spec sections 6.1, 6.2, 6.3, 6.6.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Literal
 
 from screw_agents.registry import AgentRegistry
 
@@ -2499,14 +3306,32 @@ class ScopeResolutionError(ValueError):
     surfaces this as a user-facing error message before any dispatch."""
 
 
-@dataclass
+@dataclass(frozen=True)
 class ParsedScope:
     """Result of `parse_scope_spec` — pre-registry-validation."""
 
+    form: Literal["bare-token", "full", "prefix-key"]
     full_keyword: bool = False
     bare_token: str | None = None
     domains_explicit: list[str] = field(default_factory=list)
     agents_explicit: list[str] = field(default_factory=list)
+
+
+def validate_flags(flags: list[str]) -> None:
+    """Validate flag combinations BEFORE scope parsing.
+
+    Raises:
+        ValueError: if `--adaptive` and `--no-confirm` are both present
+            (E4=A: hard error per Marco's approval). `--adaptive` requires
+            interactive consent; `--no-confirm` signals non-interactive
+            context — they cannot be combined.
+    """
+    if "--adaptive" in flags and "--no-confirm" in flags:
+        raise ValueError(
+            "Error: `--adaptive` requires interactive consent (5-section "
+            "review prompts). `--no-confirm` signals non-interactive context. "
+            "Pick one — they cannot be combined."
+        )
 
 
 def parse_scope_spec(scope_text: str) -> ParsedScope:
@@ -2647,6 +3472,34 @@ def resolve_scope(parsed: ParsedScope, registry: AgentRegistry) -> list[str]:
         )
 
     return sorted(final)
+
+
+def summarize_scope(parsed: ParsedScope, registry: AgentRegistry) -> list[dict]:
+    """Enriched per-domain summary for the pre-execution summary line.
+
+    E3=C (Marco approved): split from resolve_scope so the security-critical
+    resolution (registry allowlist + cross-domain rejection) stays simple
+    and testable, while the UX-formatting concern lives separately.
+
+    Returns a list of dicts:
+        [{"domain": str, "mode": "subset"|"full", "agents": list[str]}, ...]
+
+    Mode "full" = all agents in the domain (e.g., bare-token domain or `full`
+    keyword path). Mode "subset" = only the explicitly-named agents from the
+    domain (e.g., `agents:sqli` resolves to subset of injection-input-handling).
+
+    Args:
+        parsed: result of `parse_scope_spec`.
+        registry: loaded AgentRegistry.
+
+    Returns:
+        Sorted-by-domain list of summary dicts. Each entry's `agents` list
+        is also sorted. Used by `/screw:scan` body to render the
+        per-domain "subset|full" annotation in the pre-execution summary.
+    """
+    # Implementer fills in: walk parsed form, group by domain, classify
+    # subset vs full, return sorted dicts.
+    ...
 ```
 
 - [ ] **Step 5: Run parser tests; confirm pass**
@@ -2655,7 +3508,98 @@ def resolve_scope(parsed: ParsedScope, registry: AgentRegistry) -> list[str]:
 uv run pytest tests/test_scan_command_parser.py -v 2>&1 | tail -25
 ```
 
-Expected: all 15 tests PASS.
+Expected: all parser tests PASS (15 grammar + 1 mutual-exclusion + 1 whitespace = 17). Two more (MCP-dispatch tests in Step 5b) added below.
+
+- [ ] **Step 5b: Register `resolve_scope` as an MCP tool** (E1=A — security: eliminates Bash + `python -c` shell-injection class)
+
+Marco approved E1=A. The slash command MUST NOT shell out to `uv run python -c "..."` with user-controlled `$ARGUMENTS` — quote-escaping bugs in the markdown body would expose a shell-injection vulnerability. Instead, register the parser as a first-class MCP tool. JSON-serialized inputs over the MCP layer are not shell-parsed.
+
+**(a) Tool registration in `src/screw_agents/engine.py::list_tool_definitions`:**
+
+```python
+        tools.append({
+            "name": "resolve_scope",
+            "description": (
+                "Resolve a slash-command scope spec into a deduplicated, sorted "
+                "list of agent names. Used by the /screw:scan slash command to "
+                "translate user input (e.g., 'sqli', 'full', 'domains:foo,bar', "
+                "'agents:baz,qux') into the agents list passed to scan_agents. "
+                "Returns: {agents: list[str], summary: list[dict]}. The summary "
+                "field carries per-domain subset|full annotation for the "
+                "pre-execution summary line. Raises ValueError on parse/resolve "
+                "errors with actionable messages."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "scope_text": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": (
+                            "Raw scope-spec string from the user. Examples: 'sqli', "
+                            "'full', 'domains:injection-input-handling', "
+                            "'agents:sqli,xss', 'domains:foo agents:bar'."
+                        ),
+                    },
+                },
+                "required": ["scope_text"],
+                "additionalProperties": False,
+            },
+        })
+```
+
+**(b) Server-side dispatch in `src/screw_agents/server.py::_dispatch_tool`:**
+
+```python
+    if name == "resolve_scope":
+        from screw_agents.scan_command import (
+            parse_scope_spec,
+            resolve_scope,
+            summarize_scope,
+        )
+        scope_text = args["scope_text"]
+        parsed = parse_scope_spec(scope_text)
+        agents = resolve_scope(parsed, engine.registry)
+        summary = summarize_scope(parsed, engine.registry)
+        return {"agents": agents, "summary": summary}
+```
+
+**(c) Add 2 MCP-dispatch tests** (in `tests/test_scan_command_parser.py` or `tests/test_server.py` — implementer's choice):
+
+```python
+def test_resolve_scope_mcp_dispatch_sqli() -> None:
+    """resolve_scope MCP tool routes to scan_command parser; no shell exec."""
+    from screw_agents.server import _dispatch_tool
+    from screw_agents.engine import ScanEngine
+    from screw_agents.registry import AgentRegistry
+    from pathlib import Path
+
+    engine = ScanEngine(AgentRegistry(Path(__file__).parents[1] / "domains"))
+    result = _dispatch_tool(engine, "resolve_scope", {"scope_text": "sqli"})
+    assert result["agents"] == ["sqli"]
+    assert isinstance(result["summary"], list)
+    assert all("domain" in entry and "mode" in entry for entry in result["summary"])
+
+
+def test_resolve_scope_mcp_rejects_unknown_token() -> None:
+    """Unknown scope tokens raise ValueError with actionable message."""
+    from screw_agents.server import _dispatch_tool
+    from screw_agents.engine import ScanEngine
+    from screw_agents.registry import AgentRegistry
+    from pathlib import Path
+
+    engine = ScanEngine(AgentRegistry(Path(__file__).parents[1] / "domains"))
+    with pytest.raises(ValueError, match="not a domain or agent"):
+        _dispatch_tool(engine, "resolve_scope", {"scope_text": "unknownname"})
+```
+
+Run:
+
+```
+uv run pytest tests/test_scan_command_parser.py tests/test_server.py -v 2>&1 | tail -20
+```
+
+Expected: dispatch tests PASS; full parser file at 19 tests (15 grammar + 1 cross-domain + 1 whitespace + 1 mutual-exclusion + 2 MCP-dispatch — or 17 if MCP tests live in test_server.py).
 
 - [ ] **Step 6: Rewrite `scan.md` slash command body**
 
@@ -2664,15 +3608,36 @@ Open `/home/marco/Programming/AI/screw-agents/plugins/screw/commands/scan.md`. R
 ```markdown
 ---
 name: screw:scan
-description: "Run a security scan with screw-agents. Usage: /screw:scan <scope-spec> [target] [--thoroughness standard|deep] [--format json|sarif|markdown|csv] [--adaptive] [--no-confirm]"
+description: "Run a security scan with screw-agents. Usage: /screw:scan <scope-spec> [target] [--thoroughness standard|deep] [--format json|sarif|markdown|csv] [--adaptive] [--no-confirm]. Migration: bare-token form (`/screw:scan sqli`) is preserved. The retired `scan_full` and per-agent (`scan_sqli`, ...) MCP tools are replaced by `scan_agents` (Task 6); for full-coverage scans use `/screw:scan full` or call `scan_agents(agents=list_agents().names)` directly."
 allowed-tools:
-  - Bash
   - Read
   - Agent
   - mcp__screw-agents__list_agents
   - mcp__screw-agents__list_domains
+  - mcp__screw-agents__resolve_scope
+  - mcp__screw-agents__scan_agents
+  - mcp__screw-agents__verify_trust
+  - mcp__screw-agents__accumulate_findings
   - mcp__screw-agents__finalize_scan_results
+  - mcp__screw-agents__stage_adaptive_script
+  - mcp__screw-agents__promote_staged_script
+  - mcp__screw-agents__reject_staged_script
+  - mcp__screw-agents__execute_adaptive_script
+  - mcp__screw-agents__record_exclusion
 ---
+
+<!--
+Frontmatter `allowed-tools` rationale (T8 plan-fix Edit 2):
+- `Bash` dropped: E1=A replaced shell-out with `mcp__screw-agents__resolve_scope` MCP tool registration. No more shell-injection surface.
+- Adaptive review loop tools added: stage_adaptive_script, promote_staged_script,
+  reject_staged_script, execute_adaptive_script, accumulate_findings, verify_trust,
+  record_exclusion. The body invokes all of these on the adaptive path.
+- scan_agents added: main session calls scan_agents(cursor=null) for the init page
+  itself (E2=A: split init/code-page architecture). Subagent dispatched with cursor
+  for code pages only.
+-->
+
+**Migration from retired tools:** If you previously typed `/screw:scan sqli`, that still works (bare-token form). If you scripted `scan_full` MCP calls, those are retired (Task 6) — use `mcp__screw-agents__scan_agents` directly with `agents=list_agents().names` for full-coverage scans, OR use `/screw:scan full` from the slash command. Per-agent MCP tools (`scan_sqli`, etc.) are also retired; use `scan_agents(agents=["sqli"])`.
 
 # /screw:scan — Security Scan Orchestrator (main-session)
 
@@ -2718,54 +3683,101 @@ Pick exactly one of:
 
 ## Workflow
 
-### Step 1: Parse `$ARGUMENTS`
+### Step 1: Parse `$ARGUMENTS` and validate flags
 
-Tokenize `$ARGUMENTS` into:
-- `scope_tokens`: tokens before the first non-flag, non-`:`-bearing, non-`full` token (or after such token if it's the bare-token form). Specifically: walk left-to-right; tokens are scope-spec tokens until you hit something that's not `full`, not a bare-token name in the registry, and not a `domains:`/`agents:` prefix key. The remaining is target + flags.
-- `target_token`: the single positional after the scope-spec.
-- `flags`: any tokens starting with `--`.
-
-In practice, since the scope-spec form is mutually exclusive (Section "Scope-spec forms"), you can determine which form is in use by looking at the first non-flag token, then consume scope tokens accordingly.
-
-### Step 2: Resolve scope to agents list
-
-Invoke `screw_agents.scan_command.parse_scope_spec` and `resolve_scope` (the registered Python helper). If a `ScopeResolutionError` is raised, surface its message verbatim and abort:
+**Pre-parse algorithm** (token classification from `$ARGUMENTS` — T8 plan-fix Edit 10):
 
 ```
-Bash: `uv run python -c "from screw_agents.scan_command import parse_scope_spec, resolve_scope; from screw_agents.registry import AgentRegistry; from pathlib import Path; reg = AgentRegistry(Path('domains')); parsed = parse_scope_spec(<scope_text>); print(','.join(resolve_scope(parsed, reg)))"`
+tokens = $ARGUMENTS.split()
+flags = {}  # --adaptive, --no-confirm, --thoroughness <v>, --format <v>
+scope_tokens = []
+target = None
+
+i = 0
+while i < len(tokens):
+    t = tokens[i]
+    if t == "--adaptive" or t == "--no-confirm":
+        flags[t.lstrip("-")] = True
+        i += 1
+    elif t in ("--thoroughness", "--format"):
+        if i + 1 >= len(tokens):
+            raise ValueError(f"Flag {t} requires a value")
+        flags[t.lstrip("-")] = tokens[i+1]
+        i += 2
+    elif t == "full" or ":" in t or registry.get_agent(t) or t in registry.list_domains():
+        scope_tokens.append(t)
+        i += 1
+    else:
+        # Anything else is the target (file path, glob, etc.)
+        if target is not None:
+            raise ValueError(f"Multiple targets found: {target!r} and {t!r}; only one allowed")
+        target = t
+        i += 1
+
+scope_text = " ".join(scope_tokens)  # passed to resolve_scope MCP tool
 ```
 
-(Or call via the registered MCP `list_agents` / `list_domains` tools and reproduce the resolution algorithm in the prompt — implementation detail. The helper exists in Python for testability; the slash command can either invoke it via Bash or reproduce the algorithm.)
+**Mutual exclusivity check** (E4=A — Marco approved): If both `--adaptive` and `--no-confirm` are present in `$ARGUMENTS`, abort with:
 
-### Step 3: Apply relevance filter
+> Error: `--adaptive` requires interactive consent (5-section review prompts). `--no-confirm` signals non-interactive context. Pick one — they cannot be combined.
 
-The relevance filter runs server-side inside `scan_agents`. Main session does NOT pre-filter. The init-page response carries `agents_excluded_by_relevance` records — surface these in the pre-execution summary.
+Exit BEFORE parsing scope. (Implementer: `validate_flags` helper in `scan_command.py` enforces this; the slash command body invokes it as the first action after token classification.)
+
+### Step 2: Resolve scope to agents list (via MCP tool)
+
+Use the `mcp__screw-agents__resolve_scope` tool with `scope_text: "<scope_tokens joined by space>"`. The tool returns `{agents: [...], summary: [...]}`:
+
+- `agents`: deduplicated, sorted list of agent names (security-critical — registry allowlist + cross-domain rejection enforced server-side per E3=C split).
+- `summary`: per-domain entries `[{"domain": str, "mode": "subset"|"full", "agents": [...]}, ...]` for the pre-execution summary line.
+
+If the call raises (ValueError / ScopeResolutionError on parse/resolve error), surface the error message verbatim to the user and abort. NO shell. NO `python -c`. The MCP layer JSON-serializes the input; no shell parsing happens.
+
+### Step 3: Init-page call — main session calls `scan_agents(cursor=null)` directly (E2=A architecture)
+
+**Architecture (E2=A — Marco approved):** main session calls `scan_agents` with `cursor=null` for the INIT PAGE only; subagent is dispatched later with the returned `next_cursor` to skip its own init call. This keeps the relevance-filter results visible in main session for the pre-execution summary, and avoids the duplicate init call.
+
+```
+mcp__screw-agents__scan_agents({
+    "agents": <agents from Step 2>,
+    "target": <parsed target>,
+    "project_root": <absolute project root>,
+    "cursor": null,  # init page
+    "thoroughness": <standard|deep>,
+    "format": <json|sarif|markdown|csv>,
+})
+```
+
+The init-page response provides:
+- `agents` — kept-after-relevance-filter list
+- `agents_excluded_by_relevance` — list of dicts with `agent_name`, `reason`, `agent_languages`, `target_languages` (Task 3 schema)
+- `total_files`, `next_cursor`, `trust_status` (if `project_root` provided)
 
 ### Step 4: Pre-execution summary
 
-Print to the user (stderr if `--no-confirm`, otherwise stdout):
+Render the pre-execution summary line using the `summary` field from Step 2 + the `agents_excluded_by_relevance` records from Step 3:
 
 ```
-Resolved scope: <N> agents will be scanned
-  domain <D1> (subset|full): <agent1>, <agent2>, ...
-  domain <D2> (subset|full): <agent3>, ...
-  ...
-
-Excluded by relevance filter (target language: <L>):
-  - <agent_X> (declares: <L_X>) — domain: <D>
-  ...
-
-Target: <target> (<F> files, <LOC> LOC)
+Scan target: <target>
+Agents: <kept count> kept, <excluded count> dropped by relevance filter
+  Kept (per-domain mode from `summary`):
+    domain <D1> (subset|full): <agent1>, <agent2>, ...
+    domain <D2> (subset|full): <agent3>, ...
+    ...
+  Excluded by relevance filter (target language: <L>):
+    - <agent_X> (declares: <L_X>) — domain: <D>
+    ...
+Trust: <trust_status summary>  (if project_root)
+Files scanned: <total_files>
 Thoroughness: <T>
 Adaptive mode: <enabled|disabled>
 Format: <F>
-
-Continue with this scope? [Y/n]
 ```
 
-If `--no-confirm` is set, skip the prompt; otherwise wait for user confirmation. Abort on 'n' / 'N' / non-empty non-Y answer.
+If `--no-confirm` is NOT passed, prompt the user "Proceed? [Y/n]" and wait for input. Abort on 'n' / 'N' / non-empty non-Y answer.
 
-### Step 5: Dispatch screw-scan
+If `--no-confirm` IS passed, log the summary line(s) for audit trail but skip the prompt; proceed immediately.
+
+### Step 5: Dispatch screw-scan subagent with init cursor
 
 ```
 Agent(
@@ -2773,9 +3785,10 @@ Agent(
   description="Security scan — <scope summary>",
   prompt="""
     Run the scan with these parameters:
-    - agents: <comma-separated list from Step 2>
+    - agents: <kept agents from Step 4>
     - target: <parsed target spec>
     - project_root: <absolute project root>
+    - cursor: <next_cursor from Step 3 init-page response>  ← NEW: skip subagent's init call
     - thoroughness: <standard|deep>
     - adaptive_flag: <true|false>
     - format: <json|sarif|markdown|csv>
@@ -2786,13 +3799,17 @@ Agent(
 )
 ```
 
+The `cursor` parameter tells `screw-scan` to SKIP its own `scan_agents(cursor=null)` call and start at the code page directly. This avoids duplicating the init call (E2=A architecture).
+
+> **Cross-task note (Task 8 fix-up):** `screw-scan.md` (Task 7) MUST honor a `cursor` input parameter that, when present, skips the subagent's own init-page call. If `screw-scan.md` does not yet support this, amend `screw-scan.md` Step 1 (Init page) accordingly as part of Task 8.
+
 ### Step 6: Parse subagent return
 
-The subagent's last turn ends with a fenced JSON block matching the `summary_counts` schema in `screw-scan.md`. Parse it. Capture `session_id` for the finalize call.
+The subagent's last turn ends with a fenced JSON block matching the structured-return schema in `screw-scan.md`. Parse it. Capture `session_id` for the finalize call.
 
-### Step 7: Adaptive script reviewer (optional)
+### Step 7: Adaptive review loop (preserved verbatim from current scan.md lines 146-442)
 
-If `adaptive_flag` is true AND the subagent's return indicates staged scripts pending review, dispatch `screw:screw-script-reviewer` per the existing post-C2 pattern. After it returns, optionally re-dispatch `screw-scan` with the same `session_id` to re-scan post-script-promotion.
+The entire adaptive review loop (5-section script review prompts, stage_adaptive_script → verify_trust → promote_staged_script ordering, reject_staged_script, execute_adaptive_script, accumulate_findings, record_exclusion) is preserved VERBATIM from the current pre-rewrite scan.md (lines 146-442). Implementer copies that block into the new body without modification beyond mechanical adjustments to scope-spec references.
 
 ### Step 8: Finalize
 
@@ -2810,25 +3827,55 @@ Surface the rendered report path to the user.
 
 - ScopeResolutionError from Step 2 → surface message, abort before any work.
 - Empty resolved agent list (e.g., all filtered) → abort with summary.
-- Subagent fatal_error → surface, abort, do not finalize.
-- `--adaptive` in non-interactive context → abort.
+- Subagent `fatal_error` → surface, abort, do not finalize.
+- `--adaptive` in non-interactive context → abort (caught by Step 1 mutual-exclusivity check).
+- `--adaptive` AND `--no-confirm` together → hard abort (E4=A).
 ```
 
-(This is a heavily abridged version of the rewrite. The actual `scan.md` will be ~600 LOC after expansion to include detailed examples, edge cases, and the existing finalize section preserved verbatim. Implementer expands the rewritten body to full detail using `screw-injection.md` (deleted in Task 7) as a reference for the dispatch + parse-return + finalize portions.)
+**Implementer expands the rewritten body to full detail using:**
+- The CURRENT pre-rewrite `scan.md` (lines 146-442) as reference for the surviving adaptive review loop (Steps 3a-3f). This block is preserved verbatim into the new Task 8 body.
+- The new `screw-scan.md` (Task 7) as reference for the structured-return schema scan.md must parse.
+- Spec §6.4-6.6 for the pre-execution summary, error cases, and migration notes.
+
+- [ ] **Step 6.5: Update `tests/test_adaptive_subagent_prompts.py` for the rewritten scan.md** (T8 plan-fix Edit 3)
+
+The 9 tests surviving from Task 7's per-agent migration assert on `scan.md` content. After Task 8 rewrites scan.md, those tests need updating:
+
+```bash
+uv run pytest tests/test_adaptive_subagent_prompts.py -v 2>&1 | tail -30
+```
+
+For each failing test, update the assertions to match the new scan.md body. Specifically:
+
+- `test_scan_md_references_all_required_orchestration_mcp_tools` — verify the new body references `stage_adaptive_script`, `promote_staged_script`, `reject_staged_script`, `execute_adaptive_script`, `accumulate_findings`, `verify_trust`, `finalize_scan_results`, `scan_agents`, `resolve_scope` (the new MCP tool).
+- `test_scan_md_phrase_grammar_locked` — re-confirm `approve`, `reject`, `confirm-high`, `--no-confirm`, `--adaptive` tokens present.
+- `test_scan_md_verifies_trust_before_promote` — re-confirm `verify_trust` → `promote_staged_script` ordering.
+- `test_scan_md_contains_subagent_return_schema_keys` — verify all C2-required keys + new enrichment keys (per Task 7 hybrid schema): `schema_version`, `scan_subagent`, `session_id`, `trust_status`, `yaml_findings_accumulated`, `adaptive_mode_engaged`, `pending_reviews`, `scan_metadata`, plus enrichment: `summary_counts`, `classification_summary`, `agents_excluded_by_relevance`, `context_required_matches_recorded`, `exclusions_applied_count`.
+- `test_scan_md_contains_full_scope_list_domains_branch` — verify `full` keyword path uses `list_domains` enumeration.
+
+Goal: ALL 9 tests pass after Step 6's rewrite. If any assertion no longer applies (e.g., body intentionally drops a phrase), update OR delete the test with explicit comment referencing this Task 8 plan-fix.
+
+Run after migration:
+```
+uv run pytest tests/test_adaptive_subagent_prompts.py -v 2>&1 | tail -15
+```
+
+Expected: 9 passed (or fewer if tests legitimately removed; document each removal in commit message).
 
 - [ ] **Step 7: Run all tests; confirm**
 
 ```
 uv run pytest tests/test_scan_command_parser.py -v 2>&1 | tail -10
+uv run pytest tests/test_adaptive_subagent_prompts.py -v 2>&1 | tail -15
 uv run pytest -q 2>&1 | tail -5
 ```
 
-Expected: parser tests PASS; full suite ~945 + 15 = ~960 passed.
+Expected: parser tests PASS (15 grammar + 1 cross-domain + 1 whitespace + 1 mutual-exclusion + 2 MCP-dispatch = 19 net new); test_adaptive_subagent_prompts.py 9 pass (assertions migrated); full suite **990 passed, 9 skipped** (971 Task 7 baseline + 19 net new).
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add plugins/screw/commands/scan.md src/screw_agents/scan_command.py tests/test_scan_command_parser.py
+git add plugins/screw/commands/scan.md src/screw_agents/scan_command.py src/screw_agents/engine.py src/screw_agents/server.py plugins/screw/agents/screw-scan.md tests/test_scan_command_parser.py tests/test_server.py tests/test_adaptive_subagent_prompts.py
 git commit -m "T-SCAN-REFACTOR Task 8: slash command rewrite — multi-scope syntax
 
 Replaces single-token scope arg (sqli|cmdi|ssti|xss|injection|full) with
@@ -2842,35 +3889,67 @@ the new grammar from spec section 6:
 The 3 forms are mutually exclusive; mixing raises ScopeResolutionError.
 
 src/screw_agents/scan_command.py (new module): pure-Python parser +
-resolver helpers extracted for testability. parse_scope_spec(text) -> 
-ParsedScope; resolve_scope(parsed, registry) -> list[str].
+resolver helpers extracted for testability:
+- parse_scope_spec(text) -> ParsedScope
+- resolve_scope(parsed, registry) -> list[str]  (security-critical, simple)
+- summarize_scope(parsed, registry) -> list[dict]  (E3=C: enriched
+  per-domain subset|full annotation for the pre-execution summary)
+- validate_flags(flags) -> None  (E4=A: --adaptive + --no-confirm hard error)
+
+src/screw_agents/engine.py + server.py: register resolve_scope as an
+MCP tool (E1=A: eliminates Bash + python -c shell-injection class).
+
+plugins/screw/agents/screw-scan.md: accept optional cursor input (E2=A:
+when present, skip subagent's own init-page call; main session calls
+scan_agents(cursor=null) for init page itself).
 
 plugins/screw/commands/scan.md: full rewrite. Workflow now:
-1. Parse scope tokens from \$ARGUMENTS
-2. Resolve to agent list via scan_command helpers (cross-domain rejection,
-   unknown-name rejection)
-3. Server applies relevance filter inside scan_agents — caller surfaces
-   results
-4. Pre-execution summary line (subset/full annotations + filter exclusions)
+1. Parse scope tokens from \$ARGUMENTS + validate flags (E4=A check)
+2. Resolve via mcp__screw-agents__resolve_scope tool (no shell)
+3. Init-page call (main session): scan_agents(cursor=null) — reads
+   relevance-filter exclusions for the summary line
+4. Pre-execution summary (per-domain subset|full + filter exclusions)
 5. Consent prompt (or skip with --no-confirm for CI)
-6. Dispatch universal screw-scan subagent with resolved agents list
-7. Parse structured return
-8. Optional screw-script-reviewer dispatch for adaptive flows
-9. finalize_scan_results
+6. Dispatch screw-scan subagent with cursor for code pages only
+7. Adaptive review loop (verbatim from current scan.md lines 146-442)
+8. finalize_scan_results
 
 Adaptive flow + chain-subagents architecture preserved.
 
-15 parser tests cover: bare-token agent, bare-token domain, full keyword,
-prefix-key forms (domains-only, agents-only, mixed), cross-domain
-rejection, unknown name rejection, mutual exclusivity, empty/malformed
-inputs, result determinism (sorted + dedup)."
+Net new tests in Task 8: 19 (15 grammar + 1 cross-domain + 1 whitespace
++ 1 mutual-exclusion + 2 MCP-dispatch). Plus 9 in test_adaptive_subagent_prompts.py
+re-asserted against rewritten scan.md.
+
+Post-Task-8: 971 + 19 = 990 passed, 9 skipped."
 ```
+
+---
+
+**Plan-fix additions (2026-04-26, post pre-audit on HEAD 9356593):**
+
+- **E1=A** (Marco approved): parser invocation moved from shell-injection-vulnerable Bash to MCP tool registration (`mcp__screw-agents__resolve_scope`). New tool routes through engine/server, no shell parsing. Eliminates injection class entirely.
+- **E2=A** (Marco approved): pre-execution summary architecture splits init/code-page responsibility. Main session calls `scan_agents(cursor=null)` for init page itself, surfaces `agents_excluded_by_relevance` in summary, dispatches subagent with cursor for code pages only. `screw-scan.md` amendment: subagent honors `cursor` input when present (skips its own init call).
+- **E3=C** (Marco approved): `resolve_scope` returns `list[str]` (security-critical, simple); new `summarize_scope` returns enriched per-domain "subset|full" annotation for the pre-execution summary line.
+- **E4=A** (Marco approved): `--adaptive` + `--no-confirm` are mutually exclusive; combining raises actionable error before scope parse. New `validate_flags` helper enforces this.
+- frontmatter `allowed-tools` expanded to cover adaptive review loop (`stage_adaptive_script`, `promote_staged_script`, `reject_staged_script`, `execute_adaptive_script`, `accumulate_findings`, `verify_trust`, `record_exclusion`); `Bash` dropped (E1=A removes Bash dependency).
+- New **Step 6.5** added: migrate 9 surviving tests in `test_adaptive_subagent_prompts.py` after scan.md rewrite.
+- Replaced deleted `screw-injection.md` reference with current pre-rewrite scan.md (lines 146-442) as the implementer's reference for the adaptive review loop.
+- 15th test added (cross-domain agent rejection with tmp_path-built fake registry); tautological test (`assert resolved == sorted(set(resolved))`) strengthened to assert concrete expected values.
+- Pre-parse algorithm pseudocode added to Step 1 (token classification with explicit branching for `--adaptive`/`--no-confirm`/`--thoroughness`/`--format`/scope/target).
+- Whitespace handling in prefix-key tokens: explicit error (`"Whitespace not allowed inside prefix-key"`), not silent re-interpretation.
+- Migration note for retired tools (`scan_full`, `scan_sqli`, ...) added to scan.md description frontmatter.
+- `ParsedScope` dataclass: added `form: Literal["bare-token", "full", "prefix-key"]` field for explicit form discrimination; `frozen=True` for immutability.
+- `ScopeResolutionError` base-class disambiguation (parse errors vs engine errors): deferred to backlog as `BACKLOG-T-SCAN-REFACTOR-T8-M1` (non-blocker, defense-in-depth typing).
+
+**Net new tests in Task 8:** 15 parser tests + 2 MCP-dispatch tests + 1 mutual-exclusion test + 1 whitespace test = **19**. Plus migration of 9 in `test_adaptive_subagent_prompts.py` (assertions update; counts unchanged).
+
+**Post-Task-8 expected:** 971 (Task 7 baseline) + 19 (new) = **990 passed, 9 skipped**.
 
 ---
 
 ## Task 9: Documentation sync
 
-**Goal:** Bring all 8 affected docs into alignment with the shipped code in the SAME PR (per Marco's reminder during brainstorm; per `feedback_plan_sync_on_deviation` memory). No code changes in this task.
+**Goal:** Bring all 9 affected docs into alignment with the shipped code in the SAME PR (per Marco's reminder during brainstorm; per `feedback_plan_sync_on_deviation` memory). No code changes in this task.
 
 **Files (modify):**
 - `docs/PRD.md`
@@ -2881,10 +3960,11 @@ inputs, result determinism (sorted + dedup)."
 - `docs/DEFERRED_BACKLOG.md`
 - `docs/CONTRIBUTING.md`
 - `docs/AGENT_CATALOG.md`
+- `CLAUDE.md` (root project file — added per Marco-approved EQ4=A; pre-audit found stale "Pre-implementation" / "Phase 0 next" claims)
 
 **Pre-audit focus (mandatory — cross-cut):** before editing, grep each doc for:
 ```
-grep -l 'scan_full\|scan_sqli\|scan_cmdi\|scan_ssti\|scan_xss\|screw-sqli\|screw-cmdi\|screw-ssti\|screw-xss\|screw-injection\|assemble_full_scan' docs/*.md
+grep -l 'scan_full\|scan_sqli\|scan_cmdi\|scan_ssti\|scan_xss\|screw-sqli\|screw-cmdi\|screw-ssti\|screw-xss\|screw-injection\|assemble_full_scan' docs/*.md CLAUDE.md
 ```
 Capture the list. Each file in the output requires updates. Section-level grep within each:
 ```
@@ -2894,16 +3974,18 @@ gives line numbers to target.
 
 - [ ] **Step 1: Update `docs/DEFERRED_BACKLOG.md` — close T-FULL-P1**
 
-Open `docs/DEFERRED_BACKLOG.md`. Locate the T-FULL-P1 entry at line 425 (`### T-FULL-P1 — Paginate \`assemble_full_scan\` + apply lazy-fetch + agent-relevance filter`). Prepend a "RESOLVED" header in the same style as BACKLOG-PR6-22 used:
+Open `docs/DEFERRED_BACKLOG.md`. Locate the T-FULL-P1 entry at line 425 (`### T-FULL-P1 — Paginate \`assemble_full_scan\` + apply lazy-fetch + agent-relevance filter`). Prepend a "SUPERSEDED" header in the same style as BACKLOG-PR6-22 used.
+
+The entire T-FULL-P1 block (lines 425-455) is preserved VERBATIM under a "Historical entry" heading; only the SUPERSEDED preamble is added. Mirror the BACKLOG-PR6-22 precedent.
 
 ```markdown
 ### T-FULL-P1 — Paginate `assemble_full_scan` + apply lazy-fetch + agent-relevance filter — **SUPERSEDED 2026-04-25**
 **Superseded on branch:** `t-scan-refactor` (merge commit TBD on merge).
 **Forwarded to:** **T-SCAN-REFACTOR** — full architectural refactor that subsumed T-FULL-P1's scope. Instead of paginating `scan_full`, the work retired `scan_full` entirely, introduced `scan_agents` as the new paginated multi-agent primitive (with cursor binding generalized to `(target_hash, agents_hash)`), retired all per-agent `scan_<name>` MCP tools, collapsed 4 per-agent + 1 domain orchestrator subagents into one universal `screw-scan.md`, and rewrote the slash command for multi-scope syntax (`domains:`/`agents:` prefix keys). The relevance filter was preserved as `_filter_relevant_agents` in `engine.py`, applied server-side inside `scan_agents` init-page (returns `agents_excluded_by_relevance` records). Spec: `docs/specs/2026-04-25-t-scan-refactor-design.md`. Plan: `docs/PHASE_4_PREP_T_SCAN_REFACTOR_PLAN.md`.
 
-**Historical entry (original deferral, for audit trail):**
+**Historical entry (original deferral, for audit trail — preserve lines 425-455 verbatim below):**
 
-[... existing T-FULL-P1 entry preserved unchanged below ...]
+[... existing T-FULL-P1 entry preserved unchanged below — body verbatim, no edits ...]
 ```
 
 - [ ] **Step 2: Update DEFERRED_BACKLOG blocker table + Phase 4 gate**
@@ -2924,7 +4006,12 @@ Phase 4 gate paragraph (line ~141):
 
 - [ ] **Step 3: Add new deferred items**
 
-Append 6 new entries near the existing deferred items section (find the appropriate section based on doc convention):
+**Placement (per Marco-approved EQ5):**
+- Insert a new top-level section heading `## T-SCAN-REFACTOR follow-ups (slash command + relevance filter UX)` AFTER the existing §"Phase 7 (multi-process MCP server)" section ends. Place T-SCAN-FILTER-1, T-SCAN-LANG-1, T-SCAN-MERGE-1, T-SCAN-RELEV-1, T-SCAN-LIST-1, T-SCAN-AUDIT-1 under this heading.
+- Insert ANOTHER new top-level section heading `## T-SCAN-REFACTOR Documentation Backlog` immediately after the previous section. This section captures doc-rewrite follow-ups deferred from Task 9.
+- Add entry `T-SCAN-REFACTOR-DOC-1: AGENT_CATALOG.md per-domain orchestrator deeper rewrite` to the Documentation Backlog section. (Even though EQ1=B does the full rewrite in Task 9, retain this entry as a tracking record for "if any deeper semantic adjustments surface during implementation, file them here for follow-up.")
+
+Append 6 new entries under the new "T-SCAN-REFACTOR follow-ups" section heading (placement per above):
 
 ```markdown
 ### T-SCAN-FILTER-1 — `severity:` / `cwe:` / `exclude-agents:` slash command filters
@@ -2972,35 +4059,62 @@ Append 6 new entries near the existing deferred items section (find the appropri
 
 - [ ] **Step 4: Update `docs/PROJECT_STATUS.md`**
 
-(a) Top-of-file gate line:
+(a) **Line 33 top-of-file gate line:**
 
 ```markdown
 Gates G1-G4 pass. **Phase 4 (Autoresearch) is gated only on D-01 (Rust benchmark corpus) — all other prereqs shipped through T-SCAN-REFACTOR. See §"Phase 4 Prerequisites (hard gates)" below.**
 ```
 
-(b) New "What's shipped" bullet (chronologically after T19-M):
+(b) **Lines 24-31 — New "What's shipped" bullet** (chronologically after T19-M):
 
 ```markdown
-- **T-SCAN-REFACTOR (branch `t-scan-refactor`)** merged 2026-04-25 — Final Phase-4 prereq. Subsumes T-FULL-P1. Replaces 6-tool scan surface (`scan_full` + `scan_domain` + 4 per-agent) with `scan_agents` paginated primitive + `scan_domain` thin wrapper. Adds per-agent language relevance filter (`_filter_relevant_agents`) with extension + shebang detection. Cursor binding generalized to `(target_hash, agents_hash)` (Option β). Rewrites slash command for multi-scope syntax (`/screw:scan domains:A,B agents:1A,2A`). Collapses 5 subagents into universal `screw-scan.md`. Test suite: 906 → ~970 passed, 8 skipped. Phase 4 blocker count drops 1 → 0.
+- **T-SCAN-REFACTOR (branch `t-scan-refactor`)** merged 2026-04-25 — Final Phase-4 prereq. Subsumes T-FULL-P1. Replaces 6-tool scan surface (`scan_full` + `scan_domain` + 4 per-agent) with `scan_agents` paginated primitive + `scan_domain` thin wrapper. Adds per-agent language relevance filter (`_filter_relevant_agents`) with extension + shebang detection. Cursor binding generalized to `(target_hash, agents_hash)` (Option β). Rewrites slash command for multi-scope syntax (`/screw:scan domains:A,B agents:1A,2A`). Collapses 5 subagents into universal `screw-scan.md`. Test suite: 906 → 996 passed, 9 skipped (HEAD baseline `c7fa9d9`). Phase 4 blocker count drops 1 → 0.
 ```
 
-(c) Phase 4 row in phase table:
+(c) **Line 422 Phase 4 row in phase table:**
 
 ```markdown
 | Phase 4 | Autoresearch & Self-Improvement — step 4.0 is D-01 (hard gate) | **Pending**, hard-gated only on D-01 |
 ```
 
-(d) §"Phase 4 Prerequisites (hard gates)" — delete the T-FULL-P1 block entirely; update the introductory paragraph to state the only remaining prereq is D-01.
+(d) **Lines 438-441 §"Phase 4 Prerequisites (hard gates)"** — delete the T-FULL-P1 block entirely; update the introductory paragraph to state the only remaining prereq is D-01.
 
-- [ ] **Step 5: Update `docs/PRD.md`**
+(e) **Line 21 §"Current Phase" header:**
+Replace `Phase 3b closed — Phase 4 prereq sweep in progress` with `Phase 3b closed — all Phase-4 prereqs except D-01 shipped (T-SCAN-REFACTOR final, 2026-04-25)`.
 
-§3 (Architecture) — find references to `scan_full`, per-agent tools, per-agent subagents. Update:
-- Tool count: was 3 scan-shaped MCP tools (or 6 including per-agent); now 2 (`scan_agents` + `scan_domain`).
-- Subagent count: was 5 (4 per-agent + 1 domain); now 1 (`screw-scan`) for scan-shaped subagents (plus unchanged `screw-script-reviewer`, `screw-learning-analyst`).
+(f) **Lines 134-136** are archival ("What was done in Phase 2") and contain retired subagent names. DO NOT REWRITE — they correctly describe what shipped at the time.
 
-§4 (YAML schema) — clarify that `HeuristicEntry.languages: list[str]` is the implicit relevance signal derived for the per-agent language filter. Add a sentence: "Agents that omit `languages` on their heuristic entries are treated as 'always relevant' (D6 fail-open in T-SCAN-REFACTOR spec)."
+- [ ] **Step 5: PRD.md updates**
 
-§6 (User-facing examples) — add multi-scope examples:
+Open `docs/PRD.md`. Apply these targeted edits:
+
+(a) **§6 Tool Inventory table (lines 308-314):**
+- Drop the `scan_{agent_name}` row (per-agent tools retired)
+- Drop the `scan_full` row (retired)
+- Add a `scan_agents` row: "agents: list[str], target, optional cursor + page_size; returns paginated init/code-page response with `agents_excluded_by_relevance` field"
+- Update `scan_domain` row description to "Convenience shortcut for `scan_agents`; runs all agents in a CWE-1400 domain"
+- Add a `resolve_scope` row: "Slash-command scope-spec parser; returns `{agents, summary}`. Used by `/screw:scan` to translate user input."
+
+(b) **§7.1 Subagent inventory tree (lines 333-344):**
+- Replace the 5 retired entries (screw-sqli, screw-cmdi, screw-ssti, screw-xss, screw-injection) with a single line: "`screw-scan.md` — universal scan runner (Task 7 of T-SCAN-REFACTOR; replaces 5 per-vuln + per-domain subagents). Dispatched with `agents: list[str]` from main session."
+- Verify supporting subagents (screw-script-reviewer, screw-learning-analyst) are still listed.
+
+(c) **§7.1 Workflow narrative (lines 381-391):**
+- Rewrite to show: main session orchestrator → resolves scope via `mcp__screw-agents__resolve_scope` → calls `scan_agents(cursor=null)` for init page → dispatches `screw-scan` subagent with cursor + agents list → subagent walks code pages → returns hybrid C2+enrichment payload → main session optionally chains `screw-script-reviewer` (per `pending_reviews`) → calls `finalize_scan_results`.
+- Drop references to per-domain orchestrators (`screw-injection`).
+
+(d) **§4 Schema example (line 725):**
+- Update agent example to use the validated lowercase identifier (`name: sqli`)
+- Add a `HeuristicEntry.languages: [python, javascript]` example showing the post-Task-2 validator
+- KEEP `target_strategy.relevance_signals` example BUT annotate as "legacy free-form keyword field; see footnote on D4 implicit relevance from `HeuristicEntry.languages`" (legacy backwards-compat field; shipped YAMLs use it)
+- ADD a §4 footnote: "T-SCAN-REFACTOR D4 (2026-04-25): relevance is implicitly derived from `HeuristicEntry.languages` field; agents without language declarations fail-open (kept) per spec §8.5. `relevance_signals` remains as a free-form keyword field for backwards compat; see deferred T-SCAN-RELEV-1 for explicit AST-based signal proposal."
+
+(e) **Appendix C tree (lines 1316-1323):**
+- Replace 5 retired subagent entries with `screw-scan.md`
+- Add `scan_command.py` to the `src/screw_agents/` listing
+
+(f) **§6 multi-scope slash command examples:**
+- Find existing `/screw:scan` examples; if they show single-domain form only, add three example lines covering bare-token, `full`, and `domains:`/`agents:` prefix-key forms.
 
 ```markdown
 **Multi-scope syntax (T-SCAN-REFACTOR):**
@@ -3009,53 +4123,155 @@ Gates G1-G4 pass. **Phase 4 (Autoresearch) is gated only on D-01 (Rust benchmark
 - `/screw:scan domains:A,B,C agents:1A,3C src/api/` — A subset, B implicit full (no agents listed for B), C subset
 - `/screw:scan agents:sqli,xss src/api/` — specific agents anywhere
 - `/screw:scan full src/api/` — every registered agent (post-relevance-filter)
+- `/screw:scan sqli src/api/` — bare-token single agent
+- `/screw:scan injection-input-handling src/api/` — bare-token whole domain
 ```
 
-- [ ] **Step 6: Update `docs/DECISIONS.md`**
+- [ ] **Step 6: DECISIONS.md updates**
 
-Append a new ADR at the end of the file (or in chronological position):
+Open `docs/DECISIONS.md`. Apply these edits:
+
+(a) **ADR-016 SUPERSEDED header (lines 331-346) — per Marco-approved EQ3=A:**
+Prepend the existing ADR-016 with:
 
 ```markdown
-## ADR-T-SCAN-REFACTOR — `scan_agents` primitive, retire `scan_full`, universal subagent
-
-**Date:** 2026-04-25
-**Status:** Accepted (shipped on branch `t-scan-refactor`)
-**Supersedes:** T-FULL-P1 deferral entry
-
-**Context:** Phase 3b-C2 rewrote `/screw:scan full` as a main-session orchestrator looping `list_domains` + per-domain orchestrator dispatch. This bypassed `scan_full` entirely (the unpaginated response couldn't fit at >4 agents). The MCP tool surface had grown to 6 scan-shaped tools (`scan_full` + `scan_domain` + 4 per-agent) — at CWE-1400 expansion would have grown to 43. The slash command's single-token scope syntax couldn't express multi-domain or agent-subset scopes.
-
-**Decision:** Replace the three-tool scan surface with one paginated multi-agent primitive (`scan_agents`) + one thin convenience shortcut (`scan_domain`). Retire `scan_full` and per-agent `scan_<name>` tools. Introduce per-agent language relevance filter. Rewrite slash command for `domains:`/`agents:` prefix-key multi-scope syntax. Collapse 4 per-agent subagents + 1 domain orchestrator into one universal `screw-scan.md`.
-
-**Alternatives considered:**
-- **Path X (T-FULL-P1 as originally scoped):** paginate `scan_full` keeping it alongside `scan_domain` and per-agent tools. Rejected — would build a tool with no live caller (post-C2 the slash command uses domain loop; Phase-4 autoresearch is per-agent). Would still leave the 6→43 tool-count growth unaddressed.
-- **Option B (retire everything except `scan_agents` + `list_agents`):** retire `scan_domain` too. Rejected — `scan_domain` is a high-frequency convenience workflow worth preserving with explicit "shortcut for X" framing.
-- **Option C (keep three peers, add relevance filter):** all three primitives stay; add filter. Rejected — doesn't solve "subset of A + full B + subset of C" (the user-flagged "huge gap").
-
-**Consequences:**
-- MCP tool count drops 6→2 (today), 43→2 (at CWE-1400 expansion).
-- Subagent count drops 5→1 for scan-shaped subagents.
-- Slash command grammar gains expressive power (multi-scope) and adds a registry-load invariant (agent-vs-domain collision check).
-- Cursor protocol generalized: `(target_hash, agents_hash)` binding catches mid-flow agents-list drift.
-- Phase 4 autoresearch consumes `scan_agents([single_name])` for per-agent loops — same primitive serves both single-agent (autoresearch) and multi-agent (slash command) callers.
-- Hard break for retired tools — no compat shim. Justified by zero live external callers.
-
-**References:**
-- Spec: `docs/specs/2026-04-25-t-scan-refactor-design.md` (835 lines, sections 1-18)
-- Plan: `docs/PHASE_4_PREP_T_SCAN_REFACTOR_PLAN.md`
-- Brainstorm decisions D0-D8 (sketch phase) + Q1-Q6 (clarifying-question phase)
+> **SUPERSEDED 2026-04-25 by ADR-T-SCAN-REFACTOR**
+>
+> This ADR described the OLD architecture's dispatch via `screw-full-review` and proposed Phase 6 implications. Phase 3b-C2 (commit `fa2f42a`) deleted `screw-full-review`; T-SCAN-REFACTOR (this PR) collapsed all per-vuln + per-domain orchestrator subagents into a single universal `screw-scan.md` and rewired the slash command to grammar `bare-token | full | domains:|agents:`. Main session now owns dispatch orchestration entirely; subagents do NOT spawn other subagents (Claude Code architectural constraint, `sub-agents.md:711`). The ADR text below is preserved for audit trail.
+>
+> ---
 ```
 
-- [ ] **Step 7: Update `docs/ARCHITECTURE.md`**
+Then preserve ADR-016's existing body verbatim below the separator.
 
-Locate the tool inventory + subagent inventory + scan-flow chain diagrams. Update each:
+(b) **Append new ADR-T-SCAN-REFACTOR** (after ADR-016 block, before any subsequent section):
 
-- Tool inventory: drop `scan_full`, `scan_<agent>` × 4 entries. Add `scan_agents` entry. Update `scan_domain` description as "convenience wrapper for scan_agents".
-- Subagent inventory: drop `screw-sqli`, `screw-cmdi`, `screw-ssti`, `screw-xss`, `screw-injection`. Add `screw-scan` entry. Keep `screw-script-reviewer`, `screw-learning-analyst`.
-- Scan-flow chain diagram: replace "main session → list_domains → per-domain orchestrator dispatch" with "main session → parse + resolve scope → screw-scan dispatch → return to main → finalize".
+```markdown
+## ADR-T-SCAN-REFACTOR — Universal scan subagent + multi-scope slash command (2026-04-25)
+
+### Status
+Accepted; landed on branch `t-scan-refactor`.
+
+### Context
+The pre-T-SCAN-REFACTOR architecture had: 4 per-vuln subagents (screw-sqli/cmdi/ssti/xss; ~414 LOC each, byte-identical modulo name), 1 domain orchestrator (screw-injection), per-agent MCP tools (`scan_<name>`), and a `scan_full` aggregator. The slash command had a single-domain syntax `/screw:scan <domain>`. This produced 4× duplicated subagent body and a domain-only dispatch surface.
+
+### Decision
+1. **Universal subagent**: collapse all per-vuln + per-domain subagents into `screw-scan.md` (~559 LOC), parameterized by `agents: list[str]` from the dispatch prompt. Subagent does NOT dispatch other subagents (chain-subagents architecture, main session orchestrates).
+2. **MCP surface**: introduce `scan_agents` paginated multi-agent primitive with cursor binding `(target_hash, agents_hash)`. `scan_domain` becomes a thin wrapper. Retire `scan_full` and per-agent `scan_<name>` MCP tools (hard break).
+3. **Slash command grammar**: support bare-token (single agent or domain), `full` keyword, and `domains:`/`agents:` prefix-key form. Add `--no-confirm` flag; mutually exclusive with `--adaptive`. Parse via `mcp__screw-agents__resolve_scope` MCP tool (no shell exec).
+4. **Relevance filter**: implicit per-agent language relevance via `HeuristicEntry.languages` declarations; fail-open for agents without declarations. Spec D4 + D6.
+5. **Schema validators**: lowercase-identifier regex on `AgentMeta.name`/`domain`; `SUPPORTED_LANGUAGES` membership on `HeuristicEntry.languages` + `CodeExample.language`.
+
+### Consequences
+- ~1,300 LOC of subagent body deleted (5 files → 1 file).
+- ~270 LOC of adaptive-mode body inlined into universal subagent (parameterized by `agent_entry["agent_name"]`).
+- Cursor protocol generalized: same protocol covers single-domain and arbitrary-agent-set scans.
+- Slash command grammar more expressive (multi-domain, multi-agent, full-set in one syntax).
+- Eliminates shell-injection class via MCP-tool parser invocation.
+- 906 → 996 test count delta across the PR.
+
+### Cross-references
+- Spec: `docs/specs/2026-04-25-t-scan-refactor-design.md`
+- Plan: `docs/PHASE_4_PREP_T_SCAN_REFACTOR_PLAN.md`
+- Supersedes: ADR-016 (Phase 3b-C2 + T-SCAN-REFACTOR jointly).
+```
+
+- [ ] **Step 7: ARCHITECTURE.md full rewrite (per Marco-approved EQ2=C)**
+
+Open `docs/ARCHITECTURE.md`. Apply these edits:
+
+(a) **Update Phase Plan Summary table (lines 181-191):**
+- Phase 3 row: "Complete (Phase 3a + Phase 3b + Phase 3b-C2)"
+- Phase 4 row: "Pending (gated only on D-01 Rust benchmark corpus)"
+
+(b) **ADD a new section after the existing "Phase Lifecycle" section** titled `## Tool & Subagent Inventory (post-T-SCAN-REFACTOR)`. Body:
+
+```markdown
+## Tool & Subagent Inventory (post-T-SCAN-REFACTOR)
+
+### MCP tools (post-2026-04-25)
+
+**Scan tools:**
+- `scan_agents(agents, target, ...)` — paginated multi-agent primitive. Cursor binding `(target_hash, agents_hash)`. Returns init-page with `agents_excluded_by_relevance` + code-pages with per-agent prompts.
+- `scan_domain(domain, target, ...)` — convenience wrapper over `scan_agents`. Resolves all agents in domain.
+
+**Discovery tools:**
+- `list_agents(domain=None)` — enumerate registered agents.
+- `list_domains()` — enumerate domains.
+
+**Adaptive tools** (Phase 3b):
+- `record_context_required_match`, `detect_coverage_gaps`, `accumulate_findings`, `lint_adaptive_script`, `stage_adaptive_script`, `promote_staged_script`, `reject_staged_script`, `execute_adaptive_script`, `verify_trust`.
+
+**Slash-command parser:**
+- `resolve_scope(scope_text)` — Task 8 helper; returns `{agents, summary}`. Used by `/screw:scan`.
+
+**Output:**
+- `finalize_scan_results(session_id, formats=...)` — emit JSON/Markdown/SARIF/CSV reports.
+
+**Retired (T-SCAN-REFACTOR Task 6):**
+- `scan_full` — replaced by `scan_agents(agents=list_agents().names, ...)`.
+- `scan_<name>` per-agent tools (sqli/cmdi/ssti/xss) — replaced by `scan_agents(agents=[<name>], ...)`.
+
+### Subagents (post-2026-04-25)
+
+- **`screw-scan.md`** — universal scan runner (~559 LOC). Replaces 5 deleted per-vuln + per-domain subagents (screw-sqli, screw-cmdi, screw-ssti, screw-xss, screw-injection — Task 7 of T-SCAN-REFACTOR). Dispatched with `agents: list[str]` from main session.
+- **`screw-script-reviewer.md`** — adaptive script review. Dispatched by main session per `pending_reviews` chain (chain-subagents architecture, Phase 3b-C2).
+- **`screw-learning-analyst.md`** — learning-mode analyst (Phase 3a).
+
+Subagents do NOT dispatch other subagents (Claude Code constraint, `sub-agents.md:711`). Main session is the sole orchestrator.
+
+### Slash command grammar (post-Task-8)
+
+`/screw:scan <scope-spec> <target> [--adaptive | --no-confirm | --thoroughness <L>] [--format <F>]`
+
+Scope-spec forms (mutually exclusive):
+- **Bare-token**: single agent name (e.g., `sqli`) or domain name (e.g., `injection-input-handling`).
+- **`full`** keyword: all registered agents.
+- **Prefix-key**: `domains:foo,bar agents:baz,qux` — combine multiple domains and agents.
+
+Examples:
+```
+/screw:scan sqli src/api/                    # single agent
+/screw:scan injection-input-handling src/    # whole domain
+/screw:scan full .                           # all agents
+/screw:scan agents:sqli,xss src/api/         # subset across domains
+/screw:scan domains:foo agents:baz src/      # mix
+```
+
+### Scan flow (chain-subagents architecture)
+
+```
+slash command       resolve_scope        scan_agents (init page)
+   ↓                    ↓                       ↓
+main session ──────────────────────────────────→  pre-execution summary
+   ↓                                                    ↓
+   ↓                                              user consent (or --no-confirm)
+   ↓                                                    ↓
+dispatch screw-scan ──────────────────────────────────────────→ scan_agents (code pages)
+   ↓                                                                  ↓
+   ↓                                                            accumulate_findings
+   ↓                                                                  ↓
+parse return (C2 + enrichment) ←─────────────────────────────── return structured payload
+   ↓
+optionally chain screw-script-reviewer (per pending_reviews)
+   ↓
+finalize_scan_results
+   ↓
+report (JSON, Markdown, SARIF, CSV per --format)
+```
+```
+
+(c) **Drop or rewrite any section that contradicts the new inventory.**
+
+This is approximately 80-100 LOC of new architecture content per Marco-approved EQ2=C.
 
 - [ ] **Step 8: Update `docs/AGENT_AUTHORING.md`**
 
-Append a new section near the YAML schema discussion:
+(a) Append a new section near the YAML schema discussion (full content below).
+
+(b) Append the "Adding a new agent (post-T-SCAN-REFACTOR)" section after (a).
+
+(c) Drop the line-5 stale TODO: `TODO: Step-by-step guide for writing YAML agent definitions will be written after Phase 0...` Phase 0 is complete; replace with the new substantive content from sub-steps (a)-(b).
 
 ```markdown
 ## Global uniqueness invariants (T-SCAN-REFACTOR)
@@ -3080,21 +4296,67 @@ Adding a new vulnerability agent NO LONGER requires a per-agent subagent file. S
 The universal `screw-scan` subagent handles all registered agents — no new subagent file needed.
 ```
 
-- [ ] **Step 9: Update `docs/CONTRIBUTING.md`**
+- [ ] **Step 9: CONTRIBUTING.md updates**
 
-Search for any "how to add a new agent" or "how to write a subagent" sections. If present, update to reference the new AGENT_AUTHORING section above. If absent, no change needed.
+Open `docs/CONTRIBUTING.md`. Apply these edits:
 
-- [ ] **Step 10: Update `docs/AGENT_CATALOG.md`**
+(a) **Lines 24-27 retired-identifier block:**
+- Replace `/screw:scan <sqli|cmdi|ssti|xss|injection|full> [target]` example with the new grammar:
+```
+/screw:scan <agent | domain | full | domains:foo,bar | agents:baz,qux> [target] [--adaptive | --no-confirm]
+```
+- Replace the retired subagent listing (`screw-sqli, screw-cmdi, screw-ssti, screw-xss, screw-injection, screw-full-review`) with the post-T-SCAN-REFACTOR listing:
+```
+Subagents: `screw-scan` (universal), `screw-script-reviewer` (adaptive review chain), `screw-learning-analyst` (learning mode).
+```
 
-Search for any references to per-agent MCP tools or per-agent subagents. Update tool counts; if the catalog formerly listed `scan_<name>` tools per agent, replace with a single note "All agents are runnable via `scan_agents([<name>])` MCP tool or `/screw:scan <name>` slash command".
+(b) Search for any "how to add a new agent" or "how to write a subagent" sections. If present, update the example to YAML schema + new universal subagent dispatch. Reference the new AGENT_AUTHORING section.
+
+(c) Search for any references to retired MCP tools (`scan_full`, `scan_<name>`) in CONTRIBUTING.md. If present, update to `scan_agents`.
+
+- [ ] **Step 10: AGENT_CATALOG.md FULL REWRITE (per Marco-approved EQ1=B)**
+
+The pre-T-SCAN-REFACTOR architecture assumed "1 orchestrator subagent per domain + 1 .md subagent per agent = 60 .md files at full CWE-1400 expansion". T-SCAN-REFACTOR retires that entirely: 1 universal `screw-scan.md` covers all agents.
+
+Apply a substantive rewrite:
+
+(a) **Update preamble "Reading This Document" (lines 1-15):**
+Replace the subagent description with: "Each domain section lists planned agent definitions (YAML files in `domains/<domain>/<agent>.yaml`). At runtime, ALL agents are dispatched via the single universal `screw-scan.md` subagent (T-SCAN-REFACTOR, 2026-04-25); per-agent .md subagent files are NOT created."
+
+(b) **Replace summary table (lines 18-25)** with:
+```
+| Layer | Count | Files |
+|---|---|---|
+| Domains (CWE-1400 categories) | 18 | `domains/<domain>/` directories |
+| Agents (planned at full CWE-1400 expansion) | 41 | `domains/<domain>/<agent>.yaml` YAML files |
+| Universal scan subagent | 1 | `plugins/screw/agents/screw-scan.md` |
+| Supporting subagents | 2 | `screw-script-reviewer.md`, `screw-learning-analyst.md` |
+| **Total subagent .md files** | **3** | (was 60 in pre-T-SCAN-REFACTOR design) |
+```
+
+(c) **For EACH of the 18 domain sections** (lines 40, 55, 72, 88, 104, 120, 137, 154, 168, 193, 209, 225, 242, 256, 272, 286, 300, 317):
+Replace `**Orchestrator:** screw-<domain>.md` with `**Dispatch:** universal `screw-scan.md` via `/screw:scan <domain>` (or `/screw:scan domains:<domain>`)`.
+
+(d) **§"Build Order by Phase":** Update subagent counts to reflect 3 .md files (not 60).
+
+(e) **Anywhere that references per-agent `scan_<name>` MCP tools or per-agent .md subagents:** replace with `scan_agents([<name>])` and "dispatch via `screw-scan`".
+
+This is approximately 200-300 LOC of edits per Marco-approved EQ1=B.
 
 - [ ] **Step 11: Final grep verification**
 
-```
-grep -rn 'scan_full\|assemble_full_scan' docs/ src/ tests/ plugins/ 2>/dev/null | grep -v __pycache__ | grep -v 'specs/' | grep -v 'PHASE_.*_PLAN\|DEFERRED_BACKLOG.*Historical entry'
+```bash
+# Run the final cleanup grep, allowing only marked-superseded historical context
+grep -rn 'scan_full\|assemble_full_scan' docs/ src/ tests/ plugins/ \
+    --exclude-dir=__pycache__ \
+    --exclude-dir=specs \
+    --include='*.md' --include='*.py' \
+    | grep -vE '(SUPERSEDED|Historical entry|forwarded to|retired|migration note)'
 ```
 
 Expected: no hits in current/active docs. Hits in `PHASE_*_PLAN.md` historical context (e.g., the T19-M plan referencing T-FULL-P1) are allowed if marked "superseded".
+
+(Or use `awk` two-pass; pick whichever is simpler. The original `'PHASE_.*_PLAN\|DEFERRED_BACKLOG.*Historical entry'` pattern was per-line not per-file — the rewrite uses `--exclude-dir` and per-line `-vE` over allowlisted markers, which is the correct semantics.)
 
 ```
 grep -rn 'screw-sqli\|screw-cmdi\|screw-ssti\|screw-xss\|screw-injection' docs/ plugins/ 2>/dev/null | grep -v __pycache__
@@ -3102,21 +4364,33 @@ grep -rn 'screw-sqli\|screw-cmdi\|screw-ssti\|screw-xss\|screw-injection' docs/ 
 
 Expected: no hits in `docs/` or `plugins/`. (The 5 subagent files themselves are deleted in Task 7.)
 
+- [ ] **Step 11b: CLAUDE.md root file updates (per Marco-approved EQ4=A)**
+
+Open `/home/marco/Programming/AI/screw-agents/.worktrees/t-scan-refactor/CLAUDE.md` (root project CLAUDE.md, NOT docs/CLAUDE.md if that exists).
+
+(a) **Line "Phase: Pre-implementation. Architecture and product design phase is complete."** → update to reflect current state: `Phase 3b closed; Phase 4 prereq sweep complete (T-SCAN-REFACTOR final 2026-04-25); next milestone is Phase 4 step 4.0 (D-01 Rust benchmark corpus).`
+
+(b) **Line "Next milestone: Phase 0 — Knowledge Research Sprint..."** → DROP entirely (Phase 0 is complete).
+
+(c) **§"Current State" block** — update bullet list to reflect: PRD frozen at v0.4.3; Tasks 1-8 of T-SCAN-REFACTOR shipped; suite at 996/9; Phase 4 gated on D-01 only.
+
+(d) Search for any references to `scan_full`, `scan_<name>`, or 5-subagent architecture (`screw-sqli` etc.). Update to current state.
+
 - [ ] **Step 12: Run full test suite — confirm no regression**
 
 ```
 uv run pytest -q 2>&1 | tail -5
 ```
 
-Expected: ~960 passed, 8 skipped. (Doc changes don't run tests; this is a sanity check.)
+Expected: **996 passed, 9 skipped** (HEAD baseline `c7fa9d9` — Tasks 1-8 shipped; Task 9 is doc-only with DELTA = 0 tests). Zero failures.
 
 - [ ] **Step 13: Commit**
 
 ```bash
-git add docs/
+git add docs/ CLAUDE.md
 git commit -m "T-SCAN-REFACTOR Task 9: documentation sync
 
-8 docs updated to reflect the shipped architecture (per Marco's reminder
+9 docs updated to reflect the shipped architecture (per Marco's reminder
 during brainstorm, and feedback_plan_sync_on_deviation memory):
 
 DEFERRED_BACKLOG.md:
@@ -3140,22 +4414,55 @@ PRD.md:
 - §6 examples: multi-scope syntax samples added
 
 DECISIONS.md:
-- new ADR for T-SCAN-REFACTOR captures Path Y rationale, all
+- ADR-016 SUPERSEDED header (per EQ3=A) preserves body for audit trail
+- new ADR-T-SCAN-REFACTOR captures Path Y rationale, all
   alternatives, consequences, references to spec + plan + brainstorm
 
-ARCHITECTURE.md:
-- tool inventory, subagent inventory, scan-flow chain diagrams redrawn
+ARCHITECTURE.md (per EQ2=C — full rewrite):
+- new Tool & Subagent Inventory section (~80-100 LOC)
+- slash command grammar + scan-flow diagram redrawn for chain-subagents
 
 AGENT_AUTHORING.md:
+- line-5 stale TODO replaced with substantive content
 - new section on global uniqueness invariants
 - new section on adding agents post-refactor (no per-agent subagent
   file required)
 
-CONTRIBUTING.md, AGENT_CATALOG.md:
+CONTRIBUTING.md:
+- lines 24-27 retired-identifier block edits (slash command grammar +
+  subagent listing)
 - references to retired tools / subagents updated
+
+AGENT_CATALOG.md (per EQ1=B — full rewrite):
+- preamble updated: per-agent .md subagent files NOT created
+- summary table reflects 3 .md files (was 60 in pre-T-SCAN-REFACTOR)
+- 18 per-domain orchestrator entries → universal screw-scan dispatch
+
+CLAUDE.md (root file, per EQ4=A):
+- Phase line updated from "Pre-implementation" to "Phase 3b closed"
+- Phase 0 milestone removed (complete)
+- Current State block updated to reflect 996/9 suite + Phase 4 readiness
 
 Plan and code are coherent at merge time."
 ```
+
+**Plan-fix additions (2026-04-26, post pre-audit on HEAD c7fa9d9):**
+- Scope expanded to 9 docs (CLAUDE.md root added per EQ4=A).
+- All test-count baselines corrected to 996/9 (was stale at ~983/8 / ~970 / ~988 across the plan).
+- Step 5 (PRD.md) expanded with explicit line ranges and per-section instructions for tool table, subagent tree, workflow narrative, schema example, Appendix C tree, multi-scope examples.
+- Step 6 (DECISIONS.md) expanded with ADR-016 SUPERSEDED header (EQ3=A) + new ADR-T-SCAN-REFACTOR.
+- Step 7 (ARCHITECTURE.md) replaced with FULL REWRITE (EQ2=C): adds 80-100 LOC inventory section covering MCP tools, subagents, slash command grammar, scan-flow diagram.
+- Step 8 (AGENT_AUTHORING.md) adds line-5 stale TODO cleanup.
+- Step 9 (CONTRIBUTING.md) replaced with explicit line-24-27 retired-identifier block edits.
+- Step 10 (AGENT_CATALOG.md) replaced with FULL REWRITE (EQ1=B): summary table, all 18 per-domain orchestrator entries, preamble, build-order subagent counts.
+- Step 4 (PROJECT_STATUS.md) sub-steps gain explicit line numbers + new sub-step (e) for line-21 header rewording.
+- Step 1 (DEFERRED_BACKLOG T-FULL-P1) clarified: "preserve lines 425-455 verbatim under Historical entry heading".
+- Step 3 (DEFERRED_BACKLOG new items) gains explicit placement: new section "T-SCAN-REFACTOR follow-ups" + new section "T-SCAN-REFACTOR Documentation Backlog" (per EQ5) with entry T-SCAN-REFACTOR-DOC-1.
+- Step 11 (final grep) regex fixed; per-line OR per-file semantics clarified.
+- New Step 11b: CLAUDE.md root file edits (per EQ4=A).
+- Step 5 sub-step (d) clarifies `target_strategy.relevance_signals` field reconciliation (keep legacy, add HeuristicEntry.languages example, add D4 footnote).
+
+Doc-only — no code changes. No test count delta (Task 9 is docs-only). Implementer dispatched on next commit.
 
 ---
 
@@ -3296,17 +4603,19 @@ Section in Plan | Expected count
 ---|---
 Baseline (main HEAD `02d90d1`) | 906 passed, 8 skipped
 After Task 1 (registry invariants +5) | 911
-After Task 2 (relevance filter +14) | 925
-After Task 3 (assemble_agents_scan +20) | 945
-After Task 4 (refactor; 0 net) | 945
-After Task 5 (server dispatch +1) | 946
-After Task 6 (deletions ~-8) | ~938
-After Task 7 (subagent tests +7) | ~945
-After Task 8 (parser tests +15) | ~960
-After Task 9 (docs only; 0) | ~960
-After Task 10 (verification only; 0) | ~960
+After Task 2 (relevance filter +14 ; +12 fix-up = +26 net shipped per HEAD `daa8691`) | **943** (Task-2-shipped baseline)
+After Task 3 (assemble_agents_scan +26 plan-fix + +5 fix-up D1/D2/coverage = +31 ; +1 conditional skip) | **974 passed, 9 skipped** (Task-3-shipped baseline)
+After Task 4 (wrapper refactor 0 + Step 4b retrofit +1 per plan-fix E2) | 975
+After Task 5 (server dispatch +1) | 976
+After Task 6 (deletions ~-8) | ~968
+After Task 7 (subagent tests +7) | ~975
+After Task 8 (parser tests +15; shipped at HEAD `c7fa9d9`) | **996 passed, 9 skipped** (Task-8-shipped baseline)
+After Task 9 (docs only; 0) | 996
+After Task 10 (verification only; 0) | 996
 
-Final target: **≈960 passed, 8 skipped**. Deviations of ±5 from cleanup and migration accounting are acceptable.
+Final target: **996 passed, 9 skipped** (HEAD baseline `c7fa9d9` end-of-Task-8). Task 9 is doc-only (DELTA = 0 tests); Task 10 is verification-only.
+
+**Cascade derivation note:** baseline 943 reflects HEAD `daa8691` (Task 2 fix-up shipped 26 net new tests, not 14 + 5 as the original plan modeled). Plan-fix on Task 3 adds 4 new validation tests for E1+E2 (duplicates, non-string, page_size > 500, validation ordering). Task 3 fix-up adds 5 net new passing tests (D1 empty-string cursor, D2 response-order invariance, multiple-unknown collection, offset-above-total, project-root-no-exclusions) + 1 conditional skip (all-agents-filtered). Plan-fix on Task 4 adds 1 test (page_size upper bound on `assemble_domain_scan`). Final delta vs original cumulative target: +28 tests + 1 skip shift (8 → 9).
 
 ### 6. Cross-plan sync (per `feedback_cross_plan_sync` memory)
 
@@ -3353,7 +4662,7 @@ On completion of Task 10:
 
    ## Test plan
 
-   - [x] All ~960 unit tests pass; 8 skipped (unchanged); zero failures.
+   - [x] All 996 unit tests pass; 9 skipped (unchanged); zero failures.
    - [x] Round-trip 1: `/screw:scan domains:injection-input-handling agents:sqli src/screw_agents/ --no-confirm` — pre-execution summary correct, sqli runs, report generated.
    - [x] Round-trip 2: `/screw:scan full src/screw_agents/ --no-confirm` — all 4 agents resolved + filtered + run, aggregated report generated.
    - [x] grep verification: zero `scan_full` / `assemble_full_scan` / `screw-sqli|cmdi|ssti|xss|injection` references in active code or docs.

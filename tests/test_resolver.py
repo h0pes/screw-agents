@@ -279,3 +279,32 @@ def test_filter_by_relevance_no_matches_returns_empty(tmp_path):
     codes = [ResolvedCode(file_path=str(f1), content=f1.read_text(), language="python")]
     filtered = filter_by_relevance(codes, ["subprocess", "os.system"])
     assert len(filtered) == 0
+
+
+# ---------------------------------------------------------------------------
+# `_detect_language` extension-precedence contract (Task 2 fix-up, Minor 6)
+# ---------------------------------------------------------------------------
+
+
+def test_detect_language_extension_wins_over_shebang() -> None:
+    """File with .py extension and a bash shebang returns 'python' (extension wins)."""
+    from screw_agents.resolver import _detect_language
+
+    result = _detect_language("foo.py", content="#!/bin/bash\necho hello\n")
+    assert result == "python"
+
+
+def test_detect_language_falls_back_to_shebang_when_no_extension() -> None:
+    """File without extension but with python shebang returns 'python'."""
+    from screw_agents.resolver import _detect_language
+
+    result = _detect_language("myscript", content="#!/usr/bin/env python3\nprint('hi')\n")
+    assert result == "python"
+
+
+def test_detect_language_returns_none_when_no_extension_no_content() -> None:
+    """File without extension and content=None returns None."""
+    from screw_agents.resolver import _detect_language
+
+    assert _detect_language("myscript", content=None) is None
+    assert _detect_language("myscript") is None  # content default
