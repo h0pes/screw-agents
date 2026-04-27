@@ -567,14 +567,15 @@ At CWE-1400 expansion scale (41 agents × ~5-7k tokens prompt each + all code), 
 **Suggested fix:** Add a Claude Code hook that fires on `/screw:scan ... --no-confirm` invocations and logs to `.screw/audit/`. ~20 LOC + hook configuration.
 
 ### T-SCAN-REFACTOR-RT-1 — Subagent classification non-determinism on identical target
-**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 10 round-trip 1+2, 2026-04-27
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 10 round-trip 1+2+3, 2026-04-27
 **Phase-4 readiness:** `non-blocker` — LLM-driven classification stability concern, not a wiring bug
 
-**Why deferred:** Same dao.py:9 f-string SQLi pattern, same `sqli` agent's `py-dbapi-fstring` heuristic, two consecutive round-trips:
-- RT1 (`/screw:scan domains:injection-input-handling agents:sqli src/ --no-confirm`) → classified context-required → 0 findings + 1 coverage gap
-- RT2 (`/screw:scan full src/ --no-confirm`) → classified medium-confidence → 1 active finding (severity HIGH, CWE-89)
+**Why deferred:** Same dao.py f-string SQLi pattern, same `sqli` agent's `py-dbapi-fstring` heuristic, three consecutive round-trips:
+- RT1 (`/screw:scan domains:injection-input-handling agents:sqli src/ --no-confirm`) → classified context-required → 0 findings + 1 coverage gap (no line-number issue since no finding emitted)
+- RT2 (`/screw:scan full src/ --no-confirm`) → classified medium-confidence → 1 active finding (severity HIGH, CWE-89, dao.py:**9** — WRONG line; actual vulnerable line is 8 per fixture source)
+- RT3 (`/screw:scan domains:injection-input-handling agents:sqli src/ --adaptive`) → classified high-confidence directly → 1 active finding (severity HIGH, CWE-89, dao.py:**8** — CORRECT line)
 
-Same heuristic-pattern match, two different verdicts on identical input. The heuristic itself is tagged `severity: context-required` because static analysis can't confirm `qb` is a SQL DB cursor or that `user_id` is user-controlled — so both classifications are defensible given the ambiguity. But users running the same scan twice would expect repeatable results. This is LLM non-determinism at the subagent's analysis layer.
+Three consecutive runs of the same agent against the same target produced three different verdicts AND, in two of three runs, two different line numbers. The combination of classification non-determinism (this entry) and line-number drift (T-SCAN-REFACTOR-RT-5 below) compounds: a user re-running the same scan would see different findings AND different file locations. The heuristic itself is tagged `severity: context-required` because static analysis can't confirm `qb` is a SQL DB cursor or that `user_id` is user-controlled — so all three classifications are defensible given the ambiguity. But users running the same scan multiple times would expect repeatable results. This is LLM non-determinism at the subagent's analysis layer.
 
 **Remediation sketch:** Investigate options:
 - (a) Tighter agent prompt instruction: "if the heuristic is tagged context-required, ALWAYS surface as gap, never as active finding"
@@ -627,6 +628,55 @@ The coverage gap is in the structured payload (subagent return → `coverage_gap
 - Update spec / PRD §5 if necessary (the report-shape description).
 
 **Estimated scope:** ~30-50 LOC across `results.py` + 5-8 new tests in `test_results.py`. Update `screw-scan.md` subagent prompt to ensure `coverage_gaps` field is in the C2 return schema (already specified in plan-fix Edit 5; verify the implementation actually emits it).
+
+### T-SCAN-REFACTOR-RT-4 — `confirm-high` missing from screw-script-reviewer Section 5 help text
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 10 round-trip 3 (--adaptive flow), 2026-04-27
+**Phase-4 readiness:** `non-blocker` — pre-existing Phase 3a/3b defect surfaced via T10 RT3, not introduced by T-SCAN-REFACTOR
+
+**Why deferred:** The `screw:screw-script-reviewer` subagent's 5-section review output, Section 5 ("Your decision"), enumerates only 4 of the 5 valid commands the underlying engine supports:
+
+Listed in current output:
+- `approve <name>` (default low-risk path)
+- `reject <name> <reason>` (default reject)
+- `approve <name> confirm-stale` (when staging is older than 24h)
+- `approve <name> confirm-<8hex-prefix>` (when approval registry is lost)
+
+Missing from the listed set:
+- `approve <name> confirm-high` — required when the Layer 0d reviewer rates the script as `risk=high`
+
+The omission was surfaced during RT3's interactive review of 3 risk=low scripts: the final summary correctly stated "No confirm-high approvals required (all 3 scripts rated risk=low by Layer 0d)" but the per-script Section 5 help block did NOT mention `confirm-high` as an option. A user faced with a future risk=high script would have no in-band guidance on the required incantation.
+
+This is a screw-script-reviewer prompt template gap; T-SCAN-REFACTOR Task 7 did NOT modify screw-script-reviewer.md (only the per-vuln subagents collapsed into screw-scan.md). Pre-existing.
+
+**Remediation sketch:** Update `plugins/screw/agents/screw-script-reviewer.md` Section 5 template to include `approve <name> confirm-high` (When the script is rated risk=high by the Layer 0d reviewer). Order suggestion (lowest friction first):
+- `approve <name>` — default for risk=low
+- `approve <name> confirm-high` — required when Layer 0d rates risk=high
+- `approve <name> confirm-stale` — when staging is older than 24h
+- `approve <name> confirm-<8hex-prefix>` — when approval registry is lost
+- `reject <name> <reason>` — discard with reason
+
+**Estimated scope:** ~5 LOC subagent prompt edit + add 1 invariant test in `tests/test_screw_script_reviewer_subagent.py` (or wherever existing tests live) asserting all 5 confirmation forms are mentioned. Verify the test actually finds the file (Phase 3a/3b shipped this subagent in a separate file from screw-scan.md).
+
+### T-SCAN-REFACTOR-RT-5 — Line-number drift between runs on identical fixture
+**Source:** Phase-4 prereq T-SCAN-REFACTOR Task 10 round-trips 1+2+3, 2026-04-27
+**Phase-4 readiness:** `non-blocker` — LLM-classification correctness concern; correlates with RT-1
+
+**Why deferred:** Same `/tmp/screw-roundtrip-qb/src/dao.py` fixture across three round-trips. The actual vulnerable f-string is at line 8 (`result1 = qb.execute(f"SELECT * FROM users WHERE id = {user_id}")`); lines 9 and 10 are constant-SQL safe. Round-trip outputs:
+
+- **RT1** — no finding emitted (gap only); no line-number issue surfaced
+- **RT2** — finding at `dao.py:9` (WRONG — line 9 is `qb.execute("SELECT * FROM users WHERE active = 1")`, a constant-SQL line; the f-string is at line 8)
+- **RT3** — finding at `dao.py:8` (CORRECT)
+
+Two-out-of-three runs produced wrong line numbers. The agent's per-line analysis is unstable; users who re-scan would not only see different verdicts (RT-1) but different file:line locations.
+
+**Remediation sketch:** Add a post-finalize verification pass:
+- For each emitted finding, the engine reads the cited file:line and asserts the heuristic's regex pattern actually matches at that line.
+- If the line doesn't match, fall back to the nearest line within ±3 lines whose content matches; emit a WARN log noting the line correction; if no match found within ±3 lines, drop the finding (false-positive at wrong location is worse than no finding).
+- Alternative cheaper fix: agent prompt instruction "always include the LITERAL code at the cited line in the finding's `code_snippet` field; engine compares to file content as a last-resort check before emit."
+
+Scope: ~30 LOC engine logic + 5-8 tests. The `code_snippet` field already exists in the finding schema; the verification step would compare it to the actual file content at the cited line.
+
+**Estimated scope:** 30 LOC + 5-8 tests + small subagent prompt edit (~5 LOC).
 
 ---
 
