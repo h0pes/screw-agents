@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Deploy MoreFixes Postgres dump via docker-compose.
-# Idempotent — skips download if dump already present.
+# Idempotent: skips download when the database is already loaded.
 
 set -euo pipefail
 
@@ -14,7 +14,12 @@ COMPOSE_FILE="$ROOT_DIR/external/morefixes/docker-compose.yml"
 
 mkdir -p "$DUMP_DIR"
 
-if [ ! -f "$DUMP_FILE" ]; then
+ensure_dump() {
+    if [ -f "$DUMP_FILE" ]; then
+        echo "Dump already present: $DUMP_FILE"
+        return
+    fi
+
     if [ ! -f "$ZIP_FILE" ]; then
         echo "Downloading MoreFixes dump from Zenodo ..."
         echo "(This is a 3.5 GB zip — be patient)"
@@ -36,16 +41,14 @@ if [ ! -f "$DUMP_FILE" ]; then
         mv "$EXTRACTED" "$DUMP_FILE"
     fi
     echo "SQL dump ready: $DUMP_FILE"
-else
-    echo "Dump already present: $DUMP_FILE"
-fi
+}
 
 echo "Starting docker-compose ..."
 docker compose -f "$COMPOSE_FILE" up -d
 
 echo ""
-echo "Waiting for Postgres to finish loading the dump ..."
-echo "(First-time load may take 10-20 minutes.)"
+echo "Waiting for Postgres readiness ..."
+echo "(First-time import can still take a long time after readiness.)"
 
 for i in {1..120}; do
     if docker compose -f "$COMPOSE_FILE" exec -T morefixes-db pg_isready -U morefixes -d morefixes >/dev/null 2>&1; then
@@ -58,6 +61,31 @@ for i in {1..120}; do
         exit 1
     fi
 done
+
+has_morefixes_tables() {
+    docker compose -f "$COMPOSE_FILE" exec -T morefixes-db \
+        psql -U morefixes -d morefixes -tAc \
+        "SELECT to_regclass('public.fixes') IS NOT NULL" \
+        | grep -q t
+}
+
+if has_morefixes_tables; then
+    echo "MoreFixes tables already present."
+else
+    ensure_dump
+    echo "MoreFixes tables are missing; importing SQL dump explicitly ..."
+    echo "(This can take a long time on first import.)"
+    docker compose -f "$COMPOSE_FILE" exec -T morefixes-db \
+        psql -U morefixes -d morefixes -v ON_ERROR_STOP=1 -c \
+        "DO \$\$ BEGIN IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'postgrescvedumper') THEN CREATE ROLE postgrescvedumper; END IF; END \$\$;"
+    docker compose -f "$COMPOSE_FILE" exec -T morefixes-db \
+        psql -U morefixes -d morefixes -v ON_ERROR_STOP=1 < "$DUMP_FILE"
+    if ! has_morefixes_tables; then
+        echo "ERROR: SQL import completed but MoreFixes tables are still missing" >&2
+        exit 1
+    fi
+    echo "MoreFixes SQL import completed."
+fi
 
 echo ""
 echo "Verify with: docker compose -f $COMPOSE_FILE exec morefixes-db psql -U morefixes -d morefixes -c '\\dt'"

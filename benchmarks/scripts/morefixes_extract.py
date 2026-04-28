@@ -23,7 +23,8 @@ Actual MoreFixes schema (verified against postgrescvedumper-2024-09-26.sql):
   commits (hash, repo_url, author, committer, msg, committer_date, ...)
   cwe_classification (cve_id, cwe_id)
   file_change (file_change_id, hash, filename, programming_language, code_before, code_after, ...)
-  method_change (method_change_id, file_change_id, name, start_line, end_line, code, before_change, ...)
+  method_change (method_change_id, file_change_id, name, start_line, end_line,
+  code, before_change, ...)
 
 Join path:
   fixes.hash → commits.hash (commit metadata)
@@ -31,6 +32,7 @@ Join path:
   fixes.hash → file_change.hash (file-level changes)
   file_change.file_change_id → method_change.file_change_id (method-level changes)
 """
+# ruff: noqa: S608
 from __future__ import annotations
 
 import os
@@ -124,7 +126,8 @@ JOIN method_change mc ON mc.file_change_id = fc.file_change_id
 WHERE f.score >= {min_score}
   AND cw.cwe_id IN ({cwe_placeholders})
   AND lower(fc.programming_language) IN ({lang_placeholders})
-ORDER BY f.cve_id, fc.filename, mc.start_line
+ORDER BY f.cve_id, f.repo_url, f.hash, fc.filename,
+         mc.start_line, mc.method_change_id
 """
 
 
@@ -147,7 +150,6 @@ class MoreFixesExtractor(IngestBase):
         super().__init__(root)
         self.dsn = dsn or os.environ.get("MOREFIXES_DSN", self.DEFAULT_DSN)
         self._conn: Any = None  # psycopg connection, opened lazily
-        self._rows_by_case_id: dict[str, list[dict[str, Any]]] = {}
 
     # ------------------------------------------------------------------
     # IngestBase protocol
@@ -165,7 +167,12 @@ class MoreFixesExtractor(IngestBase):
         print(f"  [{self.dataset_name}] Postgres connection OK: {self.dsn}")
 
     def extract_cases(self) -> list[BenchmarkCase]:
-        """Query MoreFixes and return one BenchmarkCase per CVE+repo pair."""
+        """Query MoreFixes and return one BenchmarkCase per CVE+repo pair.
+
+        The query returns large before/after code blobs. Keep memory bounded by
+        streaming rows from Postgres and writing snapshots as each case group is
+        completed instead of storing every row until materialization.
+        """
         conn = self._connect()
         query = build_query(MIN_SCORE)
 
@@ -176,27 +183,41 @@ class MoreFixesExtractor(IngestBase):
         lang_params = sorted(MOREFIXES_LANGUAGES)
         params = cwe_params + lang_params
 
-        with conn.cursor() as cur:
-            cur.execute(query, params)
-            rows = cur.fetchall()
-            col_names = [desc[0] for desc in cur.description]
-
-        # Group rows by (cve_id, project) → one BenchmarkCase each
-        from collections import defaultdict
-        groups: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
-        for raw_row in rows:
-            row = dict(zip(col_names, raw_row))
-            key = (
-                str(row.get("cve_id") or ""),
-                str(row.get("project") or ""),
-            )
-            groups[key].append(row)
-
         cases: list[BenchmarkCase] = []
-        for (cve_id, project), group_rows in groups.items():
-            case = self._rows_to_case(cve_id, project, group_rows)
-            if case is not None:
-                cases.append(case)
+        current_key: tuple[str, str] | None = None
+        current_first: dict[str, Any] | None = None
+        current_findings: list[Finding] = []
+        current_supported = False
+
+        with conn.cursor(name="morefixes_extract") as cur:
+            cur.execute(query, params)
+            col_names = [desc[0] for desc in cur.description]
+            while batch := cur.fetchmany(1):
+                for raw_row in batch:
+                    row = dict(zip(col_names, raw_row, strict=True))
+                    key = _case_group_key(row)
+                    if current_key is None:
+                        current_key = key
+                        current_first = row
+                        current_supported = self._is_supported_row(row)
+                    elif key != current_key:
+                        self._append_case(cases, current_first, current_findings)
+                        current_key = key
+                        current_first = row
+                        current_findings = []
+                        current_supported = self._is_supported_row(row)
+                    if current_supported:
+                        self._write_row_snapshot(current_first, row)
+                        findings = self._row_to_findings(
+                            row,
+                            str(current_first.get("cwe") or ""),
+                            str(current_first.get("cve_id") or ""),
+                        )
+                        if findings is not None:
+                            current_findings.extend(findings)
+
+        if current_key is not None:
+            self._append_case(cases, current_first, current_findings)
 
         return cases
 
@@ -218,17 +239,14 @@ class MoreFixesExtractor(IngestBase):
         self._conn = psycopg.connect(self.dsn)
         return self._conn
 
-    def _rows_to_case(
+    def _row_group_to_case(
         self,
-        cve_id: str,
-        project: str,
-        rows: list[dict[str, Any]],
+        first: dict[str, Any],
+        ground_truth: list[Finding],
     ) -> BenchmarkCase | None:
-        """Convert a group of DB rows (one CVE+project, multiple methods) to a BenchmarkCase."""
-        if not rows:
-            return None
-
-        first = rows[0]
+        """Convert one streamed DB row group to a BenchmarkCase."""
+        cve_id = str(first.get("cve_id") or "")
+        project = str(first.get("project") or "")
         raw_lang = str(first.get("language") or "").lower()
         language = LANGUAGE_MAP.get(raw_lang)
         if language is None:
@@ -259,13 +277,6 @@ class MoreFixesExtractor(IngestBase):
             except (ValueError, AttributeError):
                 pass
 
-        # Build ground truth from method_change rows
-        ground_truth: list[Finding] = []
-        for row in rows:
-            findings = self._row_to_findings(row, cwe_id_str, cve_id)
-            if findings is not None:
-                ground_truth.extend(findings)
-
         if not ground_truth:
             # Fallback: create a minimal file-level finding
             ground_truth = [
@@ -291,11 +302,8 @@ class MoreFixesExtractor(IngestBase):
                 ),
             ]
 
-        safe_project = (project or "unknown").replace("/", "__").replace(":", "_")
-        case_id = f"morefixes-{cve_id or commit_hash[:12]}-{safe_project}"
-
         case = BenchmarkCase(
-            case_id=case_id,
+            case_id=_case_id_from_row(first),
             project=project or "unknown",
             language=language,
             vulnerable_version=f"pre-{commit_hash[:12]}",
@@ -304,27 +312,51 @@ class MoreFixesExtractor(IngestBase):
             published_date=published,
             source_dataset=self.dataset_name,
         )
-        self._rows_by_case_id[case.case_id] = rows
         return case
 
-    def materialize(self, cases: list[BenchmarkCase]) -> None:
-        """Write truth.sarif plus file-level before/after code snapshots."""
-        super().materialize(cases)
-        for case in cases:
-            rows = self._rows_by_case_id.get(case.case_id, [])
-            case_dir = self.download_dir / case.case_id
-            for row in rows:
-                rel_file = str(row.get("file_path") or "")
-                if not rel_file:
-                    continue
-                _write_snapshot(
-                    case_dir / "code" / "vulnerable" / _snapshot_name(rel_file),
-                    row.get("code_before"),
-                )
-                _write_snapshot(
-                    case_dir / "code" / "patched" / _snapshot_name(rel_file),
-                    row.get("code_after"),
-                )
+    def _append_case(
+        self,
+        cases: list[BenchmarkCase],
+        first: dict[str, Any] | None,
+        findings: list[Finding],
+    ) -> None:
+        if first is None:
+            return
+        case = self._row_group_to_case(first, findings)
+        if case is None:
+            return
+        cases.append(case)
+
+    def _is_supported_row(self, row: dict[str, Any]) -> bool:
+        raw_lang = str(row.get("language") or "").lower()
+        if raw_lang not in LANGUAGE_MAP:
+            return False
+        cwe_id_str = str(row.get("cwe") or "")
+        try:
+            cwe_int = int(cwe_id_str.replace("CWE-", "").replace("cwe-", ""))
+        except (TypeError, ValueError):
+            return False
+        return cwe_int in ACTIVE_CWE_INTS
+
+    def _write_row_snapshot(
+        self,
+        first: dict[str, Any] | None,
+        row: dict[str, Any],
+    ) -> None:
+        if first is None:
+            return
+        rel_file = str(row.get("file_path") or "")
+        if not rel_file:
+            return
+        case_dir = self.download_dir / _case_id_from_row(first)
+        _write_snapshot(
+            case_dir / "code" / "vulnerable" / _snapshot_name(rel_file),
+            row.get("code_before"),
+        )
+        _write_snapshot(
+            case_dir / "code" / "patched" / _snapshot_name(rel_file),
+            row.get("code_after"),
+        )
 
     def _row_to_findings(
         self,
@@ -376,6 +408,21 @@ class MoreFixesExtractor(IngestBase):
 
 def _snapshot_name(rel_file: str) -> str:
     return quote(rel_file, safe="")
+
+
+def _case_group_key(row: dict[str, Any]) -> tuple[str, str]:
+    return (
+        str(row.get("cve_id") or ""),
+        str(row.get("project") or ""),
+    )
+
+
+def _case_id_from_row(row: dict[str, Any]) -> str:
+    cve_id = str(row.get("cve_id") or "")
+    commit_hash = str(row.get("commit_hash") or "")
+    project = str(row.get("project") or "unknown")
+    safe_project = project.replace("/", "__").replace(":", "_")
+    return f"morefixes-{cve_id or commit_hash[:12]}-{safe_project}"
 
 
 def _write_snapshot(path: Path, content: Any) -> None:

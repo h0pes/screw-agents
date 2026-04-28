@@ -87,6 +87,14 @@ Resolve the plan's dataset readiness issues before any full run:
   ready; MoreFixes remains the active G5 blocker.
 - Regenerating unchanged manifests now preserves the existing `ingested_at`
   value to avoid timestamp-only churn when restoring ignored local datasets.
+- MoreFixes Docker/Postgres restoration is verified: the deploy script reuses a
+  loaded `morefixes_morefixes_data` Docker volume without redownloading the
+  dump, imports the SQL explicitly when a volume is initialized but empty, and
+  the extractor materializes 2,601 case truth files plus 6,825 vulnerable and
+  6,825 patched code snapshots.
+- MoreFixes extraction now streams rows and writes snapshots row-by-row to avoid
+  retaining large `code_before`/`code_after` blobs in Python memory. The
+  verified peak RSS dropped to roughly 410 MiB.
 - Re-materialize/download required external datasets in a worktree-local,
   reproducible way.
 - Keep generated external dataset contents ignored.

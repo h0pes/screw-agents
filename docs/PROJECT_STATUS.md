@@ -476,6 +476,10 @@ The OSSF and reality-check restoration path is verified: running their ingest
 scripts materializes the four core active G5 datasets and leaves MoreFixes as
 the only dataset-readiness blocker. Unchanged manifest regeneration preserves
 the existing `ingested_at` value to avoid timestamp-only churn.
+MoreFixes Docker/Postgres restoration is now verified with explicit empty-volume
+import handling. The extractor materializes 2,601 case truth files plus 6,825
+vulnerable and 6,825 patched snapshots, and streams rows to avoid the previous
+large Python memory spike.
 
 **When continuing Phase 4:** Continue from `docs/PHASE_4_D02_PLAN.md`; keep Rust metric claims scoped to real-CVE SQLi/Cmdi/XSS and synthetic-only SSTI unless refresh finds a verified SSTI advisory.
 Use `docs/PHASE_4_OPERATING_MAP.md` as the high-level map before restoring
