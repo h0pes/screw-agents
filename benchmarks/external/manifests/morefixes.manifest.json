@@ -2,7 +2,7 @@
   "dataset_name": "morefixes",
   "source_url": "https://doi.org/10.5281/zenodo.13983082",
   "case_count": 2601,
-  "ingested_at": "2026-04-10T19:44:40+00:00",
+  "ingested_at": "2026-04-28T14:23:21+00:00",
   "cases": [
     {
       "case_id": "morefixes-CVE-2006-10001-https_____github.com__wp-plugins__subscribe-to-comments",
@@ -58,8 +58,8 @@
       "case_id": "morefixes-CVE-2007-5977-https_____github.com__phpmyadmin__phpmyadmin",
       "project": "https://github.com/phpmyadmin/phpmyadmin",
       "language": "php",
-      "vulnerable_version": "pre-83adea5d6f79",
-      "patched_version": "83adea5d6f79",
+      "vulnerable_version": "pre-6225d4533abb",
+      "patched_version": "6225d4533abb",
       "published_date": "2007-11-09",
       "fail_count": 8,
       "pass_count": 8
@@ -88,8 +88,8 @@
       "case_id": "morefixes-CVE-2008-1947-https_____github.com__apache__tomcat",
       "project": "https://github.com/apache/tomcat",
       "language": "java",
-      "vulnerable_version": "pre-5f00d434c8dc",
-      "patched_version": "5f00d434c8dc",
+      "vulnerable_version": "pre-11d9d4a5c438",
+      "patched_version": "11d9d4a5c438",
       "published_date": "2008-06-02",
       "fail_count": 6,
       "pass_count": 6
@@ -108,8 +108,8 @@
       "case_id": "morefixes-CVE-2008-3422-https_____github.com__mono__mono",
       "project": "https://github.com/mono/mono",
       "language": "csharp",
-      "vulnerable_version": "pre-4f5502c48ece",
-      "patched_version": "4f5502c48ece",
+      "vulnerable_version": "pre-49c9dba9a538",
+      "patched_version": "49c9dba9a538",
       "published_date": "2008-08-11",
       "fail_count": 32,
       "pass_count": 32
@@ -195,8 +195,8 @@
       "pass_count": 2
     },
     {
-      "case_id": "morefixes-CVE-2009-4214-https_____github.com__rails__rails",
-      "project": "https://github.com/rails/rails",
+      "case_id": "morefixes-CVE-2009-4214-http_____github.com__rails__rails",
+      "project": "http://github.com/rails/rails",
       "language": "ruby",
       "vulnerable_version": "pre-bfe032858077",
       "patched_version": "bfe032858077",
@@ -205,8 +205,8 @@
       "pass_count": 6
     },
     {
-      "case_id": "morefixes-CVE-2009-4214-http_____github.com__rails__rails",
-      "project": "http://github.com/rails/rails",
+      "case_id": "morefixes-CVE-2009-4214-https_____github.com__rails__rails",
+      "project": "https://github.com/rails/rails",
       "language": "ruby",
       "vulnerable_version": "pre-bfe032858077",
       "patched_version": "bfe032858077",
@@ -327,10 +327,10 @@
     {
       "case_id": "morefixes-CVE-2010-3693-https_____github.com__horde__horde",
       "project": "https://github.com/horde/horde",
-      "language": "php",
-      "vulnerable_version": "pre-7ce7ed91b170",
-      "patched_version": "7ce7ed91b170",
-      "published_date": "2010-09-02",
+      "language": "javascript",
+      "vulnerable_version": "pre-1d4ab4eae68e",
+      "patched_version": "1d4ab4eae68e",
+      "published_date": "2010-09-07",
       "fail_count": 27,
       "pass_count": 27
     },
@@ -348,8 +348,8 @@
       "case_id": "morefixes-CVE-2010-4172-https_____github.com__apache__tomcat",
       "project": "https://github.com/apache/tomcat",
       "language": "java",
-      "vulnerable_version": "pre-5971f9392edc",
-      "patched_version": "5971f9392edc",
+      "vulnerable_version": "pre-2d536e839f6f",
+      "patched_version": "2d536e839f6f",
       "published_date": "2010-11-22",
       "fail_count": 4,
       "pass_count": 4
@@ -688,9 +688,9 @@
       "case_id": "morefixes-CVE-2011-4802-https_____github.com__Dolibarr__dolibarr",
       "project": "https://github.com/Dolibarr/dolibarr",
       "language": "php",
-      "vulnerable_version": "pre-d08d28c0cda1",
-      "patched_version": "d08d28c0cda1",
-      "published_date": "2011-11-09",
+      "vulnerable_version": "pre-63820ab37537",
+      "patched_version": "63820ab37537",
+      "published_date": "2011-11-02",
       "fail_count": 14,
       "pass_count": 14
     },
@@ -698,9 +698,9 @@
       "case_id": "morefixes-CVE-2011-4814-https_____github.com__Dolibarr__dolibarr",
       "project": "https://github.com/Dolibarr/dolibarr",
       "language": "php",
-      "vulnerable_version": "pre-d08d28c0cda1",
-      "patched_version": "d08d28c0cda1",
-      "published_date": "2011-11-09",
+      "vulnerable_version": "pre-63820ab37537",
+      "patched_version": "63820ab37537",
+      "published_date": "2011-11-02",
       "fail_count": 14,
       "pass_count": 14
     },
@@ -828,8 +828,8 @@
       "case_id": "morefixes-CVE-2012-1188-https_____github.com__forkcms__forkcms",
       "project": "https://github.com/forkcms/forkcms",
       "language": "php",
-      "vulnerable_version": "pre-995220182068",
-      "patched_version": "995220182068",
+      "vulnerable_version": "pre-1269fe8b3813",
+      "patched_version": "1269fe8b3813",
       "published_date": "2012-02-28",
       "fail_count": 4,
       "pass_count": 4
@@ -848,8 +848,8 @@
       "case_id": "morefixes-CVE-2012-1208-https_____github.com__forkcms__forkcms",
       "project": "https://github.com/forkcms/forkcms",
       "language": "php",
-      "vulnerable_version": "pre-d65c083adc91",
-      "patched_version": "d65c083adc91",
+      "vulnerable_version": "pre-8fa74dd3e2e3",
+      "patched_version": "8fa74dd3e2e3",
       "published_date": "2012-02-14",
       "fail_count": 6,
       "pass_count": 6
@@ -988,9 +988,9 @@
       "case_id": "morefixes-CVE-2012-3468-https_____github.com__ushahidi__Ushahidi_Web",
       "project": "https://github.com/ushahidi/Ushahidi_Web",
       "language": "php",
-      "vulnerable_version": "pre-fdb48d15283e",
-      "patched_version": "fdb48d15283e",
-      "published_date": "2012-07-30",
+      "vulnerable_version": "pre-4764792d628d",
+      "patched_version": "4764792d628d",
+      "published_date": "2012-07-06",
       "fail_count": 8,
       "pass_count": 8
     },
@@ -1025,8 +1025,8 @@
       "pass_count": 8
     },
     {
-      "case_id": "morefixes-CVE-2012-3830-https_____github.com__milesj__php-decoda",
-      "project": "https://github.com/milesj/php-decoda",
+      "case_id": "morefixes-CVE-2012-3830-https_____github.com__milesj__decoda",
+      "project": "https://github.com/milesj/decoda",
       "language": "php",
       "vulnerable_version": "pre-4068257bb4e1",
       "patched_version": "4068257bb4e1",
@@ -1035,11 +1035,11 @@
       "pass_count": 14
     },
     {
-      "case_id": "morefixes-CVE-2012-3830-https_____github.com__milesj__decoda",
-      "project": "https://github.com/milesj/decoda",
+      "case_id": "morefixes-CVE-2012-3830-https_____github.com__milesj__php-decoda",
+      "project": "https://github.com/milesj/php-decoda",
       "language": "php",
-      "vulnerable_version": "pre-666778f326df",
-      "patched_version": "666778f326df",
+      "vulnerable_version": "pre-4068257bb4e1",
+      "patched_version": "4068257bb4e1",
       "published_date": "2012-05-01",
       "fail_count": 14,
       "pass_count": 14
@@ -1065,8 +1065,8 @@
       "pass_count": 3
     },
     {
-      "case_id": "morefixes-CVE-2012-3832-https_____github.com__milesj__php-decoda",
-      "project": "https://github.com/milesj/php-decoda",
+      "case_id": "morefixes-CVE-2012-3832-https_____github.com__milesj__decoda",
+      "project": "https://github.com/milesj/decoda",
       "language": "php",
       "vulnerable_version": "pre-6f2b9fb48bc1",
       "patched_version": "6f2b9fb48bc1",
@@ -1075,8 +1075,8 @@
       "pass_count": 4
     },
     {
-      "case_id": "morefixes-CVE-2012-3832-https_____github.com__milesj__decoda",
-      "project": "https://github.com/milesj/decoda",
+      "case_id": "morefixes-CVE-2012-3832-https_____github.com__milesj__php-decoda",
+      "project": "https://github.com/milesj/php-decoda",
       "language": "php",
       "vulnerable_version": "pre-6f2b9fb48bc1",
       "patched_version": "6f2b9fb48bc1",
@@ -1098,9 +1098,9 @@
       "case_id": "morefixes-CVE-2012-4396-https_____github.com__owncloud__core",
       "project": "https://github.com/owncloud/core",
       "language": "php",
-      "vulnerable_version": "pre-e817504569dc",
-      "patched_version": "e817504569dc",
-      "published_date": "2012-06-05",
+      "vulnerable_version": "pre-8f09299e2468",
+      "patched_version": "8f09299e2468",
+      "published_date": "2012-06-11",
       "fail_count": 12,
       "pass_count": 12
     },
@@ -1275,16 +1275,6 @@
       "pass_count": 4
     },
     {
-      "case_id": "morefixes-CVE-2013-0256-https_____github.com__ruby__rdoc",
-      "project": "https://github.com/ruby/rdoc",
-      "language": "javascript",
-      "vulnerable_version": "pre-a7d6b41d5bc6",
-      "patched_version": "a7d6b41d5bc6",
-      "published_date": "2013-02-05",
-      "fail_count": 6,
-      "pass_count": 6
-    },
-    {
       "case_id": "morefixes-CVE-2013-0256-https_____github.com__rdoc__rdoc",
       "project": "https://github.com/rdoc/rdoc",
       "language": "javascript",
@@ -1293,6 +1283,16 @@
       "published_date": "2013-02-06",
       "fail_count": 4,
       "pass_count": 4
+    },
+    {
+      "case_id": "morefixes-CVE-2013-0256-https_____github.com__ruby__rdoc",
+      "project": "https://github.com/ruby/rdoc",
+      "language": "javascript",
+      "vulnerable_version": "pre-a7d6b41d5bc6",
+      "patched_version": "a7d6b41d5bc6",
+      "published_date": "2013-02-05",
+      "fail_count": 6,
+      "pass_count": 6
     },
     {
       "case_id": "morefixes-CVE-2013-0275-https_____github.com__ganglia__ganglia-web",
@@ -1528,8 +1528,8 @@
       "case_id": "morefixes-CVE-2013-3524-https_____github.com__DavidJClark__phpVMS-PopUpNews",
       "project": "https://github.com/DavidJClark/phpVMS-PopUpNews",
       "language": "php",
-      "vulnerable_version": "pre-efaffa04ef87",
-      "patched_version": "efaffa04ef87",
+      "vulnerable_version": "pre-5cadf9cbf4d0",
+      "patched_version": "5cadf9cbf4d0",
       "published_date": "2013-04-16",
       "fail_count": 6,
       "pass_count": 6
@@ -1595,8 +1595,8 @@
       "pass_count": 2
     },
     {
-      "case_id": "morefixes-CVE-2013-4492-https_____github.com__svenfuchs__i18n",
-      "project": "https://github.com/svenfuchs/i18n",
+      "case_id": "morefixes-CVE-2013-4492-https_____github.com__ruby-i18n__i18n",
+      "project": "https://github.com/ruby-i18n/i18n",
       "language": "ruby",
       "vulnerable_version": "pre-92b57b1e4f84",
       "patched_version": "92b57b1e4f84",
@@ -1605,8 +1605,8 @@
       "pass_count": 14
     },
     {
-      "case_id": "morefixes-CVE-2013-4492-https_____github.com__ruby-i18n__i18n",
-      "project": "https://github.com/ruby-i18n/i18n",
+      "case_id": "morefixes-CVE-2013-4492-https_____github.com__svenfuchs__i18n",
+      "project": "https://github.com/svenfuchs/i18n",
       "language": "ruby",
       "vulnerable_version": "pre-92b57b1e4f84",
       "patched_version": "92b57b1e4f84",
@@ -1758,9 +1758,9 @@
       "case_id": "morefixes-CVE-2013-6459-https_____github.com__mislav__will_paginate",
       "project": "https://github.com/mislav/will_paginate",
       "language": "ruby",
-      "vulnerable_version": "pre-c62c6f68a5e5",
-      "patched_version": "c62c6f68a5e5",
-      "published_date": "2013-09-18",
+      "vulnerable_version": "pre-4cb4986d5ce0",
+      "patched_version": "4cb4986d5ce0",
+      "published_date": "2013-09-16",
       "fail_count": 7,
       "pass_count": 7
     },
@@ -1788,8 +1788,8 @@
       "case_id": "morefixes-CVE-2013-7225-https_____github.com__fatfreecrm__fat_free_crm",
       "project": "https://github.com/fatfreecrm/fat_free_crm",
       "language": "ruby",
-      "vulnerable_version": "pre-d4b2de81a4d8",
-      "patched_version": "d4b2de81a4d8",
+      "vulnerable_version": "pre-078035f1ef73",
+      "patched_version": "078035f1ef73",
       "published_date": "2013-12-27",
       "fail_count": 16,
       "pass_count": 16
@@ -2277,10 +2277,10 @@
     {
       "case_id": "morefixes-CVE-2014-2236-https_____github.com__ASKBOT__askbot-devel",
       "project": "https://github.com/ASKBOT/askbot-devel",
-      "language": "python",
-      "vulnerable_version": "pre-a676a86b6b7a",
-      "patched_version": "a676a86b6b7a",
-      "published_date": "2013-05-08",
+      "language": "javascript",
+      "vulnerable_version": "pre-876e3662ff6b",
+      "patched_version": "876e3662ff6b",
+      "published_date": "2013-03-31",
       "fail_count": 25,
       "pass_count": 25
     },
@@ -2598,18 +2598,18 @@
       "case_id": "morefixes-CVE-2014-5140-https_____github.com__loadedcommerce__loaded7",
       "project": "https://github.com/loadedcommerce/loaded7",
       "language": "php",
-      "vulnerable_version": "pre-c252054df69d",
-      "patched_version": "c252054df69d",
-      "published_date": "2014-09-05",
+      "vulnerable_version": "pre-081375b7fd7a",
+      "patched_version": "081375b7fd7a",
+      "published_date": "2014-08-25",
       "fail_count": 8,
       "pass_count": 8
     },
     {
       "case_id": "morefixes-CVE-2014-5273-https_____github.com__phpmyadmin__phpmyadmin",
       "project": "https://github.com/phpmyadmin/phpmyadmin",
-      "language": "javascript",
-      "vulnerable_version": "pre-cd9f302bf7f9",
-      "patched_version": "cd9f302bf7f9",
+      "language": "php",
+      "vulnerable_version": "pre-3ffc967fb60c",
+      "patched_version": "3ffc967fb60c",
       "published_date": "2014-08-17",
       "fail_count": 6,
       "pass_count": 6
@@ -2625,8 +2625,8 @@
       "pass_count": 6
     },
     {
-      "case_id": "morefixes-CVE-2014-6439-https_____github.com__elasticsearch__elasticsearch",
-      "project": "https://github.com/elasticsearch/elasticsearch",
+      "case_id": "morefixes-CVE-2014-6439-https_____github.com__elastic__elasticsearch",
+      "project": "https://github.com/elastic/elasticsearch",
       "language": "java",
       "vulnerable_version": "pre-f9de8b658985",
       "patched_version": "f9de8b658985",
@@ -2635,8 +2635,8 @@
       "pass_count": 8
     },
     {
-      "case_id": "morefixes-CVE-2014-6439-https_____github.com__elastic__elasticsearch",
-      "project": "https://github.com/elastic/elasticsearch",
+      "case_id": "morefixes-CVE-2014-6439-https_____github.com__elasticsearch__elasticsearch",
+      "project": "https://github.com/elasticsearch/elasticsearch",
       "language": "java",
       "vulnerable_version": "pre-f9de8b658985",
       "patched_version": "f9de8b658985",
@@ -2688,8 +2688,8 @@
       "case_id": "morefixes-CVE-2014-7217-https_____github.com__phpmyadmin__phpmyadmin",
       "project": "https://github.com/phpmyadmin/phpmyadmin",
       "language": "php",
-      "vulnerable_version": "pre-c1a3f85fbd1a",
-      "patched_version": "c1a3f85fbd1a",
+      "vulnerable_version": "pre-304fb2b645b3",
+      "patched_version": "304fb2b645b3",
       "published_date": "2014-10-01",
       "fail_count": 7,
       "pass_count": 7
@@ -2768,8 +2768,8 @@
       "case_id": "morefixes-CVE-2014-8958-https_____github.com__phpmyadmin__phpmyadmin",
       "project": "https://github.com/phpmyadmin/phpmyadmin",
       "language": "php",
-      "vulnerable_version": "pre-2ffdbf2d7daa",
-      "patched_version": "2ffdbf2d7daa",
+      "vulnerable_version": "pre-2a3b7393d1d5",
+      "patched_version": "2a3b7393d1d5",
       "published_date": "2014-11-20",
       "fail_count": 6,
       "pass_count": 6
@@ -2828,9 +2828,9 @@
       "case_id": "morefixes-CVE-2014-9701-https_____github.com__mantisbt__mantisbt",
       "project": "https://github.com/mantisbt/mantisbt",
       "language": "php",
-      "vulnerable_version": "pre-e7e2b5503580",
-      "patched_version": "e7e2b5503580",
-      "published_date": "2015-01-16",
+      "vulnerable_version": "pre-d95f070db852",
+      "patched_version": "d95f070db852",
+      "published_date": "2015-01-10",
       "fail_count": 4,
       "pass_count": 4
     },
@@ -2845,22 +2845,22 @@
       "pass_count": 8
     },
     {
-      "case_id": "morefixes-CVE-2014-9905-https_____github.com__inverse-inc__sogo",
-      "project": "https://github.com/inverse-inc/sogo",
+      "case_id": "morefixes-CVE-2014-9905-https_____github.com__Alinto__sogo",
+      "project": "https://github.com/Alinto/sogo",
       "language": "javascript",
-      "vulnerable_version": "pre-80a09407652e",
-      "patched_version": "80a09407652e",
-      "published_date": "2014-02-07",
+      "vulnerable_version": "pre-1a7fc2a0e90a",
+      "patched_version": "1a7fc2a0e90a",
+      "published_date": "2014-02-05",
       "fail_count": 24,
       "pass_count": 24
     },
     {
-      "case_id": "morefixes-CVE-2014-9905-https_____github.com__Alinto__sogo",
-      "project": "https://github.com/Alinto/sogo",
+      "case_id": "morefixes-CVE-2014-9905-https_____github.com__inverse-inc__sogo",
+      "project": "https://github.com/inverse-inc/sogo",
       "language": "javascript",
-      "vulnerable_version": "pre-80a09407652e",
-      "patched_version": "80a09407652e",
-      "published_date": "2014-02-07",
+      "vulnerable_version": "pre-1a7fc2a0e90a",
+      "patched_version": "1a7fc2a0e90a",
+      "published_date": "2014-02-05",
       "fail_count": 24,
       "pass_count": 24
     },
@@ -3305,6 +3305,16 @@
       "pass_count": 2
     },
     {
+      "case_id": "morefixes-CVE-2015-10080-https_____github.com__NREL__api-umbrella",
+      "project": "https://github.com/NREL/api-umbrella",
+      "language": "ruby",
+      "vulnerable_version": "pre-a7f3f183e33b",
+      "patched_version": "a7f3f183e33b",
+      "published_date": "2015-04-20",
+      "fail_count": 52,
+      "pass_count": 52
+    },
+    {
       "case_id": "morefixes-CVE-2015-10080-https_____github.com__NREL__api-umbrella-web",
       "project": "https://github.com/NREL/api-umbrella-web",
       "language": "ruby",
@@ -3313,16 +3323,6 @@
       "published_date": "2015-04-10",
       "fail_count": 48,
       "pass_count": 48
-    },
-    {
-      "case_id": "morefixes-CVE-2015-10080-https_____github.com__NREL__api-umbrella",
-      "project": "https://github.com/NREL/api-umbrella",
-      "language": "ruby",
-      "vulnerable_version": "pre-f53a9fb87e10",
-      "patched_version": "f53a9fb87e10",
-      "published_date": "2015-04-10",
-      "fail_count": 52,
-      "pass_count": 52
     },
     {
       "case_id": "morefixes-CVE-2015-10084-https_____github.com__irontec__klear-library",
@@ -3518,9 +3518,9 @@
       "case_id": "morefixes-CVE-2015-1176-https_____github.com__osTicket__osTicket-1.8",
       "project": "https://github.com/osTicket/osTicket-1.8",
       "language": "php",
-      "vulnerable_version": "pre-f0b18dadc71d",
-      "patched_version": "f0b18dadc71d",
-      "published_date": "2014-12-30",
+      "vulnerable_version": "pre-670bf5c58d38",
+      "patched_version": "670bf5c58d38",
+      "published_date": "2014-12-28",
       "fail_count": 18,
       "pass_count": 18
     },
@@ -3538,9 +3538,9 @@
       "case_id": "morefixes-CVE-2015-1428-https_____github.com__sefrengo-cms__sefrengo-1.x",
       "project": "https://github.com/sefrengo-cms/sefrengo-1.x",
       "language": "php",
-      "vulnerable_version": "pre-22c0d16bfd71",
-      "patched_version": "22c0d16bfd71",
-      "published_date": "2015-01-25",
+      "vulnerable_version": "pre-0b1edd4b22a4",
+      "patched_version": "0b1edd4b22a4",
+      "published_date": "2015-01-12",
       "fail_count": 12,
       "pass_count": 12
     },
@@ -3638,9 +3638,9 @@
       "case_id": "morefixes-CVE-2015-2972-https_____github.com__sysphonic__thetis",
       "project": "https://github.com/sysphonic/thetis",
       "language": "ruby",
-      "vulnerable_version": "pre-4ca3f5f48675",
-      "patched_version": "4ca3f5f48675",
-      "published_date": "2015-07-05",
+      "vulnerable_version": "pre-1b8234706e12",
+      "patched_version": "1b8234706e12",
+      "published_date": "2015-07-12",
       "fail_count": 547,
       "pass_count": 547
     },
@@ -3735,16 +3735,6 @@
       "pass_count": 2
     },
     {
-      "case_id": "morefixes-CVE-2015-5243-https_____github.com__jsmitty12__phpWhois",
-      "project": "https://github.com/jsmitty12/phpWhois",
-      "language": "php",
-      "vulnerable_version": "pre-cea2644812df",
-      "patched_version": "cea2644812df",
-      "published_date": "2018-05-25",
-      "fail_count": 16,
-      "pass_count": 16
-    },
-    {
       "case_id": "morefixes-CVE-2015-5243-https_____github.com__Gemorroj__phpwhois",
       "project": "https://github.com/Gemorroj/phpwhois",
       "language": "php",
@@ -3753,6 +3743,16 @@
       "published_date": "2018-02-10",
       "fail_count": 7,
       "pass_count": 7
+    },
+    {
+      "case_id": "morefixes-CVE-2015-5243-https_____github.com__jsmitty12__phpWhois",
+      "project": "https://github.com/jsmitty12/phpWhois",
+      "language": "php",
+      "vulnerable_version": "pre-863ccf62824f",
+      "patched_version": "863ccf62824f",
+      "published_date": "2018-05-25",
+      "fail_count": 16,
+      "pass_count": 16
     },
     {
       "case_id": "morefixes-CVE-2015-5282-https_____github.com__theforeman__foreman",
@@ -3958,9 +3958,9 @@
       "case_id": "morefixes-CVE-2015-8834-https_____github.com__WordPress__WordPress",
       "project": "https://github.com/WordPress/WordPress",
       "language": "php",
-      "vulnerable_version": "pre-db8f915ee6c2",
-      "patched_version": "db8f915ee6c2",
-      "published_date": "2015-05-06",
+      "vulnerable_version": "pre-a3a76fe665df",
+      "patched_version": "a3a76fe665df",
+      "published_date": "2015-04-27",
       "fail_count": 26,
       "pass_count": 26
     },
@@ -3985,22 +3985,22 @@
       "pass_count": 6
     },
     {
-      "case_id": "morefixes-CVE-2015-9244-https_____github.com__mysqljs__mysql",
-      "project": "https://github.com/mysqljs/mysql",
+      "case_id": "morefixes-CVE-2015-9244-https_____github.com__felixge__node-mysql",
+      "project": "https://github.com/felixge/node-mysql",
       "language": "javascript",
-      "vulnerable_version": "pre-bc8f3df0694f",
-      "patched_version": "bc8f3df0694f",
-      "published_date": "2012-11-26",
+      "vulnerable_version": "pre-6bbcc8d6f52e",
+      "patched_version": "6bbcc8d6f52e",
+      "published_date": "2012-11-27",
       "fail_count": 10,
       "pass_count": 10
     },
     {
-      "case_id": "morefixes-CVE-2015-9244-https_____github.com__felixge__node-mysql",
-      "project": "https://github.com/felixge/node-mysql",
+      "case_id": "morefixes-CVE-2015-9244-https_____github.com__mysqljs__mysql",
+      "project": "https://github.com/mysqljs/mysql",
       "language": "javascript",
-      "vulnerable_version": "pre-bc8f3df0694f",
-      "patched_version": "bc8f3df0694f",
-      "published_date": "2012-11-26",
+      "vulnerable_version": "pre-6bbcc8d6f52e",
+      "patched_version": "6bbcc8d6f52e",
+      "published_date": "2012-11-27",
       "fail_count": 10,
       "pass_count": 10
     },
@@ -4115,8 +4115,8 @@
       "pass_count": 2
     },
     {
-      "case_id": "morefixes-CVE-2016-10531-https_____github.com__markedjs__marked",
-      "project": "https://github.com/markedjs/marked",
+      "case_id": "morefixes-CVE-2016-10531-https_____github.com__chjj__marked",
+      "project": "https://github.com/chjj/marked",
       "language": "javascript",
       "vulnerable_version": "pre-2cff85979be8",
       "patched_version": "2cff85979be8",
@@ -4125,8 +4125,8 @@
       "pass_count": 4
     },
     {
-      "case_id": "morefixes-CVE-2016-10531-https_____github.com__chjj__marked",
-      "project": "https://github.com/chjj/marked",
+      "case_id": "morefixes-CVE-2016-10531-https_____github.com__markedjs__marked",
+      "project": "https://github.com/markedjs/marked",
       "language": "javascript",
       "vulnerable_version": "pre-2cff85979be8",
       "patched_version": "2cff85979be8",
@@ -4188,9 +4188,9 @@
       "case_id": "morefixes-CVE-2016-10735-https_____github.com__twbs__bootstrap",
       "project": "https://github.com/twbs/bootstrap",
       "language": "javascript",
-      "vulnerable_version": "pre-2a5ba23ce8f0",
-      "patched_version": "2a5ba23ce8f0",
-      "published_date": "2018-08-13",
+      "vulnerable_version": "pre-13bf8aeae3db",
+      "patched_version": "13bf8aeae3db",
+      "published_date": "2018-05-07",
       "fail_count": 17,
       "pass_count": 17
     },
@@ -4418,8 +4418,8 @@
       "case_id": "morefixes-CVE-2016-2561-https_____github.com__phpmyadmin__phpmyadmin",
       "project": "https://github.com/phpmyadmin/phpmyadmin",
       "language": "javascript",
-      "vulnerable_version": "pre-f33a42f1da9d",
-      "patched_version": "f33a42f1da9d",
+      "vulnerable_version": "pre-37c34d089aa1",
+      "patched_version": "37c34d089aa1",
       "published_date": "2016-02-25",
       "fail_count": 5,
       "pass_count": 5
@@ -4438,9 +4438,9 @@
       "case_id": "morefixes-CVE-2016-3079-https_____github.com__spacewalkproject__spacewalk",
       "project": "https://github.com/spacewalkproject/spacewalk",
       "language": "java",
-      "vulnerable_version": "pre-b6491eba7f94",
-      "patched_version": "b6491eba7f94",
-      "published_date": "2016-03-30",
+      "vulnerable_version": "pre-7b9ff9ad6caf",
+      "patched_version": "7b9ff9ad6caf",
+      "published_date": "2016-03-29",
       "fail_count": 12,
       "pass_count": 12
     },
@@ -4468,9 +4468,9 @@
       "case_id": "morefixes-CVE-2016-4807-https_____github.com__web2py__web2py",
       "project": "https://github.com/web2py/web2py",
       "language": "python",
-      "vulnerable_version": "pre-944d8bd8f3c5",
-      "patched_version": "944d8bd8f3c5",
-      "published_date": "2016-05-04",
+      "vulnerable_version": "pre-1b42fe654729",
+      "patched_version": "1b42fe654729",
+      "published_date": "2016-05-03",
       "fail_count": 54,
       "pass_count": 54
     },
@@ -4527,10 +4527,10 @@
     {
       "case_id": "morefixes-CVE-2016-5705-https_____github.com__phpmyadmin__phpmyadmin",
       "project": "https://github.com/phpmyadmin/phpmyadmin",
-      "language": "javascript",
-      "vulnerable_version": "pre-364732e309cc",
-      "patched_version": "364732e309cc",
-      "published_date": "2016-06-20",
+      "language": "php",
+      "vulnerable_version": "pre-0b7416c5f443",
+      "patched_version": "0b7416c5f443",
+      "published_date": "2016-06-22",
       "fail_count": 8,
       "pass_count": 8
     },
@@ -4557,10 +4557,10 @@
     {
       "case_id": "morefixes-CVE-2016-5733-https_____github.com__phpmyadmin__phpmyadmin",
       "project": "https://github.com/phpmyadmin/phpmyadmin",
-      "language": "php",
-      "vulnerable_version": "pre-be3ecbb4cca3",
-      "patched_version": "be3ecbb4cca3",
-      "published_date": "2016-06-17",
+      "language": "javascript",
+      "vulnerable_version": "pre-4d21b5c077db",
+      "patched_version": "4d21b5c077db",
+      "published_date": "2016-06-22",
       "fail_count": 5,
       "pass_count": 5
     },
@@ -4615,8 +4615,8 @@
       "pass_count": 4
     },
     {
-      "case_id": "morefixes-CVE-2016-6191-https_____github.com__inverse-inc__sogo",
-      "project": "https://github.com/inverse-inc/sogo",
+      "case_id": "morefixes-CVE-2016-6191-https_____github.com__Alinto__sogo",
+      "project": "https://github.com/Alinto/sogo",
       "language": "javascript",
       "vulnerable_version": "pre-64ce3c9c22fd",
       "patched_version": "64ce3c9c22fd",
@@ -4625,8 +4625,8 @@
       "pass_count": 16
     },
     {
-      "case_id": "morefixes-CVE-2016-6191-https_____github.com__Alinto__sogo",
-      "project": "https://github.com/Alinto/sogo",
+      "case_id": "morefixes-CVE-2016-6191-https_____github.com__inverse-inc__sogo",
+      "project": "https://github.com/inverse-inc/sogo",
       "language": "javascript",
       "vulnerable_version": "pre-64ce3c9c22fd",
       "patched_version": "64ce3c9c22fd",
@@ -4638,9 +4638,9 @@
       "case_id": "morefixes-CVE-2016-6316-https_____github.com__rails__rails",
       "project": "https://github.com/rails/rails",
       "language": "ruby",
-      "vulnerable_version": "pre-4bcccf5ecd81",
-      "patched_version": "4bcccf5ecd81",
-      "published_date": "2016-08-10",
+      "vulnerable_version": "pre-2bcb88c9ce7d",
+      "patched_version": "2bcb88c9ce7d",
+      "published_date": "2016-08-12",
       "fail_count": 28,
       "pass_count": 28
     },
@@ -4698,9 +4698,9 @@
       "case_id": "morefixes-CVE-2016-6556-https_____github.com__OpenNMS__opennms",
       "project": "https://github.com/OpenNMS/opennms",
       "language": "java",
-      "vulnerable_version": "pre-29007e7aeeb7",
-      "patched_version": "29007e7aeeb7",
-      "published_date": "2016-09-12",
+      "vulnerable_version": "pre-0d7fc28942e5",
+      "patched_version": "0d7fc28942e5",
+      "published_date": "2016-09-09",
       "fail_count": 11,
       "pass_count": 11
     },
@@ -4978,8 +4978,8 @@
       "case_id": "morefixes-CVE-2017-0899-https_____github.com__rubygems__rubygems",
       "project": "https://github.com/rubygems/rubygems",
       "language": "ruby",
-      "vulnerable_version": "pre-ef0aa611effb",
-      "patched_version": "ef0aa611effb",
+      "vulnerable_version": "pre-1bcbc7fe637b",
+      "patched_version": "1bcbc7fe637b",
       "published_date": "2017-08-28",
       "fail_count": 11,
       "pass_count": 11
@@ -5048,9 +5048,9 @@
       "case_id": "morefixes-CVE-2017-1000193-https_____github.com__octobercms__october",
       "project": "https://github.com/octobercms/october",
       "language": "php",
-      "vulnerable_version": "pre-433cf1d504d6",
-      "patched_version": "433cf1d504d6",
-      "published_date": "2017-04-10",
+      "vulnerable_version": "pre-24c8b4368ade",
+      "patched_version": "24c8b4368ade",
+      "published_date": "2017-04-08",
       "fail_count": 22,
       "pass_count": 22
     },
@@ -5058,8 +5058,8 @@
       "case_id": "morefixes-CVE-2017-1000196-https_____github.com__octobercms__october",
       "project": "https://github.com/octobercms/october",
       "language": "php",
-      "vulnerable_version": "pre-433cf1d504d6",
-      "patched_version": "433cf1d504d6",
+      "vulnerable_version": "pre-015b34fe880e",
+      "patched_version": "015b34fe880e",
       "published_date": "2017-04-10",
       "fail_count": 25,
       "pass_count": 25
@@ -5095,8 +5095,8 @@
       "pass_count": 1
     },
     {
-      "case_id": "morefixes-CVE-2017-1000427-https_____github.com__markedjs__marked",
-      "project": "https://github.com/markedjs/marked",
+      "case_id": "morefixes-CVE-2017-1000427-https_____github.com__chjj__marked",
+      "project": "https://github.com/chjj/marked",
       "language": "javascript",
       "vulnerable_version": "pre-cd2f6f5b7091",
       "patched_version": "cd2f6f5b7091",
@@ -5105,8 +5105,8 @@
       "pass_count": 2
     },
     {
-      "case_id": "morefixes-CVE-2017-1000427-https_____github.com__chjj__marked",
-      "project": "https://github.com/chjj/marked",
+      "case_id": "morefixes-CVE-2017-1000427-https_____github.com__markedjs__marked",
+      "project": "https://github.com/markedjs/marked",
       "language": "javascript",
       "vulnerable_version": "pre-cd2f6f5b7091",
       "patched_version": "cd2f6f5b7091",
@@ -5238,9 +5238,9 @@
       "case_id": "morefixes-CVE-2017-1002152-https_____github.com__fedora-infra__bodhi",
       "project": "https://github.com/fedora-infra/bodhi",
       "language": "python",
-      "vulnerable_version": "pre-2a3b06b42242",
-      "patched_version": "2a3b06b42242",
-      "published_date": "2017-08-15",
+      "vulnerable_version": "pre-175b237cb158",
+      "patched_version": "175b237cb158",
+      "published_date": "2017-08-16",
       "fail_count": 8,
       "pass_count": 8
     },
@@ -5288,9 +5288,9 @@
       "case_id": "morefixes-CVE-2017-11163-https_____github.com__Cacti__cacti",
       "project": "https://github.com/Cacti/cacti",
       "language": "php",
-      "vulnerable_version": "pre-bd0e586f6f46",
-      "patched_version": "bd0e586f6f46",
-      "published_date": "2017-07-26",
+      "vulnerable_version": "pre-11e7294de8e3",
+      "patched_version": "11e7294de8e3",
+      "published_date": "2016-02-13",
       "fail_count": 12,
       "pass_count": 12
     },
@@ -5415,16 +5415,6 @@
       "pass_count": 21
     },
     {
-      "case_id": "morefixes-CVE-2017-12979-https_____github.com__splitbrain__dokuwiki",
-      "project": "https://github.com/splitbrain/dokuwiki",
-      "language": "php",
-      "vulnerable_version": "pre-c25c097059e4",
-      "patched_version": "c25c097059e4",
-      "published_date": "2017-08-22",
-      "fail_count": 4,
-      "pass_count": 4
-    },
-    {
       "case_id": "morefixes-CVE-2017-12979-https_____github.com__dokuwiki__dokuwiki",
       "project": "https://github.com/dokuwiki/dokuwiki",
       "language": "php",
@@ -5435,11 +5425,11 @@
       "pass_count": 2
     },
     {
-      "case_id": "morefixes-CVE-2017-12980-https_____github.com__splitbrain__dokuwiki",
+      "case_id": "morefixes-CVE-2017-12979-https_____github.com__splitbrain__dokuwiki",
       "project": "https://github.com/splitbrain/dokuwiki",
       "language": "php",
-      "vulnerable_version": "pre-c25c097059e4",
-      "patched_version": "c25c097059e4",
+      "vulnerable_version": "pre-9011f4a9a5c3",
+      "patched_version": "9011f4a9a5c3",
       "published_date": "2017-08-22",
       "fail_count": 4,
       "pass_count": 4
@@ -5453,6 +5443,16 @@
       "published_date": "2017-08-22",
       "fail_count": 2,
       "pass_count": 2
+    },
+    {
+      "case_id": "morefixes-CVE-2017-12980-https_____github.com__splitbrain__dokuwiki",
+      "project": "https://github.com/splitbrain/dokuwiki",
+      "language": "php",
+      "vulnerable_version": "pre-9011f4a9a5c3",
+      "patched_version": "9011f4a9a5c3",
+      "published_date": "2017-08-22",
+      "fail_count": 4,
+      "pass_count": 4
     },
     {
       "case_id": "morefixes-CVE-2017-13671-https_____github.com__MISP__MISP",
@@ -5558,8 +5558,8 @@
       "case_id": "morefixes-CVE-2017-14723-https_____github.com__WordPress__WordPress",
       "project": "https://github.com/WordPress/WordPress",
       "language": "php",
-      "vulnerable_version": "pre-fc930d3daed1",
-      "patched_version": "fc930d3daed1",
+      "vulnerable_version": "pre-70b21279098f",
+      "patched_version": "70b21279098f",
       "published_date": "2017-09-19",
       "fail_count": 5,
       "pass_count": 5
@@ -5588,8 +5588,8 @@
       "case_id": "morefixes-CVE-2017-14921-https_____github.com__tine20__Tine-2.0-Open-Source-Groupware-and-CRM",
       "project": "https://github.com/tine20/Tine-2.0-Open-Source-Groupware-and-CRM",
       "language": "javascript",
-      "vulnerable_version": "pre-bc8a6fbd3128",
-      "patched_version": "bc8a6fbd3128",
+      "vulnerable_version": "pre-146c5aaafd82",
+      "patched_version": "146c5aaafd82",
       "published_date": "2017-09-08",
       "fail_count": 74,
       "pass_count": 74
@@ -5598,8 +5598,18 @@
       "case_id": "morefixes-CVE-2017-14921-https_____github.com__tine20__tine20",
       "project": "https://github.com/tine20/tine20",
       "language": "javascript",
-      "vulnerable_version": "pre-bc8a6fbd3128",
-      "patched_version": "bc8a6fbd3128",
+      "vulnerable_version": "pre-146c5aaafd82",
+      "patched_version": "146c5aaafd82",
+      "published_date": "2017-09-08",
+      "fail_count": 74,
+      "pass_count": 74
+    },
+    {
+      "case_id": "morefixes-CVE-2017-14922-https_____github.com__tine20__Tine-2.0-Open-Source-Groupware-and-CRM",
+      "project": "https://github.com/tine20/Tine-2.0-Open-Source-Groupware-and-CRM",
+      "language": "javascript",
+      "vulnerable_version": "pre-146c5aaafd82",
+      "patched_version": "146c5aaafd82",
       "published_date": "2017-09-08",
       "fail_count": 74,
       "pass_count": 74
@@ -5608,18 +5618,18 @@
       "case_id": "morefixes-CVE-2017-14922-https_____github.com__tine20__tine20",
       "project": "https://github.com/tine20/tine20",
       "language": "javascript",
-      "vulnerable_version": "pre-bc8a6fbd3128",
-      "patched_version": "bc8a6fbd3128",
+      "vulnerable_version": "pre-24e39e1e9300",
+      "patched_version": "24e39e1e9300",
       "published_date": "2017-09-08",
       "fail_count": 70,
       "pass_count": 70
     },
     {
-      "case_id": "morefixes-CVE-2017-14922-https_____github.com__tine20__Tine-2.0-Open-Source-Groupware-and-CRM",
+      "case_id": "morefixes-CVE-2017-14923-https_____github.com__tine20__Tine-2.0-Open-Source-Groupware-and-CRM",
       "project": "https://github.com/tine20/Tine-2.0-Open-Source-Groupware-and-CRM",
       "language": "javascript",
-      "vulnerable_version": "pre-bc8a6fbd3128",
-      "patched_version": "bc8a6fbd3128",
+      "vulnerable_version": "pre-146c5aaafd82",
+      "patched_version": "146c5aaafd82",
       "published_date": "2017-09-08",
       "fail_count": 74,
       "pass_count": 74
@@ -5633,16 +5643,6 @@
       "published_date": "2017-09-08",
       "fail_count": 66,
       "pass_count": 66
-    },
-    {
-      "case_id": "morefixes-CVE-2017-14923-https_____github.com__tine20__Tine-2.0-Open-Source-Groupware-and-CRM",
-      "project": "https://github.com/tine20/Tine-2.0-Open-Source-Groupware-and-CRM",
-      "language": "javascript",
-      "vulnerable_version": "pre-bc8a6fbd3128",
-      "patched_version": "bc8a6fbd3128",
-      "published_date": "2017-09-08",
-      "fail_count": 74,
-      "pass_count": 74
     },
     {
       "case_id": "morefixes-CVE-2017-14957-https_____github.com__BlogoText__blogotext",
@@ -6488,9 +6488,9 @@
       "case_id": "morefixes-CVE-2017-6820-https_____github.com__roundcube__roundcubemail",
       "project": "https://github.com/roundcube/roundcubemail",
       "language": "php",
-      "vulnerable_version": "pre-fa2824fdcd44",
-      "patched_version": "fa2824fdcd44",
-      "published_date": "2017-03-09",
+      "vulnerable_version": "pre-cbd35626f7db",
+      "patched_version": "cbd35626f7db",
+      "published_date": "2017-03-10",
       "fail_count": 3,
       "pass_count": 3
     },
@@ -6675,8 +6675,8 @@
       "pass_count": 2
     },
     {
-      "case_id": "morefixes-CVE-2017-9366-https_____github.com__jtylek__EpesiCRM",
-      "project": "https://github.com/jtylek/EpesiCRM",
+      "case_id": "morefixes-CVE-2017-9366-https_____github.com__Telaxus__EPESI",
+      "project": "https://github.com/Telaxus/EPESI",
       "language": "php",
       "vulnerable_version": "pre-36be628c2597",
       "patched_version": "36be628c2597",
@@ -6685,8 +6685,8 @@
       "pass_count": 2
     },
     {
-      "case_id": "morefixes-CVE-2017-9366-https_____github.com__Telaxus__EPESI",
-      "project": "https://github.com/Telaxus/EPESI",
+      "case_id": "morefixes-CVE-2017-9366-https_____github.com__jtylek__EpesiCRM",
+      "project": "https://github.com/jtylek/EpesiCRM",
       "language": "php",
       "vulnerable_version": "pre-36be628c2597",
       "patched_version": "36be628c2597",
@@ -6755,8 +6755,8 @@
       "pass_count": 8
     },
     {
-      "case_id": "morefixes-CVE-2017-9624-https_____github.com__jtylek__EpesiCRM",
-      "project": "https://github.com/jtylek/EpesiCRM",
+      "case_id": "morefixes-CVE-2017-9624-https_____github.com__Telaxus__EPESI",
+      "project": "https://github.com/Telaxus/EPESI",
       "language": "php",
       "vulnerable_version": "pre-48fb5e81cd7a",
       "patched_version": "48fb5e81cd7a",
@@ -6765,8 +6765,8 @@
       "pass_count": 8
     },
     {
-      "case_id": "morefixes-CVE-2017-9624-https_____github.com__Telaxus__EPESI",
-      "project": "https://github.com/Telaxus/EPESI",
+      "case_id": "morefixes-CVE-2017-9624-https_____github.com__jtylek__EpesiCRM",
+      "project": "https://github.com/jtylek/EpesiCRM",
       "language": "php",
       "vulnerable_version": "pre-48fb5e81cd7a",
       "patched_version": "48fb5e81cd7a",
@@ -6785,8 +6785,8 @@
       "pass_count": 2
     },
     {
-      "case_id": "morefixes-CVE-2017-9783-https_____github.com__projectsend__projectsend",
-      "project": "https://github.com/projectsend/projectsend",
+      "case_id": "morefixes-CVE-2017-9783-https_____github.com__ignacionelson__ProjectSend",
+      "project": "https://github.com/ignacionelson/ProjectSend",
       "language": "php",
       "vulnerable_version": "pre-6c3710430be2",
       "patched_version": "6c3710430be2",
@@ -6795,8 +6795,8 @@
       "pass_count": 24
     },
     {
-      "case_id": "morefixes-CVE-2017-9783-https_____github.com__ignacionelson__ProjectSend",
-      "project": "https://github.com/ignacionelson/ProjectSend",
+      "case_id": "morefixes-CVE-2017-9783-https_____github.com__projectsend__projectsend",
+      "project": "https://github.com/projectsend/projectsend",
       "language": "php",
       "vulnerable_version": "pre-6c3710430be2",
       "patched_version": "6c3710430be2",
@@ -6978,9 +6978,9 @@
       "case_id": "morefixes-CVE-2018-10060-https_____github.com__Cacti__cacti",
       "project": "https://github.com/Cacti/cacti",
       "language": "php",
-      "vulnerable_version": "pre-c1c095cbee00",
-      "patched_version": "c1c095cbee00",
-      "published_date": "2018-03-21",
+      "vulnerable_version": "pre-a02f223f4e94",
+      "patched_version": "a02f223f4e94",
+      "published_date": "2018-03-17",
       "fail_count": 9,
       "pass_count": 9
     },
@@ -7078,8 +7078,8 @@
       "case_id": "morefixes-CVE-2018-11118-https_____github.com__ILIAS-eLearning__ILIAS",
       "project": "https://github.com/ILIAS-eLearning/ILIAS",
       "language": "php",
-      "vulnerable_version": "pre-d0dcad1b1e72",
-      "patched_version": "d0dcad1b1e72",
+      "vulnerable_version": "pre-6b2217c31b69",
+      "patched_version": "6b2217c31b69",
       "published_date": "2018-05-11",
       "fail_count": 3,
       "pass_count": 3
@@ -7128,9 +7128,9 @@
       "case_id": "morefixes-CVE-2018-11650-https_____github.com__Graylog2__graylog2-server",
       "project": "https://github.com/Graylog2/graylog2-server",
       "language": "javascript",
-      "vulnerable_version": "pre-469c92377bec",
-      "patched_version": "469c92377bec",
-      "published_date": "2018-04-17",
+      "vulnerable_version": "pre-3be835b0b75a",
+      "patched_version": "3be835b0b75a",
+      "published_date": "2018-04-16",
       "fail_count": 6,
       "pass_count": 6
     },
@@ -7258,9 +7258,9 @@
       "case_id": "morefixes-CVE-2018-14040-https_____github.com__twbs__bootstrap",
       "project": "https://github.com/twbs/bootstrap",
       "language": "javascript",
-      "vulnerable_version": "pre-2a5ba23ce8f0",
-      "patched_version": "2a5ba23ce8f0",
-      "published_date": "2018-08-13",
+      "vulnerable_version": "pre-149096016f70",
+      "patched_version": "149096016f70",
+      "published_date": "2018-06-01",
       "fail_count": 9,
       "pass_count": 9
     },
@@ -7398,8 +7398,8 @@
       "case_id": "morefixes-CVE-2018-15843-https_____github.com__GetSimpleCMS__GetSimpleCMS",
       "project": "https://github.com/GetSimpleCMS/GetSimpleCMS",
       "language": "php",
-      "vulnerable_version": "pre-9194b6f7b347",
-      "patched_version": "9194b6f7b347",
+      "vulnerable_version": "pre-3e06b54db2d4",
+      "patched_version": "3e06b54db2d4",
       "published_date": "2019-05-23",
       "fail_count": 4,
       "pass_count": 4
@@ -7418,8 +7418,8 @@
       "case_id": "morefixes-CVE-2018-15917-https_____github.com__bbalet__jorani",
       "project": "https://github.com/bbalet/jorani",
       "language": "php",
-      "vulnerable_version": "pre-c1db365e7cd7",
-      "patched_version": "c1db365e7cd7",
+      "vulnerable_version": "pre-1c0d00e7bf49",
+      "patched_version": "1c0d00e7bf49",
       "published_date": "2018-09-13",
       "fail_count": 4,
       "pass_count": 4
@@ -7428,8 +7428,8 @@
       "case_id": "morefixes-CVE-2018-15918-https_____github.com__bbalet__jorani",
       "project": "https://github.com/bbalet/jorani",
       "language": "php",
-      "vulnerable_version": "pre-c1db365e7cd7",
-      "patched_version": "c1db365e7cd7",
+      "vulnerable_version": "pre-1c0d00e7bf49",
+      "patched_version": "1c0d00e7bf49",
       "published_date": "2018-09-13",
       "fail_count": 4,
       "pass_count": 4
@@ -7548,9 +7548,9 @@
       "case_id": "morefixes-CVE-2018-16762-https_____github.com__daylightstudio__FUEL-CMS",
       "project": "https://github.com/daylightstudio/FUEL-CMS",
       "language": "php",
-      "vulnerable_version": "pre-6c72834a0d8d",
-      "patched_version": "6c72834a0d8d",
-      "published_date": "2018-07-09",
+      "vulnerable_version": "pre-3ce6b558aa18",
+      "patched_version": "3ce6b558aa18",
+      "published_date": "2018-07-12",
       "fail_count": 8,
       "pass_count": 8
     },
@@ -7688,8 +7688,8 @@
       "case_id": "morefixes-CVE-2018-18623-https_____github.com__grafana__grafana",
       "project": "https://github.com/grafana/grafana",
       "language": "typescript",
-      "vulnerable_version": "pre-15d560a1c01f",
-      "patched_version": "15d560a1c01f",
+      "vulnerable_version": "pre-08dc5a4f9783",
+      "patched_version": "08dc5a4f9783",
       "published_date": "2019-01-22",
       "fail_count": 22,
       "pass_count": 22
@@ -7748,9 +7748,9 @@
       "case_id": "morefixes-CVE-2018-19600-https_____github.com__rhymix__rhymix",
       "project": "https://github.com/rhymix/rhymix",
       "language": "php",
-      "vulnerable_version": "pre-60d390f52e73",
-      "patched_version": "60d390f52e73",
-      "published_date": "2018-09-16",
+      "vulnerable_version": "pre-19331e6746cc",
+      "patched_version": "19331e6746cc",
+      "published_date": "2018-09-18",
       "fail_count": 19,
       "pass_count": 19
     },
@@ -8247,9 +8247,9 @@
     {
       "case_id": "morefixes-CVE-2018-3830-https_____github.com__elastic__kibana",
       "project": "https://github.com/elastic/kibana",
-      "language": "javascript",
-      "vulnerable_version": "pre-a07347478b7a",
-      "patched_version": "a07347478b7a",
+      "language": "typescript",
+      "vulnerable_version": "pre-45e4791efd40",
+      "patched_version": "45e4791efd40",
       "published_date": "2018-09-10",
       "fail_count": 16,
       "pass_count": 16
@@ -8518,9 +8518,9 @@
       "case_id": "morefixes-CVE-2019-0232-https_____github.com__apache__tomcat",
       "project": "https://github.com/apache/tomcat",
       "language": "java",
-      "vulnerable_version": "pre-7f0221b90495",
-      "patched_version": "7f0221b90495",
-      "published_date": "2019-04-10",
+      "vulnerable_version": "pre-59583245639d",
+      "patched_version": "59583245639d",
+      "published_date": "2023-10-09",
       "fail_count": 8,
       "pass_count": 8
     },
@@ -9035,8 +9035,8 @@
       "pass_count": 2
     },
     {
-      "case_id": "morefixes-CVE-2019-12741-https_____github.com__jamesagnew__hapi-fhir",
-      "project": "https://github.com/jamesagnew/hapi-fhir",
+      "case_id": "morefixes-CVE-2019-12741-https_____github.com__hapifhir__hapi-fhir",
+      "project": "https://github.com/hapifhir/hapi-fhir",
       "language": "java",
       "vulnerable_version": "pre-8f41159eb147",
       "patched_version": "8f41159eb147",
@@ -9045,8 +9045,8 @@
       "pass_count": 3
     },
     {
-      "case_id": "morefixes-CVE-2019-12741-https_____github.com__hapifhir__hapi-fhir",
-      "project": "https://github.com/hapifhir/hapi-fhir",
+      "case_id": "morefixes-CVE-2019-12741-https_____github.com__jamesagnew__hapi-fhir",
+      "project": "https://github.com/jamesagnew/hapi-fhir",
       "language": "java",
       "vulnerable_version": "pre-8f41159eb147",
       "patched_version": "8f41159eb147",
@@ -9348,9 +9348,9 @@
       "case_id": "morefixes-CVE-2019-14900-https_____github.com__hibernate__hibernate-orm",
       "project": "https://github.com/hibernate/hibernate-orm",
       "language": "java",
-      "vulnerable_version": "pre-7dfb0fdf24fb",
-      "patched_version": "7dfb0fdf24fb",
-      "published_date": "2020-05-20",
+      "vulnerable_version": "pre-3f3c1ab50604",
+      "patched_version": "3f3c1ab50604",
+      "published_date": "2020-06-18",
       "fail_count": 8,
       "pass_count": 8
     },
@@ -9358,8 +9358,8 @@
       "case_id": "morefixes-CVE-2019-14965-https_____github.com__frappe__frappe",
       "project": "https://github.com/frappe/frappe",
       "language": "python",
-      "vulnerable_version": "pre-8ac155f7b6d1",
-      "patched_version": "8ac155f7b6d1",
+      "vulnerable_version": "pre-472d33f3da5e",
+      "patched_version": "472d33f3da5e",
       "published_date": "2019-07-30",
       "fail_count": 16,
       "pass_count": 16
@@ -9368,8 +9368,8 @@
       "case_id": "morefixes-CVE-2019-14966-https_____github.com__frappe__frappe",
       "project": "https://github.com/frappe/frappe",
       "language": "python",
-      "vulnerable_version": "pre-8ac155f7b6d1",
-      "patched_version": "8ac155f7b6d1",
+      "vulnerable_version": "pre-472d33f3da5e",
+      "patched_version": "472d33f3da5e",
       "published_date": "2019-07-30",
       "fail_count": 16,
       "pass_count": 16
@@ -9498,8 +9498,8 @@
       "case_id": "morefixes-CVE-2019-15557-https_____github.com__xm-online__xm-uaa",
       "project": "https://github.com/xm-online/xm-uaa",
       "language": "java",
-      "vulnerable_version": "pre-ffa9609c809c",
-      "patched_version": "ffa9609c809c",
+      "vulnerable_version": "pre-bd235434f119",
+      "patched_version": "bd235434f119",
       "published_date": "2019-06-10",
       "fail_count": 7,
       "pass_count": 7
@@ -9557,9 +9557,9 @@
     {
       "case_id": "morefixes-CVE-2019-15568-https_____github.com__chanzuckerberg__idseq-web",
       "project": "https://github.com/chanzuckerberg/idseq-web",
-      "language": "typescript",
-      "vulnerable_version": "pre-e4264ad9f715",
-      "patched_version": "e4264ad9f715",
+      "language": "ruby",
+      "vulnerable_version": "pre-971b0dca6412",
+      "patched_version": "971b0dca6412",
       "published_date": "2022-09-29",
       "fail_count": 69,
       "pass_count": 69
@@ -9638,8 +9638,8 @@
       "case_id": "morefixes-CVE-2019-15715-https_____github.com__mantisbt__mantisbt",
       "project": "https://github.com/mantisbt/mantisbt",
       "language": "php",
-      "vulnerable_version": "pre-cebfb9acb368",
-      "patched_version": "cebfb9acb368",
+      "vulnerable_version": "pre-5fb979604d88",
+      "patched_version": "5fb979604d88",
       "published_date": "2019-09-21",
       "fail_count": 4,
       "pass_count": 4
@@ -10068,8 +10068,8 @@
       "case_id": "morefixes-CVE-2019-20107-https_____github.com__TestLinkOpenSourceTRMS__testlink-code",
       "project": "https://github.com/TestLinkOpenSourceTRMS/testlink-code",
       "language": "php",
-      "vulnerable_version": "pre-942c406fcee5",
-      "patched_version": "942c406fcee5",
+      "vulnerable_version": "pre-146b4f38010a",
+      "patched_version": "146b4f38010a",
       "published_date": "2019-12-30",
       "fail_count": 15,
       "pass_count": 15
@@ -10158,9 +10158,9 @@
       "case_id": "morefixes-CVE-2019-20789-https_____github.com__croogo__croogo",
       "project": "https://github.com/croogo/croogo",
       "language": "php",
-      "vulnerable_version": "pre-cafaaabe2cef",
-      "patched_version": "cafaaabe2cef",
-      "published_date": "2019-08-23",
+      "vulnerable_version": "pre-4edb1ff597b4",
+      "patched_version": "4edb1ff597b4",
+      "published_date": "2019-08-27",
       "fail_count": 10,
       "pass_count": 10
     },
@@ -10458,8 +10458,8 @@
       "case_id": "morefixes-CVE-2019-8953-https_____github.com__pfsense__FreeBSD-ports",
       "project": "https://github.com/pfsense/FreeBSD-ports",
       "language": "php",
-      "vulnerable_version": "pre-3b40366aca55",
-      "patched_version": "3b40366aca55",
+      "vulnerable_version": "pre-2dded47b3202",
+      "patched_version": "2dded47b3202",
       "published_date": "2019-02-18",
       "fail_count": 8,
       "pass_count": 8
@@ -10475,16 +10475,6 @@
       "pass_count": 22
     },
     {
-      "case_id": "morefixes-CVE-2019-9115-https_____github.com__irisnet__irisnet-crypto",
-      "project": "https://github.com/irisnet/irisnet-crypto",
-      "language": "javascript",
-      "vulnerable_version": "pre-7ea0e65ece9c",
-      "patched_version": "7ea0e65ece9c",
-      "published_date": "2019-01-18",
-      "fail_count": 10,
-      "pass_count": 10
-    },
-    {
       "case_id": "morefixes-CVE-2019-9115-https_____github.com__dreamer-zq__irisnet-crypto",
       "project": "https://github.com/dreamer-zq/irisnet-crypto",
       "language": "javascript",
@@ -10495,11 +10485,21 @@
       "pass_count": 10
     },
     {
+      "case_id": "morefixes-CVE-2019-9115-https_____github.com__irisnet__irisnet-crypto",
+      "project": "https://github.com/irisnet/irisnet-crypto",
+      "language": "javascript",
+      "vulnerable_version": "pre-7ea0e65ece9c",
+      "patched_version": "7ea0e65ece9c",
+      "published_date": "2019-01-18",
+      "fail_count": 10,
+      "pass_count": 10
+    },
+    {
       "case_id": "morefixes-CVE-2019-9194-https_____github.com__Studio-42__elFinder",
       "project": "https://github.com/Studio-42/elFinder",
-      "language": "php",
-      "vulnerable_version": "pre-4fe601b2091e",
-      "patched_version": "4fe601b2091e",
+      "language": "javascript",
+      "vulnerable_version": "pre-0740028f6adc",
+      "patched_version": "0740028f6adc",
       "published_date": "2019-02-26",
       "fail_count": 934,
       "pass_count": 934
@@ -10525,8 +10525,8 @@
       "pass_count": 2
     },
     {
-      "case_id": "morefixes-CVE-2019-9844-https_____github.com__ariabuckles__simple-markdown",
-      "project": "https://github.com/ariabuckles/simple-markdown",
+      "case_id": "morefixes-CVE-2019-9844-https_____github.com__Khan__simple-markdown",
+      "project": "https://github.com/Khan/simple-markdown",
       "language": "javascript",
       "vulnerable_version": "pre-e8e40487ae94",
       "patched_version": "e8e40487ae94",
@@ -10535,8 +10535,8 @@
       "pass_count": 100
     },
     {
-      "case_id": "morefixes-CVE-2019-9844-https_____github.com__Khan__simple-markdown",
-      "project": "https://github.com/Khan/simple-markdown",
+      "case_id": "morefixes-CVE-2019-9844-https_____github.com__ariabuckles__simple-markdown",
+      "project": "https://github.com/ariabuckles/simple-markdown",
       "language": "javascript",
       "vulnerable_version": "pre-e8e40487ae94",
       "patched_version": "e8e40487ae94",
@@ -10618,9 +10618,9 @@
       "case_id": "morefixes-CVE-2020-10804-https_____github.com__phpmyadmin__phpmyadmin",
       "project": "https://github.com/phpmyadmin/phpmyadmin",
       "language": "php",
-      "vulnerable_version": "pre-56b43527196b",
-      "patched_version": "56b43527196b",
-      "published_date": "2015-07-23",
+      "vulnerable_version": "pre-3258978c38be",
+      "patched_version": "3258978c38be",
+      "published_date": "2020-03-19",
       "fail_count": 25,
       "pass_count": 25
     },
@@ -10725,16 +10725,6 @@
       "pass_count": 6
     },
     {
-      "case_id": "morefixes-CVE-2020-11065-https_____github.com__TYPO3__typo3",
-      "project": "https://github.com/TYPO3/typo3",
-      "language": "php",
-      "vulnerable_version": "pre-0040b7b3b690",
-      "patched_version": "0040b7b3b690",
-      "published_date": "2020-05-12",
-      "fail_count": 12,
-      "pass_count": 12
-    },
-    {
       "case_id": "morefixes-CVE-2020-11065-https_____github.com__TYPO3__TYPO3.CMS",
       "project": "https://github.com/TYPO3/TYPO3.CMS",
       "language": "php",
@@ -10745,14 +10735,14 @@
       "pass_count": 12
     },
     {
-      "case_id": "morefixes-CVE-2020-11083-https_____github.com__rainlab__blog-plugin",
-      "project": "https://github.com/rainlab/blog-plugin",
+      "case_id": "morefixes-CVE-2020-11065-https_____github.com__TYPO3__typo3",
+      "project": "https://github.com/TYPO3/typo3",
       "language": "php",
-      "vulnerable_version": "pre-6ae19a6e16ef",
-      "patched_version": "6ae19a6e16ef",
-      "published_date": "2020-05-26",
-      "fail_count": 2,
-      "pass_count": 2
+      "vulnerable_version": "pre-0040b7b3b690",
+      "patched_version": "0040b7b3b690",
+      "published_date": "2020-05-12",
+      "fail_count": 12,
+      "pass_count": 12
     },
     {
       "case_id": "morefixes-CVE-2020-11083-https_____github.com__octobercms__october",
@@ -10763,6 +10753,16 @@
       "published_date": "2020-05-26",
       "fail_count": 5,
       "pass_count": 5
+    },
+    {
+      "case_id": "morefixes-CVE-2020-11083-https_____github.com__rainlab__blog-plugin",
+      "project": "https://github.com/rainlab/blog-plugin",
+      "language": "php",
+      "vulnerable_version": "pre-6ae19a6e16ef",
+      "patched_version": "6ae19a6e16ef",
+      "published_date": "2020-05-26",
+      "fail_count": 2,
+      "pass_count": 2
     },
     {
       "case_id": "morefixes-CVE-2020-11499-https_____github.com__fkie-cad__FACT_core",
@@ -11105,8 +11105,8 @@
       "pass_count": 5
     },
     {
-      "case_id": "morefixes-CVE-2020-15142-https_____github.com__triaxtec__openapi-python-client",
-      "project": "https://github.com/triaxtec/openapi-python-client",
+      "case_id": "morefixes-CVE-2020-15142-https_____github.com__openapi-generators__openapi-python-client",
+      "project": "https://github.com/openapi-generators/openapi-python-client",
       "language": "python",
       "vulnerable_version": "pre-f7a56aae32cb",
       "patched_version": "f7a56aae32cb",
@@ -11115,8 +11115,8 @@
       "pass_count": 132
     },
     {
-      "case_id": "morefixes-CVE-2020-15142-https_____github.com__openapi-generators__openapi-python-client",
-      "project": "https://github.com/openapi-generators/openapi-python-client",
+      "case_id": "morefixes-CVE-2020-15142-https_____github.com__triaxtec__openapi-python-client",
+      "project": "https://github.com/triaxtec/openapi-python-client",
       "language": "python",
       "vulnerable_version": "pre-f7a56aae32cb",
       "patched_version": "f7a56aae32cb",
@@ -11247,10 +11247,10 @@
     {
       "case_id": "morefixes-CVE-2020-15883-https_____github.com__munkireport__munkireport-php",
       "project": "https://github.com/munkireport/munkireport-php",
-      "language": "python",
-      "vulnerable_version": "pre-c5d270914aed",
-      "patched_version": "c5d270914aed",
-      "published_date": "2023-06-20",
+      "language": "php",
+      "vulnerable_version": "pre-536b7fc5b02a",
+      "patched_version": "536b7fc5b02a",
+      "published_date": "2023-08-09",
       "fail_count": 147,
       "pass_count": 147
     },
@@ -11298,9 +11298,9 @@
       "case_id": "morefixes-CVE-2020-16846-https_____github.com__saltstack__salt",
       "project": "https://github.com/saltstack/salt",
       "language": "python",
-      "vulnerable_version": "pre-a553580971ff",
-      "patched_version": "a553580971ff",
-      "published_date": "2020-08-18",
+      "vulnerable_version": "pre-84d919318656",
+      "patched_version": "84d919318656",
+      "published_date": "2020-12-01",
       "fail_count": 19,
       "pass_count": 19
     },
@@ -11318,9 +11318,9 @@
       "case_id": "morefixes-CVE-2020-1734-https_____github.com__ansible__ansible",
       "project": "https://github.com/ansible/ansible",
       "language": "python",
-      "vulnerable_version": "pre-a02641c0202a",
-      "patched_version": "a02641c0202a",
-      "published_date": "2014-03-10",
+      "vulnerable_version": "pre-49807877fa4e",
+      "patched_version": "49807877fa4e",
+      "published_date": "2014-03-18",
       "fail_count": 6,
       "pass_count": 6
     },
@@ -11958,8 +11958,8 @@
       "case_id": "morefixes-CVE-2020-25638-https_____github.com__hibernate__hibernate-orm",
       "project": "https://github.com/hibernate/hibernate-orm",
       "language": "java",
-      "vulnerable_version": "pre-59fede7acaaa",
-      "patched_version": "59fede7acaaa",
+      "vulnerable_version": "pre-36ebf7d3836e",
+      "patched_version": "36ebf7d3836e",
       "published_date": "2020-11-13",
       "fail_count": 54,
       "pass_count": 54
@@ -12125,8 +12125,8 @@
       "pass_count": 14
     },
     {
-      "case_id": "morefixes-CVE-2020-26227-https_____github.com__TYPO3__typo3",
-      "project": "https://github.com/TYPO3/typo3",
+      "case_id": "morefixes-CVE-2020-26227-https_____github.com__TYPO3__TYPO3.CMS",
+      "project": "https://github.com/TYPO3/TYPO3.CMS",
       "language": "php",
       "vulnerable_version": "pre-6a972407b5d0",
       "patched_version": "6a972407b5d0",
@@ -12135,8 +12135,8 @@
       "pass_count": 36
     },
     {
-      "case_id": "morefixes-CVE-2020-26227-https_____github.com__TYPO3__TYPO3.CMS",
-      "project": "https://github.com/TYPO3/TYPO3.CMS",
+      "case_id": "morefixes-CVE-2020-26227-https_____github.com__TYPO3__typo3",
+      "project": "https://github.com/TYPO3/typo3",
       "language": "php",
       "vulnerable_version": "pre-6a972407b5d0",
       "patched_version": "6a972407b5d0",
@@ -12288,9 +12288,9 @@
       "case_id": "morefixes-CVE-2020-27388-https_____github.com__YOURLS__YOURLS",
       "project": "https://github.com/YOURLS/YOURLS",
       "language": "php",
-      "vulnerable_version": "pre-b347c36b33cc",
-      "patched_version": "b347c36b33cc",
-      "published_date": "2020-10-10",
+      "vulnerable_version": "pre-04495e8b17ff",
+      "patched_version": "04495e8b17ff",
+      "published_date": "2020-10-11",
       "fail_count": 58,
       "pass_count": 58
     },
@@ -12438,8 +12438,8 @@
       "case_id": "morefixes-CVE-2020-29456-https_____github.com__ciur__papermerge",
       "project": "https://github.com/ciur/papermerge",
       "language": "python",
-      "vulnerable_version": "pre-78462819a8c9",
-      "patched_version": "78462819a8c9",
+      "vulnerable_version": "pre-5e724c25ffe7",
+      "patched_version": "5e724c25ffe7",
       "published_date": "2020-11-29",
       "fail_count": 10,
       "pass_count": 10
@@ -12528,9 +12528,9 @@
       "case_id": "morefixes-CVE-2020-35846-https_____github.com__agentejo__cockpit",
       "project": "https://github.com/agentejo/cockpit",
       "language": "php",
-      "vulnerable_version": "pre-79fc9631ffa2",
-      "patched_version": "79fc9631ffa2",
-      "published_date": "2020-09-14",
+      "vulnerable_version": "pre-2a385af8d80e",
+      "patched_version": "2a385af8d80e",
+      "published_date": "2020-09-25",
       "fail_count": 8,
       "pass_count": 8
     },
@@ -12538,9 +12538,9 @@
       "case_id": "morefixes-CVE-2020-35847-https_____github.com__agentejo__cockpit",
       "project": "https://github.com/agentejo/cockpit",
       "language": "php",
-      "vulnerable_version": "pre-79fc9631ffa2",
-      "patched_version": "79fc9631ffa2",
-      "published_date": "2020-09-14",
+      "vulnerable_version": "pre-2a385af8d80e",
+      "patched_version": "2a385af8d80e",
+      "published_date": "2020-09-25",
       "fail_count": 8,
       "pass_count": 8
     },
@@ -12548,9 +12548,9 @@
       "case_id": "morefixes-CVE-2020-35848-https_____github.com__agentejo__cockpit",
       "project": "https://github.com/agentejo/cockpit",
       "language": "php",
-      "vulnerable_version": "pre-79fc9631ffa2",
-      "patched_version": "79fc9631ffa2",
-      "published_date": "2020-09-14",
+      "vulnerable_version": "pre-2a385af8d80e",
+      "patched_version": "2a385af8d80e",
+      "published_date": "2020-09-25",
       "fail_count": 8,
       "pass_count": 8
     },
@@ -12565,8 +12565,8 @@
       "pass_count": 6
     },
     {
-      "case_id": "morefixes-CVE-2020-36190-https_____github.com__sferik__rails_admin",
-      "project": "https://github.com/sferik/rails_admin",
+      "case_id": "morefixes-CVE-2020-36190-https_____github.com__railsadminteam__rails_admin",
+      "project": "https://github.com/railsadminteam/rails_admin",
       "language": "ruby",
       "vulnerable_version": "pre-d72090ec6a07",
       "patched_version": "d72090ec6a07",
@@ -12575,8 +12575,8 @@
       "pass_count": 4
     },
     {
-      "case_id": "morefixes-CVE-2020-36190-https_____github.com__railsadminteam__rails_admin",
-      "project": "https://github.com/railsadminteam/rails_admin",
+      "case_id": "morefixes-CVE-2020-36190-https_____github.com__sferik__rails_admin",
+      "project": "https://github.com/sferik/rails_admin",
       "language": "ruby",
       "vulnerable_version": "pre-d72090ec6a07",
       "patched_version": "d72090ec6a07",
@@ -12817,10 +12817,10 @@
     {
       "case_id": "morefixes-CVE-2020-6632-https_____github.com__PrestaShop__PrestaShop",
       "project": "https://github.com/PrestaShop/PrestaShop",
-      "language": "php",
-      "vulnerable_version": "pre-bf51783e6b10",
-      "patched_version": "bf51783e6b10",
-      "published_date": "2020-01-07",
+      "language": "javascript",
+      "vulnerable_version": "pre-0f0a6a17cad5",
+      "patched_version": "0f0a6a17cad5",
+      "published_date": "2020-01-10",
       "fail_count": 13,
       "pass_count": 13
     },
@@ -13058,8 +13058,8 @@
       "case_id": "morefixes-CVE-2020-7778-https_____github.com__sebhildebrandt__systeminformation",
       "project": "https://github.com/sebhildebrandt/systeminformation",
       "language": "javascript",
-      "vulnerable_version": "pre-73dce8d717ca",
-      "patched_version": "73dce8d717ca",
+      "vulnerable_version": "pre-11103a447ab9",
+      "patched_version": "11103a447ab9",
       "published_date": "2020-11-25",
       "fail_count": 13,
       "pass_count": 13
@@ -13147,9 +13147,9 @@
     {
       "case_id": "morefixes-CVE-2020-8176-https_____github.com__Shopify__quilt",
       "project": "https://github.com/Shopify/quilt",
-      "language": "typescript",
-      "vulnerable_version": "pre-4b7179e02196",
-      "patched_version": "4b7179e02196",
+      "language": "javascript",
+      "vulnerable_version": "pre-114ce1bfc321",
+      "patched_version": "114ce1bfc321",
       "published_date": "2020-05-23",
       "fail_count": 19,
       "pass_count": 19
@@ -13178,9 +13178,9 @@
       "case_id": "morefixes-CVE-2020-8656-https_____github.com__EyesOfNetworkCommunity__eonapi",
       "project": "https://github.com/EyesOfNetworkCommunity/eonapi",
       "language": "php",
-      "vulnerable_version": "pre-347ef4fc8414",
-      "patched_version": "347ef4fc8414",
-      "published_date": "2020-02-06",
+      "vulnerable_version": "pre-18d568bd4147",
+      "patched_version": "18d568bd4147",
+      "published_date": "2020-02-27",
       "fail_count": 14,
       "pass_count": 14
     },
@@ -13388,8 +13388,8 @@
       "case_id": "morefixes-CVE-2021-21388-https_____github.com__sebhildebrandt__systeminformation",
       "project": "https://github.com/sebhildebrandt/systeminformation",
       "language": "javascript",
-      "vulnerable_version": "pre-0be6fcd575c0",
-      "patched_version": "0be6fcd575c0",
+      "vulnerable_version": "pre-01ef56cd5824",
+      "patched_version": "01ef56cd5824",
       "published_date": "2021-03-15",
       "fail_count": 15,
       "pass_count": 15
@@ -13698,8 +13698,8 @@
       "case_id": "morefixes-CVE-2021-24884-https_____github.com__Strategy11__formidable-forms",
       "project": "https://github.com/Strategy11/formidable-forms",
       "language": "javascript",
-      "vulnerable_version": "pre-febd8bb6549f",
-      "patched_version": "febd8bb6549f",
+      "vulnerable_version": "pre-5549ef921b4a",
+      "patched_version": "5549ef921b4a",
       "published_date": "2021-01-21",
       "fail_count": 6,
       "pass_count": 6
@@ -13777,20 +13777,20 @@
     {
       "case_id": "morefixes-CVE-2021-25934-https_____github.com__OpenNMS__opennms",
       "project": "https://github.com/OpenNMS/opennms",
-      "language": "java",
-      "vulnerable_version": "pre-eb08b5ed4c55",
-      "patched_version": "eb08b5ed4c55",
-      "published_date": "2021-04-20",
+      "language": "javascript",
+      "vulnerable_version": "pre-101e3aa06ec9",
+      "patched_version": "101e3aa06ec9",
+      "published_date": "2021-03-05",
       "fail_count": 79,
       "pass_count": 79
     },
     {
       "case_id": "morefixes-CVE-2021-25935-https_____github.com__OpenNMS__opennms",
       "project": "https://github.com/OpenNMS/opennms",
-      "language": "java",
-      "vulnerable_version": "pre-eb08b5ed4c55",
-      "patched_version": "eb08b5ed4c55",
-      "published_date": "2021-04-20",
+      "language": "javascript",
+      "vulnerable_version": "pre-101e3aa06ec9",
+      "patched_version": "101e3aa06ec9",
+      "published_date": "2021-03-05",
       "fail_count": 79,
       "pass_count": 79
     },
@@ -14088,8 +14088,8 @@
       "case_id": "morefixes-CVE-2021-28280-https_____github.com__PHPFusion__PHPFusion",
       "project": "https://github.com/PHPFusion/PHPFusion",
       "language": "php",
-      "vulnerable_version": "pre-1c2b32321cf1",
-      "patched_version": "1c2b32321cf1",
+      "vulnerable_version": "pre-08d6c2ea49bd",
+      "patched_version": "08d6c2ea49bd",
       "published_date": "2021-03-10",
       "fail_count": 22,
       "pass_count": 22
@@ -14265,8 +14265,8 @@
       "pass_count": 2
     },
     {
-      "case_id": "morefixes-CVE-2021-30151-https_____github.com__sidekiq__sidekiq",
-      "project": "https://github.com/sidekiq/sidekiq",
+      "case_id": "morefixes-CVE-2021-30151-https_____github.com__mperham__sidekiq",
+      "project": "https://github.com/mperham/sidekiq",
       "language": "ruby",
       "vulnerable_version": "pre-64f70339d1dc",
       "patched_version": "64f70339d1dc",
@@ -14275,8 +14275,8 @@
       "pass_count": 6
     },
     {
-      "case_id": "morefixes-CVE-2021-30151-https_____github.com__mperham__sidekiq",
-      "project": "https://github.com/mperham/sidekiq",
+      "case_id": "morefixes-CVE-2021-30151-https_____github.com__sidekiq__sidekiq",
+      "project": "https://github.com/sidekiq/sidekiq",
       "language": "ruby",
       "vulnerable_version": "pre-64f70339d1dc",
       "patched_version": "64f70339d1dc",
@@ -14288,8 +14288,8 @@
       "case_id": "morefixes-CVE-2021-30459-https_____github.com__jazzband__django-debug-toolbar",
       "project": "https://github.com/jazzband/django-debug-toolbar",
       "language": "python",
-      "vulnerable_version": "pre-5e6750bf89e8",
-      "patched_version": "5e6750bf89e8",
+      "vulnerable_version": "pre-38e1bd7fce7e",
+      "patched_version": "38e1bd7fce7e",
       "published_date": "2021-04-14",
       "fail_count": 102,
       "pass_count": 102
@@ -14298,9 +14298,9 @@
       "case_id": "morefixes-CVE-2021-31605-https_____github.com__furlongm__openvpn-monitor",
       "project": "https://github.com/furlongm/openvpn-monitor",
       "language": "python",
-      "vulnerable_version": "pre-b7b79e541d50",
-      "patched_version": "b7b79e541d50",
-      "published_date": "2018-10-10",
+      "vulnerable_version": "pre-a23d13db0b2c",
+      "patched_version": "a23d13db0b2c",
+      "published_date": "2020-09-02",
       "fail_count": 6,
       "pass_count": 6
     },
@@ -14668,8 +14668,8 @@
       "case_id": "morefixes-CVE-2021-3509-https_____github.com__ceph__ceph",
       "project": "https://github.com/ceph/ceph",
       "language": "python",
-      "vulnerable_version": "pre-adda853e64bd",
-      "patched_version": "adda853e64bd",
+      "vulnerable_version": "pre-7a1ca8d372da",
+      "patched_version": "7a1ca8d372da",
       "published_date": "2021-05-13",
       "fail_count": 9,
       "pass_count": 9
@@ -14688,9 +14688,9 @@
       "case_id": "morefixes-CVE-2021-35414-https_____github.com__chamilo__chamilo-lms",
       "project": "https://github.com/chamilo/chamilo-lms",
       "language": "php",
-      "vulnerable_version": "pre-6a98e32bb04a",
-      "patched_version": "6a98e32bb04a",
-      "published_date": "2021-05-17",
+      "vulnerable_version": "pre-36149c1ff999",
+      "patched_version": "36149c1ff999",
+      "published_date": "2021-05-13",
       "fail_count": 4,
       "pass_count": 4
     },
@@ -14828,9 +14828,9 @@
       "case_id": "morefixes-CVE-2021-3693-https_____github.com__ledgersmb__LedgerSMB",
       "project": "https://github.com/ledgersmb/LedgerSMB",
       "language": "javascript",
-      "vulnerable_version": "pre-ec2fa44d8d9d",
-      "patched_version": "ec2fa44d8d9d",
-      "published_date": "2021-08-23",
+      "vulnerable_version": "pre-5ca25f2125a5",
+      "patched_version": "5ca25f2125a5",
+      "published_date": "2021-08-30",
       "fail_count": 5,
       "pass_count": 5
     },
@@ -15098,8 +15098,8 @@
       "case_id": "morefixes-CVE-2021-39267-https_____github.com__salesagility__SuiteCRM",
       "project": "https://github.com/salesagility/SuiteCRM",
       "language": "php",
-      "vulnerable_version": "pre-c5ccd33d05c5",
-      "patched_version": "c5ccd33d05c5",
+      "vulnerable_version": "pre-5d0dda113b7e",
+      "patched_version": "5d0dda113b7e",
       "published_date": "2023-07-18",
       "fail_count": 27,
       "pass_count": 27
@@ -15108,8 +15108,8 @@
       "case_id": "morefixes-CVE-2021-39268-https_____github.com__salesagility__SuiteCRM",
       "project": "https://github.com/salesagility/SuiteCRM",
       "language": "php",
-      "vulnerable_version": "pre-c5ccd33d05c5",
-      "patched_version": "c5ccd33d05c5",
+      "vulnerable_version": "pre-5d0dda113b7e",
+      "patched_version": "5d0dda113b7e",
       "published_date": "2023-07-18",
       "fail_count": 27,
       "pass_count": 27
@@ -15308,8 +15308,8 @@
       "case_id": "morefixes-CVE-2021-41086-https_____github.com__jsuites__jsuites",
       "project": "https://github.com/jsuites/jsuites",
       "language": "javascript",
-      "vulnerable_version": "pre-fe1d3cc5e339",
-      "patched_version": "fe1d3cc5e339",
+      "vulnerable_version": "pre-d47a6f4e1431",
+      "patched_version": "d47a6f4e1431",
       "published_date": "2021-09-18",
       "fail_count": 38,
       "pass_count": 38
@@ -15678,9 +15678,9 @@
       "case_id": "morefixes-CVE-2021-42655-https_____github.com__siteserver__cms",
       "project": "https://github.com/siteserver/cms",
       "language": "csharp",
-      "vulnerable_version": "pre-59670ef57d9c",
-      "patched_version": "59670ef57d9c",
-      "published_date": "2023-09-18",
+      "vulnerable_version": "pre-3062a87337c6",
+      "patched_version": "3062a87337c6",
+      "published_date": "2023-05-18",
       "fail_count": 32,
       "pass_count": 32
     },
@@ -15688,9 +15688,9 @@
       "case_id": "morefixes-CVE-2021-42656-https_____github.com__siteserver__cms",
       "project": "https://github.com/siteserver/cms",
       "language": "csharp",
-      "vulnerable_version": "pre-59670ef57d9c",
-      "patched_version": "59670ef57d9c",
-      "published_date": "2023-09-18",
+      "vulnerable_version": "pre-3062a87337c6",
+      "patched_version": "3062a87337c6",
+      "published_date": "2023-05-18",
       "fail_count": 32,
       "pass_count": 32
     },
@@ -16168,9 +16168,9 @@
       "case_id": "morefixes-CVE-2021-45845-https_____github.com__FreeCAD__FreeCAD",
       "project": "https://github.com/FreeCAD/FreeCAD",
       "language": "python",
-      "vulnerable_version": "pre-a73f442f8872",
-      "patched_version": "a73f442f8872",
-      "published_date": "2022-01-03",
+      "vulnerable_version": "pre-a65dbc6f8296",
+      "patched_version": "a65dbc6f8296",
+      "published_date": "2021-12-31",
       "fail_count": 6,
       "pass_count": 6
     },
@@ -16208,8 +16208,8 @@
       "case_id": "morefixes-CVE-2021-46144-https_____github.com__roundcube__roundcubemail",
       "project": "https://github.com/roundcube/roundcubemail",
       "language": "php",
-      "vulnerable_version": "pre-b2400a4b592e",
-      "patched_version": "b2400a4b592e",
+      "vulnerable_version": "pre-8894fddd59b7",
+      "patched_version": "8894fddd59b7",
       "published_date": "2021-12-29",
       "fail_count": 6,
       "pass_count": 6
@@ -17385,24 +17385,14 @@
       "pass_count": 3
     },
     {
-      "case_id": "morefixes-CVE-2022-22984-https_____github.com__snyk__snyk-sbt-plugin",
-      "project": "https://github.com/snyk/snyk-sbt-plugin",
+      "case_id": "morefixes-CVE-2022-22984-https_____github.com__snyk__snyk-cocoapods-plugin",
+      "project": "https://github.com/snyk/snyk-cocoapods-plugin",
       "language": "typescript",
-      "vulnerable_version": "pre-99c09eb12c9f",
-      "patched_version": "99c09eb12c9f",
+      "vulnerable_version": "pre-c73e049c5200",
+      "patched_version": "c73e049c5200",
       "published_date": "2022-11-29",
-      "fail_count": 3,
-      "pass_count": 3
-    },
-    {
-      "case_id": "morefixes-CVE-2022-22984-https_____github.com__snyk__snyk-gradle-plugin",
-      "project": "https://github.com/snyk/snyk-gradle-plugin",
-      "language": "typescript",
-      "vulnerable_version": "pre-bb1c1c72a75e",
-      "patched_version": "bb1c1c72a75e",
-      "published_date": "2022-11-14",
-      "fail_count": 2,
-      "pass_count": 2
+      "fail_count": 1,
+      "pass_count": 1
     },
     {
       "case_id": "morefixes-CVE-2022-22984-https_____github.com__snyk__snyk-docker-plugin",
@@ -17415,24 +17405,14 @@
       "pass_count": 2
     },
     {
-      "case_id": "morefixes-CVE-2022-22984-https_____github.com__snyk__snyk-python-plugin",
-      "project": "https://github.com/snyk/snyk-python-plugin",
+      "case_id": "morefixes-CVE-2022-22984-https_____github.com__snyk__snyk-gradle-plugin",
+      "project": "https://github.com/snyk/snyk-gradle-plugin",
       "language": "typescript",
-      "vulnerable_version": "pre-8591abdd9236",
-      "patched_version": "8591abdd9236",
-      "published_date": "2022-11-29",
+      "vulnerable_version": "pre-bb1c1c72a75e",
+      "patched_version": "bb1c1c72a75e",
+      "published_date": "2022-11-14",
       "fail_count": 2,
       "pass_count": 2
-    },
-    {
-      "case_id": "morefixes-CVE-2022-22984-https_____github.com__snyk__snyk-cocoapods-plugin",
-      "project": "https://github.com/snyk/snyk-cocoapods-plugin",
-      "language": "typescript",
-      "vulnerable_version": "pre-c73e049c5200",
-      "patched_version": "c73e049c5200",
-      "published_date": "2022-11-29",
-      "fail_count": 1,
-      "pass_count": 1
     },
     {
       "case_id": "morefixes-CVE-2022-22984-https_____github.com__snyk__snyk-hex-plugin",
@@ -17453,6 +17433,26 @@
       "published_date": "2022-11-29",
       "fail_count": 1,
       "pass_count": 1
+    },
+    {
+      "case_id": "morefixes-CVE-2022-22984-https_____github.com__snyk__snyk-python-plugin",
+      "project": "https://github.com/snyk/snyk-python-plugin",
+      "language": "typescript",
+      "vulnerable_version": "pre-8591abdd9236",
+      "patched_version": "8591abdd9236",
+      "published_date": "2022-11-29",
+      "fail_count": 2,
+      "pass_count": 2
+    },
+    {
+      "case_id": "morefixes-CVE-2022-22984-https_____github.com__snyk__snyk-sbt-plugin",
+      "project": "https://github.com/snyk/snyk-sbt-plugin",
+      "language": "typescript",
+      "vulnerable_version": "pre-99c09eb12c9f",
+      "patched_version": "99c09eb12c9f",
+      "published_date": "2022-11-29",
+      "fail_count": 3,
+      "pass_count": 3
     },
     {
       "case_id": "morefixes-CVE-2022-23045-https_____github.com__phpipam__phpipam",
@@ -17618,8 +17618,8 @@
       "case_id": "morefixes-CVE-2022-23519-https_____github.com__rails__rails-html-sanitizer",
       "project": "https://github.com/rails/rails-html-sanitizer",
       "language": "ruby",
-      "vulnerable_version": "pre-68ccf7e1dbaa",
-      "patched_version": "68ccf7e1dbaa",
+      "vulnerable_version": "pre-373fc6295918",
+      "patched_version": "373fc6295918",
       "published_date": "2022-12-13",
       "fail_count": 11,
       "pass_count": 11
@@ -17628,8 +17628,8 @@
       "case_id": "morefixes-CVE-2022-23520-https_____github.com__rails__rails-html-sanitizer",
       "project": "https://github.com/rails/rails-html-sanitizer",
       "language": "ruby",
-      "vulnerable_version": "pre-68ccf7e1dbaa",
-      "patched_version": "68ccf7e1dbaa",
+      "vulnerable_version": "pre-373fc6295918",
+      "patched_version": "373fc6295918",
       "published_date": "2022-12-13",
       "fail_count": 11,
       "pass_count": 11
@@ -17765,6 +17765,16 @@
       "pass_count": 1
     },
     {
+      "case_id": "morefixes-CVE-2022-24441-https_____github.com__snyk__snyk-ls",
+      "project": "https://github.com/snyk/snyk-ls",
+      "language": "go",
+      "vulnerable_version": "pre-b3229f0142f7",
+      "patched_version": "b3229f0142f7",
+      "published_date": "2022-11-29",
+      "fail_count": 76,
+      "pass_count": 76
+    },
+    {
       "case_id": "morefixes-CVE-2022-24441-https_____github.com__snyk__snyk-visual-studio-plugin",
       "project": "https://github.com/snyk/snyk-visual-studio-plugin",
       "language": "csharp",
@@ -17785,16 +17795,6 @@
       "pass_count": 20
     },
     {
-      "case_id": "morefixes-CVE-2022-24441-https_____github.com__snyk__snyk-ls",
-      "project": "https://github.com/snyk/snyk-ls",
-      "language": "go",
-      "vulnerable_version": "pre-b3229f0142f7",
-      "patched_version": "b3229f0142f7",
-      "published_date": "2022-11-29",
-      "fail_count": 76,
-      "pass_count": 76
-    },
-    {
       "case_id": "morefixes-CVE-2022-24708-https_____github.com__anuko__timetracker",
       "project": "https://github.com/anuko/timetracker",
       "language": "php",
@@ -17808,9 +17808,9 @@
       "case_id": "morefixes-CVE-2022-24710-https_____github.com__WeblateOrg__weblate",
       "project": "https://github.com/WeblateOrg/weblate",
       "language": "python",
-      "vulnerable_version": "pre-f6753a1a1c63",
-      "patched_version": "f6753a1a1c63",
-      "published_date": "2022-02-22",
+      "vulnerable_version": "pre-22d577b1f1e8",
+      "patched_version": "22d577b1f1e8",
+      "published_date": "2022-02-20",
       "fail_count": 19,
       "pass_count": 19
     },
@@ -17868,9 +17868,9 @@
       "case_id": "morefixes-CVE-2022-24780-https_____github.com__Combodo__iTop",
       "project": "https://github.com/Combodo/iTop",
       "language": "php",
-      "vulnerable_version": "pre-b6fac4b411b8",
-      "patched_version": "b6fac4b411b8",
-      "published_date": "2021-11-25",
+      "vulnerable_version": "pre-93f273a28778",
+      "patched_version": "93f273a28778",
+      "published_date": "2021-12-10",
       "fail_count": 10,
       "pass_count": 10
     },
@@ -17918,9 +17918,9 @@
       "case_id": "morefixes-CVE-2022-24827-https_____github.com__yahoo__elide",
       "project": "https://github.com/yahoo/elide",
       "language": "java",
-      "vulnerable_version": "pre-aec37097a746",
-      "patched_version": "aec37097a746",
-      "published_date": "2022-04-05",
+      "vulnerable_version": "pre-588b69f120c8",
+      "patched_version": "588b69f120c8",
+      "published_date": "2022-03-24",
       "fail_count": 2,
       "pass_count": 2
     },
@@ -17948,8 +17948,8 @@
       "case_id": "morefixes-CVE-2022-24848-https_____github.com__dhis2__dhis2-core",
       "project": "https://github.com/dhis2/dhis2-core",
       "language": "java",
-      "vulnerable_version": "pre-ef04483a9b17",
-      "patched_version": "ef04483a9b17",
+      "vulnerable_version": "pre-3b245d04a58b",
+      "patched_version": "3b245d04a58b",
       "published_date": "2022-06-01",
       "fail_count": 33,
       "pass_count": 33
@@ -17998,9 +17998,9 @@
       "case_id": "morefixes-CVE-2022-25069-https_____github.com__marktext__marktext",
       "project": "https://github.com/marktext/marktext",
       "language": "javascript",
-      "vulnerable_version": "pre-fed1dac48fa7",
-      "patched_version": "fed1dac48fa7",
-      "published_date": "2022-02-18",
+      "vulnerable_version": "pre-b0299387a5f0",
+      "patched_version": "b0299387a5f0",
+      "published_date": "2022-01-13",
       "fail_count": 24,
       "pass_count": 24
     },
@@ -18248,9 +18248,9 @@
       "case_id": "morefixes-CVE-2022-27811-https_____github.com__gnome__ocrfeeder",
       "project": "https://github.com/gnome/ocrfeeder",
       "language": "python",
-      "vulnerable_version": "pre-9209bce8afaf",
-      "patched_version": "9209bce8afaf",
-      "published_date": "2022-03-13",
+      "vulnerable_version": "pre-5286120c8bc8",
+      "patched_version": "5286120c8bc8",
+      "published_date": "2020-03-08",
       "fail_count": 23,
       "pass_count": 23
     },
@@ -18668,8 +18668,8 @@
       "case_id": "morefixes-CVE-2022-31065-https_____github.com__bigbluebutton__bigbluebutton",
       "project": "https://github.com/bigbluebutton/bigbluebutton",
       "language": "typescript",
-      "vulnerable_version": "pre-484bd96934ff",
-      "patched_version": "484bd96934ff",
+      "vulnerable_version": "pre-39a685be8b00",
+      "patched_version": "39a685be8b00",
       "published_date": "2022-05-27",
       "fail_count": 27,
       "pass_count": 27
@@ -18738,9 +18738,9 @@
       "case_id": "morefixes-CVE-2022-31192-https_____github.com__DSpace__DSpace",
       "project": "https://github.com/DSpace/DSpace",
       "language": "java",
-      "vulnerable_version": "pre-f7758457b7ec",
-      "patched_version": "f7758457b7ec",
-      "published_date": "2022-01-14",
+      "vulnerable_version": "pre-28eb8158210d",
+      "patched_version": "28eb8158210d",
+      "published_date": "2022-07-26",
       "fail_count": 5,
       "pass_count": 5
     },
@@ -19308,8 +19308,8 @@
       "case_id": "morefixes-CVE-2022-39324-https_____github.com__grafana__grafana",
       "project": "https://github.com/grafana/grafana",
       "language": "go",
-      "vulnerable_version": "pre-d7dcea71ea76",
-      "patched_version": "d7dcea71ea76",
+      "vulnerable_version": "pre-239888f22983",
+      "patched_version": "239888f22983",
       "published_date": "2022-12-13",
       "fail_count": 6,
       "pass_count": 6
@@ -19608,8 +19608,8 @@
       "case_id": "morefixes-CVE-2022-43982-https_____github.com__apache__airflow",
       "project": "https://github.com/apache/airflow",
       "language": "python",
-      "vulnerable_version": "pre-9fb4814d29d9",
-      "patched_version": "9fb4814d29d9",
+      "vulnerable_version": "pre-68cb2daa410a",
+      "patched_version": "68cb2daa410a",
       "published_date": "2022-10-19",
       "fail_count": 4,
       "pass_count": 4
@@ -19838,9 +19838,9 @@
       "case_id": "morefixes-CVE-2022-46087-https_____github.com__hrshadhin__school-management-system",
       "project": "https://github.com/hrshadhin/school-management-system",
       "language": "php",
-      "vulnerable_version": "pre-ded38883a4aa",
-      "patched_version": "ded38883a4aa",
-      "published_date": "2020-09-04",
+      "vulnerable_version": "pre-432f6df70481",
+      "patched_version": "432f6df70481",
+      "published_date": "2020-05-01",
       "fail_count": 15,
       "pass_count": 15
     },
@@ -21297,16 +21297,16 @@
     {
       "case_id": "morefixes-CVE-2023-24788-https_____github.com__notrinos__NotrinosERP",
       "project": "https://github.com/notrinos/NotrinosERP",
-      "language": "php",
-      "vulnerable_version": "pre-84029588c4ba",
-      "patched_version": "84029588c4ba",
-      "published_date": "2021-05-24",
+      "language": "javascript",
+      "vulnerable_version": "pre-0362778f4f67",
+      "patched_version": "0362778f4f67",
+      "published_date": "2022-08-16",
       "fail_count": 34,
       "pass_count": 34
     },
     {
-      "case_id": "morefixes-CVE-2023-24812-https_____github.com__syuilo__misskey",
-      "project": "https://github.com/syuilo/misskey",
+      "case_id": "morefixes-CVE-2023-24812-https_____github.com__misskey-dev__misskey",
+      "project": "https://github.com/misskey-dev/misskey",
       "language": "javascript",
       "vulnerable_version": "pre-ee74df68233a",
       "patched_version": "ee74df68233a",
@@ -21315,8 +21315,8 @@
       "pass_count": 4
     },
     {
-      "case_id": "morefixes-CVE-2023-24812-https_____github.com__misskey-dev__misskey",
-      "project": "https://github.com/misskey-dev/misskey",
+      "case_id": "morefixes-CVE-2023-24812-https_____github.com__syuilo__misskey",
+      "project": "https://github.com/syuilo/misskey",
       "language": "javascript",
       "vulnerable_version": "pre-ee74df68233a",
       "patched_version": "ee74df68233a",
@@ -21348,8 +21348,8 @@
       "case_id": "morefixes-CVE-2023-25172-https_____github.com__discourse__discourse",
       "project": "https://github.com/discourse/discourse",
       "language": "ruby",
-      "vulnerable_version": "pre-c186a4691043",
-      "patched_version": "c186a4691043",
+      "vulnerable_version": "pre-1a5a6f66cb82",
+      "patched_version": "1a5a6f66cb82",
       "published_date": "2023-01-25",
       "fail_count": 14,
       "pass_count": 14
@@ -22055,8 +22055,8 @@
       "pass_count": 2
     },
     {
-      "case_id": "morefixes-CVE-2023-30621-https_____github.com__Gunivers__Gipsy",
-      "project": "https://github.com/Gunivers/Gipsy",
+      "case_id": "morefixes-CVE-2023-30621-https_____github.com__Curiosity-org__Gipsy",
+      "project": "https://github.com/Curiosity-org/Gipsy",
       "language": "python",
       "vulnerable_version": "pre-716818e96706",
       "patched_version": "716818e96706",
@@ -22065,8 +22065,8 @@
       "pass_count": 6
     },
     {
-      "case_id": "morefixes-CVE-2023-30621-https_____github.com__Curiosity-org__Gipsy",
-      "project": "https://github.com/Curiosity-org/Gipsy",
+      "case_id": "morefixes-CVE-2023-30621-https_____github.com__Gunivers__Gipsy",
+      "project": "https://github.com/Gunivers/Gipsy",
       "language": "python",
       "vulnerable_version": "pre-716818e96706",
       "patched_version": "716818e96706",
@@ -22078,8 +22078,8 @@
       "case_id": "morefixes-CVE-2023-30625-https_____github.com__rudderlabs__rudder-server",
       "project": "https://github.com/rudderlabs/rudder-server",
       "language": "go",
-      "vulnerable_version": "pre-9c009d9775ab",
-      "patched_version": "9c009d9775ab",
+      "vulnerable_version": "pre-0d061ff2d8c1",
+      "patched_version": "0d061ff2d8c1",
       "published_date": "2022-11-07",
       "fail_count": 6,
       "pass_count": 6
@@ -22218,8 +22218,8 @@
       "case_id": "morefixes-CVE-2023-32685-https_____github.com__kanboard__kanboard",
       "project": "https://github.com/kanboard/kanboard",
       "language": "javascript",
-      "vulnerable_version": "pre-c9c187206700",
-      "patched_version": "c9c187206700",
+      "vulnerable_version": "pre-26b6eebb78d4",
+      "patched_version": "26b6eebb78d4",
       "published_date": "2023-05-19",
       "fail_count": 27,
       "pass_count": 27
@@ -22228,8 +22228,8 @@
       "case_id": "morefixes-CVE-2023-32693-https_____github.com__decidim__decidim",
       "project": "https://github.com/decidim/decidim",
       "language": "ruby",
-      "vulnerable_version": "pre-0988ce9db54d",
-      "patched_version": "0988ce9db54d",
+      "vulnerable_version": "pre-073a7d779d22",
+      "patched_version": "073a7d779d22",
       "published_date": "2023-05-11",
       "fail_count": 104,
       "pass_count": 104
@@ -22268,9 +22268,9 @@
       "case_id": "morefixes-CVE-2023-33186-https_____github.com__zulip__zulip",
       "project": "https://github.com/zulip/zulip",
       "language": "javascript",
-      "vulnerable_version": "pre-3ca131743b00",
-      "patched_version": "3ca131743b00",
-      "published_date": "2023-05-29",
+      "vulnerable_version": "pre-03cfb3d9fe61",
+      "patched_version": "03cfb3d9fe61",
+      "published_date": "2023-05-02",
       "fail_count": 4,
       "pass_count": 4
     },
@@ -22395,8 +22395,8 @@
       "pass_count": 10
     },
     {
-      "case_id": "morefixes-CVE-2023-33977-https_____github.com__kiwitcms__kiwi",
-      "project": "https://github.com/kiwitcms/kiwi",
+      "case_id": "morefixes-CVE-2023-33977-https_____github.com__kiwitcms__Kiwi",
+      "project": "https://github.com/kiwitcms/Kiwi",
       "language": "python",
       "vulnerable_version": "pre-d789f4b51025",
       "patched_version": "d789f4b51025",
@@ -22405,8 +22405,8 @@
       "pass_count": 4
     },
     {
-      "case_id": "morefixes-CVE-2023-33977-https_____github.com__kiwitcms__Kiwi",
-      "project": "https://github.com/kiwitcms/Kiwi",
+      "case_id": "morefixes-CVE-2023-33977-https_____github.com__kiwitcms__kiwi",
+      "project": "https://github.com/kiwitcms/kiwi",
       "language": "python",
       "vulnerable_version": "pre-d789f4b51025",
       "patched_version": "d789f4b51025",
@@ -22448,9 +22448,9 @@
       "case_id": "morefixes-CVE-2023-34251-https_____github.com__getgrav__grav",
       "project": "https://github.com/getgrav/grav",
       "language": "php",
-      "vulnerable_version": "pre-9d01140a63c7",
-      "patched_version": "9d01140a63c7",
-      "published_date": "2023-06-13",
+      "vulnerable_version": "pre-244758d43830",
+      "patched_version": "244758d43830",
+      "published_date": "2023-06-14",
       "fail_count": 3,
       "pass_count": 3
     },
@@ -22475,8 +22475,8 @@
       "pass_count": 2
     },
     {
-      "case_id": "morefixes-CVE-2023-34408-https_____github.com__splitbrain__dokuwiki",
-      "project": "https://github.com/splitbrain/dokuwiki",
+      "case_id": "morefixes-CVE-2023-34408-https_____github.com__dokuwiki__dokuwiki",
+      "project": "https://github.com/dokuwiki/dokuwiki",
       "language": "php",
       "vulnerable_version": "pre-36b2038abb67",
       "patched_version": "36b2038abb67",
@@ -22485,8 +22485,8 @@
       "pass_count": 4
     },
     {
-      "case_id": "morefixes-CVE-2023-34408-https_____github.com__dokuwiki__dokuwiki",
-      "project": "https://github.com/dokuwiki/dokuwiki",
+      "case_id": "morefixes-CVE-2023-34408-https_____github.com__splitbrain__dokuwiki",
+      "project": "https://github.com/splitbrain/dokuwiki",
       "language": "php",
       "vulnerable_version": "pre-36b2038abb67",
       "patched_version": "36b2038abb67",
@@ -22508,9 +22508,9 @@
       "case_id": "morefixes-CVE-2023-34448-https_____github.com__getgrav__grav",
       "project": "https://github.com/getgrav/grav",
       "language": "php",
-      "vulnerable_version": "pre-8c2c1cb72611",
-      "patched_version": "8c2c1cb72611",
-      "published_date": "2023-06-13",
+      "vulnerable_version": "pre-244758d43830",
+      "patched_version": "244758d43830",
+      "published_date": "2023-06-14",
       "fail_count": 4,
       "pass_count": 4
     },
@@ -22538,8 +22538,8 @@
       "case_id": "morefixes-CVE-2023-34626-https_____github.com__Piwigo__Piwigo",
       "project": "https://github.com/Piwigo/Piwigo",
       "language": "php",
-      "vulnerable_version": "pre-249bb6c932ff",
-      "patched_version": "249bb6c932ff",
+      "vulnerable_version": "pre-0649ad32459c",
+      "patched_version": "0649ad32459c",
       "published_date": "2023-05-29",
       "fail_count": 4,
       "pass_count": 4
@@ -22768,8 +22768,8 @@
       "case_id": "morefixes-CVE-2023-36806-https_____github.com__contao__contao",
       "project": "https://github.com/contao/contao",
       "language": "php",
-      "vulnerable_version": "pre-c98585d36baa",
-      "patched_version": "c98585d36baa",
+      "vulnerable_version": "pre-5c9aff32cfc1",
+      "patched_version": "5c9aff32cfc1",
       "published_date": "2023-07-25",
       "fail_count": 36,
       "pass_count": 36
@@ -23298,8 +23298,8 @@
       "case_id": "morefixes-CVE-2023-41318-https_____github.com__turt2live__matrix-media-repo",
       "project": "https://github.com/turt2live/matrix-media-repo",
       "language": "go",
-      "vulnerable_version": "pre-bf8abdd7a537",
-      "patched_version": "bf8abdd7a537",
+      "vulnerable_version": "pre-77ec2354e8f4",
+      "patched_version": "77ec2354e8f4",
       "published_date": "2023-09-05",
       "fail_count": 2,
       "pass_count": 2
@@ -23408,9 +23408,9 @@
       "case_id": "morefixes-CVE-2023-4221-https_____github.com__chamilo__chamilo-lms",
       "project": "https://github.com/chamilo/chamilo-lms",
       "language": "php",
-      "vulnerable_version": "pre-ed72914608d2",
-      "patched_version": "ed72914608d2",
-      "published_date": "2023-09-05",
+      "vulnerable_version": "pre-841a07396fed",
+      "patched_version": "841a07396fed",
+      "published_date": "2023-09-21",
       "fail_count": 16,
       "pass_count": 16
     },
@@ -23418,9 +23418,9 @@
       "case_id": "morefixes-CVE-2023-4222-https_____github.com__chamilo__chamilo-lms",
       "project": "https://github.com/chamilo/chamilo-lms",
       "language": "php",
-      "vulnerable_version": "pre-ed72914608d2",
-      "patched_version": "ed72914608d2",
-      "published_date": "2023-09-05",
+      "vulnerable_version": "pre-841a07396fed",
+      "patched_version": "841a07396fed",
+      "published_date": "2023-09-21",
       "fail_count": 16,
       "pass_count": 16
     },
@@ -23438,8 +23438,8 @@
       "case_id": "morefixes-CVE-2023-42458-https_____github.com__zopefoundation__Zope",
       "project": "https://github.com/zopefoundation/Zope",
       "language": "python",
-      "vulnerable_version": "pre-603b0a12881c",
-      "patched_version": "603b0a12881c",
+      "vulnerable_version": "pre-26a55dbc301d",
+      "patched_version": "26a55dbc301d",
       "published_date": "2023-09-21",
       "fail_count": 14,
       "pass_count": 14
@@ -23768,8 +23768,8 @@
       "case_id": "morefixes-CVE-2023-46693-https_____github.com__formalms__formalms",
       "project": "https://github.com/formalms/formalms",
       "language": "php",
-      "vulnerable_version": "pre-b4dba4a6136f",
-      "patched_version": "b4dba4a6136f",
+      "vulnerable_version": "pre-8654277385d0",
+      "patched_version": "8654277385d0",
       "published_date": "2023-11-21",
       "fail_count": 2,
       "pass_count": 2
@@ -24018,8 +24018,8 @@
       "case_id": "morefixes-CVE-2023-49090-https_____github.com__carrierwaveuploader__carrierwave",
       "project": "https://github.com/carrierwaveuploader/carrierwave",
       "language": "ruby",
-      "vulnerable_version": "pre-863d425c76eb",
-      "patched_version": "863d425c76eb",
+      "vulnerable_version": "pre-39b282db5c13",
+      "patched_version": "39b282db5c13",
       "published_date": "2023-11-29",
       "fail_count": 10,
       "pass_count": 10
@@ -24178,9 +24178,9 @@
       "case_id": "morefixes-CVE-2023-50723-https_____github.com__xwiki__xwiki-platform",
       "project": "https://github.com/xwiki/xwiki-platform",
       "language": "java",
-      "vulnerable_version": "pre-bd82be936c21",
-      "patched_version": "bd82be936c21",
-      "published_date": "2023-07-31",
+      "vulnerable_version": "pre-1157c1ecea39",
+      "patched_version": "1157c1ecea39",
+      "published_date": "2023-08-02",
       "fail_count": 5,
       "pass_count": 5
     },
@@ -24598,9 +24598,9 @@
       "case_id": "morefixes-CVE-2024-0521-https_____github.com__PaddlePaddle__Paddle",
       "project": "https://github.com/PaddlePaddle/Paddle",
       "language": "python",
-      "vulnerable_version": "pre-f99d4f2d649d",
-      "patched_version": "f99d4f2d649d",
-      "published_date": "2024-01-31",
+      "vulnerable_version": "pre-b8f9a0ad4b6f",
+      "patched_version": "b8f9a0ad4b6f",
+      "published_date": "2024-01-23",
       "fail_count": 4,
       "pass_count": 4
     },
@@ -24688,8 +24688,8 @@
       "case_id": "morefixes-CVE-2024-21637-https_____github.com__goauthentik__authentik",
       "project": "https://github.com/goauthentik/authentik",
       "language": "python",
-      "vulnerable_version": "pre-d9aab79c6267",
-      "patched_version": "d9aab79c6267",
+      "vulnerable_version": "pre-6649f7ab72af",
+      "patched_version": "6649f7ab72af",
       "published_date": "2024-01-09",
       "fail_count": 10,
       "pass_count": 10
@@ -24758,9 +24758,9 @@
       "case_id": "morefixes-CVE-2024-22411-https_____github.com__avo-hq__avo",
       "project": "https://github.com/avo-hq/avo",
       "language": "javascript",
-      "vulnerable_version": "pre-fc92a05a8556",
-      "patched_version": "fc92a05a8556",
-      "published_date": "2024-01-18",
+      "vulnerable_version": "pre-51bb80b181cd",
+      "patched_version": "51bb80b181cd",
+      "published_date": "2024-01-12",
       "fail_count": 4,
       "pass_count": 4
     },
@@ -24888,8 +24888,8 @@
       "case_id": "morefixes-CVE-2024-25109-https_____github.com__miraheze__ManageWiki",
       "project": "https://github.com/miraheze/ManageWiki",
       "language": "php",
-      "vulnerable_version": "pre-886cc6b94587",
-      "patched_version": "886cc6b94587",
+      "vulnerable_version": "pre-6942e8b2c01d",
+      "patched_version": "6942e8b2c01d",
       "published_date": "2024-02-09",
       "fail_count": 3,
       "pass_count": 3
@@ -24978,9 +24978,9 @@
       "case_id": "morefixes-CVE-2024-32034-https_____github.com__decidim__decidim",
       "project": "https://github.com/decidim/decidim",
       "language": "ruby",
-      "vulnerable_version": "pre-ff755e23814a",
-      "patched_version": "ff755e23814a",
-      "published_date": "2024-07-09",
+      "vulnerable_version": "pre-23fc8d702a49",
+      "patched_version": "23fc8d702a49",
+      "published_date": "2024-07-08",
       "fail_count": 382,
       "pass_count": 382
     },
@@ -24998,8 +24998,8 @@
       "case_id": "morefixes-CVE-2024-35234-https_____github.com__discourse__discourse",
       "project": "https://github.com/discourse/discourse",
       "language": "ruby",
-      "vulnerable_version": "pre-311b737c910c",
-      "patched_version": "311b737c910c",
+      "vulnerable_version": "pre-26aef0c28883",
+      "patched_version": "26aef0c28883",
       "published_date": "2024-07-03",
       "fail_count": 8,
       "pass_count": 8
@@ -25068,8 +25068,8 @@
       "case_id": "morefixes-CVE-2024-37165-https_____github.com__discourse__discourse",
       "project": "https://github.com/discourse/discourse",
       "language": "ruby",
-      "vulnerable_version": "pre-311b737c910c",
-      "patched_version": "311b737c910c",
+      "vulnerable_version": "pre-26aef0c28883",
+      "patched_version": "26aef0c28883",
       "published_date": "2024-07-03",
       "fail_count": 8,
       "pass_count": 8
@@ -25078,8 +25078,8 @@
       "case_id": "morefixes-CVE-2024-37297-https_____github.com__woocommerce__woocommerce",
       "project": "https://github.com/woocommerce/woocommerce",
       "language": "javascript",
-      "vulnerable_version": "pre-915e32a42762",
-      "patched_version": "915e32a42762",
+      "vulnerable_version": "pre-0e9888305d0c",
+      "patched_version": "0e9888305d0c",
       "published_date": "2024-06-11",
       "fail_count": 8,
       "pass_count": 8
@@ -25098,8 +25098,8 @@
       "case_id": "morefixes-CVE-2024-37900-https_____github.com__xwiki__xwiki-platform",
       "project": "https://github.com/xwiki/xwiki-platform",
       "language": "java",
-      "vulnerable_version": "pre-8b8a2d80529b",
-      "patched_version": "8b8a2d80529b",
+      "vulnerable_version": "pre-6cdd69d31d6b",
+      "patched_version": "6cdd69d31d6b",
       "published_date": "2024-01-24",
       "fail_count": 48,
       "pass_count": 48
@@ -25108,8 +25108,8 @@
       "case_id": "morefixes-CVE-2024-37901-https_____github.com__xwiki__xwiki-platform",
       "project": "https://github.com/xwiki/xwiki-platform",
       "language": "java",
-      "vulnerable_version": "pre-9ce3e0319869",
-      "patched_version": "9ce3e0319869",
+      "vulnerable_version": "pre-0b135760514f",
+      "patched_version": "0b135760514f",
       "published_date": "2023-12-18",
       "fail_count": 56,
       "pass_count": 56
@@ -25168,8 +25168,8 @@
       "case_id": "morefixes-CVE-2024-39308-https_____github.com__railsadminteam__rails_admin",
       "project": "https://github.com/railsadminteam/rails_admin",
       "language": "ruby",
-      "vulnerable_version": "pre-d84b39884059",
-      "patched_version": "d84b39884059",
+      "vulnerable_version": "pre-b5a287d82e2c",
+      "patched_version": "b5a287d82e2c",
       "published_date": "2024-07-06",
       "fail_count": 2,
       "pass_count": 2
@@ -25178,9 +25178,9 @@
       "case_id": "morefixes-CVE-2024-39308-https_____github.com__sferik__rails_admin",
       "project": "https://github.com/sferik/rails_admin",
       "language": "ruby",
-      "vulnerable_version": "pre-d84b39884059",
-      "patched_version": "d84b39884059",
-      "published_date": "2024-07-06",
+      "vulnerable_version": "pre-758d249d9500",
+      "patched_version": "758d249d9500",
+      "published_date": "2024-07-09",
       "fail_count": 4,
       "pass_count": 4
     },
@@ -25278,9 +25278,9 @@
       "case_id": "morefixes-CVE-2024-40637-https_____github.com__dbt-labs__dbt-core",
       "project": "https://github.com/dbt-labs/dbt-core",
       "language": "python",
-      "vulnerable_version": "pre-87ac4deb00cc",
-      "patched_version": "87ac4deb00cc",
-      "published_date": "2024-04-29",
+      "vulnerable_version": "pre-3c82a0296d22",
+      "patched_version": "3c82a0296d22",
+      "published_date": "2024-05-01",
       "fail_count": 315,
       "pass_count": 315
     },
@@ -25288,8 +25288,8 @@
       "case_id": "morefixes-CVE-2024-41675-https_____github.com__ckan__ckan",
       "project": "https://github.com/ckan/ckan",
       "language": "python",
-      "vulnerable_version": "pre-d7dfe8c427b1",
-      "patched_version": "d7dfe8c427b1",
+      "vulnerable_version": "pre-9e89ce8220ab",
+      "patched_version": "9e89ce8220ab",
       "published_date": "2024-08-19",
       "fail_count": 6,
       "pass_count": 6
@@ -25368,8 +25368,8 @@
       "case_id": "morefixes-CVE-2024-41947-https_____github.com__xwiki__xwiki-platform",
       "project": "https://github.com/xwiki/xwiki-platform",
       "language": "java",
-      "vulnerable_version": "pre-e00e159d3737",
-      "patched_version": "e00e159d3737",
+      "vulnerable_version": "pre-821d43ec45e6",
+      "patched_version": "821d43ec45e6",
       "published_date": "2024-03-21",
       "fail_count": 4,
       "pass_count": 4
@@ -25435,11 +25435,11 @@
       "pass_count": 14
     },
     {
-      "case_id": "morefixes-CVE-2024-42355-https_____github.com__shopware__shopware",
-      "project": "https://github.com/shopware/shopware",
+      "case_id": "morefixes-CVE-2024-42355-https_____github.com__shopware__core",
+      "project": "https://github.com/shopware/core",
       "language": "php",
-      "vulnerable_version": "pre-8504ba7e56e5",
-      "patched_version": "8504ba7e56e5",
+      "vulnerable_version": "pre-a784aa1cec06",
+      "patched_version": "a784aa1cec06",
       "published_date": "2024-08-07",
       "fail_count": 8,
       "pass_count": 8
@@ -25455,34 +25455,14 @@
       "pass_count": 8
     },
     {
-      "case_id": "morefixes-CVE-2024-42355-https_____github.com__shopware__core",
-      "project": "https://github.com/shopware/core",
+      "case_id": "morefixes-CVE-2024-42355-https_____github.com__shopware__shopware",
+      "project": "https://github.com/shopware/shopware",
       "language": "php",
-      "vulnerable_version": "pre-a784aa1cec06",
-      "patched_version": "a784aa1cec06",
+      "vulnerable_version": "pre-8504ba7e56e5",
+      "patched_version": "8504ba7e56e5",
       "published_date": "2024-08-07",
       "fail_count": 8,
       "pass_count": 8
-    },
-    {
-      "case_id": "morefixes-CVE-2024-42356-https_____github.com__shopware__platform",
-      "project": "https://github.com/shopware/platform",
-      "language": "php",
-      "vulnerable_version": "pre-e43423bcc93c",
-      "patched_version": "e43423bcc93c",
-      "published_date": "2024-08-08",
-      "fail_count": 14,
-      "pass_count": 14
-    },
-    {
-      "case_id": "morefixes-CVE-2024-42356-https_____github.com__shopware__shopware",
-      "project": "https://github.com/shopware/shopware",
-      "language": "php",
-      "vulnerable_version": "pre-e43423bcc93c",
-      "patched_version": "e43423bcc93c",
-      "published_date": "2024-08-08",
-      "fail_count": 14,
-      "pass_count": 14
     },
     {
       "case_id": "morefixes-CVE-2024-42356-https_____github.com__shopware__core",
@@ -25495,11 +25475,31 @@
       "pass_count": 14
     },
     {
-      "case_id": "morefixes-CVE-2024-42357-https_____github.com__shopware__shopware",
+      "case_id": "morefixes-CVE-2024-42356-https_____github.com__shopware__platform",
+      "project": "https://github.com/shopware/platform",
+      "language": "php",
+      "vulnerable_version": "pre-8504ba7e56e5",
+      "patched_version": "8504ba7e56e5",
+      "published_date": "2024-08-07",
+      "fail_count": 14,
+      "pass_count": 14
+    },
+    {
+      "case_id": "morefixes-CVE-2024-42356-https_____github.com__shopware__shopware",
       "project": "https://github.com/shopware/shopware",
       "language": "php",
       "vulnerable_version": "pre-8504ba7e56e5",
       "patched_version": "8504ba7e56e5",
+      "published_date": "2024-08-07",
+      "fail_count": 14,
+      "pass_count": 14
+    },
+    {
+      "case_id": "morefixes-CVE-2024-42357-https_____github.com__shopware__core",
+      "project": "https://github.com/shopware/core",
+      "language": "php",
+      "vulnerable_version": "pre-a784aa1cec06",
+      "patched_version": "a784aa1cec06",
       "published_date": "2024-08-07",
       "fail_count": 8,
       "pass_count": 8
@@ -25515,11 +25515,11 @@
       "pass_count": 8
     },
     {
-      "case_id": "morefixes-CVE-2024-42357-https_____github.com__shopware__core",
-      "project": "https://github.com/shopware/core",
+      "case_id": "morefixes-CVE-2024-42357-https_____github.com__shopware__shopware",
+      "project": "https://github.com/shopware/shopware",
       "language": "php",
-      "vulnerable_version": "pre-a784aa1cec06",
-      "patched_version": "a784aa1cec06",
+      "vulnerable_version": "pre-8504ba7e56e5",
+      "patched_version": "8504ba7e56e5",
       "published_date": "2024-08-07",
       "fail_count": 8,
       "pass_count": 8
@@ -25608,15 +25608,15 @@
       "case_id": "morefixes-CVE-2024-43800-https_____github.com__expressjs__serve-static",
       "project": "https://github.com/expressjs/serve-static",
       "language": "javascript",
-      "vulnerable_version": "pre-ce730896fddc",
-      "patched_version": "ce730896fddc",
+      "vulnerable_version": "pre-0c11fad15989",
+      "patched_version": "0c11fad15989",
       "published_date": "2024-09-10",
       "fail_count": 8,
       "pass_count": 8
     },
     {
-      "case_id": "morefixes-CVE-2024-43804-https_____github.com__roxy-wi__roxy-wi",
-      "project": "https://github.com/roxy-wi/roxy-wi",
+      "case_id": "morefixes-CVE-2024-43804-https_____github.com__hap-wi__roxy-wi",
+      "project": "https://github.com/hap-wi/roxy-wi",
       "language": "python",
       "vulnerable_version": "pre-9148a31143cf",
       "patched_version": "9148a31143cf",
@@ -25625,8 +25625,8 @@
       "pass_count": 2
     },
     {
-      "case_id": "morefixes-CVE-2024-43804-https_____github.com__hap-wi__roxy-wi",
-      "project": "https://github.com/hap-wi/roxy-wi",
+      "case_id": "morefixes-CVE-2024-43804-https_____github.com__roxy-wi__roxy-wi",
+      "project": "https://github.com/roxy-wi/roxy-wi",
       "language": "python",
       "vulnerable_version": "pre-9148a31143cf",
       "patched_version": "9148a31143cf",
@@ -25848,8 +25848,8 @@
       "case_id": "morefixes-CVE-2024-47068-https_____github.com__rollup__rollup",
       "project": "https://github.com/rollup/rollup",
       "language": "javascript",
-      "vulnerable_version": "pre-e2552c9e955e",
-      "patched_version": "e2552c9e955e",
+      "vulnerable_version": "pre-2ef77c00ec26",
+      "patched_version": "2ef77c00ec26",
       "published_date": "2024-09-21",
       "fail_count": 36,
       "pass_count": 36

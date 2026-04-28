@@ -148,6 +148,20 @@ Implementation note: `IngestBase.write_manifest()` preserves the existing
 `ingested_at` value when regenerated case metadata is unchanged, so restoring
 ignored external data does not create timestamp-only manifest churn.
 
+MoreFixes status as of 2026-04-28:
+- The Docker volume `morefixes_morefixes_data` can be reused across worktrees.
+- `benchmarks/scripts/deploy_morefixes.sh` now starts Postgres and checks for
+  loaded tables before downloading the 3.5 GB dump.
+- If the volume is initialized but empty, the script imports
+  `postgrescvedumper.sql` explicitly after creating the `postgrescvedumper`
+  role.
+- Verified loaded DB counts: `fixes=464296`, `file_change=103703`.
+- Verified materialization: 2,601 case `truth.sarif` files, 6,825 vulnerable
+  snapshots, and 6,825 patched snapshots.
+- `morefixes_extract.py` streams rows and writes code snapshots row-by-row.
+  This reduced sampled Python peak RSS from tens of GiB to about 410 MiB on
+  the verified run.
+
 Expensive benchmark execution:
 
 ```bash
