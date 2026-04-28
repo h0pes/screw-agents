@@ -6,6 +6,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from benchmarks.runner.models import CodeLocation, Finding, FindingKind
+from benchmarks.runner.sarif import write_bentoo_sarif
 from benchmarks.scripts.prepare_autoresearch_run import main as prepare_main
 from screw_agents.autoresearch.controlled_run import (
     SCHEMA_VERSION,
@@ -15,8 +17,67 @@ from screw_agents.autoresearch.controlled_run import (
 )
 
 
+def _write_manifest_and_truth(
+    root: Path,
+    *,
+    dataset_name: str,
+    cases: list[tuple[str, str]],
+) -> Path:
+    manifest_path = root / "manifests" / f"{dataset_name}.manifest.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "dataset_name": dataset_name,
+                "cases": [
+                    {
+                        "case_id": case_id,
+                        "project": "example",
+                        "language": "python",
+                        "vulnerable_version": "vuln",
+                        "patched_version": "patched",
+                        "published_date": None,
+                        "fail_count": 1,
+                        "pass_count": 1,
+                    }
+                    for case_id, _cwe_id in cases
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    for case_id, cwe_id in cases:
+        truth_path = root / "external" / dataset_name / case_id / "truth.sarif"
+        truth_path.parent.mkdir(parents=True, exist_ok=True)
+        write_bentoo_sarif(
+            truth_path,
+            [
+                Finding(
+                    cwe_id=cwe_id,
+                    kind=FindingKind.FAIL,
+                    location=CodeLocation(file="app.py", start_line=1, end_line=1),
+                ),
+                Finding(
+                    cwe_id=cwe_id,
+                    kind=FindingKind.PASS,
+                    location=CodeLocation(file="app.py", start_line=1, end_line=1),
+                ),
+            ],
+        )
+    return manifest_path
+
+
 def _write_dry_run_plan(path: Path, *, ready: bool = False) -> None:
     truth_file_count = 1 if ready else 0
+    manifest_path = _write_manifest_and_truth(
+        path.parent,
+        dataset_name="morefixes",
+        cases=[
+            ("morefixes-sqli-1", "CWE-89"),
+            ("morefixes-sqli-2", "CWE-89"),
+        ],
+    )
     path.write_text(
         json.dumps(
             {
@@ -24,16 +85,14 @@ def _write_dry_run_plan(path: Path, *, ready: bool = False) -> None:
                 "generated_at": "2026-04-28T00:00:00+00:00",
                 "mode": "dry-run",
                 "manifests_dir": "benchmarks/external/manifests",
-                "external_dir": "benchmarks/external",
+                "external_dir": str(path.parent / "external"),
                 "dataset_count": 1,
                 "total_cases": 2,
                 "estimated_min_invocations": 4,
                 "datasets": [
                     {
                         "dataset_name": "morefixes",
-                        "manifest_path": (
-                            "benchmarks/external/manifests/morefixes.manifest.json"
-                        ),
+                        "manifest_path": str(manifest_path),
                         "case_count": 2,
                         "data_dir_exists": ready,
                         "truth_file_count": truth_file_count,
@@ -69,12 +128,45 @@ def _write_dry_run_plan(path: Path, *, ready: bool = False) -> None:
 
 def _write_multi_dataset_dry_run_plan(path: Path, *, ready: bool = True) -> None:
     truth_file_count = 1 if ready else 0
+    manifest_paths = {
+        "ossf-cve-benchmark": _write_manifest_and_truth(
+            path.parent,
+            dataset_name="ossf-cve-benchmark",
+            cases=[
+                ("ossf-xss-1", "CWE-79"),
+                ("ossf-cmdi-1", "CWE-78"),
+            ],
+        ),
+        "reality-check-csharp": _write_manifest_and_truth(
+            path.parent,
+            dataset_name="reality-check-csharp",
+            cases=[
+                ("rc-csharp-xss-1", "CWE-79"),
+                ("rc-csharp-sqli-1", "CWE-89"),
+            ],
+        ),
+        "reality-check-python": _write_manifest_and_truth(
+            path.parent,
+            dataset_name="reality-check-python",
+            cases=[("rc-python-xss-1", "CWE-79")],
+        ),
+        "reality-check-java": _write_manifest_and_truth(
+            path.parent,
+            dataset_name="reality-check-java",
+            cases=[("rc-java-cmdi-1", "CWE-78")],
+        ),
+        "morefixes": _write_manifest_and_truth(
+            path.parent,
+            dataset_name="morefixes",
+            cases=[("morefixes-sqli-1", "CWE-89")],
+        ),
+    }
     datasets = [
-        ("ossf-cve-benchmark", 118, ["G5.1", "G5.2", "G5.5"]),
-        ("reality-check-csharp", 11, ["G5.3", "G5.7"]),
-        ("reality-check-python", 6, ["G5.4"]),
-        ("reality-check-java", 9, ["G5.6"]),
-        ("morefixes", 2601, ["G5.8"]),
+        ("ossf-cve-benchmark", 2, ["G5.1", "G5.2", "G5.5"]),
+        ("reality-check-csharp", 2, ["G5.3", "G5.7"]),
+        ("reality-check-python", 1, ["G5.4"]),
+        ("reality-check-java", 1, ["G5.6"]),
+        ("morefixes", 1, ["G5.8"]),
     ]
     gates = [
         ("G5.1", "xss", "ossf-cve-benchmark", "tpr", 0.7, "CWE-79"),
@@ -93,17 +185,14 @@ def _write_multi_dataset_dry_run_plan(path: Path, *, ready: bool = True) -> None
                 "generated_at": "2026-04-28T00:00:00+00:00",
                 "mode": "dry-run",
                 "manifests_dir": "benchmarks/external/manifests",
-                "external_dir": "benchmarks/external",
+                "external_dir": str(path.parent / "external"),
                 "dataset_count": len(datasets),
                 "total_cases": sum(case_count for _, case_count, _ in datasets),
                 "estimated_min_invocations": 5472,
                 "datasets": [
                     {
                         "dataset_name": dataset_name,
-                        "manifest_path": (
-                            "benchmarks/external/manifests/"
-                            f"{dataset_name}.manifest.json"
-                        ),
+                        "manifest_path": str(manifest_paths[dataset_name]),
                         "case_count": case_count,
                         "data_dir_exists": ready,
                         "truth_file_count": truth_file_count,
@@ -189,6 +278,7 @@ def test_controlled_run_can_become_executable_when_ready_and_allowed(
     assert plan.issues == []
     assert len(plan.selections) == 1
     assert plan.selections[0].selected_case_count == 1
+    assert plan.selections[0].selected_case_ids == ["morefixes-sqli-1"]
     assert plan.selections[0].estimated_invocations == 2
 
 
@@ -218,6 +308,17 @@ def test_required_dataset_smoke_selects_each_dataset_agent_pair(
         ("morefixes", "sqli"),
     }
     assert {selection.selected_case_count for selection in plan.selections} == {1}
+    assert {
+        selection.selected_case_ids[0] for selection in plan.selections
+    } == {
+        "ossf-xss-1",
+        "ossf-cmdi-1",
+        "rc-csharp-xss-1",
+        "rc-csharp-sqli-1",
+        "rc-python-xss-1",
+        "rc-java-cmdi-1",
+        "morefixes-sqli-1",
+    }
     assert sum(selection.estimated_invocations for selection in plan.selections) == 14
 
 
@@ -261,6 +362,7 @@ def test_controlled_run_markdown_and_json_outputs(tmp_path: Path) -> None:
     written = json.loads(out.read_text(encoding="utf-8"))
     assert written["schema_version"] == SCHEMA_VERSION
     assert written["config"]["selection_strategy"] == "required-dataset-smoke"
+    assert written["selections"][0]["selected_case_ids"] == ["morefixes-sqli-1"]
     assert written["config"]["yaml_mutation_allowed"] is False
 
 

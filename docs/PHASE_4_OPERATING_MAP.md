@@ -175,10 +175,12 @@ uv run python benchmarks/scripts/prepare_autoresearch_run.py \
 This writes a blocked, reviewable smoke plan by default. The default selection
 strategy, `required-dataset-smoke`, chooses at most one case for each active
 G5 dataset/agent pair, so shared agents such as `xss` do not cause required
-datasets to be skipped. With the current active G5 inventory, that is expected
-to prepare seven small slices: OSSF/XSS, OSSF/CmdI, Reality Check C#/XSS,
-Reality Check C#/SQLi, Reality Check Python/XSS, Reality Check Java/CmdI, and
-MoreFixes/SQLi.
+datasets to be skipped. The plan records deterministic `selected_case_ids`
+from the dataset manifests, preferring cases whose `truth.sarif` matches the
+gate's CWE filter or the agent's default CWE. With the current active G5
+inventory, that is expected to prepare seven small slices: OSSF/XSS,
+OSSF/CmdI, Reality Check C#/XSS, Reality Check C#/SQLi, Reality Check
+Python/XSS, Reality Check Java/CmdI, and MoreFixes/SQLi.
 
 Executable benchmark plan preparation:
 

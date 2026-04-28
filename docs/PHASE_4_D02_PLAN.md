@@ -155,6 +155,8 @@ Only after Tasks 1-4 are resolved:
 - prepare a blocked controlled smoke plan first
 - use the default `required-dataset-smoke` strategy to select at most one case
   for each active G5 dataset/agent pair
+- require the smoke plan to record deterministic `selected_case_ids` so any
+  later executor runs exactly the reviewed cases
 - require explicit `--allow-claude-invocation` before a plan can become
   executable
 - keep YAML mutation disabled in the controlled-run schema

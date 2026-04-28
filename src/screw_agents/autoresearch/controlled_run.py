@@ -13,7 +13,16 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from benchmarks.runner.sarif import load_bentoo_sarif
+
 SCHEMA_VERSION = "phase4-autoresearch-controlled-run/v1"
+
+_AGENT_DEFAULT_CWE = {
+    "xss": "CWE-79",
+    "cmdi": "CWE-78",
+    "sqli": "CWE-89",
+    "ssti": "CWE-1336",
+}
 
 
 class ControlledRunConfig(BaseModel):
@@ -44,6 +53,7 @@ class ControlledRunSelection(BaseModel):
     metric: str
     threshold: float
     cwe_filter: str | None = None
+    selected_case_ids: list[str]
     selected_case_count: int
     estimated_invocations: int
 
@@ -99,6 +109,7 @@ def build_controlled_execution_plan(
         dataset["dataset_name"]: dataset
         for dataset in dry_run.get("datasets", [])
     }
+    external_dir = Path(str(dry_run.get("external_dir", "benchmarks/external")))
 
     issues: list[ReadinessIssue] = []
     issue_keys: set[tuple[str, str]] = set()
@@ -140,6 +151,7 @@ def build_controlled_execution_plan(
             issue_keys,
             dataset=dataset,
         )
+        dataset_has_blockers = _dataset_has_blockers(dataset=dataset)
         if selected_by_agent.get(gate["agent"], 0) >= max_cases_per_agent:
             continue
         selected_case_count = min(
@@ -149,6 +161,19 @@ def build_controlled_execution_plan(
         )
         if selected_case_count <= 0:
             continue
+        if dataset_has_blockers:
+            continue
+        selected_case_ids = _select_case_ids(
+            dataset=dataset,
+            gate=gate,
+            external_dir=external_dir,
+            limit=selected_case_count,
+            issues=issues,
+            issue_keys=issue_keys,
+        )
+        if not selected_case_ids:
+            continue
+        selected_case_count = len(selected_case_ids)
         selected_by_agent[gate["agent"]] = (
             selected_by_agent.get(gate["agent"], 0) + selected_case_count
         )
@@ -160,11 +185,12 @@ def build_controlled_execution_plan(
                 metric=gate["metric"],
                 threshold=float(gate["threshold"]),
                 cwe_filter=gate.get("cwe_filter"),
+                selected_case_ids=selected_case_ids,
                 selected_case_count=selected_case_count,
                 estimated_invocations=selected_case_count * 2,
             )
         )
-    if not selections:
+    if not selections and not any(issue.severity == "blocker" for issue in issues):
         _append_issue(
             issues,
             issue_keys,
@@ -213,8 +239,8 @@ def render_controlled_execution_plan_markdown(plan: ControlledExecutionPlan) -> 
     else:
         lines.append("No readiness issues detected.")
     lines.extend(["", "## Selections", ""])
-    lines.append("| Gate | Agent | Dataset | Cases | Estimated Calls | CWE |")
-    lines.append("|---|---|---|---:|---:|---|")
+    lines.append("| Gate | Agent | Dataset | Cases | Case IDs | Estimated Calls | CWE |")
+    lines.append("|---|---|---|---:|---|---:|---|")
     for selection in plan.selections:
         lines.append(
             "| "
@@ -222,6 +248,7 @@ def render_controlled_execution_plan_markdown(plan: ControlledExecutionPlan) -> 
             f"{selection.agent} | "
             f"{selection.dataset} | "
             f"{selection.selected_case_count} | "
+            f"{', '.join(selection.selected_case_ids)} | "
             f"{selection.estimated_invocations} | "
             f"{selection.cwe_filter or '-'} |"
         )
@@ -269,6 +296,94 @@ def _select_candidate_gates(
         seen_dataset_agents.add(key)
         selected.append(gate)
     return selected
+
+
+def _select_case_ids(
+    *,
+    dataset: dict[str, Any],
+    gate: dict[str, Any],
+    external_dir: Path,
+    limit: int,
+    issues: list[ReadinessIssue],
+    issue_keys: set[tuple[str, str]],
+) -> list[str]:
+    dataset_name = str(dataset["dataset_name"])
+    manifest_path = Path(str(dataset["manifest_path"]))
+    if not manifest_path.exists():
+        _append_issue(
+            issues,
+            issue_keys,
+            ReadinessIssue(
+                severity="blocker",
+                code="manifest_missing",
+                message=f"Dataset {dataset_name} manifest is missing: {manifest_path}.",
+            ),
+        )
+        return []
+
+    target_cwe = gate.get("cwe_filter") or _AGENT_DEFAULT_CWE.get(str(gate["agent"]))
+    if target_cwe is None:
+        _append_issue(
+            issues,
+            issue_keys,
+            ReadinessIssue(
+                severity="blocker",
+                code="case_selection_cwe_unknown",
+                message=(
+                    f"Gate {gate['gate_id']} has no cwe_filter and agent "
+                    f"{gate['agent']} has no default CWE mapping."
+                ),
+            ),
+        )
+        return []
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    selected: list[str] = []
+    for case in manifest.get("cases", []):
+        case_id = str(case["case_id"])
+        truth_path = external_dir / dataset_name / case_id / "truth.sarif"
+        if not truth_path.exists():
+            continue
+        try:
+            findings = load_bentoo_sarif(truth_path)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            _append_issue(
+                issues,
+                issue_keys,
+                ReadinessIssue(
+                    severity="blocker",
+                    code="truth_file_unreadable",
+                    message=f"Could not read truth.sarif for {case_id}: {exc}.",
+                ),
+            )
+            continue
+        if any(finding.cwe_id == target_cwe for finding in findings):
+            selected.append(case_id)
+        if len(selected) >= limit:
+            break
+
+    if len(selected) < limit:
+        _append_issue(
+            issues,
+            issue_keys,
+            ReadinessIssue(
+                severity="blocker",
+                code="case_selection_incomplete",
+                message=(
+                    f"Gate {gate['gate_id']} requested {limit} {dataset_name} "
+                    f"case(s) for {target_cwe}, but only selected {len(selected)}."
+                ),
+            ),
+        )
+    return selected
+
+
+def _dataset_has_blockers(*, dataset: dict[str, Any]) -> bool:
+    return (
+        not dataset.get("data_dir_exists")
+        or int(dataset.get("truth_file_count", 0)) == 0
+        or not dataset.get("supported_by_extractor")
+    )
 
 
 def _append_dataset_issues(
