@@ -1,13 +1,14 @@
 """Tests for benchmark code extraction."""
 from __future__ import annotations
 
-from pathlib import Path
+import json
+import subprocess
 
 import pytest
 
 from benchmarks.runner.code_extractor import (
-    extract_code_for_case,
     CodeVariant,
+    extract_code_for_case,
 )
 from benchmarks.runner.models import (
     BenchmarkCase,
@@ -107,6 +108,133 @@ def gosec_case():
     )
 
 
+@pytest.fixture
+def tmp_morefixes(tmp_path):
+    case_dir = tmp_path / "morefixes" / "morefixes-CVE-2024-0001-example"
+    vuln = case_dir / "code" / "vulnerable" / "src%2Fdb.php"
+    patched = case_dir / "code" / "patched" / "src%2Fdb.php"
+    vuln.parent.mkdir(parents=True)
+    patched.parent.mkdir(parents=True)
+    vuln.write_text(
+        "<?php\n"
+        "function user($id) {\n"
+        "  return query('SELECT * FROM users WHERE id=' . $id);\n"
+        "}\n"
+    )
+    patched.write_text(
+        "<?php\n"
+        "function user($db, $id) {\n"
+        "  return prepared_query($db, 'SELECT * FROM users WHERE id=?', [$id]);\n"
+        "}\n"
+    )
+    return tmp_path
+
+
+@pytest.fixture
+def morefixes_case():
+    return BenchmarkCase(
+        case_id="morefixes-CVE-2024-0001-example",
+        project="https://github.com/example/app",
+        language=Language.PHP,
+        vulnerable_version="pre-deadbeef",
+        patched_version="deadbeef",
+        ground_truth=[
+            Finding(
+                cwe_id="CWE-89",
+                kind=FindingKind.FAIL,
+                location=CodeLocation(file="src/db.php", start_line=1, end_line=3),
+            ),
+            Finding(
+                cwe_id="CWE-89",
+                kind=FindingKind.PASS,
+                location=CodeLocation(file="src/db.php", start_line=1, end_line=3),
+            ),
+        ],
+        source_dataset="morefixes",
+    )
+
+
+@pytest.fixture
+def tmp_rust_d01(tmp_path):
+    repo = tmp_path / "rust-d01-real-cves" / "repos" / "example__rust-app"
+    repo.mkdir(parents=True)
+    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.invalid"],
+        cwd=repo,
+        check=True,
+    )
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=repo, check=True)
+    src = repo / "src"
+    src.mkdir()
+    (src / "lib.rs").write_text(
+        "pub fn query(id: &str) -> String {\n"
+        "    format!(\"SELECT * FROM users WHERE id={}\", id)\n"
+        "}\n"
+    )
+    subprocess.run(["git", "add", "src/lib.rs"], cwd=repo, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "vulnerable"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    vulnerable_ref = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+    ).strip()
+    (src / "lib.rs").write_text(
+        "pub fn query(id: &str) -> (&'static str, &str) {\n"
+        "    (\"SELECT * FROM users WHERE id=?\", id)\n"
+        "}\n"
+    )
+    subprocess.run(["git", "add", "src/lib.rs"], cwd=repo, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "patched"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    patched_ref = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+    ).strip()
+
+    case_dir = tmp_path / "rust-d01-real-cves" / "rust-d01-example-CVE-2024-0002"
+    case_dir.mkdir()
+    (case_dir / "provenance.json").write_text(
+        json.dumps(
+            {
+                "vulnerable_ref": vulnerable_ref,
+                "patched_ref": patched_ref,
+            }
+        )
+    )
+    return tmp_path
+
+
+@pytest.fixture
+def rust_d01_case():
+    return BenchmarkCase(
+        case_id="rust-d01-example-CVE-2024-0002",
+        project="example/rust-app",
+        language=Language.RUST,
+        vulnerable_version="vulnerable",
+        patched_version="patched",
+        ground_truth=[
+            Finding(
+                cwe_id="CWE-89",
+                kind=FindingKind.FAIL,
+                location=CodeLocation(file="src/lib.rs", start_line=1, end_line=3),
+            ),
+            Finding(
+                cwe_id="CWE-89",
+                kind=FindingKind.PASS,
+                location=CodeLocation(file="src/lib.rs", start_line=1, end_line=3),
+            ),
+        ],
+        source_dataset="rust-d01-real-cves",
+    )
+
+
 class TestExtractCodeForCase:
     def test_reality_check_extracts_vuln_and_patched(self, tmp_reality_check, rc_case):
         vuln = extract_code_for_case(rc_case, CodeVariant.VULNERABLE, tmp_reality_check)
@@ -131,6 +259,22 @@ class TestExtractCodeForCase:
         assert len(vuln) == 1
         assert "SELECT" in vuln[0].content
         assert len(patched) == 0
+
+    def test_morefixes_extracts_materialized_snapshots(self, tmp_morefixes, morefixes_case):
+        vuln = extract_code_for_case(morefixes_case, CodeVariant.VULNERABLE, tmp_morefixes)
+        patched = extract_code_for_case(morefixes_case, CodeVariant.PATCHED, tmp_morefixes)
+        assert len(vuln) == 1
+        assert "SELECT * FROM users WHERE id=" in vuln[0].content
+        assert len(patched) == 1
+        assert "prepared_query" in patched[0].content
+
+    def test_rust_d01_extracts_from_local_git_refs(self, tmp_rust_d01, rust_d01_case):
+        vuln = extract_code_for_case(rust_d01_case, CodeVariant.VULNERABLE, tmp_rust_d01)
+        patched = extract_code_for_case(rust_d01_case, CodeVariant.PATCHED, tmp_rust_d01)
+        assert len(vuln) == 1
+        assert "format!" in vuln[0].content
+        assert len(patched) == 1
+        assert "SELECT * FROM users WHERE id=?" in patched[0].content
 
     def test_missing_dataset_dir_raises(self, tmp_path, rc_case):
         with pytest.raises(FileNotFoundError):

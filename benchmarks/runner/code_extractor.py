@@ -5,10 +5,13 @@ behind a single `extract_code_for_case()` interface.
 """
 from __future__ import annotations
 
+import json
 import logging
+import subprocess
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+from urllib.parse import quote
 
 from benchmarks.runner.models import BenchmarkCase, FindingKind
 
@@ -51,8 +54,12 @@ def extract_code_for_case(
         return _extract_crossvul(case, variant, benchmarks_external_dir)
     elif ds in ("go-sec-code-mutated", "skf-labs-mutated"):
         return _extract_monolithic(case, variant, benchmarks_external_dir)
+    elif ds == "morefixes":
+        return _extract_morefixes(case, variant, benchmarks_external_dir)
     elif ds == "ossf-cve-benchmark":
         return _extract_ossf(case, variant, benchmarks_external_dir)
+    elif ds == "rust-d01-real-cves":
+        return _extract_rust_d01(case, variant, benchmarks_external_dir)
     else:
         logger.warning("Unsupported dataset for code extraction: %s", ds)
         return []
@@ -226,3 +233,124 @@ def _extract_ossf(
             language=case.language.value,
         ))
     return results
+
+
+def _extract_morefixes(
+    case: BenchmarkCase,
+    variant: CodeVariant,
+    ext_dir: Path,
+) -> list[ExtractedCode]:
+    """Extract MoreFixes code snapshots materialized beside truth.sarif."""
+    case_dir = ext_dir / "morefixes" / case.case_id
+    if not case_dir.exists():
+        raise FileNotFoundError(f"MoreFixes case dir not found: {case_dir}")
+
+    kind = FindingKind.FAIL if variant == CodeVariant.VULNERABLE else FindingKind.PASS
+    snapshot_dir = case_dir / "code" / variant.value
+    results: list[ExtractedCode] = []
+    for rel_file in sorted({f.location.file for f in case.ground_truth if f.kind == kind}):
+        snapshot_path = snapshot_dir / _snapshot_name(rel_file)
+        if not snapshot_path.exists():
+            logger.warning("MoreFixes snapshot not found: %s", snapshot_path)
+            continue
+        content = snapshot_path.read_text(errors="replace")
+        if len(content) < 50:
+            logger.debug(
+                "Skipping MoreFixes snapshot with too-short content: %s (%d chars)",
+                rel_file,
+                len(content),
+            )
+            continue
+        results.append(
+            ExtractedCode(
+                file_path=rel_file,
+                content=content,
+                language=case.language.value,
+            )
+        )
+        if len(results) >= _MAX_FILES_PER_CASE:
+            logger.info(
+                "Capped at %d files for MoreFixes case %s",
+                _MAX_FILES_PER_CASE,
+                case.case_id,
+            )
+            break
+    return results
+
+
+def _extract_rust_d01(
+    case: BenchmarkCase,
+    variant: CodeVariant,
+    ext_dir: Path,
+) -> list[ExtractedCode]:
+    """Extract Rust D-01 code from a local git clone described by provenance."""
+    case_dir = ext_dir / "rust-d01-real-cves" / case.case_id
+    provenance_path = case_dir / "provenance.json"
+    if not provenance_path.exists():
+        raise FileNotFoundError(f"Rust D-01 provenance not found: {provenance_path}")
+
+    provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+    repo_dir = _rust_d01_repo_dir(case, ext_dir, case_dir)
+    if repo_dir is None:
+        raise FileNotFoundError(
+            "Rust D-01 local repo clone not found. Expected one of: "
+            f"{case_dir / 'repo'}, "
+            f"{ext_dir / 'rust-d01-real-cves' / 'repos' / case.project.replace('/', '__')}, "
+            f"{ext_dir / 'rust-d01-real-cves' / 'repos' / case.project}"
+        )
+
+    kind = FindingKind.FAIL if variant == CodeVariant.VULNERABLE else FindingKind.PASS
+    ref_key = "vulnerable_ref" if variant == CodeVariant.VULNERABLE else "patched_ref"
+    ref = str(provenance[ref_key])
+    results: list[ExtractedCode] = []
+    for rel_file in sorted({f.location.file for f in case.ground_truth if f.kind == kind}):
+        content = _git_show_file(repo_dir, ref, rel_file)
+        if content is None:
+            continue
+        results.append(
+            ExtractedCode(
+                file_path=rel_file,
+                content=content,
+                language=case.language.value,
+            )
+        )
+        if len(results) >= _MAX_FILES_PER_CASE:
+            logger.info(
+                "Capped at %d files for Rust D-01 case %s",
+                _MAX_FILES_PER_CASE,
+                case.case_id,
+            )
+            break
+    return results
+
+
+def _snapshot_name(rel_file: str) -> str:
+    return quote(rel_file, safe="")
+
+
+def _rust_d01_repo_dir(case: BenchmarkCase, ext_dir: Path, case_dir: Path) -> Path | None:
+    dataset_dir = ext_dir / "rust-d01-real-cves"
+    candidates = [
+        case_dir / "repo",
+        dataset_dir / "repos" / case.project.replace("/", "__"),
+        dataset_dir / "repos" / case.project,
+    ]
+    return next((candidate for candidate in candidates if candidate.is_dir()), None)
+
+
+def _git_show_file(repo_dir: Path, ref: str, rel_file: str) -> str | None:
+    result = subprocess.run(  # noqa: S603
+        ["git", "-C", str(repo_dir), "show", f"{ref}:{rel_file}"],  # noqa: S607
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        logger.warning(
+            "Rust D-01 file not found at %s:%s: %s",
+            ref,
+            rel_file,
+            result.stderr.strip(),
+        )
+        return None
+    return result.stdout

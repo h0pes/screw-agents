@@ -40,25 +40,30 @@ Acceptance:
   default, which remains gitignored.
 - Has tests that do not invoke Claude or require downloaded datasets.
 
-Latest dry-run result from a fresh worktree:
+Latest dry-run result from a fresh worktree after Task 2 partial closure:
 - 10 benchmark case manifests.
 - 4,154 cases.
 - 8,308 lower-bound Claude invocations for a full vulnerable/patched pass.
 - Known gate issues surfaced before execution:
-  - `G5.8` references `morefixes-extract`, but tracked manifest is
-    `morefixes` and code extraction is not implemented.
   - `G5.9` and `G5.10` target SSTI on SQLi datasets
     (`go-sec-code-mutated`, `skf-labs-mutated`).
+- `G5.8` now points to `morefixes`, matching the tracked manifest and
+  extractor support.
 
 ### Task 2 — Dataset Readiness And Extraction Closure
 
-Status: pending.
+Status: partially implemented.
 
 Resolve the plan's dataset readiness issues before any full run:
-- Decide whether `morefixes` should be exposed as `morefixes`, renamed, or
-  wrapped as `morefixes-extract` for G5 compatibility.
-- Add or explicitly defer code extraction for `morefixes`, `vul4j`, and
-  `rust-d01-real-cves`.
+- `morefixes` is exposed as `morefixes`; `G5.8` was updated from the stale
+  `morefixes-extract` name.
+- `morefixes` extraction now expects regenerated DB materialization with
+  before/after code snapshots beside each case's `truth.sarif`.
+- `rust-d01-real-cves` extraction now reads local git clones using each case's
+  `provenance.json` refs; clones are intentionally not tracked.
+- `vul4j` extraction remains explicitly deferred because the current ingest
+  tracks metadata only and does not define a local vulnerable/patched checkout
+  convention.
 - Re-materialize/download required external datasets in a worktree-local,
   reproducible way.
 - Keep generated external dataset contents ignored.

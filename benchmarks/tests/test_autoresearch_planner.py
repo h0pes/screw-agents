@@ -1,13 +1,16 @@
 """Tests for Phase 4 autoresearch dry-run planning."""
+# ruff: noqa: S101
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
-from screw_agents.autoresearch.planner import build_run_plan
-from screw_agents.autoresearch.planner import render_run_plan_markdown
-from screw_agents.autoresearch.planner import write_run_plan_json
+from screw_agents.autoresearch.planner import (
+    build_run_plan,
+    render_run_plan_markdown,
+    write_run_plan_json,
+)
 
 
 def _write_manifest(path: Path, dataset: str, cases: list[dict]) -> None:
@@ -58,9 +61,10 @@ def test_build_run_plan_inventory_and_gate_audit(tmp_path: Path) -> None:
     assert "G5.1" in dataset.g5_gate_ids
 
     g58 = next(gate for gate in plan.gate_audit if gate.gate_id == "G5.8")
+    assert g58.dataset == "morefixes"
     assert g58.manifest_exists is False
-    assert g58.extractor_supported is False
-    assert g58.issue and "morefixes-extract" in g58.issue
+    assert g58.extractor_supported is True
+    assert g58.issue is None
 
 
 def test_build_run_plan_marks_rust_scope_and_missing_generated_data(
@@ -79,7 +83,7 @@ def test_build_run_plan_marks_rust_scope_and_missing_generated_data(
 
     dataset = plan.datasets[0]
     assert dataset.data_dir_exists is False
-    assert dataset.supported_by_extractor is False
+    assert dataset.supported_by_extractor is True
     assert any("Rust D-01 corpus is scoped" in note for note in dataset.notes)
     assert any("external dataset directory is missing" in note for note in dataset.notes)
 

@@ -8,32 +8,29 @@ auditable before it happens.
 from __future__ import annotations
 
 import json
-from dataclasses import asdict
-from dataclasses import dataclass
-from datetime import datetime
-from datetime import timezone
+from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from benchmarks.runner.gate_checker import G5_GATES
-from benchmarks.runner.gate_checker import GateDefinition
-
+from benchmarks.runner.gate_checker import G5_GATES, GateDefinition
 
 SUPPORTED_EXTRACTOR_DATASETS: frozenset[str] = frozenset(
     {
         "crossvul",
         "go-sec-code-mutated",
+        "morefixes",
         "ossf-cve-benchmark",
         "reality-check-csharp",
         "reality-check-java",
         "reality-check-python",
+        "rust-d01-real-cves",
         "skf-labs-mutated",
     }
 )
 
 # Documented by PROJECT_STATUS.md Phase 1.7 sample interpretation.
 KNOWN_GATE_ISSUES: dict[str, str] = {
-    "G5.8": "Gate references morefixes-extract, but the tracked manifest is morefixes and code extraction is not implemented.",
     "G5.9": "go-sec-code-mutated currently contains SQLi/CWE-89 ground truth, not SSTI/CWE-1336.",
     "G5.10": "skf-labs-mutated currently contains SQLi/CWE-89 ground truth, not SSTI/CWE-1336.",
 }
@@ -147,7 +144,7 @@ def build_run_plan(
 
     return RunPlan(
         schema_version="phase4-autoresearch-run-plan/v1",
-        generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        generated_at=datetime.now(UTC).isoformat(timespec="seconds"),
         mode=mode,
         manifests_dir=str(manifests_dir),
         external_dir=str(external_dir),

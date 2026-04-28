@@ -38,6 +38,7 @@ import sys
 from datetime import date
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from benchmarks.runner.models import (
     BenchmarkCase,
@@ -48,7 +49,6 @@ from benchmarks.runner.models import (
 )
 from benchmarks.scripts._active_cwes import ACTIVE_CWE_INTS
 from benchmarks.scripts.ingest_base import IngestBase
-
 
 # ---------------------------------------------------------------------------
 # Supported languages — subset of Language enum that MoreFixes covers well.
@@ -111,6 +111,8 @@ SELECT
     c.committer_date                 AS published_date,
     f.hash                           AS commit_hash,
     fc.filename                      AS file_path,
+    fc.code_before                   AS code_before,
+    fc.code_after                    AS code_after,
     mc.name                          AS method_name,
     mc.start_line,
     mc.end_line
@@ -145,6 +147,7 @@ class MoreFixesExtractor(IngestBase):
         super().__init__(root)
         self.dsn = dsn or os.environ.get("MOREFIXES_DSN", self.DEFAULT_DSN)
         self._conn: Any = None  # psycopg connection, opened lazily
+        self._rows_by_case_id: dict[str, list[dict[str, Any]]] = {}
 
     # ------------------------------------------------------------------
     # IngestBase protocol
@@ -291,7 +294,7 @@ class MoreFixesExtractor(IngestBase):
         safe_project = (project or "unknown").replace("/", "__").replace(":", "_")
         case_id = f"morefixes-{cve_id or commit_hash[:12]}-{safe_project}"
 
-        return BenchmarkCase(
+        case = BenchmarkCase(
             case_id=case_id,
             project=project or "unknown",
             language=language,
@@ -301,6 +304,27 @@ class MoreFixesExtractor(IngestBase):
             published_date=published,
             source_dataset=self.dataset_name,
         )
+        self._rows_by_case_id[case.case_id] = rows
+        return case
+
+    def materialize(self, cases: list[BenchmarkCase]) -> None:
+        """Write truth.sarif plus file-level before/after code snapshots."""
+        super().materialize(cases)
+        for case in cases:
+            rows = self._rows_by_case_id.get(case.case_id, [])
+            case_dir = self.download_dir / case.case_id
+            for row in rows:
+                rel_file = str(row.get("file_path") or "")
+                if not rel_file:
+                    continue
+                _write_snapshot(
+                    case_dir / "code" / "vulnerable" / _snapshot_name(rel_file),
+                    row.get("code_before"),
+                )
+                _write_snapshot(
+                    case_dir / "code" / "patched" / _snapshot_name(rel_file),
+                    row.get("code_after"),
+                )
 
     def _row_to_findings(
         self,
@@ -348,6 +372,17 @@ class MoreFixesExtractor(IngestBase):
                 location=location,
             ),
         ]
+
+
+def _snapshot_name(rel_file: str) -> str:
+    return quote(rel_file, safe="")
+
+
+def _write_snapshot(path: Path, content: Any) -> None:
+    if content is None:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(str(content), encoding="utf-8")
 
 
 def main() -> int:

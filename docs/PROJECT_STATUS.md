@@ -9,7 +9,7 @@ Items explicitly deferred from earlier phases that must be completed in later ph
 | # | Item | Deferred from | Owning phase | Tracking ADR | Status |
 |---|---|---|---|---|---|
 | D-01 | Rust benchmark corpus from GitHub Advisory Database + synthetic SSTI fixtures | Phase 0.5 | **Phase 4 (step 4.0)** — hard gate, Phase 4 cannot close without it | ADR-014 | **MERGED** — PR #17, real-CVE corpus + synthetic SSTI inventory |
-| D-02 | Gates G5-G7: detection rate validation against real-CVE benchmarks | Phase 1 (Task 20) | **Phase 4** — full run deferred to autoresearch loop | — | **IN PROGRESS** — dry-run autoresearch planning scaffold on `phase4-d02-autoresearch-scaffold` |
+| D-02 | Gates G5-G7: detection rate validation against real-CVE benchmarks | Phase 1 (Task 20) | **Phase 4** — full run deferred to autoresearch loop | — | **IN PROGRESS** — dry-run planning + dataset readiness closure on `phase4-d02-autoresearch-scaffold` |
 | D-03 (pointer) | Broader deferred backlog (114 active entries post-T24) | Across all phases | Various — see DEFERRED_BACKLOG §"Phase-4 Readiness Triage" | — | **TRIAGED** — see `docs/DEFERRED_BACKLOG.md` for `blocker` / `nice-to-have` / `phase-7-scoped` / `retire` tags |
 
 **When returning to Phase 4:** D-01 is merged. Continue D-02 from
@@ -33,8 +33,8 @@ Architecture and product design is **complete** (PRD v0.4.3). Phases 0 / 0.5 / 1
 - **T-SCAN-REFACTOR (branch `t-scan-refactor`)** merged 2026-04-25 — Final Phase-4 prereq. Subsumes T-FULL-P1. Replaces 6-tool scan surface (`scan_full` + `scan_domain` + 4 per-agent) with `scan_agents` paginated primitive + `scan_domain` thin wrapper. Adds per-agent language relevance filter (`_filter_relevant_agents`) with extension + shebang detection. Cursor binding generalized to `(target_hash, agents_hash)` (Option β). Rewrites slash command for multi-scope syntax (`/screw:scan domains:A,B agents:1A,2A`). Collapses 5 subagents into universal `screw-scan.md`. Test suite: 906 → 996 passed, 9 skipped (HEAD baseline `c7fa9d9`). Phase 4 blocker count drops 1 → 0.
 - **Phase 3c (sandbox hardening sweep)** — deferred; see DEFERRED_BACKLOG §Phase 3c.
 
-Gates G1-G4 pass. **Phase 4 D-02 planning is active on branch
-`phase4-d02-autoresearch-scaffold`.** D-01 shipped in PR #17.
+Gates G1-G4 pass. **Phase 4 D-02 planning and dataset readiness closure is
+active on branch `phase4-d02-autoresearch-scaffold`.** D-01 shipped in PR #17.
 
 ### What's Done
 
@@ -423,7 +423,7 @@ Structured as a dependency graph with three parallel tracks converging at smoke 
 | Phase 3a | Prompt infrastructure (trust, learning aggregation, plugin-namespace, core-prompt dedup) | **Complete** (PR #6-#9 series, merged 2026-04-16/17) |
 | Phase 3b | Adaptive Analysis & Learning Refinement | **Complete** — PR #4 (#10) 2026-04-18, PR #5 (#11) 2026-04-20, PR #6 (#12) 2026-04-23, Phase 3b-C2 2026-04-24, BACKLOG-PR6-22 (#14) 2026-04-24, T19-M D7 (#15) 2026-04-24, T-SCAN-REFACTOR final 2026-04-25 |
 | Phase 3c | Sandbox hardening sweep (seccomp filter + thread-safety + dedup) | **Deferred** — see `docs/DEFERRED_BACKLOG.md` §"Phase 3c (sandbox hardening follow-ups)" |
-| Phase 4 | Autoresearch & Self-Improvement | **In progress** — D-01 merged, D-02 planning scaffold active |
+| Phase 4 | Autoresearch & Self-Improvement | **In progress** — D-01 merged, D-02 planning and dataset readiness active |
 | Phase 5 | Multi-LLM Challenger System | Pending |
 | Phase 6 | Agent Expansion & Ecosystem | Pending |
 | Phase 7 | screw.nvim Integration (scan commands, review-before-import, exclusions) | Pending |
@@ -432,7 +432,7 @@ Structured as a dependency graph with three parallel tracks converging at smoke 
 
 ## Phase 4 Prerequisites (hard gates)
 
-Phase 4 (Autoresearch & Self-Improvement) started with D-01. As of 2026-04-28, D-01 is merged and D-02 planning is active on branch `phase4-d02-autoresearch-scaffold`.
+Phase 4 (Autoresearch & Self-Improvement) started with D-01. As of 2026-04-28, D-01 is merged and D-02 planning/dataset readiness is active on branch `phase4-d02-autoresearch-scaffold`.
 
 ### D-01 — Rust benchmark corpus from GitHub Advisory Database + synthetic SSTI
 **Status:** MERGED in PR #17
@@ -446,8 +446,13 @@ Phase 4 (Autoresearch & Self-Improvement) started with D-01. As of 2026-04-28, D
 **Current scope:** live refresh currently yields 53 Rust advisory candidates; initial tracked corpus includes 4 real-CVE cases for SQLi/Cmdi/XSS plus labelled synthetic SSTI fixtures.
 
 ### D-02 — Detection-rate validation thresholds (SAMPLE COMPLETE)
-**Status:** Pipeline validated (PR #3, 2026-04-11); dry-run planning scaffold in progress on branch `phase4-d02-autoresearch-scaffold`
+**Status:** Pipeline validated (PR #3, 2026-04-11); dry-run planning and dataset readiness closure in progress on branch `phase4-d02-autoresearch-scaffold`
 **Why gating:** Not a hard blocker to STARTING Phase 4 — autoresearch IS the threshold-tuning loop. But the benchmark run feeds D-01's corpus. Sequenced inside Phase 4, not before.
+
+**Current D-02 closure:** `G5.8` now targets `morefixes` rather than stale
+`morefixes-extract`; MoreFixes materialization writes code snapshots for the
+runner; Rust D-01 extraction reads local git clones from provenance refs; Vul4J
+code extraction remains deferred until a checkout convention is defined.
 
 **When continuing Phase 4:** Continue from `docs/PHASE_4_D02_PLAN.md`; keep Rust metric claims scoped to real-CVE SQLi/Cmdi/XSS and synthetic-only SSTI unless refresh finds a verified SSTI advisory.
 

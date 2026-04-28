@@ -2,14 +2,10 @@
 """Tests for G5-G7 gate checking."""
 from __future__ import annotations
 
-import pytest
-
 from benchmarks.runner.gate_checker import (
-    G5_GATES,
-    GateResult,
+    build_g7_failure_dump,
     check_g5_gates,
     check_g6_rust_disclaimer,
-    build_g7_failure_dump,
 )
 from benchmarks.runner.models import (
     CodeLocation,
@@ -47,7 +43,7 @@ class TestCheckG5Gates:
             _make_summary("cmdi", "ossf-cve-benchmark", tpr=0.65, fpr=0.10),
             _make_summary("cmdi", "reality-check-java", tpr=0.55, fpr=0.10, cwe_id="CWE-78"),
             _make_summary("sqli", "reality-check-csharp", tpr=0.55, fpr=0.10, cwe_id="CWE-89"),
-            _make_summary("sqli", "morefixes-extract", tpr=0.55, fpr=0.10, cwe_id="CWE-89"),
+            _make_summary("sqli", "morefixes", tpr=0.55, fpr=0.10, cwe_id="CWE-89"),
             _make_summary("ssti", "go-sec-code-mutated", tpr=0.75, fpr=0.10, cwe_id="CWE-1336"),
             _make_summary("ssti", "skf-labs-mutated", tpr=0.75, fpr=0.10, cwe_id="CWE-1336"),
         ]

@@ -10,17 +10,18 @@ from __future__ import annotations
 
 import argparse
 import sys
-from datetime import datetime
-from datetime import timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from screw_agents.autoresearch.planner import build_run_plan  # noqa: E402
-from screw_agents.autoresearch.planner import write_run_plan_json  # noqa: E402
-from screw_agents.autoresearch.planner import write_run_plan_markdown  # noqa: E402
+from screw_agents.autoresearch.planner import (  # noqa: E402
+    build_run_plan,
+    write_run_plan_json,
+    write_run_plan_markdown,
+)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -48,7 +49,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     output_dir = args.output_dir or (
         Path("benchmarks") / "results" / "autoresearch-plan" / timestamp
     )

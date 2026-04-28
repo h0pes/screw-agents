@@ -1,10 +1,8 @@
 """Smoke tests for MoreFixes extract — no DB connection required."""
-from pathlib import Path
 
 from benchmarks.scripts._active_cwes import ACTIVE_CWE_INTS
 from benchmarks.scripts.morefixes_extract import (
     MOREFIXES_LANGUAGES,
-    MoreFixesExtractor,
     build_query,
 )
 
@@ -23,4 +21,6 @@ def test_build_query_has_cwe_and_language_filters():
     q = build_query(min_score=65)
     assert "cwe" in q.lower()
     assert "language" in q.lower() or "programming_language" in q.lower()
+    assert "code_before" in q
+    assert "code_after" in q
     assert "65" in q
