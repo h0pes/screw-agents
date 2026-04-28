@@ -1,0 +1,202 @@
+{
+  "schema_version": "rust-d01-reviewed-seeds/v1",
+  "status": "manual_trace_seed",
+  "notes": [
+    "Tracked D-01 seed list for materializing Rust real-CVE benchmark fixtures.",
+    "Only include_real_cve records belong here; generated raw/review manifests stay untracked under benchmarks/external.",
+    "Line numbers were traced against the stated vulnerable_ref and patched_ref values."
+  ],
+  "seeds": [
+    {
+      "ghsa_id": "GHSA-275g-g844-73jh",
+      "cve_id": "CVE-2025-53549",
+      "aliases": [
+        "CVE-2025-53549",
+        "GHSA-275g-g844-73jh",
+        "RUSTSEC-2025-0043"
+      ],
+      "package_names": [
+        "matrix-sdk",
+        "matrix-sdk-sqlite"
+      ],
+      "summary": "Matrix Rust SDK vulnerable to SQL Injection through its EventCache implementation",
+      "cwe_id": "CWE-89",
+      "target_agents": [
+        "sqli"
+      ],
+      "review_status": "include_real_cve",
+      "training_contamination": false,
+      "published_at": "2025-07-10T17:41:16Z",
+      "repo_url": "https://github.com/matrix-org/matrix-rust-sdk",
+      "vulnerable_ref": "d0c01006e4808db5eb96ad5c496416f284d8bd3c^",
+      "patched_ref": "d0c01006e4808db5eb96ad5c496416f284d8bd3c",
+      "source_urls": [
+        "https://github.com/advisories/GHSA-275g-g844-73jh",
+        "https://github.com/matrix-org/matrix-rust-sdk/commit/d0c01006e4808db5eb96ad5c496416f284d8bd3c"
+      ],
+      "affected_files": [
+        {
+          "path": "crates/matrix-sdk-sqlite/src/event_cache_store.rs",
+          "function_name": "find_event_relations",
+          "vulnerable_lines": {
+            "start": 1159,
+            "end": 1183
+          },
+          "patched_lines": {
+            "start": 1188,
+            "end": 1209
+          }
+        }
+      ],
+      "trace_notes": "Vulnerable code formats rel_type filters into an SQL IN clause with format!(r#\"\\\"{f}\\\"\"#) before preparing the query. The patch replaces string interpolation with placeholder generation and params_from_iter."
+    },
+    {
+      "ghsa_id": "GHSA-rjf8-2wcw-f6mp",
+      "cve_id": "CVE-2026-22256",
+      "aliases": [
+        "CVE-2026-22256",
+        "GHSA-rjf8-2wcw-f6mp"
+      ],
+      "package_names": [
+        "salvo"
+      ],
+      "summary": "Salvo is vulnerable to reflected XSS in the list_html function",
+      "cwe_id": "CWE-79",
+      "target_agents": [
+        "xss"
+      ],
+      "review_status": "include_real_cve",
+      "training_contamination": false,
+      "published_at": "2026-01-08T21:22:18Z",
+      "repo_url": "https://github.com/salvo-rs/salvo",
+      "vulnerable_ref": "16efeba312a274739606ce76366d921768628654",
+      "patched_ref": "v0.88.1",
+      "source_urls": [
+        "https://github.com/advisories/GHSA-rjf8-2wcw-f6mp",
+        "https://github.com/salvo-rs/salvo/blob/16efeba312a274739606ce76366d921768628654/crates/serve-static/src/dir.rs#L593"
+      ],
+      "affected_files": [
+        {
+          "path": "crates/serve-static/src/dir.rs",
+          "function_name": "list_html",
+          "vulnerable_lines": {
+            "start": 574,
+            "end": 602
+          },
+          "patched_lines": {
+            "start": 578,
+            "end": 605
+          }
+        }
+      ],
+      "trace_notes": "Vulnerable header rendering injects path segments and current.path into HTML without escaping. The patched tag encodes the path title and breadcrumb text with encode_url_path."
+    },
+    {
+      "ghsa_id": "GHSA-54m3-5fxr-2f3j",
+      "cve_id": "CVE-2026-22257",
+      "aliases": [
+        "CVE-2026-22257",
+        "GHSA-54m3-5fxr-2f3j"
+      ],
+      "package_names": [
+        "salvo"
+      ],
+      "summary": "Salvo is vulnerable to stored XSS in the list_html function by uploading files with malicious names",
+      "cwe_id": "CWE-79",
+      "target_agents": [
+        "xss"
+      ],
+      "review_status": "include_real_cve",
+      "training_contamination": false,
+      "published_at": "2026-01-08T21:16:41Z",
+      "repo_url": "https://github.com/salvo-rs/salvo",
+      "vulnerable_ref": "16efeba312a274739606ce76366d921768628654",
+      "patched_ref": "v0.88.1",
+      "source_urls": [
+        "https://github.com/advisories/GHSA-54m3-5fxr-2f3j",
+        "https://github.com/salvo-rs/salvo/blob/16efeba312a274739606ce76366d921768628654/crates/serve-static/src/dir.rs#L581"
+      ],
+      "affected_files": [
+        {
+          "path": "crates/serve-static/src/dir.rs",
+          "function_name": "list_html",
+          "vulnerable_lines": {
+            "start": 615,
+            "end": 631
+          },
+          "patched_lines": {
+            "start": 619,
+            "end": 635
+          }
+        }
+      ],
+      "trace_notes": "Vulnerable directory listing URL-encodes href values but writes raw dir.name and file.name as link text. The patched tag encodes both displayed names."
+    },
+    {
+      "ghsa_id": "GHSA-vc2p-r46x-m3vx",
+      "cve_id": "CVE-2020-28247",
+      "aliases": [
+        "CVE-2020-28247",
+        "GHSA-vc2p-r46x-m3vx",
+        "RUSTSEC-2020-0069"
+      ],
+      "package_names": [
+        "lettre"
+      ],
+      "summary": "Argument injection in lettre",
+      "cwe_id": "CWE-77",
+      "target_agents": [
+        "cmdi"
+      ],
+      "review_status": "include_real_cve",
+      "training_contamination": false,
+      "published_at": "2021-08-25T20:56:48Z",
+      "repo_url": "https://github.com/lettre/lettre",
+      "vulnerable_ref": "bbe7cc5381c5380b54fb8bbb4f77a3725917ff0b^",
+      "patched_ref": "bbe7cc5381c5380b54fb8bbb4f77a3725917ff0b",
+      "source_urls": [
+        "https://github.com/advisories/GHSA-vc2p-r46x-m3vx",
+        "https://github.com/lettre/lettre/commit/bbe7cc5381c5380b54fb8bbb4f77a3725917ff0b"
+      ],
+      "affected_files": [
+        {
+          "path": "src/transport/sendmail/mod.rs",
+          "function_name": "command",
+          "vulnerable_lines": {
+            "start": 118,
+            "end": 125
+          },
+          "patched_lines": {
+            "start": 118,
+            "end": 126
+          }
+        },
+        {
+          "path": "src/transport/sendmail/mod.rs",
+          "function_name": "tokio02_command",
+          "vulnerable_lines": {
+            "start": 130,
+            "end": 140
+          },
+          "patched_lines": {
+            "start": 130,
+            "end": 142
+          }
+        },
+        {
+          "path": "src/transport/sendmail/mod.rs",
+          "function_name": "tokio03_command",
+          "vulnerable_lines": {
+            "start": 145,
+            "end": 155
+          },
+          "patched_lines": {
+            "start": 146,
+            "end": 157
+          }
+        }
+      ],
+      "trace_notes": "Recipient addresses are passed after -f without an argument terminator, allowing a destination beginning with '-' to be interpreted by sendmail as an option. The patch inserts -- before envelope.to() in all sendmail command builders."
+    }
+  ]
+}

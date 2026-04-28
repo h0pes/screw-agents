@@ -89,6 +89,9 @@ trace, and 0 auto-promoted to real-CVE fixtures.
 
 ### Task 3 — Fixture Materialization
 
+Status: seed review started. The tracked seed input is
+`benchmarks/data/rust-d01-reviewed-seeds.json`.
+
 Materialize accepted real-CVE Rust cases under the benchmark external tree and
 write bentoo-SARIF truth files.
 
@@ -98,6 +101,13 @@ Acceptance:
 - Method/function-level ground truth is present when the advisory supports it.
 - Fixture provenance records advisory IDs, repo URL, vulnerable ref, patched
   ref, and extraction notes.
+
+Initial traced real-CVE seeds:
+- SQLi: Matrix Rust SDK `GHSA-275g-g844-73jh` / `CVE-2025-53549`.
+- XSS: Salvo reflected XSS `GHSA-rjf8-2wcw-f6mp` / `CVE-2026-22256`.
+- XSS: Salvo stored XSS `GHSA-54m3-5fxr-2f3j` / `CVE-2026-22257`.
+- CmdI: Lettre argument injection `GHSA-vc2p-r46x-m3vx` /
+  `CVE-2020-28247`.
 
 ### Task 4 — Synthetic Rust SSTI Fixtures
 
