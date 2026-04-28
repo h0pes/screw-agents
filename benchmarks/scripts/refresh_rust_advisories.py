@@ -24,6 +24,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+# Keep direct invocation behavior aligned with the other benchmark scripts.
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
 
 DEFAULT_CWES: tuple[str, ...] = (
     "CWE-77",

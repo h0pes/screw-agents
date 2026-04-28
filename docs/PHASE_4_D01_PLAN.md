@@ -57,6 +57,9 @@ Acceptance:
 ### Task 2 — Candidate Review Policy
 
 Turn the generated candidate manifest into a reviewed D-01 candidate list.
+The first implementation pass creates the review skeleton mechanically; it does
+not auto-promote raw GHSA records to `include_real_cve`, because that requires
+manual code tracing.
 
 Acceptance:
 - Every candidate has one of: `include_real_cve`, `exclude`, `training_only`,
@@ -64,6 +67,9 @@ Acceptance:
 - Every exclusion has a reason.
 - Every included real-CVE candidate has CWE, repo, fix reference, vulnerable
   reference, affected file/function, and source URLs.
+- Candidates with existing YAML references are marked `training_only`.
+- Adjacent CWEs (`CWE-94`, `CWE-116`) remain visible for manual mapping instead
+  of being silently discarded.
 
 ### Task 3 — Fixture Materialization
 
