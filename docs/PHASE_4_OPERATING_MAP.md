@@ -69,7 +69,7 @@ uv run python benchmarks/scripts/check_autoresearch_readiness.py \
 These commands do not invoke Claude, do not run benchmarks, do not download
 datasets, and do not mutate YAML.
 
-Fresh-worktree result as of 2026-04-28:
+Fresh-worktree baseline result as of 2026-04-28:
 
 | Dataset | Needed for active G5? | Current meaning |
 |---|---|---|
@@ -83,6 +83,21 @@ Fresh-worktree result as of 2026-04-28:
 | `skf-labs-mutated` | No | Retained as SQLi data; no longer misused as SSTI gate evidence |
 | `rust-d01-real-cves` | No active G5 yet | Needs materialization and local clones before Rust-scoped gates |
 | `vul4j` | No | Explicitly deferred until checkout layout/extractor contract exists |
+
+Verified core-dataset restoration as of 2026-04-28:
+- `uv run python -m benchmarks.scripts.ingest_ossf` restores 118
+  materialized OSSF case truth files.
+- `uv run python -m benchmarks.scripts.ingest_reality_check_csharp` restores
+  11 materialized C# case truth files.
+- `uv run python -m benchmarks.scripts.ingest_reality_check_python` restores
+  6 materialized Python case truth files.
+- `uv run python -m benchmarks.scripts.ingest_reality_check_java` restores 9
+  materialized Java case truth files.
+
+After those commands, the readiness checklist reports 4 of 5 active G5 datasets
+ready. The remaining active G5 dataset blocker is MoreFixes materialization.
+Because generated benchmark material is ignored and worktree-local, run these
+commands in the long-lived checkout where the data should remain available.
 
 ## Why The External Data Is Missing
 
@@ -128,6 +143,10 @@ uv run python benchmarks/scripts/materialize_rust_d01.py
 
 These may download data, use Docker/Postgres, or write ignored external
 benchmark files. They still do not invoke Claude.
+
+Implementation note: `IngestBase.write_manifest()` preserves the existing
+`ingested_at` value when regenerated case metadata is unchanged, so restoring
+ignored external data does not create timestamp-only manifest churn.
 
 Expensive benchmark execution:
 

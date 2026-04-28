@@ -111,7 +111,7 @@ def build_run_plan(
         case_count = int(manifest.get("case_count", len(cases)))
         data_dir = external_dir / dataset_name
         gate_ids = [gate.gate_id for gate in gates_by_dataset.get(dataset_name, [])]
-        truth_count = _count_truth_files(data_dir)
+        truth_count = _count_materialized_truth_files(data_dir, cases)
         estimated_truth_locations = _estimate_truth_locations(cases)
         notes = _dataset_notes(
             dataset_name=dataset_name,
@@ -303,10 +303,21 @@ def _is_case_manifest(manifest: dict[str, Any]) -> bool:
     return isinstance(manifest.get("cases"), list)
 
 
-def _count_truth_files(data_dir: Path) -> int:
+def _count_materialized_truth_files(
+    data_dir: Path,
+    cases: list[dict[str, Any]],
+) -> int:
+    """Count truth files materialized in this repo's case-directory layout."""
     if not data_dir.exists():
         return 0
-    return sum(1 for _ in data_dir.rglob("truth.sarif"))
+    case_ids = [case.get("case_id") for case in cases if case.get("case_id")]
+    if not case_ids:
+        return sum(1 for _ in data_dir.rglob("truth.sarif"))
+    return sum(
+        1
+        for case_id in case_ids
+        if (data_dir / str(case_id) / "truth.sarif").exists()
+    )
 
 
 def _estimate_truth_locations(cases: list[dict[str, Any]]) -> int:

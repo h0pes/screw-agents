@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 from abc import ABC, abstractmethod
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from benchmarks.runner.models import BenchmarkCase
@@ -69,24 +69,46 @@ class IngestBase(ABC):
 
     def write_manifest(self, cases: list[BenchmarkCase]) -> None:
         """Write a provenance manifest JSON for this dataset."""
+        manifest_cases = [
+            {
+                "case_id": c.case_id,
+                "project": c.project,
+                "language": c.language.value,
+                "vulnerable_version": c.vulnerable_version,
+                "patched_version": c.patched_version,
+                "published_date": (
+                    c.published_date.isoformat() if c.published_date else None
+                ),
+                "fail_count": sum(
+                    1 for f in c.ground_truth if f.kind.value == "fail"
+                ),
+                "pass_count": sum(
+                    1 for f in c.ground_truth if f.kind.value == "pass"
+                ),
+            }
+            for c in cases
+        ]
+        out_path = self.manifest_dir / f"{self.dataset_name}.manifest.json"
+        previous = _read_existing_manifest(out_path)
+        if previous and previous.get("cases") == manifest_cases:
+            ingested_at = previous.get("ingested_at")
+        else:
+            ingested_at = datetime.now(UTC).isoformat(timespec="seconds")
+
         manifest = {
             "dataset_name": self.dataset_name,
             "source_url": self.source_url,
             "case_count": len(cases),
-            "ingested_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            "cases": [
-                {
-                    "case_id": c.case_id,
-                    "project": c.project,
-                    "language": c.language.value,
-                    "vulnerable_version": c.vulnerable_version,
-                    "patched_version": c.patched_version,
-                    "published_date": c.published_date.isoformat() if c.published_date else None,
-                    "fail_count": sum(1 for f in c.ground_truth if f.kind.value == "fail"),
-                    "pass_count": sum(1 for f in c.ground_truth if f.kind.value == "pass"),
-                }
-                for c in cases
-            ],
+            "ingested_at": ingested_at,
+            "cases": manifest_cases,
         }
-        out_path = self.manifest_dir / f"{self.dataset_name}.manifest.json"
         out_path.write_text(json.dumps(manifest, indent=2))
+
+
+def _read_existing_manifest(path: Path) -> dict | None:
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None

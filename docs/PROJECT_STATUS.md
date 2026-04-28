@@ -472,6 +472,10 @@ readiness issues are closed. The readiness checklist command is
 `uv run python benchmarks/scripts/check_autoresearch_readiness.py`; a fresh
 worktree currently reports active G5 blockers for OSSF/reality-check external
 directories and truth files, plus missing MoreFixes truth materialization.
+The OSSF and reality-check restoration path is verified: running their ingest
+scripts materializes the four core active G5 datasets and leaves MoreFixes as
+the only dataset-readiness blocker. Unchanged manifest regeneration preserves
+the existing `ingested_at` value to avoid timestamp-only churn.
 
 **When continuing Phase 4:** Continue from `docs/PHASE_4_D02_PLAN.md`; keep Rust metric claims scoped to real-CVE SQLi/Cmdi/XSS and synthetic-only SSTI unless refresh finds a verified SSTI advisory.
 Use `docs/PHASE_4_OPERATING_MAP.md` as the high-level map before restoring
