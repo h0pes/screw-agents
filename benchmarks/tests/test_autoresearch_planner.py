@@ -89,6 +89,38 @@ def test_build_run_plan_marks_rust_scope_and_missing_generated_data(
     assert any("external dataset directory is missing" in note for note in dataset.notes)
 
 
+def test_build_run_plan_counts_only_materialized_case_truth_files(
+    tmp_path: Path,
+) -> None:
+    manifests_dir = tmp_path / "manifests"
+    external_dir = tmp_path / "external"
+    manifests_dir.mkdir()
+    _write_manifest(
+        manifests_dir / "reality-check-python.manifest.json",
+        "reality-check-python",
+        [{"case_id": "rc-case", "fail_count": 1, "pass_count": 1}],
+    )
+    (external_dir / "reality-check-python" / "repo" / "markup" / "extra").mkdir(
+        parents=True
+    )
+    (
+        external_dir
+        / "reality-check-python"
+        / "repo"
+        / "markup"
+        / "extra"
+        / "truth.sarif"
+    ).write_text("{}")
+    (external_dir / "reality-check-python" / "rc-case").mkdir(parents=True)
+    (
+        external_dir / "reality-check-python" / "rc-case" / "truth.sarif"
+    ).write_text("{}")
+
+    plan = build_run_plan(manifests_dir=manifests_dir, external_dir=external_dir)
+
+    assert plan.datasets[0].truth_file_count == 1
+
+
 def test_render_and_write_run_plan(tmp_path: Path) -> None:
     manifests_dir = tmp_path / "manifests"
     external_dir = tmp_path / "external"

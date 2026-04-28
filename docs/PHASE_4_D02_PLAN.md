@@ -81,6 +81,12 @@ Resolve the plan's dataset readiness issues before any full run:
   reality-check datasets, plus missing `truth.sarif` materialization for
   MoreFixes. `vul4j` remains explicitly deferred; Rust D-01 is tracked as a
   non-G5 warning until local clones are supplied.
+- Core active G5 restoration path is verified: OSSF and the three
+  reality-check datasets materialize cleanly with their existing ingest
+  scripts. After those commands, readiness reports 4 of 5 active G5 datasets
+  ready; MoreFixes remains the active G5 blocker.
+- Regenerating unchanged manifests now preserves the existing `ingested_at`
+  value to avoid timestamp-only churn when restoring ignored local datasets.
 - Re-materialize/download required external datasets in a worktree-local,
   reproducible way.
 - Keep generated external dataset contents ignored.
