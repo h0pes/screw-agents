@@ -157,6 +157,8 @@ Only after Tasks 1-4 are resolved:
   for each active G5 dataset/agent pair
 - require the smoke plan to record deterministic `selected_case_ids` so any
   later executor runs exactly the reviewed cases
+- select only cases whose vulnerable and patched source code can be extracted
+  from the local materialized benchmark data
 - validate the controlled executor first; by default it resolves selected
   cases and confirms vulnerable/patched code extraction without invoking Claude
 - require explicit `--allow-claude-invocation` before a plan can become

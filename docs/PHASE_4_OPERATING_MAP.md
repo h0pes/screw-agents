@@ -177,8 +177,9 @@ strategy, `required-dataset-smoke`, chooses at most one case for each active
 G5 dataset/agent pair, so shared agents such as `xss` do not cause required
 datasets to be skipped. The plan records deterministic `selected_case_ids`
 from the dataset manifests, preferring cases whose `truth.sarif` matches the
-gate's CWE filter or the agent's default CWE. With the current active G5
-inventory, that is expected to prepare seven small slices: OSSF/XSS,
+gate's CWE filter or the agent's default CWE and whose vulnerable/patched code
+can be extracted from the local materialized dataset. With the current active
+G5 inventory, that is expected to prepare seven small slices: OSSF/XSS,
 OSSF/CmdI, Reality Check C#/XSS, Reality Check C#/SQLi, Reality Check
 Python/XSS, Reality Check Java/CmdI, and MoreFixes/SQLi.
 
@@ -208,6 +209,10 @@ This validates the reviewed `selected_case_ids`, loads their `truth.sarif`
 files, and confirms vulnerable/patched code can be extracted. It does not
 invoke Claude unless `--execute` and executor-level
 `--allow-claude-invocation` are both present.
+
+The executor validation is intentionally stricter than readiness: readiness
+checks truth materialization and extractor availability, while executor
+validation checks the exact reviewed cases against the local source layout.
 
 Controlled smoke execution:
 

@@ -74,11 +74,17 @@ def _extract_reality_check(
         raise FileNotFoundError(f"reality-check repo not found: {repo_dir}")
 
     version = case.vulnerable_version if variant == CodeVariant.VULNERABLE else case.patched_version
-    # reality-check stores bootstrapped projects under benchmark/, not projects/
+    # Historical reality-check materialization used benchmark/ in fixtures,
+    # while the restored upstream datasets use markup/.
     projects_dir = repo_dir / lang_subdir / "benchmark" / case.project / version
+    if not projects_dir.exists():
+        projects_dir = repo_dir / lang_subdir / "markup" / case.project / version
 
     if not projects_dir.exists():
-        logger.warning("Version dir not found: %s (run bootstrap.sh or download projects first)", projects_dir)
+        logger.warning(
+            "Version dir not found: %s (run bootstrap.sh or download projects first)",
+            projects_dir,
+        )
         return []
 
     kind = FindingKind.FAIL if variant == CodeVariant.VULNERABLE else FindingKind.PASS
