@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import time
 import urllib.error
@@ -74,6 +75,11 @@ KNOWN_CWE77_DATA_RACE_PACKAGES: frozenset[str] = frozenset(
 # Existing D-01 research found this as a GHSA CWE-1336 hit, but it is a Zebra
 # consensus/node crash, not server-side template injection.
 KNOWN_NOT_SSTI_GHSAS: frozenset[str] = frozenset({"GHSA-qp6f-w4r3-h8wg"})
+
+ADVISORY_TOKEN_RE = re.compile(
+    r"\b(?:GHSA-[0-9A-Za-z]{4}-[0-9A-Za-z]{4}-[0-9A-Za-z]{4}|"
+    r"CVE-\d{4}-\d{4,}|RUSTSEC-\d{4}-\d{4,})\b"
+)
 
 
 def _auth_headers() -> dict[str, str]:
@@ -196,6 +202,7 @@ def _normalize_advisory(advisory: dict[str, Any]) -> dict[str, Any]:
             if isinstance(i, dict) and isinstance(i.get("value"), str)
         }
     )
+    referenced_identifiers = _referenced_advisory_identifiers(advisory)
     package_names = sorted(
         {
             vuln.get("package", {}).get("name")
@@ -234,6 +241,7 @@ def _normalize_advisory(advisory: dict[str, Any]) -> dict[str, Any]:
         "ghsa_id": advisory.get("ghsa_id"),
         "cve_id": advisory.get("cve_id"),
         "aliases": aliases,
+        "referenced_identifiers": referenced_identifiers,
         "package_names": package_names,
         "summary": advisory.get("summary"),
         "severity": advisory.get("severity"),
@@ -260,21 +268,30 @@ def _load_agent_yaml_index(domains_dir: Path) -> dict[str, list[str]]:
 
 
 def _advisory_tokens_from_text(text: str) -> set[str]:
-    tokens: set[str] = set()
-    for prefix in ("GHSA-", "CVE-", "RUSTSEC-"):
-        start = 0
-        while True:
-            idx = text.find(prefix, start)
-            if idx == -1:
-                break
-            end = idx
-            while end < len(text) and (
-                text[end].isalnum() or text[end] in {"-", "_"}
-            ):
-                end += 1
-            tokens.add(text[idx:end].rstrip(".,);]"))
-            start = end
-    return tokens
+    return set(ADVISORY_TOKEN_RE.findall(text))
+
+
+def _referenced_advisory_identifiers(advisory: dict[str, Any]) -> list[str]:
+    """Extract advisory ids mentioned outside GitHub's identifier list.
+
+    GitHub's Rust advisory records do not always expose RustSec ids in
+    `identifiers`, while the agent YAML often cites RustSec URLs. Keeping these
+    ids visible prevents Phase 4 from accidentally turning training examples
+    into benchmark holdouts.
+    """
+    text_fragments: list[str] = []
+    for key in ("summary", "description"):
+        value = advisory.get(key)
+        if isinstance(value, str):
+            text_fragments.append(value)
+    for reference in advisory.get("references", []) or []:
+        if isinstance(reference, str):
+            text_fragments.append(reference)
+        elif isinstance(reference, dict):
+            text_fragments.extend(
+                value for value in reference.values() if isinstance(value, str)
+            )
+    return sorted(_advisory_tokens_from_text("\n".join(text_fragments)))
 
 
 def _triage_annotations(
@@ -290,7 +307,12 @@ def _triage_annotations(
         exclusion_reasons.append("known_not_ssti")
 
     refs: dict[str, list[str]] = {}
-    for token in [candidate["ghsa_id"], candidate.get("cve_id"), *candidate["aliases"]]:
+    for token in [
+        candidate["ghsa_id"],
+        candidate.get("cve_id"),
+        *candidate["aliases"],
+        *candidate["referenced_identifiers"],
+    ]:
         if isinstance(token, str) and token in yaml_index:
             refs[token] = yaml_index[token]
 

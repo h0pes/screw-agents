@@ -19,6 +19,7 @@ def _advisory(
     cwes: list[str],
     cve_id: str | None = None,
     aliases: list[str] | None = None,
+    references: list[str] | None = None,
 ) -> dict:
     identifiers = [{"type": "GHSA", "value": ghsa_id}]
     if cve_id:
@@ -35,6 +36,7 @@ def _advisory(
         "withdrawn_at": None,
         "html_url": f"https://github.com/advisories/{ghsa_id}",
         "url": f"https://api.github.com/advisories/{ghsa_id}",
+        "references": references or [],
         "identifiers": identifiers,
         "cwes": [{"cwe_id": cwe, "name": cwe} for cwe in cwes],
         "vulnerabilities": [
@@ -115,6 +117,40 @@ def test_agent_yaml_references_mark_training_contamination(tmp_path: Path) -> No
     assert candidate["agent_yaml_refs"] == {
         "GHSA-wq9x-qwcq-mmgf": [
             str(tmp_path / "domains" / "injection-input-handling" / "sqli.yaml")
+        ]
+    }
+
+
+def test_reference_url_identifiers_mark_training_contamination(tmp_path: Path) -> None:
+    domains = tmp_path / "domains" / "injection-input-handling"
+    domains.mkdir(parents=True)
+    (domains / "xss.yaml").write_text(
+        "sources:\n  - url: https://rustsec.org/advisories/RUSTSEC-2025-0071.html\n",
+        encoding="utf-8",
+    )
+
+    manifest = build_candidate_manifest(
+        {
+            "CWE-79": [
+                _advisory(
+                    "GHSA-mm7x-qfjj-5g2c",
+                    package="ammonia",
+                    cwes=["CWE-79"],
+                    references=[
+                        "https://rustsec.org/advisories/RUSTSEC-2025-0071.html"
+                    ],
+                )
+            ]
+        },
+        domains_dir=tmp_path / "domains",
+    )
+
+    candidate = manifest["candidates"][0]
+    assert candidate["referenced_identifiers"] == ["RUSTSEC-2025-0071"]
+    assert candidate["referenced_in_agent_yaml"] is True
+    assert candidate["agent_yaml_refs"] == {
+        "RUSTSEC-2025-0071": [
+            str(tmp_path / "domains" / "injection-input-handling" / "xss.yaml")
         ]
     }
 

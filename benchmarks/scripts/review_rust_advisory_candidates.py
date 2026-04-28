@@ -81,6 +81,7 @@ def _review_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
         "ghsa_id": candidate["ghsa_id"],
         "cve_id": candidate.get("cve_id"),
         "aliases": candidate.get("aliases", []),
+        "referenced_identifiers": candidate.get("referenced_identifiers", []),
         "package_names": candidate.get("package_names", []),
         "summary": candidate.get("summary"),
         "cwes": cwes,

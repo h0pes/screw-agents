@@ -1,6 +1,7 @@
 # Phase 4 Step 4.0 — D-01 Rust Benchmark Corpus Plan
 
-> Status: draft execution plan, created at Phase 4 kickoff.
+> Status: in progress. Tasks 1-2 are implemented; manual candidate tracing is
+> underway.
 > Scope: Rust corpus construction before the autoresearch loop mutates agent
 > YAML.
 
@@ -31,6 +32,8 @@ materializing fixtures.
 
 ### Task 1 — Advisory Refresh And Candidate Manifest
 
+Status: implemented in `benchmarks/scripts/refresh_rust_advisories.py`.
+
 Create a reproducible script that queries GitHub Advisory Database for Rust
 advisories matching the D-01 CWE set:
 
@@ -54,7 +57,16 @@ Acceptance:
 - Marks advisories referenced in existing YAML as training-contaminated.
 - Has unit tests with mocked advisory payloads; no test reaches the network.
 
+Implementation note: YAML contamination detection checks advisory identifiers
+and advisory IDs found in reference URLs/descriptions, because GitHub's API does
+not always expose RustSec IDs in the `identifiers` list. This catches existing
+agent references such as `RUSTSEC-2024-0365`, `RUSTSEC-2021-0074`, and
+`RUSTSEC-2025-0071`.
+
 ### Task 2 — Candidate Review Policy
+
+Status: implemented in
+`benchmarks/scripts/review_rust_advisory_candidates.py`.
 
 Turn the generated candidate manifest into a reviewed D-01 candidate list.
 The first implementation pass creates the review skeleton mechanically; it does
@@ -70,6 +82,10 @@ Acceptance:
 - Candidates with existing YAML references are marked `training_only`.
 - Adjacent CWEs (`CWE-94`, `CWE-116`) remain visible for manual mapping instead
   of being silently discarded.
+
+Latest live refresh result: 53 Rust advisory candidates; 14 excluded, 4
+training-only due to existing YAML references, 35 still requiring manual code
+trace, and 0 auto-promoted to real-CVE fixtures.
 
 ### Task 3 — Fixture Materialization
 

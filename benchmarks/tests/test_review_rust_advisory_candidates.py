@@ -23,6 +23,7 @@ def _candidate(
         "ghsa_id": ghsa_id,
         "cve_id": "CVE-2026-0001",
         "aliases": [ghsa_id, "CVE-2026-0001"],
+        "referenced_identifiers": ["RUSTSEC-2026-0001"],
         "package_names": ["demo-crate"],
         "summary": "demo",
         "cwes": cwes,
@@ -51,6 +52,7 @@ def test_review_manifest_marks_viable_active_agent_candidate_for_manual_trace() 
     reviewed = manifest["candidates"][0]
     assert reviewed["status"] == "needs_manual_code_trace"
     assert reviewed["target_agents"] == ["xss"]
+    assert reviewed["referenced_identifiers"] == ["RUSTSEC-2026-0001"]
     assert reviewed["code_trace"]["fix_ref"] is None
 
 
