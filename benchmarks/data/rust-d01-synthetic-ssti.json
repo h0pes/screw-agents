@@ -1,0 +1,83 @@
+{
+  "schema_version": "rust-d01-synthetic-ssti/v1",
+  "status": "synthetic_fixtures",
+  "cwe_id": "CWE-1336",
+  "agent": "ssti",
+  "notes": [
+    "Synthetic Phase 4 D-01 Rust SSTI fixture inventory.",
+    "These cases are not real CVEs and must not be reported as CVE-backed validation.",
+    "Positive cases model attacker-controlled template source; negative cases bind user input only as template data or use compile-time templates."
+  ],
+  "fixtures": [
+    {
+      "fixture_id": "rust-tera-render-str",
+      "engine": "Tera",
+      "path": "benchmarks/fixtures/ssti/vulnerable/rust_tera_render_str.rs",
+      "expected": "true_positive",
+      "synthetic": true,
+      "real_cve": false,
+      "misuse_pattern": "User input flows into Tera::one_off() template source.",
+      "cwe_rationale": "Attacker-controlled input is evaluated as server-side template syntax rather than bound only as data."
+    },
+    {
+      "fixture_id": "rust-tera-render-file",
+      "engine": "Tera",
+      "path": "benchmarks/fixtures/ssti/safe/rust_tera_render_file.rs",
+      "expected": "true_negative",
+      "synthetic": true,
+      "real_cve": false,
+      "misuse_pattern": "Server-controlled template file rendered with user input as context data.",
+      "cwe_rationale": "No CWE-1336 issue is present because user input is not template source."
+    },
+    {
+      "fixture_id": "rust-minijinja-render-str",
+      "engine": "MiniJinja",
+      "path": "benchmarks/fixtures/ssti/vulnerable/rust_minijinja_render_str.rs",
+      "expected": "true_positive",
+      "synthetic": true,
+      "real_cve": false,
+      "misuse_pattern": "User input flows into Environment::render_str() template source.",
+      "cwe_rationale": "Attacker-controlled input is evaluated as server-side template syntax rather than bound only as data."
+    },
+    {
+      "fixture_id": "rust-minijinja-named-template",
+      "engine": "MiniJinja",
+      "path": "benchmarks/fixtures/ssti/safe/rust_minijinja_named_template.rs",
+      "expected": "true_negative",
+      "synthetic": true,
+      "real_cve": false,
+      "misuse_pattern": "Server-controlled named template rendered with user input as context data.",
+      "cwe_rationale": "No CWE-1336 issue is present because user input is not template source."
+    },
+    {
+      "fixture_id": "rust-askama-compile-time",
+      "engine": "Askama",
+      "path": "benchmarks/fixtures/ssti/safe/rust_askama_compile_time.rs",
+      "expected": "true_negative",
+      "synthetic": true,
+      "real_cve": false,
+      "misuse_pattern": "Compile-time Askama templates receive user input only as struct fields.",
+      "cwe_rationale": "No CWE-1336 issue is present because Askama does not parse attacker-controlled template source at runtime."
+    },
+    {
+      "fixture_id": "rust-handlebars-render-template",
+      "engine": "Handlebars-rust",
+      "path": "benchmarks/fixtures/ssti/vulnerable/rust_handlebars_render_template.rs",
+      "expected": "true_positive",
+      "synthetic": true,
+      "real_cve": false,
+      "misuse_pattern": "User input flows into Handlebars::render_template() template source.",
+      "cwe_rationale": "Attacker-controlled input is evaluated as server-side template syntax rather than bound only as data."
+    },
+    {
+      "fixture_id": "rust-handlebars-registered-template",
+      "engine": "Handlebars-rust",
+      "path": "benchmarks/fixtures/ssti/safe/rust_handlebars_registered_template.rs",
+      "expected": "true_negative",
+      "synthetic": true,
+      "real_cve": false,
+      "misuse_pattern": "Server-controlled registered template rendered with user input as data.",
+      "cwe_rationale": "No CWE-1336 issue is present because user input is not template source."
+    }
+  ]
+}

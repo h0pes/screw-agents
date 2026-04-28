@@ -117,6 +117,10 @@ Initial traced real-CVE seeds:
 
 ### Task 4 — Synthetic Rust SSTI Fixtures
 
+Status: implemented as tracked synthetic fixture inventory
+`benchmarks/data/rust-d01-synthetic-ssti.json` plus Rust fixture files under
+`benchmarks/fixtures/ssti/`.
+
 Build labelled synthetic fixtures for Tera, MiniJinja, Askama, and
 Handlebars-rust misuse patterns.
 
@@ -125,6 +129,10 @@ Acceptance:
 - Fixture metadata states the template engine, misuse pattern, and why the
   pattern maps to CWE-1336.
 - Safe counterparts are included for false-positive pressure.
+
+Askama is represented as a true-negative compile-time template case rather than
+a synthetic positive, because Askama does not expose a runtime template-source
+parsing sink. This keeps the corpus technically honest.
 
 ### Task 5 — Runner Integration And Docs
 
