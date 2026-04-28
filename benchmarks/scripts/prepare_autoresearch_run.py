@@ -50,7 +50,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--max-cases-per-agent",
         type=int,
-        default=1,
+        default=10,
+    )
+    parser.add_argument(
+        "--selection-strategy",
+        choices=("required-dataset-smoke", "gate-order"),
+        default="required-dataset-smoke",
+        help=(
+            "Selection strategy for sample planning. The default selects at most "
+            "one case for each required dataset/agent pair."
+        ),
     )
     parser.add_argument(
         "--allow-claude-invocation",
@@ -72,6 +81,7 @@ def main(argv: list[str] | None = None) -> int:
         allow_claude_invocation=args.allow_claude_invocation,
         max_cases_per_dataset=args.max_cases_per_dataset,
         max_cases_per_agent=args.max_cases_per_agent,
+        selection_strategy=args.selection_strategy,
     )
     json_path = output_dir / "controlled_run_plan.json"
     markdown_path = output_dir / "controlled_run_plan.md"

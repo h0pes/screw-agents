@@ -67,6 +67,78 @@ def _write_dry_run_plan(path: Path, *, ready: bool = False) -> None:
     )
 
 
+def _write_multi_dataset_dry_run_plan(path: Path, *, ready: bool = True) -> None:
+    truth_file_count = 1 if ready else 0
+    datasets = [
+        ("ossf-cve-benchmark", 118, ["G5.1", "G5.2", "G5.5"]),
+        ("reality-check-csharp", 11, ["G5.3", "G5.7"]),
+        ("reality-check-python", 6, ["G5.4"]),
+        ("reality-check-java", 9, ["G5.6"]),
+        ("morefixes", 2601, ["G5.8"]),
+    ]
+    gates = [
+        ("G5.1", "xss", "ossf-cve-benchmark", "tpr", 0.7, "CWE-79"),
+        ("G5.2", "xss", "ossf-cve-benchmark", "fpr", 0.25, "CWE-79"),
+        ("G5.5", "cmdi", "ossf-cve-benchmark", "tpr", 0.6, "CWE-78"),
+        ("G5.3", "xss", "reality-check-csharp", "tpr", 0.6, "CWE-79"),
+        ("G5.7", "sqli", "reality-check-csharp", "tpr", 0.5, "CWE-89"),
+        ("G5.4", "xss", "reality-check-python", "tpr", 0.6, "CWE-79"),
+        ("G5.6", "cmdi", "reality-check-java", "tpr", 0.5, "CWE-78"),
+        ("G5.8", "sqli", "morefixes", "tpr", 0.5, "CWE-89"),
+    ]
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": "phase4-autoresearch-run-plan/v1",
+                "generated_at": "2026-04-28T00:00:00+00:00",
+                "mode": "dry-run",
+                "manifests_dir": "benchmarks/external/manifests",
+                "external_dir": "benchmarks/external",
+                "dataset_count": len(datasets),
+                "total_cases": sum(case_count for _, case_count, _ in datasets),
+                "estimated_min_invocations": 5472,
+                "datasets": [
+                    {
+                        "dataset_name": dataset_name,
+                        "manifest_path": (
+                            "benchmarks/external/manifests/"
+                            f"{dataset_name}.manifest.json"
+                        ),
+                        "case_count": case_count,
+                        "data_dir_exists": ready,
+                        "truth_file_count": truth_file_count,
+                        "supported_by_extractor": True,
+                        "g5_gate_ids": gate_ids,
+                        "estimated_min_invocations": case_count * 2,
+                        "estimated_truth_locations": case_count,
+                        "notes": [],
+                    }
+                    for dataset_name, case_count, gate_ids in datasets
+                ],
+                "gate_audit": [
+                    {
+                        "gate_id": gate_id,
+                        "agent": agent,
+                        "dataset": dataset,
+                        "metric": metric,
+                        "threshold": threshold,
+                        "comparison": "gte",
+                        "cwe_filter": cwe_filter,
+                        "manifest_exists": True,
+                        "extractor_supported": True,
+                        "issue": None,
+                    }
+                    for gate_id, agent, dataset, metric, threshold, cwe_filter in gates
+                ],
+                "retired_gates": [],
+                "guardrails": [],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
 def test_controlled_run_blocks_without_explicit_claude_allowance(tmp_path: Path) -> None:
     dry_run_path = tmp_path / "run_plan.json"
     _write_dry_run_plan(dry_run_path, ready=True)
@@ -120,6 +192,58 @@ def test_controlled_run_can_become_executable_when_ready_and_allowed(
     assert plan.selections[0].estimated_invocations == 2
 
 
+def test_required_dataset_smoke_selects_each_dataset_agent_pair(
+    tmp_path: Path,
+) -> None:
+    dry_run_path = tmp_path / "run_plan.json"
+    _write_multi_dataset_dry_run_plan(dry_run_path, ready=True)
+
+    plan = build_controlled_execution_plan(
+        dry_run_plan_path=dry_run_path,
+        output_dir=tmp_path / "out",
+        allow_claude_invocation=True,
+    )
+
+    selected_pairs = {
+        (selection.dataset, selection.agent) for selection in plan.selections
+    }
+    assert plan.execution_allowed is True
+    assert selected_pairs == {
+        ("ossf-cve-benchmark", "xss"),
+        ("ossf-cve-benchmark", "cmdi"),
+        ("reality-check-csharp", "xss"),
+        ("reality-check-csharp", "sqli"),
+        ("reality-check-python", "xss"),
+        ("reality-check-java", "cmdi"),
+        ("morefixes", "sqli"),
+    }
+    assert {selection.selected_case_count for selection in plan.selections} == {1}
+    assert sum(selection.estimated_invocations for selection in plan.selections) == 14
+
+
+def test_required_dataset_smoke_still_respects_agent_case_cap(
+    tmp_path: Path,
+) -> None:
+    dry_run_path = tmp_path / "run_plan.json"
+    _write_multi_dataset_dry_run_plan(dry_run_path, ready=True)
+
+    plan = build_controlled_execution_plan(
+        dry_run_plan_path=dry_run_path,
+        output_dir=tmp_path / "out",
+        allow_claude_invocation=True,
+        max_cases_per_agent=1,
+    )
+
+    selected_pairs = {
+        (selection.dataset, selection.agent) for selection in plan.selections
+    }
+    assert ("ossf-cve-benchmark", "xss") in selected_pairs
+    assert ("ossf-cve-benchmark", "cmdi") in selected_pairs
+    assert ("reality-check-csharp", "sqli") in selected_pairs
+    assert ("reality-check-csharp", "xss") not in selected_pairs
+    assert ("morefixes", "sqli") not in selected_pairs
+
+
 def test_controlled_run_markdown_and_json_outputs(tmp_path: Path) -> None:
     dry_run_path = tmp_path / "run_plan.json"
     _write_dry_run_plan(dry_run_path, ready=True)
@@ -136,6 +260,7 @@ def test_controlled_run_markdown_and_json_outputs(tmp_path: Path) -> None:
     write_controlled_execution_plan_json(out, plan)
     written = json.loads(out.read_text(encoding="utf-8"))
     assert written["schema_version"] == SCHEMA_VERSION
+    assert written["config"]["selection_strategy"] == "required-dataset-smoke"
     assert written["config"]["yaml_mutation_allowed"] is False
 
 
