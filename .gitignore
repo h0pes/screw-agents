@@ -16,6 +16,10 @@ docs/notes.txt
 # Claude Code local settings (permissions, preferences — not committed)
 .claude/settings.json
 
+# Codex local scratch/state. Shared repo guidance lives in AGENTS.md instead.
+.codex
+.codex/
+
 # Python
 __pycache__/
 *.py[cod]
