@@ -1,0 +1,161 @@
+"""Tests for guarded Phase 4 autoresearch controlled-run preparation."""
+# ruff: noqa: S101
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from benchmarks.scripts.prepare_autoresearch_run import main as prepare_main
+from screw_agents.autoresearch.controlled_run import (
+    SCHEMA_VERSION,
+    build_controlled_execution_plan,
+    render_controlled_execution_plan_markdown,
+    write_controlled_execution_plan_json,
+)
+
+
+def _write_dry_run_plan(path: Path, *, ready: bool = False) -> None:
+    truth_file_count = 1 if ready else 0
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": "phase4-autoresearch-run-plan/v1",
+                "generated_at": "2026-04-28T00:00:00+00:00",
+                "mode": "dry-run",
+                "manifests_dir": "benchmarks/external/manifests",
+                "external_dir": "benchmarks/external",
+                "dataset_count": 1,
+                "total_cases": 2,
+                "estimated_min_invocations": 4,
+                "datasets": [
+                    {
+                        "dataset_name": "morefixes",
+                        "manifest_path": (
+                            "benchmarks/external/manifests/morefixes.manifest.json"
+                        ),
+                        "case_count": 2,
+                        "data_dir_exists": ready,
+                        "truth_file_count": truth_file_count,
+                        "supported_by_extractor": True,
+                        "g5_gate_ids": ["G5.8"],
+                        "estimated_min_invocations": 4,
+                        "estimated_truth_locations": 4,
+                        "notes": [],
+                    }
+                ],
+                "gate_audit": [
+                    {
+                        "gate_id": "G5.8",
+                        "agent": "sqli",
+                        "dataset": "morefixes",
+                        "metric": "tpr",
+                        "threshold": 0.5,
+                        "comparison": "gte",
+                        "cwe_filter": "CWE-89",
+                        "manifest_exists": True,
+                        "extractor_supported": True,
+                        "issue": None,
+                    }
+                ],
+                "retired_gates": [],
+                "guardrails": [],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def test_controlled_run_blocks_without_explicit_claude_allowance(tmp_path: Path) -> None:
+    dry_run_path = tmp_path / "run_plan.json"
+    _write_dry_run_plan(dry_run_path, ready=True)
+
+    plan = build_controlled_execution_plan(
+        dry_run_plan_path=dry_run_path,
+        output_dir=tmp_path / "out",
+    )
+
+    assert plan.schema_version == SCHEMA_VERSION
+    assert plan.execution_allowed is False
+    assert any(issue.code == "claude_invocation_disabled" for issue in plan.issues)
+    assert plan.config.yaml_mutation_allowed is False
+
+
+def test_controlled_run_blocks_missing_dataset_readiness(tmp_path: Path) -> None:
+    dry_run_path = tmp_path / "run_plan.json"
+    _write_dry_run_plan(dry_run_path, ready=False)
+
+    plan = build_controlled_execution_plan(
+        dry_run_plan_path=dry_run_path,
+        output_dir=tmp_path / "out",
+        allow_claude_invocation=True,
+    )
+
+    assert plan.execution_allowed is False
+    assert {issue.code for issue in plan.issues} == {
+        "dataset_dir_missing",
+        "truth_files_missing",
+    }
+
+
+def test_controlled_run_can_become_executable_when_ready_and_allowed(
+    tmp_path: Path,
+) -> None:
+    dry_run_path = tmp_path / "run_plan.json"
+    _write_dry_run_plan(dry_run_path, ready=True)
+
+    plan = build_controlled_execution_plan(
+        dry_run_plan_path=dry_run_path,
+        output_dir=tmp_path / "out",
+        allow_claude_invocation=True,
+        max_cases_per_dataset=1,
+        max_cases_per_agent=1,
+    )
+
+    assert plan.execution_allowed is True
+    assert plan.issues == []
+    assert len(plan.selections) == 1
+    assert plan.selections[0].selected_case_count == 1
+    assert plan.selections[0].estimated_invocations == 2
+
+
+def test_controlled_run_markdown_and_json_outputs(tmp_path: Path) -> None:
+    dry_run_path = tmp_path / "run_plan.json"
+    _write_dry_run_plan(dry_run_path, ready=True)
+    plan = build_controlled_execution_plan(
+        dry_run_plan_path=dry_run_path,
+        output_dir=tmp_path / "out",
+    )
+
+    markdown = render_controlled_execution_plan_markdown(plan)
+    assert "Controlled Run Plan" in markdown
+    assert "claude_invocation_disabled" in markdown
+
+    out = tmp_path / "controlled_run_plan.json"
+    write_controlled_execution_plan_json(out, plan)
+    written = json.loads(out.read_text(encoding="utf-8"))
+    assert written["schema_version"] == SCHEMA_VERSION
+    assert written["config"]["yaml_mutation_allowed"] is False
+
+
+def test_prepare_cli_writes_plan_and_returns_blocked_status(tmp_path: Path) -> None:
+    dry_run_path = tmp_path / "run_plan.json"
+    output_dir = tmp_path / "out"
+    _write_dry_run_plan(dry_run_path, ready=True)
+
+    exit_code = prepare_main(
+        [
+            "--dry-run-plan",
+            str(dry_run_path),
+            "--output-dir",
+            str(output_dir),
+        ]
+    )
+
+    assert exit_code == 2
+    written = json.loads(
+        (output_dir / "controlled_run_plan.json").read_text(encoding="utf-8")
+    )
+    assert written["execution_allowed"] is False
+    assert (output_dir / "controlled_run_plan.md").exists()

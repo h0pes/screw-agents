@@ -9,7 +9,7 @@ Items explicitly deferred from earlier phases that must be completed in later ph
 | # | Item | Deferred from | Owning phase | Tracking ADR | Status |
 |---|---|---|---|---|---|
 | D-01 | Rust benchmark corpus from GitHub Advisory Database + synthetic SSTI fixtures | Phase 0.5 | **Phase 4 (step 4.0)** — hard gate, Phase 4 cannot close without it | ADR-014 | **MERGED** — PR #17, real-CVE corpus + synthetic SSTI inventory |
-| D-02 | Gates G5-G7: detection rate validation against real-CVE benchmarks | Phase 1 (Task 20) | **Phase 4** — full run deferred to autoresearch loop | — | **IN PROGRESS** — dry-run planning + dataset readiness closure on `phase4-d02-autoresearch-scaffold` |
+| D-02 | Gates G5-G7: detection rate validation against real-CVE benchmarks | Phase 1 (Task 20) | **Phase 4** — full run deferred to autoresearch loop | — | **IN PROGRESS** — dry-run planning, dataset readiness, failure-input schema, and controlled-run scaffold on `phase4-d02-autoresearch-scaffold` |
 | D-03 (pointer) | Broader deferred backlog (114 active entries post-T24) | Across all phases | Various — see DEFERRED_BACKLOG §"Phase-4 Readiness Triage" | — | **TRIAGED** — see `docs/DEFERRED_BACKLOG.md` for `blocker` / `nice-to-have` / `phase-7-scoped` / `retire` tags |
 
 **When returning to Phase 4:** D-01 is merged. Continue D-02 from
@@ -458,7 +458,9 @@ code snapshots for the runner; Rust D-01 extraction reads local git clones from
 provenance refs; Vul4J code extraction remains deferred until a checkout
 convention is defined; failure-analysis input schema
 `phase4-autoresearch-failure-input/v1` requires concrete case-level examples
-before any future YAML mutation can be allowed.
+before any future YAML mutation can be allowed; controlled-run preparation
+requires explicit `--allow-claude-invocation` and remains blocked until dataset
+readiness issues are closed.
 
 **When continuing Phase 4:** Continue from `docs/PHASE_4_D02_PLAN.md`; keep Rust metric claims scoped to real-CVE SQLi/Cmdi/XSS and synthetic-only SSTI unless refresh finds a verified SSTI advisory.
 

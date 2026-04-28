@@ -104,10 +104,21 @@ Acceptance:
 
 ### Task 5 — Controlled Execution
 
-Status: pending.
+Status: guarded scaffold implemented in
+`src/screw_agents/autoresearch/controlled_run.py` and
+`benchmarks/scripts/prepare_autoresearch_run.py`.
 
 Only after Tasks 1-4 are resolved:
-- run a small sample plan first
-- review failures manually
+- prepare a small sample plan first
+- require explicit `--allow-claude-invocation` before a plan can become
+  executable
+- keep YAML mutation disabled in the controlled-run schema
+- block execution when external dataset dirs, truth files, or extractors are
+  missing
+- review failures manually using
+  `phase4-autoresearch-failure-input/v1` payloads
 - then scale toward full D-02 threshold optimization
 - keep checkpoint/resume behavior intact
+
+The scaffold writes JSON and Markdown under ignored `benchmarks/results/`
+paths, but does not invoke Claude or execute benchmarks by itself.
