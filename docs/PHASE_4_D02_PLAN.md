@@ -1,7 +1,8 @@
 # Phase 4 D-02 — Autoresearch And Gate Optimization Plan
 
-> Status: initial scaffold in progress on branch
-> `phase4-d02-autoresearch-scaffold`.
+> Status: dry-run, gate-audit, failure-input, and controlled-run scaffold merged
+> in PR #18. Dataset readiness checklist active on branch
+> `phase4-d02-readiness`.
 > Scope: plan and audit expensive benchmark/autoresearch runs before invoking
 > Claude or mutating agent YAML.
 
@@ -52,7 +53,8 @@ Latest dry-run result from a fresh worktree after Task 3 gate correction:
 
 ### Task 2 — Dataset Readiness And Extraction Closure
 
-Status: partially implemented.
+Status: readiness checklist implemented; dataset materialization still local and
+intentionally ignored.
 
 Resolve the plan's dataset readiness issues before any full run:
 - `morefixes` is exposed as `morefixes`; `G5.8` was updated from the stale
@@ -64,9 +66,30 @@ Resolve the plan's dataset readiness issues before any full run:
 - `vul4j` extraction remains explicitly deferred because the current ingest
   tracks metadata only and does not define a local vulnerable/patched checkout
   convention.
+- `src/screw_agents/autoresearch/readiness.py` and
+  `benchmarks/scripts/check_autoresearch_readiness.py` now turn a dry-run plan
+  into JSON/Markdown readiness artifacts without downloading data, invoking
+  Claude, running benchmarks, or mutating YAML.
+- Current fresh-worktree readiness check reports 5 active G5 datasets required
+  for a controlled run: `ossf-cve-benchmark`, `reality-check-csharp`,
+  `reality-check-python`, `reality-check-java`, and `morefixes`.
+- Current blockers are external directory/truth materialization for OSSF and
+  reality-check datasets, plus missing `truth.sarif` materialization for
+  MoreFixes. `vul4j` remains explicitly deferred; Rust D-01 is tracked as a
+  non-G5 warning until local clones are supplied.
 - Re-materialize/download required external datasets in a worktree-local,
   reproducible way.
 - Keep generated external dataset contents ignored.
+
+Readiness command:
+
+```bash
+uv run python benchmarks/scripts/plan_autoresearch.py \
+  --output-dir /tmp/screw-d02-readiness-plan
+uv run python benchmarks/scripts/check_autoresearch_readiness.py \
+  --dry-run-plan /tmp/screw-d02-readiness-plan/run_plan.json \
+  --output-dir /tmp/screw-d02-readiness
+```
 
 ### Task 3 — Gate Definition Correction
 
