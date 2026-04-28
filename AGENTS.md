@@ -15,17 +15,23 @@ Primary stack:
 
 ## Current State
 
-Phase 4 step 4.0 / D-01 is merged via PR #17. Phase 4 D-02 planning is
-active on branch `phase4-d02-autoresearch-scaffold`.
+Phase 4 step 4.0 / D-01 is merged via PR #17. Phase 4 D-02 dry-run planning,
+gate correction, failure-input schema, and controlled-run scaffold are merged
+via PR #18. Dataset readiness closure is active on branch
+`phase4-d02-readiness`.
 
 Next milestone:
-- Phase 4 autoresearch / D-02 threshold-optimization scaffolding.
+- Phase 4 autoresearch / D-02 dataset readiness materialization before any
+  paid controlled benchmark execution.
 - Before planning Phase 4 follow-on work, read `docs/PROJECT_STATUS.md`,
-  `docs/DEFERRED_BACKLOG.md`, `docs/PHASE_4_D01_PLAN.md`, and
-  `docs/PHASE_4_D02_PLAN.md`.
+  `docs/DEFERRED_BACKLOG.md`, `docs/PHASE_4_OPERATING_MAP.md`,
+  `docs/PHASE_4_D01_PLAN.md`, and `docs/PHASE_4_D02_PLAN.md`.
 - Keep Rust metric claims scoped: real-CVE Rust coverage currently exists for
   SQLi/CmdI/XSS; Rust SSTI is synthetic-only unless refresh finds a verified
   real advisory.
+- Use `benchmarks/scripts/check_autoresearch_readiness.py` to produce the
+  no-execution readiness checklist before asking Marco to materialize datasets
+  or allow Claude invocation.
 
 Current implemented agent set:
 - `sqli`

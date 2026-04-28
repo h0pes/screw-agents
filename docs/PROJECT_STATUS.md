@@ -9,12 +9,14 @@ Items explicitly deferred from earlier phases that must be completed in later ph
 | # | Item | Deferred from | Owning phase | Tracking ADR | Status |
 |---|---|---|---|---|---|
 | D-01 | Rust benchmark corpus from GitHub Advisory Database + synthetic SSTI fixtures | Phase 0.5 | **Phase 4 (step 4.0)** — hard gate, Phase 4 cannot close without it | ADR-014 | **MERGED** — PR #17, real-CVE corpus + synthetic SSTI inventory |
-| D-02 | Gates G5-G7: detection rate validation against real-CVE benchmarks | Phase 1 (Task 20) | **Phase 4** — full run deferred to autoresearch loop | — | **IN PROGRESS** — dry-run planning, dataset readiness, failure-input schema, and controlled-run scaffold on `phase4-d02-autoresearch-scaffold` |
+| D-02 | Gates G5-G7: detection rate validation against real-CVE benchmarks | Phase 1 (Task 20) | **Phase 4** — full run deferred to autoresearch loop | — | **IN PROGRESS** — PR #18 merged dry-run planning, gate correction, failure-input schema, and controlled-run scaffold; dataset readiness checklist active on `phase4-d02-readiness` |
 | D-03 (pointer) | Broader deferred backlog (114 active entries post-T24) | Across all phases | Various — see DEFERRED_BACKLOG §"Phase-4 Readiness Triage" | — | **TRIAGED** — see `docs/DEFERRED_BACKLOG.md` for `blocker` / `nice-to-have` / `phase-7-scoped` / `retire` tags |
 
 **When returning to Phase 4:** D-01 is merged. Continue D-02 from
-`docs/PHASE_4_D02_PLAN.md`; do not run expensive benchmarks until the dry-run
-plan's dataset and gate-definition issues are addressed.
+`docs/PHASE_4_D02_PLAN.md` and use `docs/PHASE_4_OPERATING_MAP.md` for the
+full safe-planning/materialization/paid-execution sequence; do not run
+expensive benchmarks until the dry-run plan's dataset and gate-definition
+issues are addressed.
 
 **When starting Phase 4:** D-02 threshold optimization runs as part of the autoresearch loop. The benchmark pipeline is validated (PR #3).
 
@@ -33,8 +35,9 @@ Architecture and product design is **complete** (PRD v0.4.3). Phases 0 / 0.5 / 1
 - **T-SCAN-REFACTOR (branch `t-scan-refactor`)** merged 2026-04-25 — Final Phase-4 prereq. Subsumes T-FULL-P1. Replaces 6-tool scan surface (`scan_full` + `scan_domain` + 4 per-agent) with `scan_agents` paginated primitive + `scan_domain` thin wrapper. Adds per-agent language relevance filter (`_filter_relevant_agents`) with extension + shebang detection. Cursor binding generalized to `(target_hash, agents_hash)` (Option β). Rewrites slash command for multi-scope syntax (`/screw:scan domains:A,B agents:1A,2A`). Collapses 5 subagents into universal `screw-scan.md`. Test suite: 906 → 996 passed, 9 skipped (HEAD baseline `c7fa9d9`). Phase 4 blocker count drops 1 → 0.
 - **Phase 3c (sandbox hardening sweep)** — deferred; see DEFERRED_BACKLOG §Phase 3c.
 
-Gates G1-G4 pass. **Phase 4 D-02 planning and dataset readiness closure is
-active on branch `phase4-d02-autoresearch-scaffold`.** D-01 shipped in PR #17.
+Gates G1-G4 pass. **Phase 4 D-02 planning scaffold shipped in PR #18; dataset
+readiness closure is active on branch `phase4-d02-readiness`.** D-01 shipped in
+PR #17.
 
 ### What's Done
 
@@ -434,7 +437,9 @@ Structured as a dependency graph with three parallel tracks converging at smoke 
 
 ## Phase 4 Prerequisites (hard gates)
 
-Phase 4 (Autoresearch & Self-Improvement) started with D-01. As of 2026-04-28, D-01 is merged and D-02 planning/dataset readiness is active on branch `phase4-d02-autoresearch-scaffold`.
+Phase 4 (Autoresearch & Self-Improvement) started with D-01. As of
+2026-04-28, D-01 is merged, D-02 planning scaffold is merged in PR #18, and
+dataset readiness is active on branch `phase4-d02-readiness`.
 
 ### D-01 — Rust benchmark corpus from GitHub Advisory Database + synthetic SSTI
 **Status:** MERGED in PR #17
@@ -448,7 +453,10 @@ Phase 4 (Autoresearch & Self-Improvement) started with D-01. As of 2026-04-28, D
 **Current scope:** live refresh currently yields 53 Rust advisory candidates; initial tracked corpus includes 4 real-CVE cases for SQLi/Cmdi/XSS plus labelled synthetic SSTI fixtures.
 
 ### D-02 — Detection-rate validation thresholds (SAMPLE COMPLETE)
-**Status:** Pipeline validated (PR #3, 2026-04-11); dry-run planning and dataset readiness closure in progress on branch `phase4-d02-autoresearch-scaffold`
+**Status:** Pipeline validated (PR #3, 2026-04-11); dry-run planning,
+gate correction, failure-input schema, and controlled-run scaffold merged in
+PR #18; dataset readiness checklist in progress on branch
+`phase4-d02-readiness`.
 **Why gating:** Not a hard blocker to STARTING Phase 4 — autoresearch IS the threshold-tuning loop. But the benchmark run feeds D-01's corpus. Sequenced inside Phase 4, not before.
 
 **Current D-02 closure:** `G5.8` now targets `morefixes` rather than stale
@@ -460,9 +468,14 @@ convention is defined; failure-analysis input schema
 `phase4-autoresearch-failure-input/v1` requires concrete case-level examples
 before any future YAML mutation can be allowed; controlled-run preparation
 requires explicit `--allow-claude-invocation` and remains blocked until dataset
-readiness issues are closed.
+readiness issues are closed. The readiness checklist command is
+`uv run python benchmarks/scripts/check_autoresearch_readiness.py`; a fresh
+worktree currently reports active G5 blockers for OSSF/reality-check external
+directories and truth files, plus missing MoreFixes truth materialization.
 
 **When continuing Phase 4:** Continue from `docs/PHASE_4_D02_PLAN.md`; keep Rust metric claims scoped to real-CVE SQLi/Cmdi/XSS and synthetic-only SSTI unless refresh finds a verified SSTI advisory.
+Use `docs/PHASE_4_OPERATING_MAP.md` as the high-level map before restoring
+ignored external datasets or allowing Claude benchmark execution.
 
 ---
 
