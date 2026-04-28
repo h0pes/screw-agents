@@ -1,7 +1,7 @@
 # Phase 4 Step 4.0 — D-01 Rust Benchmark Corpus Plan
 
-> Status: in progress. Tasks 1-2 are implemented; manual candidate tracing is
-> underway.
+> Status: D-01 close-out ready. Tasks 1-5 are implemented on branch
+> `d01-rust-benchmark`; merge strategy pending Marco review.
 > Scope: Rust corpus construction before the autoresearch loop mutates agent
 > YAML.
 
@@ -32,7 +32,7 @@ materializing fixtures.
 
 ### Task 1 — Advisory Refresh And Candidate Manifest
 
-Status: implemented in `benchmarks/scripts/refresh_rust_advisories.py`.
+Status: complete in `benchmarks/scripts/refresh_rust_advisories.py`.
 
 Create a reproducible script that queries GitHub Advisory Database for Rust
 advisories matching the D-01 CWE set:
@@ -65,7 +65,7 @@ agent references such as `RUSTSEC-2024-0365`, `RUSTSEC-2021-0074`, and
 
 ### Task 2 — Candidate Review Policy
 
-Status: implemented in
+Status: complete in
 `benchmarks/scripts/review_rust_advisory_candidates.py`.
 
 Turn the generated candidate manifest into a reviewed D-01 candidate list.
@@ -89,7 +89,7 @@ trace, and 0 auto-promoted to real-CVE fixtures.
 
 ### Task 3 — Fixture Materialization
 
-Status: initial real-CVE materialization implemented. The tracked seed input is
+Status: complete for the initial real-CVE corpus. The tracked seed input is
 `benchmarks/data/rust-d01-reviewed-seeds.json`; the materializer is
 `benchmarks/scripts/materialize_rust_d01.py`; the tracked manifest is
 `benchmarks/external/manifests/rust-d01-real-cves.manifest.json`.
@@ -106,7 +106,9 @@ Acceptance:
 
 The generated per-case `truth.sarif` and `provenance.json` files live under
 `benchmarks/external/rust-d01-real-cves/` and remain ignored like other
-reproducible external benchmark material.
+reproducible external benchmark material. Re-running the materializer preserves
+the tracked manifest timestamp when the case list is unchanged, avoiding
+timestamp-only diffs.
 
 Initial traced real-CVE seeds:
 - SQLi: Matrix Rust SDK `GHSA-275g-g844-73jh` / `CVE-2025-53549`.
@@ -117,7 +119,7 @@ Initial traced real-CVE seeds:
 
 ### Task 4 — Synthetic Rust SSTI Fixtures
 
-Status: implemented as tracked synthetic fixture inventory
+Status: complete as tracked synthetic fixture inventory
 `benchmarks/data/rust-d01-synthetic-ssti.json` plus Rust fixture files under
 `benchmarks/fixtures/ssti/`.
 
@@ -136,6 +138,8 @@ parsing sink. This keeps the corpus technically honest.
 
 ### Task 5 — Runner Integration And Docs
 
+Status: complete for D-01 close-out.
+
 Integrate the Rust corpus into the benchmark runner and update durable docs.
 
 Acceptance:
@@ -146,3 +150,10 @@ Acceptance:
 - Rust metric claims are explicitly scoped: real-CVE for SQLi/CmdI/XSS where
   available; synthetic-only for SSTI unless a real advisory appears during
   refresh.
+
+Verification:
+- `benchmarks.runner list` includes `rust-d01-real-cves`.
+- Generated SQLi, CmdI, and XSS truth SARIF files validate with
+  `benchmarks.runner validate`.
+- D-01 tests cover advisory refresh/review, reviewed seed shape, materializer
+  output, synthetic SSTI metadata, and CLI listing.

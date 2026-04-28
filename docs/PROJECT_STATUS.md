@@ -8,17 +8,17 @@ Items explicitly deferred from earlier phases that must be completed in later ph
 
 | # | Item | Deferred from | Owning phase | Tracking ADR | Status |
 |---|---|---|---|---|---|
-| D-01 | Rust benchmark corpus from GitHub Advisory Database + synthetic SSTI fixtures | Phase 0.5 | **Phase 4 (step 4.0)** — hard gate, Phase 4 cannot close without it | ADR-014 | **IN PROGRESS** — initial real-CVE corpus + synthetic SSTI inventory implemented on `d01-rust-benchmark` |
+| D-01 | Rust benchmark corpus from GitHub Advisory Database + synthetic SSTI fixtures | Phase 0.5 | **Phase 4 (step 4.0)** — hard gate, Phase 4 cannot close without it | ADR-014 | **CLOSE-OUT READY** — real-CVE corpus + synthetic SSTI inventory implemented on `d01-rust-benchmark`, merge strategy pending |
 | D-02 | Gates G5-G7: detection rate validation against real-CVE benchmarks | Phase 1 (Task 20) | **Phase 4** — full run deferred to autoresearch loop | — | **SAMPLE COMPLETE** — pipeline validated 2026-04-11, threshold optimization deferred to Phase 4 |
 | D-03 (pointer) | Broader deferred backlog (114 active entries post-T24) | Across all phases | Various — see DEFERRED_BACKLOG §"Phase-4 Readiness Triage" | — | **TRIAGED** — see `docs/DEFERRED_BACKLOG.md` for `blocker` / `nice-to-have` / `phase-7-scoped` / `retire` tags |
 
-**When returning to Phase 4:** D-01 is active on branch `d01-rust-benchmark`. Continue from `docs/PHASE_4_D01_PLAN.md`; do not treat Rust benchmark coverage as complete until runner/docs close-out lands and metric claims remain explicitly scoped.
+**When returning to Phase 4:** D-01 is close-out ready on branch `d01-rust-benchmark`. Continue from `docs/PHASE_4_D01_PLAN.md`; do not treat Rust benchmark coverage as merged until Marco chooses the merge strategy.
 
 **When starting Phase 4:** D-02 threshold optimization runs as part of the autoresearch loop. The benchmark pipeline is validated (PR #3).
 
 ---
 
-## Current Phase: Phase 4 step 4.0 active — D-01 Rust benchmark corpus in progress
+## Current Phase: Phase 4 step 4.0 — D-01 close-out ready, merge pending
 
 Architecture and product design is **complete** (PRD v0.4.3). Phases 0 / 0.5 / 1 / 1.7 / 2 all **complete**. **Phase 3a** is **complete** — PR #6-#9 series merged 2026-04-16/17. **Phase 3b (Adaptive Analysis & Learning Refinement)** is in progress:
 - **PR #4 (#10)** merged 2026-04-18 — adaptive-script executor pipeline + Layer 1 lint + Layer 5 sandbox + MCP tool.
@@ -31,7 +31,7 @@ Architecture and product design is **complete** (PRD v0.4.3). Phases 0 / 0.5 / 1
 - **T-SCAN-REFACTOR (branch `t-scan-refactor`)** merged 2026-04-25 — Final Phase-4 prereq. Subsumes T-FULL-P1. Replaces 6-tool scan surface (`scan_full` + `scan_domain` + 4 per-agent) with `scan_agents` paginated primitive + `scan_domain` thin wrapper. Adds per-agent language relevance filter (`_filter_relevant_agents`) with extension + shebang detection. Cursor binding generalized to `(target_hash, agents_hash)` (Option β). Rewrites slash command for multi-scope syntax (`/screw:scan domains:A,B agents:1A,2A`). Collapses 5 subagents into universal `screw-scan.md`. Test suite: 906 → 996 passed, 9 skipped (HEAD baseline `c7fa9d9`). Phase 4 blocker count drops 1 → 0.
 - **Phase 3c (sandbox hardening sweep)** — deferred; see DEFERRED_BACKLOG §Phase 3c.
 
-Gates G1-G4 pass. **Phase 4 step 4.0 (D-01 Rust benchmark corpus) is active.** All other prereqs shipped through T-SCAN-REFACTOR. See §"Phase 4 Prerequisites (hard gates)" below.
+Gates G1-G4 pass. **Phase 4 step 4.0 (D-01 Rust benchmark corpus) is close-out ready on branch `d01-rust-benchmark`.** All other prereqs shipped through T-SCAN-REFACTOR. See §"Phase 4 Prerequisites (hard gates)" below.
 
 ### What's Done
 
@@ -420,7 +420,7 @@ Structured as a dependency graph with three parallel tracks converging at smoke 
 | Phase 3a | Prompt infrastructure (trust, learning aggregation, plugin-namespace, core-prompt dedup) | **Complete** (PR #6-#9 series, merged 2026-04-16/17) |
 | Phase 3b | Adaptive Analysis & Learning Refinement | **Complete** — PR #4 (#10) 2026-04-18, PR #5 (#11) 2026-04-20, PR #6 (#12) 2026-04-23, Phase 3b-C2 2026-04-24, BACKLOG-PR6-22 (#14) 2026-04-24, T19-M D7 (#15) 2026-04-24, T-SCAN-REFACTOR final 2026-04-25 |
 | Phase 3c | Sandbox hardening sweep (seccomp filter + thread-safety + dedup) | **Deferred** — see `docs/DEFERRED_BACKLOG.md` §"Phase 3c (sandbox hardening follow-ups)" |
-| Phase 4 | Autoresearch & Self-Improvement — step 4.0 is D-01 (hard gate) | **In progress** — D-01 branch active |
+| Phase 4 | Autoresearch & Self-Improvement — step 4.0 is D-01 (hard gate) | **Close-out ready** — D-01 branch merge pending |
 | Phase 5 | Multi-LLM Challenger System | Pending |
 | Phase 6 | Agent Expansion & Ecosystem | Pending |
 | Phase 7 | screw.nvim Integration (scan commands, review-before-import, exclusions) | Pending |
@@ -429,10 +429,10 @@ Structured as a dependency graph with three parallel tracks converging at smoke 
 
 ## Phase 4 Prerequisites (hard gates)
 
-Phase 4 (Autoresearch & Self-Improvement) started with D-01. As of 2026-04-28, the Rust benchmark corpus work is active on branch `d01-rust-benchmark`.
+Phase 4 (Autoresearch & Self-Improvement) started with D-01. As of 2026-04-28, the Rust benchmark corpus work is close-out ready on branch `d01-rust-benchmark`; merge strategy is pending Marco review.
 
 ### D-01 — Rust benchmark corpus from GitHub Advisory Database + synthetic SSTI
-**Status:** IN PROGRESS on branch `d01-rust-benchmark`
+**Status:** CLOSE-OUT READY on branch `d01-rust-benchmark`
 **Why gating:** Phase 4 step 4.0 IS D-01. See ADR-014 and `docs/research/benchmark-tier4-rust-modern.md`.
 **Current implementation:** `benchmarks/scripts/refresh_rust_advisories.py`,
 `benchmarks/scripts/review_rust_advisory_candidates.py`,
@@ -456,4 +456,4 @@ Phase 4 (Autoresearch & Self-Improvement) started with D-01. As of 2026-04-28, t
 - **Editor:** Neovim (screw.nvim author)
 - **Package manager:** `uv` (pip install restricted on Arch — see ADR-011)
 - **Languages:** Significant Rust development; also Python, TypeScript, others
-- **Rust benchmark scope:** D-01 is active; current real-CVE Rust coverage is scoped to SQLi/Cmdi/XSS, with SSTI synthetic-only unless a verified real advisory appears.
+- **Rust benchmark scope:** D-01 branch is close-out ready; current real-CVE Rust coverage is scoped to SQLi/Cmdi/XSS, with SSTI synthetic-only unless a verified real advisory appears.

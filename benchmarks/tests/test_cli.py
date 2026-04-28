@@ -33,3 +33,14 @@ def test_cli_validate_accepts_mini_truth(fixtures_dir: Path):
     )
     assert result.returncode == 0, f"stderr: {result.stderr}"
     assert "valid" in result.stdout.lower() or "ok" in result.stdout.lower()
+
+
+def test_cli_list_includes_rust_d01_manifest():
+    result = subprocess.run(
+        [sys.executable, "-m", "benchmarks.runner", "list"],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, f"stderr: {result.stderr}"
+    assert "rust-d01-real-cves" in result.stdout

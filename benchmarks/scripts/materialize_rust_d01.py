@@ -8,6 +8,8 @@ import json
 import re
 import sys
 from datetime import date
+from datetime import datetime
+from datetime import timezone
 from pathlib import Path
 from typing import Any
 
@@ -73,6 +75,44 @@ class RustD01Materializer(IngestBase):
             }
             out = self.download_dir / case.case_id / "provenance.json"
             out.write_text(json.dumps(provenance, indent=2, sort_keys=True) + "\n")
+
+    def write_manifest(self, cases: list[BenchmarkCase]) -> None:
+        """Write manifest while avoiding timestamp-only churn on regeneration."""
+        manifest_cases = [
+            {
+                "case_id": c.case_id,
+                "project": c.project,
+                "language": c.language.value,
+                "vulnerable_version": c.vulnerable_version,
+                "patched_version": c.patched_version,
+                "published_date": (
+                    c.published_date.isoformat() if c.published_date else None
+                ),
+                "fail_count": sum(
+                    1 for finding in c.ground_truth if finding.kind.value == "fail"
+                ),
+                "pass_count": sum(
+                    1 for finding in c.ground_truth if finding.kind.value == "pass"
+                ),
+            }
+            for c in cases
+        ]
+
+        out_path = self.manifest_dir / f"{self.dataset_name}.manifest.json"
+        previous = _read_existing_manifest(out_path)
+        if previous and previous.get("cases") == manifest_cases:
+            ingested_at = previous.get("ingested_at")
+        else:
+            ingested_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+        manifest = {
+            "dataset_name": self.dataset_name,
+            "source_url": self.source_url,
+            "case_count": len(cases),
+            "ingested_at": ingested_at,
+            "cases": manifest_cases,
+        }
+        out_path.write_text(json.dumps(manifest, indent=2) + "\n")
 
 
 def _seed_to_case(seed: dict[str, Any]) -> BenchmarkCase:
@@ -142,6 +182,15 @@ def _published_date(value: str | None) -> date | None:
     if not value:
         return None
     return date.fromisoformat(value.split("T", maxsplit=1)[0])
+
+
+def _read_existing_manifest(path: Path) -> dict[str, Any] | None:
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

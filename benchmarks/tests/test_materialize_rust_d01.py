@@ -46,12 +46,44 @@ def test_run_materializes_truth_sarif_manifest_and_provenance(tmp_path: Path) ->
     assert manifest["dataset_name"] == DATASET_NAME
     assert manifest["case_count"] == 4
 
+    expected_cwes = {
+        "rust-d01-matrix-sdk-CVE-2025-53549": "CWE-89",
+        "rust-d01-salvo-CVE-2026-22256": "CWE-79",
+        "rust-d01-salvo-CVE-2026-22257": "CWE-79",
+        "rust-d01-lettre-CVE-2020-28247": "CWE-77",
+    }
+    for case_id, cwe_id in expected_cwes.items():
+        findings = load_bentoo_sarif(
+            tmp_path / "external" / DATASET_NAME / case_id / "truth.sarif"
+        )
+        assert {finding.kind for finding in findings} == {
+            FindingKind.FAIL,
+            FindingKind.PASS,
+        }
+        assert {finding.cwe_id for finding in findings} == {cwe_id}
+
     case_id = "rust-d01-matrix-sdk-CVE-2025-53549"
     case_dir = tmp_path / "external" / DATASET_NAME / case_id
-    findings = load_bentoo_sarif(case_dir / "truth.sarif")
-    assert {finding.kind for finding in findings} == {FindingKind.FAIL, FindingKind.PASS}
-    assert {finding.cwe_id for finding in findings} == {"CWE-89"}
-
     provenance = json.loads((case_dir / "provenance.json").read_text(encoding="utf-8"))
     assert provenance["schema_version"] == "rust-d01-case-provenance/v1"
     assert provenance["ghsa_id"] == "GHSA-275g-g844-73jh"
+
+
+def test_run_preserves_manifest_timestamp_when_cases_are_unchanged(
+    tmp_path: Path,
+) -> None:
+    materializer = RustD01Materializer(
+        root=tmp_path,
+        seeds_path=Path("benchmarks/data/rust-d01-reviewed-seeds.json"),
+    )
+
+    materializer.run()
+    manifest_path = tmp_path / "external" / "manifests" / f"{DATASET_NAME}.manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["ingested_at"] = "2026-04-28T00:00:00+00:00"
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+
+    materializer.run()
+
+    regenerated = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert regenerated["ingested_at"] == "2026-04-28T00:00:00+00:00"
