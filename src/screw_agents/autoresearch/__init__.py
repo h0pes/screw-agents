@@ -8,6 +8,7 @@ YAML.
 from screw_agents.autoresearch.planner import (
     DatasetPlan,
     GateAudit,
+    RetiredGate,
     RunPlan,
     build_run_plan,
     render_run_plan_markdown,
@@ -16,6 +17,7 @@ from screw_agents.autoresearch.planner import (
 __all__ = [
     "DatasetPlan",
     "GateAudit",
+    "RetiredGate",
     "RunPlan",
     "build_run_plan",
     "render_run_plan_markdown",

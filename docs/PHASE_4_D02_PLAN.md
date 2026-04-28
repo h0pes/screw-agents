@@ -40,15 +40,15 @@ Acceptance:
   default, which remains gitignored.
 - Has tests that do not invoke Claude or require downloaded datasets.
 
-Latest dry-run result from a fresh worktree after Task 2 partial closure:
+Latest dry-run result from a fresh worktree after Task 3 gate correction:
 - 10 benchmark case manifests.
 - 4,154 cases.
 - 8,308 lower-bound Claude invocations for a full vulnerable/patched pass.
-- Known gate issues surfaced before execution:
-  - `G5.9` and `G5.10` target SSTI on SQLi datasets
-    (`go-sec-code-mutated`, `skf-labs-mutated`).
+- No active G5 gate-definition issues remain in the dry-run audit.
 - `G5.8` now points to `morefixes`, matching the tracked manifest and
   extractor support.
+- `G5.9` and `G5.10` are retired because they targeted SSTI/CWE-1336 on SQLi
+  datasets (`go-sec-code-mutated`, `skf-labs-mutated`).
 
 ### Task 2 — Dataset Readiness And Extraction Closure
 
@@ -70,10 +70,13 @@ Resolve the plan's dataset readiness issues before any full run:
 
 ### Task 3 — Gate Definition Correction
 
-Status: pending.
+Status: implemented.
 
 Correct stale G5 definitions before treating gate results as authoritative:
-- Replace or retire SSTI gates pointing at SQLi-only datasets.
+- Retired SSTI gates `G5.9` and `G5.10` instead of relabelling SQLi evidence as
+  SSTI coverage.
+- Preserved the retirement rationale in `RETIRED_G5_GATES` and the dry-run
+  planner output.
 - Add Rust D-01 scoped gates only if they are labelled separately from G5
   real-CVE non-Rust thresholds and do not overclaim SSTI.
 - Keep gate changes documented with rationale in `docs/PROJECT_STATUS.md`.

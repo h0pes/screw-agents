@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from benchmarks.runner.gate_checker import G5_GATES, GateDefinition
+from benchmarks.runner.gate_checker import G5_GATES, RETIRED_G5_GATES, GateDefinition
 
 SUPPORTED_EXTRACTOR_DATASETS: frozenset[str] = frozenset(
     {
@@ -28,13 +28,6 @@ SUPPORTED_EXTRACTOR_DATASETS: frozenset[str] = frozenset(
         "skf-labs-mutated",
     }
 )
-
-# Documented by PROJECT_STATUS.md Phase 1.7 sample interpretation.
-KNOWN_GATE_ISSUES: dict[str, str] = {
-    "G5.9": "go-sec-code-mutated currently contains SQLi/CWE-89 ground truth, not SSTI/CWE-1336.",
-    "G5.10": "skf-labs-mutated currently contains SQLi/CWE-89 ground truth, not SSTI/CWE-1336.",
-}
-
 
 @dataclass(frozen=True)
 class DatasetPlan:
@@ -65,6 +58,12 @@ class GateAudit:
 
 
 @dataclass(frozen=True)
+class RetiredGate:
+    gate_id: str
+    reason: str
+
+
+@dataclass(frozen=True)
 class RunPlan:
     schema_version: str
     generated_at: str
@@ -76,6 +75,7 @@ class RunPlan:
     estimated_min_invocations: int
     datasets: list[DatasetPlan]
     gate_audit: list[GateAudit]
+    retired_gates: list[RetiredGate]
     guardrails: list[str]
 
 
@@ -155,6 +155,10 @@ def build_run_plan(
         ),
         datasets=datasets,
         gate_audit=gate_audit,
+        retired_gates=[
+            RetiredGate(gate_id=gate_id, reason=reason)
+            for gate_id, reason in sorted(RETIRED_G5_GATES.items(), key=_gate_sort_key)
+        ],
         guardrails=[
             "Dry-run planning only: do not invoke Claude from this step.",
             "Do not mutate domains/**/*.yaml from aggregate metrics alone.",
@@ -214,6 +218,12 @@ def render_run_plan_markdown(plan: RunPlan) -> str:
             f"{_yes_no(gate.extractor_supported)} | "
             f"{issue} |"
         )
+    if plan.retired_gates:
+        lines.extend(["", "## Retired Gates", ""])
+        lines.append("| Gate | Reason |")
+        lines.append("|---|---|")
+        for gate in plan.retired_gates:
+            lines.append(f"| {gate.gate_id} | {gate.reason} |")
     lines.append("")
     return "\n".join(lines)
 
@@ -243,7 +253,7 @@ def _audit_gate(gate: GateDefinition, *, manifest_names: set[str]) -> GateAudit:
         cwe_filter=gate.cwe_filter,
         manifest_exists=gate.dataset in manifest_names,
         extractor_supported=gate.dataset in SUPPORTED_EXTRACTOR_DATASETS,
-        issue=KNOWN_GATE_ISSUES.get(gate.gate_id),
+        issue=None,
     )
 
 
@@ -274,6 +284,15 @@ def _gates_by_dataset(gates: list[GateDefinition]) -> dict[str, list[GateDefinit
     for gate in gates:
         by_dataset.setdefault(gate.dataset, []).append(gate)
     return by_dataset
+
+
+def _gate_sort_key(item: tuple[str, str]) -> tuple[int, int | str]:
+    gate_id = item[0]
+    prefix, _, suffix = gate_id.partition(".")
+    try:
+        return (int(prefix.removeprefix("G")), int(suffix))
+    except ValueError:
+        return (999, gate_id)
 
 
 def _read_json(path: Path) -> dict[str, Any]:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from benchmarks.runner.gate_checker import (
+    RETIRED_G5_GATES,
     build_g7_failure_dump,
     check_g5_gates,
     check_g6_rust_disclaimer,
@@ -44,11 +45,25 @@ class TestCheckG5Gates:
             _make_summary("cmdi", "reality-check-java", tpr=0.55, fpr=0.10, cwe_id="CWE-78"),
             _make_summary("sqli", "reality-check-csharp", tpr=0.55, fpr=0.10, cwe_id="CWE-89"),
             _make_summary("sqli", "morefixes", tpr=0.55, fpr=0.10, cwe_id="CWE-89"),
-            _make_summary("ssti", "go-sec-code-mutated", tpr=0.75, fpr=0.10, cwe_id="CWE-1336"),
-            _make_summary("ssti", "skf-labs-mutated", tpr=0.75, fpr=0.10, cwe_id="CWE-1336"),
         ]
         results = check_g5_gates(summaries)
         assert all(r.passed for r in results)
+        assert {r.gate_id for r in results} == {
+            "G5.1",
+            "G5.2",
+            "G5.3",
+            "G5.4",
+            "G5.5",
+            "G5.6",
+            "G5.7",
+            "G5.8",
+        }
+
+    def test_misleading_ssti_gates_are_retired(self):
+        assert "G5.9" in RETIRED_G5_GATES
+        assert "G5.10" in RETIRED_G5_GATES
+        assert "SQLi/CWE-89" in RETIRED_G5_GATES["G5.9"]
+        assert "SQLi/CWE-89" in RETIRED_G5_GATES["G5.10"]
 
     def test_gate_fails_below_threshold(self):
         summaries = [_make_summary("xss", "ossf-cve-benchmark", tpr=0.50, fpr=0.20)]

@@ -50,6 +50,7 @@ def test_build_run_plan_inventory_and_gate_audit(tmp_path: Path) -> None:
     plan = build_run_plan(manifests_dir=manifests_dir, external_dir=external_dir)
 
     assert plan.schema_version == "phase4-autoresearch-run-plan/v1"
+    assert {gate.gate_id for gate in plan.retired_gates} == {"G5.9", "G5.10"}
     assert plan.dataset_count == 1
     assert plan.total_cases == 1
     assert plan.estimated_min_invocations == 2
@@ -103,9 +104,11 @@ def test_render_and_write_run_plan(tmp_path: Path) -> None:
     assert "Phase 4 Autoresearch Run Plan" in markdown
     assert "crossvul" in markdown
     assert "Guardrails" in markdown
+    assert "Retired Gates" in markdown
 
     out = tmp_path / "plan.json"
     write_run_plan_json(out, plan)
     written = json.loads(out.read_text())
     assert written["schema_version"] == "phase4-autoresearch-run-plan/v1"
     assert written["datasets"][0]["dataset_name"] == "crossvul"
+    assert {gate["gate_id"] for gate in written["retired_gates"]} == {"G5.9", "G5.10"}

@@ -88,8 +88,8 @@ Four benchmark research docs committed to `docs/research/benchmark-tier{1,2,3,4}
 | 0.5.10 | Ingest reality-check C# subset | **Complete** |
 | 0.5.11 | Ingest reality-check Python subset | **Complete** |
 | 0.5.12 | Ingest reality-check Java subset | **Complete** |
-| 0.5.13 | Ingest go-sec-code-mutated (SSTI/CWE-1336) | **Complete** |
-| 0.5.14 | Ingest skf-labs-mutated (Flask/Jinja2 SSTI) | **Complete** |
+| 0.5.13 | Ingest go-sec-code-mutated | **Complete** — D-02 audit found tracked manifest is SQLi/CWE-89, not SSTI/CWE-1336 |
+| 0.5.14 | Ingest skf-labs-mutated | **Complete** — D-02 audit found tracked manifest is SQLi/CWE-89, not SSTI/CWE-1336 |
 | 0.5.15 | Ingest CrossVul (PHP/Ruby) | **Complete** |
 | 0.5.16 | Ingest Vul4J (Java precision) | **Complete** |
 | 0.5.17 | MoreFixes extraction pipeline (docker-compose + filter query) | **Complete** |
@@ -260,15 +260,17 @@ G6 (Rust disclaimer): **PASS**. G7: 4 failure dumps generated.
    - High FP rates on reality-check suggest the agents flag more locations than ground truth expects, which is partially a scoring artifact (unconsumed agent findings count as FP)
    - Some reality-check Java files timeout at 300s (very large source files)
 
-5. **go-sec-code and skf-labs contain CWE-89 (SQLi), not CWE-1336 (SSTI).** Gates G5.9 and G5.10 reference ssti/go-sec-code and ssti/skf-labs — these will never match because those datasets only contain SQLi ground truth. The gate definitions need correction for the full run.
+5. **go-sec-code and skf-labs contain CWE-89 (SQLi), not CWE-1336 (SSTI).** Gates G5.9 and G5.10 previously referenced ssti/go-sec-code and ssti/skf-labs. D-02 Task 3 retires those gates rather than relabelling SQLi evidence as SSTI coverage.
 
 ### Next steps for full run
 
 Before the full run, these items must be addressed:
 
-1. **Correct G5.9/G5.10 gate definitions** — go-sec-code and skf-labs are SQLi (CWE-89), not SSTI. Either update gate definitions to reference sqli agent, or find actual SSTI benchmark data.
+1. **Correct G5.9/G5.10 gate definitions** — DONE in D-02 Task 3: retired because go-sec-code and skf-labs are SQLi (CWE-89), not SSTI. Future SSTI gates require actual SSTI benchmark data.
 2. **Add ossf-cve-benchmark to the evaluation** — requires code extraction from npm packages (not yet implemented).
-3. **Add morefixes-extract** — requires Docker + Postgres for code extraction.
+3. **Regenerate MoreFixes materialization** — D-02 now uses `morefixes`
+   directly; requires Docker + Postgres to write `truth.sarif` plus code
+   snapshots.
 4. **Consider increasing timeout** for large Java files, or pre-filtering files by size.
 5. **SSTI evaluation** — the SSTI agent (CWE-1336) has no real-CVE benchmark data. Current SSTI cases are CWE-94 (code injection), which is a parent CWE but a poor proxy for template injection.
 
@@ -406,7 +408,7 @@ Structured as a dependency graph with three parallel tracks converging at smoke 
 - **tree-sitter scope:** 10 languages — Python, JavaScript, TypeScript, Go, Rust, Java, Ruby, PHP, C, C++
 - **Benchmark evaluator:** Our own CWE-1400-native Python module (ADR-013)
 - **Benchmark input format:** bentoo-sarif (SARIF 2.1.0)
-- **Primary benchmark sources:** ossf-cve-benchmark (JS/TS), flawgarden/reality-check (Java/C#/Go/Python), go-sec-code-mutated + skf-labs-mutated (SSTI), CrossVul (PHP/Ruby), Vul4J (Java precision), MoreFixes (multi-language extraction)
+- **Primary benchmark sources:** ossf-cve-benchmark (JS/TS), flawgarden/reality-check (Java/C#/Go/Python), go-sec-code-mutated + skf-labs-mutated (tracked SQLi/CWE-89 manifests), CrossVul (PHP/Ruby), Vul4J (Java precision), MoreFixes (multi-language extraction)
 - **Benchmark exclusions:** OWASP Benchmark, WebGoat, DVWA, Juice Shop — all excluded as synthetic or too weak for validation; bentoo as primary evaluator rejected in ADR-013
 
 ---
@@ -450,9 +452,11 @@ Phase 4 (Autoresearch & Self-Improvement) started with D-01. As of 2026-04-28, D
 **Why gating:** Not a hard blocker to STARTING Phase 4 — autoresearch IS the threshold-tuning loop. But the benchmark run feeds D-01's corpus. Sequenced inside Phase 4, not before.
 
 **Current D-02 closure:** `G5.8` now targets `morefixes` rather than stale
-`morefixes-extract`; MoreFixes materialization writes code snapshots for the
-runner; Rust D-01 extraction reads local git clones from provenance refs; Vul4J
-code extraction remains deferred until a checkout convention is defined.
+`morefixes-extract`; misleading SSTI gates `G5.9`/`G5.10` are retired instead
+of relabelling SQLi evidence as SSTI coverage; MoreFixes materialization writes
+code snapshots for the runner; Rust D-01 extraction reads local git clones from
+provenance refs; Vul4J code extraction remains deferred until a checkout
+convention is defined.
 
 **When continuing Phase 4:** Continue from `docs/PHASE_4_D02_PLAN.md`; keep Rust metric claims scoped to real-CVE SQLi/Cmdi/XSS and synthetic-only SSTI unless refresh finds a verified SSTI advisory.
 
