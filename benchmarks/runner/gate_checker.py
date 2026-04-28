@@ -6,7 +6,7 @@ G7: Failure dump for any gate below threshold.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Sequence
 
 from benchmarks.runner.models import Finding, Language, MetricSet, Summary
@@ -31,10 +31,19 @@ G5_GATES: list[GateDefinition] = [
     GateDefinition("G5.5", "cmdi", "ossf-cve-benchmark", "tpr", 0.60, "gte"),
     GateDefinition("G5.6", "cmdi", "reality-check-java", "tpr", 0.50, "gte", "CWE-78"),
     GateDefinition("G5.7", "sqli", "reality-check-csharp", "tpr", 0.50, "gte", "CWE-89"),
-    GateDefinition("G5.8", "sqli", "morefixes-extract", "tpr", 0.50, "gte", "CWE-89"),
-    GateDefinition("G5.9", "ssti", "go-sec-code-mutated", "tpr", 0.70, "gte", "CWE-1336"),
-    GateDefinition("G5.10", "ssti", "skf-labs-mutated", "tpr", 0.70, "gte", "CWE-1336"),
+    GateDefinition("G5.8", "sqli", "morefixes", "tpr", 0.50, "gte", "CWE-89"),
 ]
+
+RETIRED_G5_GATES: dict[str, str] = {
+    "G5.9": (
+        "Retired because go-sec-code-mutated currently contains SQLi/CWE-89 "
+        "ground truth, not SSTI/CWE-1336."
+    ),
+    "G5.10": (
+        "Retired because skf-labs-mutated currently contains SQLi/CWE-89 "
+        "ground truth, not SSTI/CWE-1336."
+    ),
+}
 
 
 @dataclass

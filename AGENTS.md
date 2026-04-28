@@ -15,12 +15,14 @@ Primary stack:
 
 ## Current State
 
-Phase 4 step 4.0 / D-01 is close-out ready and merged via PR #17.
+Phase 4 step 4.0 / D-01 is merged via PR #17. Phase 4 D-02 planning is
+active on branch `phase4-d02-autoresearch-scaffold`.
 
 Next milestone:
 - Phase 4 autoresearch / D-02 threshold-optimization scaffolding.
 - Before planning Phase 4 follow-on work, read `docs/PROJECT_STATUS.md`,
-  `docs/DEFERRED_BACKLOG.md`, and `docs/PHASE_4_D01_PLAN.md`.
+  `docs/DEFERRED_BACKLOG.md`, `docs/PHASE_4_D01_PLAN.md`, and
+  `docs/PHASE_4_D02_PLAN.md`.
 - Keep Rust metric claims scoped: real-CVE Rust coverage currently exists for
   SQLi/CmdI/XSS; Rust SSTI is synthetic-only unless refresh finds a verified
   real advisory.
