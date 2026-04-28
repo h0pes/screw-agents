@@ -15,13 +15,15 @@ Primary stack:
 
 ## Current State
 
-Phase 3b is closed. All Phase 4 prerequisites are complete except D-01.
+Phase 4 step 4.0 / D-01 is close-out ready and merged via PR #17.
 
 Next milestone:
-- Phase 4 step 4.0: D-01 Rust benchmark corpus.
-- Read `docs/DECISIONS.md` ADR-014 before planning or implementing D-01.
-- Also read `docs/PROJECT_STATUS.md`, `docs/DEFERRED_BACKLOG.md`, and
-  `docs/research/benchmark-tier4-rust-modern.md` before starting Phase 4 work.
+- Phase 4 autoresearch / D-02 threshold-optimization scaffolding.
+- Before planning Phase 4 follow-on work, read `docs/PROJECT_STATUS.md`,
+  `docs/DEFERRED_BACKLOG.md`, and `docs/PHASE_4_D01_PLAN.md`.
+- Keep Rust metric claims scoped: real-CVE Rust coverage currently exists for
+  SQLi/CmdI/XSS; Rust SSTI is synthetic-only unless refresh finds a verified
+  real advisory.
 
 Current implemented agent set:
 - `sqli`
@@ -48,6 +50,36 @@ Current scan surface:
 - Before running `uv run` in a new worktree, run `uv sync` inside that worktree.
 - For costly or long-running commands, inspect the code path first and verify
   assumptions before asking Marco to run anything.
+
+## PR And Worktree Workflow
+
+Use this sequence for feature branches unless Marco gives different
+instructions:
+
+1. Implement and test in a dedicated worktree, not in the main checkout.
+2. Keep docs aligned with code before opening the PR.
+3. Before pushing, run `git status --short --branch` in both the worktree and
+   the main checkout.
+4. Push the feature branch from the worktree:
+   `git push -u origin <branch>`.
+5. Create the PR with a concise summary and verification notes.
+6. Check PR mergeability and checks. If GitHub reports no checks, state that
+   explicitly.
+7. Merge from the main checkout, not from a worktree whose branch is checked
+   out elsewhere.
+8. After merge, align local main with `git pull --ff-only origin main`.
+9. Remove the worktree from the main checkout:
+   `git worktree remove .worktrees/<branch>`.
+10. Delete the local branch: `git branch -d <branch>`.
+11. Delete the remote branch if GitHub did not already do it:
+    `git push origin --delete <branch>`.
+12. Final verification from main: `git status --short --branch`,
+    `git worktree list`, and confirm no local/remote feature branch remains.
+
+Prefer a normal merge commit when the branch includes local main-only commits
+that should fast-forward cleanly after PR merge. Use squash only when Marco
+explicitly wants a single squashed history and local main alignment has been
+considered.
 
 ## Security Review Discipline
 
