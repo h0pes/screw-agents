@@ -157,8 +157,12 @@ Only after Tasks 1-4 are resolved:
   for each active G5 dataset/agent pair
 - require the smoke plan to record deterministic `selected_case_ids` so any
   later executor runs exactly the reviewed cases
+- validate the controlled executor first; by default it resolves selected
+  cases and confirms vulnerable/patched code extraction without invoking Claude
 - require explicit `--allow-claude-invocation` before a plan can become
   executable
+- require a second executor-level `--allow-claude-invocation` with `--execute`
+  before the executor can invoke Claude
 - keep YAML mutation disabled in the controlled-run schema
 - block execution when external dataset dirs, truth files, or extractors are
   missing

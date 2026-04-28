@@ -196,6 +196,33 @@ separate step and must keep `ANTHROPIC_API_KEY` unset so the Claude Pro
 subscription is used instead of API billing. Do not add
 `--allow-claude-invocation` until the blocked smoke plan has been reviewed.
 
+Controlled smoke executor validation:
+
+```bash
+uv run python benchmarks/scripts/run_controlled_autoresearch.py \
+  --controlled-plan <controlled_run_plan.json> \
+  --output-dir benchmarks/results/autoresearch-controlled-executor/<run-id>
+```
+
+This validates the reviewed `selected_case_ids`, loads their `truth.sarif`
+files, and confirms vulnerable/patched code can be extracted. It does not
+invoke Claude unless `--execute` and executor-level
+`--allow-claude-invocation` are both present.
+
+Controlled smoke execution:
+
+```bash
+uv run python benchmarks/scripts/run_controlled_autoresearch.py \
+  --controlled-plan <controlled_run_plan.json> \
+  --output-dir benchmarks/results/autoresearch-controlled-executor/<run-id> \
+  --execute \
+  --allow-claude-invocation
+```
+
+This is the first command in the Phase 4 sequence that can invoke Claude.
+Before running it, verify `ANTHROPIC_API_KEY` is unset so the Claude Pro
+subscription path is used rather than API billing.
+
 ## YAML Mutation Rule
 
 Agent YAML must not change because a gate percentage is low.
