@@ -83,15 +83,24 @@ Correct stale G5 definitions before treating gate results as authoritative:
 
 ### Task 4 — Failure-Analysis Input Format
 
-Status: pending.
+Status: implemented in `src/screw_agents/autoresearch/failure_input.py`.
 
 Define the structured payload future autoresearch steps will consume:
 - missed finding examples
 - false-positive examples
 - dataset/case provenance
 - exact agent and YAML source version
-- benchmark split metadata
+- benchmark split/run metadata
 - guardrail state explaining whether YAML mutation is allowed
+
+Acceptance:
+- Payload schema is versioned as `phase4-autoresearch-failure-input/v1`.
+- YAML mutation defaults to disabled.
+- YAML mutation cannot be enabled from aggregate metrics alone.
+- Any mutation-eligible payload must include concrete examples tied to
+  `case_provenance`, must match a single agent, and must still require human
+  review.
+- Tests cover JSON round-trip and guardrail failures.
 
 ### Task 5 — Controlled Execution
 

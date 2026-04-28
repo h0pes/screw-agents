@@ -456,7 +456,9 @@ Phase 4 (Autoresearch & Self-Improvement) started with D-01. As of 2026-04-28, D
 of relabelling SQLi evidence as SSTI coverage; MoreFixes materialization writes
 code snapshots for the runner; Rust D-01 extraction reads local git clones from
 provenance refs; Vul4J code extraction remains deferred until a checkout
-convention is defined.
+convention is defined; failure-analysis input schema
+`phase4-autoresearch-failure-input/v1` requires concrete case-level examples
+before any future YAML mutation can be allowed.
 
 **When continuing Phase 4:** Continue from `docs/PHASE_4_D02_PLAN.md`; keep Rust metric claims scoped to real-CVE SQLi/Cmdi/XSS and synthetic-only SSTI unless refresh finds a verified SSTI advisory.
 

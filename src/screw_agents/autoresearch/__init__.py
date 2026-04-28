@@ -5,6 +5,17 @@ benchmark inputs and gate definitions without invoking LLMs or mutating agent
 YAML.
 """
 
+from screw_agents.autoresearch.failure_input import (
+    SCHEMA_VERSION as FAILURE_INPUT_SCHEMA_VERSION,
+)
+from screw_agents.autoresearch.failure_input import (
+    AgentSourceVersion,
+    BenchmarkRunMetadata,
+    CaseProvenance,
+    FailureAnalysisInput,
+    FailureExample,
+    GuardrailState,
+)
 from screw_agents.autoresearch.planner import (
     DatasetPlan,
     GateAudit,
@@ -15,8 +26,15 @@ from screw_agents.autoresearch.planner import (
 )
 
 __all__ = [
+    "FAILURE_INPUT_SCHEMA_VERSION",
+    "AgentSourceVersion",
+    "BenchmarkRunMetadata",
+    "CaseProvenance",
     "DatasetPlan",
+    "FailureAnalysisInput",
+    "FailureExample",
     "GateAudit",
+    "GuardrailState",
     "RetiredGate",
     "RunPlan",
     "build_run_plan",
