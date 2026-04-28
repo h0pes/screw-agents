@@ -11,6 +11,7 @@ docs/research/*
 # for session continuity; not tracked in git.
 docs/PHASE_*_PUNCHLIST.md
 docs/PHASE_*_HANDOFF.md
+docs/notes.txt
 
 # Claude Code local settings (permissions, preferences — not committed)
 .claude/settings.json
