@@ -1,0 +1,48 @@
+{
+  "dataset_name": "rust-d01-real-cves",
+  "source_url": "benchmarks/data/rust-d01-reviewed-seeds.json",
+  "case_count": 4,
+  "ingested_at": "2026-04-28T08:35:30+00:00",
+  "cases": [
+    {
+      "case_id": "rust-d01-matrix-sdk-CVE-2025-53549",
+      "project": "matrix-org/matrix-rust-sdk",
+      "language": "rust",
+      "vulnerable_version": "d0c01006e4808db5eb96ad5c496416f284d8bd3c^",
+      "patched_version": "d0c01006e4808db5eb96ad5c496416f284d8bd3c",
+      "published_date": "2025-07-10",
+      "fail_count": 1,
+      "pass_count": 1
+    },
+    {
+      "case_id": "rust-d01-salvo-CVE-2026-22256",
+      "project": "salvo-rs/salvo",
+      "language": "rust",
+      "vulnerable_version": "16efeba312a274739606ce76366d921768628654",
+      "patched_version": "v0.88.1",
+      "published_date": "2026-01-08",
+      "fail_count": 1,
+      "pass_count": 1
+    },
+    {
+      "case_id": "rust-d01-salvo-CVE-2026-22257",
+      "project": "salvo-rs/salvo",
+      "language": "rust",
+      "vulnerable_version": "16efeba312a274739606ce76366d921768628654",
+      "patched_version": "v0.88.1",
+      "published_date": "2026-01-08",
+      "fail_count": 1,
+      "pass_count": 1
+    },
+    {
+      "case_id": "rust-d01-lettre-CVE-2020-28247",
+      "project": "lettre/lettre",
+      "language": "rust",
+      "vulnerable_version": "bbe7cc5381c5380b54fb8bbb4f77a3725917ff0b^",
+      "patched_version": "bbe7cc5381c5380b54fb8bbb4f77a3725917ff0b",
+      "published_date": "2021-08-25",
+      "fail_count": 3,
+      "pass_count": 3
+    }
+  ]
+}

@@ -138,7 +138,7 @@ Entries already in `## Shipped` / `## Shipped (PR #6)` do NOT carry this tag —
 | `phase-7-scoped` | 5 | T6-M1, T6-M4, T9-I1 (multi-process concurrency); T8-Sec2 (preexec thread-safety); BACKLOG-PR6-09 (registry compaction at scale) |
 | `retire` | 14 | Trust-layer T4-M6 + T1-M1 (flagged for Marco review — triggers repeatedly not fired) + 12 PR6-* cosmetic/docstring entries whose files are unlikely to be revisited |
 
-**Phase 4 gate:** the `blocker` count is now 0. Phase 4 step 4.0 (D-01 Rust benchmark corpus) is the next prerequisite — see `docs/PROJECT_STATUS.md` §"Phase 4 Prerequisites (hard gates)". With T-SCAN-REFACTOR shipped, the per-agent autoresearch surface (`scan_agents([single_name])`) is ready for Phase 4 consumption.
+**Phase 4 gate:** the `blocker` count is now 0. Phase 4 step 4.0 (D-01 Rust benchmark corpus) is close-out ready on branch `d01-rust-benchmark` — see `docs/PROJECT_STATUS.md` §"Phase 4 Prerequisites (hard gates)" and `docs/PHASE_4_D01_PLAN.md`. With T-SCAN-REFACTOR shipped, the per-agent autoresearch surface (`scan_agents([single_name])`) is ready for Phase 4 consumption.
 
 ---
 

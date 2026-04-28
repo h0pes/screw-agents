@@ -15,8 +15,8 @@ part of any Phase 1 validation gate.
 
 ## Rust Fixtures
 
-All `rust_*.rs` files in `*/vulnerable/` and `*/safe/` subdirectories carry
-a provenance header:
+Pre-Phase-4 `rust_*.rs` files in `*/vulnerable/` and `*/safe/` subdirectories
+carry a smoke-test provenance header:
 
 ```rust
 // --- screw-agents smoke-test fixture (not for detection benchmarking) ---
@@ -30,6 +30,11 @@ a provenance header:
 Per **ADR-014** (`docs/DECISIONS.md`), the Rust benchmark corpus is deferred to
 Phase 4. The Phase 4 corpus seed is documented at
 `docs/research/benchmark-tier4-rust-modern.md`.
+
+Phase 4 D-01 adds explicit synthetic Rust SSTI fixtures. These use a
+`synthetic Rust SSTI fixture` provenance header and are inventoried in
+`benchmarks/data/rust-d01-synthetic-ssti.json`. They are not real CVEs and must
+not be reported as CVE-backed validation.
 
 See also **ADR-013** for the overall benchmark methodology and the Phase 4 gate
 defined in PRD §12.
