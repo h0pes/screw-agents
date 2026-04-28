@@ -439,7 +439,8 @@ Structured as a dependency graph with three parallel tracks converging at smoke 
 
 Phase 4 (Autoresearch & Self-Improvement) started with D-01. As of
 2026-04-28, D-01 is merged, D-02 planning scaffold is merged in PR #18, and
-dataset readiness is active on branch `phase4-d02-readiness`.
+active G5 dataset readiness is clean in the long-lived main checkout after
+core dataset and MoreFixes materialization.
 
 ### D-01 — Rust benchmark corpus from GitHub Advisory Database + synthetic SSTI
 **Status:** MERGED in PR #17
@@ -467,15 +468,18 @@ provenance refs; Vul4J code extraction remains deferred until a checkout
 convention is defined; failure-analysis input schema
 `phase4-autoresearch-failure-input/v1` requires concrete case-level examples
 before any future YAML mutation can be allowed; controlled-run preparation
-requires explicit `--allow-claude-invocation` and remains blocked until dataset
-readiness issues are closed. The readiness checklist command is
-`uv run python benchmarks/scripts/check_autoresearch_readiness.py`; a fresh
-worktree currently reports active G5 blockers for OSSF/reality-check external
-directories and truth files, plus missing MoreFixes truth materialization.
+now defaults to a blocked `required-dataset-smoke` plan that selects one small
+slice for each active G5 dataset/agent pair; it still requires explicit
+`--allow-claude-invocation` before any plan can become executable and remains
+blocked until dataset readiness issues are closed. The readiness checklist command is
+`uv run python benchmarks/scripts/check_autoresearch_readiness.py`; the
+long-lived main checkout currently reports 5 of 5 active G5 datasets ready
+after OSSF, reality-check, and MoreFixes materialization. A fresh worktree will
+still report blockers until the ignored external datasets are restored there.
 The OSSF and reality-check restoration path is verified: running their ingest
-scripts materializes the four core active G5 datasets and leaves MoreFixes as
-the only dataset-readiness blocker. Unchanged manifest regeneration preserves
-the existing `ingested_at` value to avoid timestamp-only churn.
+scripts materializes the four core active G5 datasets. Unchanged manifest
+regeneration preserves the existing `ingested_at` value to avoid timestamp-only
+churn.
 MoreFixes Docker/Postgres restoration is now verified with explicit empty-volume
 import handling. The extractor materializes 2,601 case truth files plus 6,825
 vulnerable and 6,825 patched snapshots, and streams rows to avoid the previous

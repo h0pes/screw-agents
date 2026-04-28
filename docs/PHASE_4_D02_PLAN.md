@@ -1,8 +1,8 @@
 # Phase 4 D-02 — Autoresearch And Gate Optimization Plan
 
-> Status: dry-run, gate-audit, failure-input, and controlled-run scaffold merged
-> in PR #18. Dataset readiness checklist active on branch
-> `phase4-d02-readiness`.
+> Status: dry-run, gate-audit, failure-input, readiness checklist, and
+> controlled-run scaffold merged. Active G5 dataset readiness is clean in the
+> long-lived main checkout after local materialization.
 > Scope: plan and audit expensive benchmark/autoresearch runs before invoking
 > Claude or mutating agent YAML.
 
@@ -57,7 +57,8 @@ Latest dry-run result from a fresh worktree after Task 3 gate correction:
 
 ### Task 2 — Dataset Readiness And Extraction Closure
 
-Status: readiness checklist implemented; dataset materialization still local and
+Status: readiness checklist implemented; active G5 datasets materialized in the
+long-lived main checkout; generated dataset contents remain local and
 intentionally ignored.
 
 Resolve the plan's dataset readiness issues before any full run:
@@ -77,10 +78,11 @@ Resolve the plan's dataset readiness issues before any full run:
 - Current fresh-worktree readiness check reports 5 active G5 datasets required
   for a controlled run: `ossf-cve-benchmark`, `reality-check-csharp`,
   `reality-check-python`, `reality-check-java`, and `morefixes`.
-- Current blockers are external directory/truth materialization for OSSF and
-  reality-check datasets, plus missing `truth.sarif` materialization for
-  MoreFixes. `vul4j` remains explicitly deferred; Rust D-01 is tracked as a
-  non-G5 warning until local clones are supplied.
+- Current readiness in the long-lived main checkout reports 5 of 5 active G5
+  datasets ready with no controlled-run blockers. A fresh worktree still needs
+  ignored external material restored before it can run the same readiness
+  check cleanly. `vul4j` remains explicitly deferred; Rust D-01 is tracked as
+  a non-G5 warning until local clones are supplied.
 - Core active G5 restoration path is verified: OSSF and the three
   reality-check datasets materialize cleanly with their existing ingest
   scripts. After those commands, readiness reports 4 of 5 active G5 datasets
@@ -150,7 +152,9 @@ Status: guarded scaffold implemented in
 `benchmarks/scripts/prepare_autoresearch_run.py`.
 
 Only after Tasks 1-4 are resolved:
-- prepare a small sample plan first
+- prepare a blocked controlled smoke plan first
+- use the default `required-dataset-smoke` strategy to select at most one case
+  for each active G5 dataset/agent pair
 - require explicit `--allow-claude-invocation` before a plan can become
   executable
 - keep YAML mutation disabled in the controlled-run schema

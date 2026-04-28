@@ -22,10 +22,13 @@ class ControlledRunConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     mode: Literal["sample"] = "sample"
+    selection_strategy: Literal["required-dataset-smoke", "gate-order"] = (
+        "required-dataset-smoke"
+    )
     dry_run_plan_path: str
     output_dir: str
     max_cases_per_dataset: int = Field(default=1, ge=1)
-    max_cases_per_agent: int = Field(default=1, ge=1)
+    max_cases_per_agent: int = Field(default=10, ge=1)
     allow_claude_invocation: bool = False
     yaml_mutation_allowed: Literal[False] = False
 
@@ -75,8 +78,11 @@ def build_controlled_execution_plan(
     output_dir: Path,
     allow_claude_invocation: bool = False,
     max_cases_per_dataset: int = 1,
-    max_cases_per_agent: int = 1,
+    max_cases_per_agent: int = 10,
     mode: Literal["sample"] = "sample",
+    selection_strategy: Literal["required-dataset-smoke", "gate-order"] = (
+        "required-dataset-smoke"
+    ),
 ) -> ControlledExecutionPlan:
     """Prepare a small sample execution plan from a dry-run plan JSON."""
     dry_run = json.loads(dry_run_plan_path.read_text(encoding="utf-8"))
@@ -87,6 +93,7 @@ def build_controlled_execution_plan(
         max_cases_per_dataset=max_cases_per_dataset,
         max_cases_per_agent=max_cases_per_agent,
         allow_claude_invocation=allow_claude_invocation,
+        selection_strategy=selection_strategy,
     )
     datasets_by_name = {
         dataset["dataset_name"]: dataset
@@ -111,7 +118,10 @@ def build_controlled_execution_plan(
         )
 
     selected_by_agent: dict[str, int] = {}
-    for gate in dry_run.get("gate_audit", []):
+    for gate in _select_candidate_gates(
+        dry_run.get("gate_audit", []),
+        strategy=selection_strategy,
+    ):
         dataset_name = gate["dataset"]
         dataset = datasets_by_name.get(dataset_name)
         if dataset is None:
@@ -154,6 +164,16 @@ def build_controlled_execution_plan(
                 estimated_invocations=selected_case_count * 2,
             )
         )
+    if not selections:
+        _append_issue(
+            issues,
+            issue_keys,
+            ReadinessIssue(
+                severity="blocker",
+                code="no_controlled_run_selections",
+                message="No gate/dataset selections were available for the sample plan.",
+            ),
+        )
 
     execution_allowed = allow_claude_invocation and not any(
         issue.severity == "blocker" for issue in issues
@@ -174,6 +194,9 @@ def render_controlled_execution_plan_markdown(plan: ControlledExecutionPlan) -> 
         f"# Phase 4 Controlled Run Plan `{plan.generated_at}`",
         "",
         f"- **Mode:** `{plan.config.mode}`",
+        f"- **Selection strategy:** `{plan.config.selection_strategy}`",
+        f"- **Max cases per dataset:** {plan.config.max_cases_per_dataset}",
+        f"- **Max cases per agent:** {plan.config.max_cases_per_agent}",
         f"- **Claude invocation allowed:** {_yes_no(plan.config.allow_claude_invocation)}",
         f"- **YAML mutation allowed:** {_yes_no(plan.config.yaml_mutation_allowed)}",
         f"- **Execution allowed:** {_yes_no(plan.execution_allowed)}",
@@ -227,6 +250,25 @@ def write_controlled_execution_plan_markdown(
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(render_controlled_execution_plan_markdown(plan), encoding="utf-8")
+
+
+def _select_candidate_gates(
+    gates: list[dict[str, Any]],
+    *,
+    strategy: Literal["required-dataset-smoke", "gate-order"],
+) -> list[dict[str, Any]]:
+    if strategy == "gate-order":
+        return gates
+
+    selected: list[dict[str, Any]] = []
+    seen_dataset_agents: set[tuple[str, str]] = set()
+    for gate in gates:
+        key = (str(gate["dataset"]), str(gate["agent"]))
+        if key in seen_dataset_agents:
+            continue
+        seen_dataset_agents.add(key)
+        selected.append(gate)
+    return selected
 
 
 def _append_dataset_issues(

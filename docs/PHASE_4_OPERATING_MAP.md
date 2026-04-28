@@ -15,11 +15,11 @@ There are three separate layers:
 |---|---|---|---|---|
 | Benchmark machinery | Runner, manifests, gates, extractors, planners, schemas | Yes | No | Already mostly built |
 | External benchmark material | Downloaded repos, Docker/Postgres exports, generated `truth.sarif`, local clones | No, intentionally ignored | Sometimes slow | Must be restored/materialized locally |
-| Claude benchmark execution | Running agents over vulnerable/patched cases | No result artifacts tracked by default | Yes | Blocked until readiness is clean |
+| Claude benchmark execution | Running agents over vulnerable/patched cases | No result artifacts tracked by default | Yes | Next step is blocked smoke-plan review |
 
-The current blockers are in the second layer. They do not mean the benchmark
-design was lost. They mean the fresh worktree does not currently contain all of
-the large/generated local benchmark material needed before paid Claude runs.
+The long-lived main checkout currently has the active G5 external material
+restored. A fresh worktree can still report second-layer blockers because the
+large/generated benchmark material is intentionally ignored and worktree-local.
 
 ## What Is Already Done
 
@@ -39,8 +39,8 @@ Important scope rule:
 
 ### D-02 — Autoresearch Scaffold
 
-Status: main scaffold merged in PR #18; readiness checklist is active on
-`phase4-d02-readiness`.
+Status: main scaffold merged in PR #18; active G5 readiness is clean in the
+long-lived main checkout after local materialization.
 
 What exists:
 - dry-run planner: inventories manifests, gates, extractor support, and lower
@@ -49,8 +49,9 @@ What exists:
   `G5.10` are retired;
 - failure-input schema: future YAML changes must cite concrete missed findings
   or false positives;
-- controlled-run scaffold: refuses execution unless Claude invocation is
-  explicitly allowed and required datasets are ready;
+- controlled-run scaffold: writes a blocked smoke plan by default and refuses
+  executable plans unless Claude invocation is explicitly allowed and required
+  datasets are ready;
 - readiness checklist: explains which local datasets must be materialized before
   a controlled run can start.
 
@@ -69,15 +70,15 @@ uv run python benchmarks/scripts/check_autoresearch_readiness.py \
 These commands do not invoke Claude, do not run benchmarks, do not download
 datasets, and do not mutate YAML.
 
-Fresh-worktree baseline result as of 2026-04-28:
+Long-lived main checkout result as of 2026-04-28:
 
 | Dataset | Needed for active G5? | Current meaning |
 |---|---|---|
-| `ossf-cve-benchmark` | Yes | External directory and `truth.sarif` material are missing locally |
-| `reality-check-csharp` | Yes | External directory and `truth.sarif` material are missing locally |
-| `reality-check-python` | Yes | External directory and `truth.sarif` material are missing locally |
-| `reality-check-java` | Yes | External directory and `truth.sarif` material are missing locally |
-| `morefixes` | Yes | Directory exists, but regenerated `truth.sarif` plus code snapshots are missing |
+| `ossf-cve-benchmark` | Yes | Ready; 118 `truth.sarif` files materialized locally |
+| `reality-check-csharp` | Yes | Ready; 11 `truth.sarif` files materialized locally |
+| `reality-check-python` | Yes | Ready; 6 `truth.sarif` files materialized locally |
+| `reality-check-java` | Yes | Ready; 9 `truth.sarif` files materialized locally |
+| `morefixes` | Yes | Ready; 2,601 `truth.sarif` files and code snapshots materialized locally |
 | `crossvul` | No | Useful benchmark data, but not required by active G5 gates right now |
 | `go-sec-code-mutated` | No | Retained as SQLi data; no longer misused as SSTI gate evidence |
 | `skf-labs-mutated` | No | Retained as SQLi data; no longer misused as SSTI gate evidence |
@@ -94,10 +95,11 @@ Verified core-dataset restoration as of 2026-04-28:
 - `uv run python -m benchmarks.scripts.ingest_reality_check_java` restores 9
   materialized Java case truth files.
 
-After those commands, the readiness checklist reports 4 of 5 active G5 datasets
-ready. The remaining active G5 dataset blocker is MoreFixes materialization.
-Because generated benchmark material is ignored and worktree-local, run these
-commands in the long-lived checkout where the data should remain available.
+After those commands, and after MoreFixes deployment/extraction, the readiness
+checklist reports 5 of 5 active G5 datasets ready in the long-lived main
+checkout. Because generated benchmark material is ignored and worktree-local,
+run materialization commands in the checkout where the data should remain
+available.
 
 ## Why The External Data Is Missing
 
@@ -162,17 +164,35 @@ MoreFixes status as of 2026-04-28:
   This reduced sampled Python peak RSS from tens of GiB to about 410 MiB on
   the verified run.
 
-Expensive benchmark execution:
+Controlled smoke preparation:
 
 ```bash
 uv run python benchmarks/scripts/prepare_autoresearch_run.py \
   --dry-run-plan <run_plan.json> \
+  --output-dir benchmarks/results/autoresearch-controlled/<run-id>
+```
+
+This writes a blocked, reviewable smoke plan by default. The default selection
+strategy, `required-dataset-smoke`, chooses at most one case for each active
+G5 dataset/agent pair, so shared agents such as `xss` do not cause required
+datasets to be skipped. With the current active G5 inventory, that is expected
+to prepare seven small slices: OSSF/XSS, OSSF/CmdI, Reality Check C#/XSS,
+Reality Check C#/SQLi, Reality Check Python/XSS, Reality Check Java/CmdI, and
+MoreFixes/SQLi.
+
+Executable benchmark plan preparation:
+
+```bash
+uv run python benchmarks/scripts/prepare_autoresearch_run.py \
+  --dry-run-plan <run_plan.json> \
+  --output-dir benchmarks/results/autoresearch-controlled/<run-id> \
   --allow-claude-invocation
 ```
 
 That only prepares an executable plan. Actual benchmark execution remains a
 separate step and must keep `ANTHROPIC_API_KEY` unset so the Claude Pro
-subscription is used instead of API billing.
+subscription is used instead of API billing. Do not add
+`--allow-claude-invocation` until the blocked smoke plan has been reviewed.
 
 ## YAML Mutation Rule
 
@@ -194,7 +214,7 @@ Even then, YAML mutation is not automatic. It is a reviewed engineering change.
 2. Materialize active G5 datasets locally, starting with the smallest or least
    risky restoration path.
 3. Re-run the readiness checklist until active blockers are gone.
-4. Prepare a small controlled sample plan.
+4. Prepare a blocked controlled smoke plan and review selected slices.
 5. Discuss explicit Claude invocation before any paid benchmark execution.
 6. Convert failures into `phase4-autoresearch-failure-input/v1` payloads.
 7. Only then consider targeted YAML refinements.
