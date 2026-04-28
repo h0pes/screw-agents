@@ -470,11 +470,12 @@ convention is defined; failure-analysis input schema
 before any future YAML mutation can be allowed; controlled-run preparation
 now defaults to a blocked `required-dataset-smoke` plan that selects one small
 slice for each active G5 dataset/agent pair and records deterministic
-`selected_case_ids`; the controlled executor validates those exact cases and
-their vulnerable/patched code extraction before any Claude call. The plan still
-requires explicit `--allow-claude-invocation` before it can become executable,
-and the executor requires a second `--execute --allow-claude-invocation`
-before it can invoke Claude. The readiness checklist command is
+`selected_case_ids`; selection now requires matching truth and locally
+extractable vulnerable/patched code. The controlled executor validates those
+exact cases before any Claude call. The plan still requires explicit
+`--allow-claude-invocation` before it can become executable, and the executor
+requires a second `--execute --allow-claude-invocation` before it can invoke
+Claude. The readiness checklist command is
 `uv run python benchmarks/scripts/check_autoresearch_readiness.py`; the
 long-lived main checkout currently reports 5 of 5 active G5 datasets ready
 after OSSF, reality-check, and MoreFixes materialization. A fresh worktree will

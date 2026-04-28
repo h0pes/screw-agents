@@ -65,7 +65,55 @@ def _write_manifest_and_truth(
                 ),
             ],
         )
+        _write_extractable_code(root, dataset_name=dataset_name, case_id=case_id)
     return manifest_path
+
+
+def _write_extractable_code(root: Path, *, dataset_name: str, case_id: str) -> None:
+    external_dir = root / "external"
+    if dataset_name == "morefixes":
+        vulnerable = external_dir / dataset_name / case_id / "code" / "vulnerable" / "app.py"
+        patched = external_dir / dataset_name / case_id / "code" / "patched" / "app.py"
+        vulnerable.parent.mkdir(parents=True, exist_ok=True)
+        patched.parent.mkdir(parents=True, exist_ok=True)
+        vulnerable.write_text(
+            "def handler(request):\n"
+            "    query = request.args['q']\n"
+            "    return database.execute('SELECT ' + query)\n"
+        )
+        patched.write_text(
+            "def handler(request):\n"
+            "    query = request.args['q']\n"
+            "    return database.execute('SELECT ?', [query])\n"
+        )
+        return
+
+    if dataset_name == "ossf-cve-benchmark":
+        repo_file = external_dir / dataset_name / "repo" / "app.py"
+        repo_file.parent.mkdir(parents=True, exist_ok=True)
+        repo_file.write_text("def handler(request):\n    return request.args['q']\n")
+        return
+
+    lang_subdir = {
+        "reality-check-csharp": "csharp",
+        "reality-check-python": "python",
+        "reality-check-java": "java",
+    }.get(dataset_name)
+    if lang_subdir is None:
+        return
+    for version in ("vuln", "patched"):
+        version_file = (
+            external_dir
+            / dataset_name
+            / "repo"
+            / lang_subdir
+            / "markup"
+            / "example"
+            / version
+            / "app.py"
+        )
+        version_file.parent.mkdir(parents=True, exist_ok=True)
+        version_file.write_text("def handler(request):\n    return request.args['q']\n")
 
 
 def _write_dry_run_plan(path: Path, *, ready: bool = False) -> None:

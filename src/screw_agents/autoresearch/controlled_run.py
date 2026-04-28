@@ -13,6 +13,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from benchmarks.runner.code_extractor import CodeVariant, extract_code_for_case
+from benchmarks.runner.models import BenchmarkCase, Language
 from benchmarks.runner.sarif import load_bentoo_sarif
 
 SCHEMA_VERSION = "phase4-autoresearch-controlled-run/v1"
@@ -357,7 +359,14 @@ def _select_case_ids(
                 ),
             )
             continue
-        if any(finding.cwe_id == target_cwe for finding in findings):
+        if any(finding.cwe_id == target_cwe for finding in findings) and (
+            _case_has_extractable_code(
+                raw_case=case,
+                dataset_name=dataset_name,
+                findings=findings,
+                external_dir=external_dir,
+            )
+        ):
             selected.append(case_id)
         if len(selected) >= limit:
             break
@@ -376,6 +385,31 @@ def _select_case_ids(
             ),
         )
     return selected
+
+
+def _case_has_extractable_code(
+    *,
+    raw_case: dict[str, Any],
+    dataset_name: str,
+    findings: list[Any],
+    external_dir: Path,
+) -> bool:
+    try:
+        case = BenchmarkCase(
+            case_id=str(raw_case["case_id"]),
+            project=str(raw_case["project"]),
+            language=Language(str(raw_case["language"])),
+            vulnerable_version=str(raw_case["vulnerable_version"]),
+            patched_version=str(raw_case["patched_version"]),
+            ground_truth=findings,
+            published_date=raw_case.get("published_date"),
+            source_dataset=dataset_name,
+        )
+        vulnerable = extract_code_for_case(case, CodeVariant.VULNERABLE, external_dir)
+        patched = extract_code_for_case(case, CodeVariant.PATCHED, external_dir)
+    except (FileNotFoundError, ValueError):
+        return False
+    return bool(vulnerable and patched)
 
 
 def _dataset_has_blockers(*, dataset: dict[str, Any]) -> bool:

@@ -244,6 +244,23 @@ class TestExtractCodeForCase:
         assert len(patched) == 1
         assert "Encode(input)" in patched[0].content
 
+    def test_reality_check_extracts_markup_layout(self, tmp_path, rc_case):
+        repo = tmp_path / "reality-check-csharp" / "repo"
+        vuln_dir = repo / "csharp" / "markup" / "myproj" / "myproj-1.0.0"
+        patch_dir = repo / "csharp" / "markup" / "myproj" / "myproj-1.0.1"
+        vuln_dir.mkdir(parents=True)
+        patch_dir.mkdir(parents=True)
+        (vuln_dir / "Controller.cs").write_text("Response.Write(input);")
+        (patch_dir / "Controller.cs").write_text("Response.Write(Encode(input));")
+
+        vuln = extract_code_for_case(rc_case, CodeVariant.VULNERABLE, tmp_path)
+        patched = extract_code_for_case(rc_case, CodeVariant.PATCHED, tmp_path)
+
+        assert len(vuln) == 1
+        assert "Response.Write(input)" in vuln[0].content
+        assert len(patched) == 1
+        assert "Encode(input)" in patched[0].content
+
     def test_crossvul_extracts_bad_good_pairs(self, tmp_crossvul, crossvul_case):
         vuln = extract_code_for_case(crossvul_case, CodeVariant.VULNERABLE, tmp_crossvul)
         patched = extract_code_for_case(crossvul_case, CodeVariant.PATCHED, tmp_crossvul)
