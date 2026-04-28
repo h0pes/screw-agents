@@ -14,6 +14,10 @@ benchmark run. It is a dry-run planning layer that makes cost, missing data,
 gate-definition drift, and YAML-mutation guardrails explicit before any
 long-running or paid work starts.
 
+For the whole Phase 4 picture, including which commands are safe planning,
+which commands materialize ignored local data, and which steps can spend Claude
+time, read `docs/PHASE_4_OPERATING_MAP.md`.
+
 ## Ground Rules
 
 - Do not invoke Claude from planning commands.

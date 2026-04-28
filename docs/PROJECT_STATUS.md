@@ -13,8 +13,10 @@ Items explicitly deferred from earlier phases that must be completed in later ph
 | D-03 (pointer) | Broader deferred backlog (114 active entries post-T24) | Across all phases | Various — see DEFERRED_BACKLOG §"Phase-4 Readiness Triage" | — | **TRIAGED** — see `docs/DEFERRED_BACKLOG.md` for `blocker` / `nice-to-have` / `phase-7-scoped` / `retire` tags |
 
 **When returning to Phase 4:** D-01 is merged. Continue D-02 from
-`docs/PHASE_4_D02_PLAN.md`; do not run expensive benchmarks until the dry-run
-plan's dataset and gate-definition issues are addressed.
+`docs/PHASE_4_D02_PLAN.md` and use `docs/PHASE_4_OPERATING_MAP.md` for the
+full safe-planning/materialization/paid-execution sequence; do not run
+expensive benchmarks until the dry-run plan's dataset and gate-definition
+issues are addressed.
 
 **When starting Phase 4:** D-02 threshold optimization runs as part of the autoresearch loop. The benchmark pipeline is validated (PR #3).
 
@@ -472,6 +474,8 @@ worktree currently reports active G5 blockers for OSSF/reality-check external
 directories and truth files, plus missing MoreFixes truth materialization.
 
 **When continuing Phase 4:** Continue from `docs/PHASE_4_D02_PLAN.md`; keep Rust metric claims scoped to real-CVE SQLi/Cmdi/XSS and synthetic-only SSTI unless refresh finds a verified SSTI advisory.
+Use `docs/PHASE_4_OPERATING_MAP.md` as the high-level map before restoring
+ignored external datasets or allowing Claude benchmark execution.
 
 ---
 

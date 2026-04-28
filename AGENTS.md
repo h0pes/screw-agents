@@ -24,8 +24,8 @@ Next milestone:
 - Phase 4 autoresearch / D-02 dataset readiness materialization before any
   paid controlled benchmark execution.
 - Before planning Phase 4 follow-on work, read `docs/PROJECT_STATUS.md`,
-  `docs/DEFERRED_BACKLOG.md`, `docs/PHASE_4_D01_PLAN.md`, and
-  `docs/PHASE_4_D02_PLAN.md`.
+  `docs/DEFERRED_BACKLOG.md`, `docs/PHASE_4_OPERATING_MAP.md`,
+  `docs/PHASE_4_D01_PLAN.md`, and `docs/PHASE_4_D02_PLAN.md`.
 - Keep Rust metric claims scoped: real-CVE Rust coverage currently exists for
   SQLi/CmdI/XSS; Rust SSTI is synthetic-only unless refresh finds a verified
   real advisory.
