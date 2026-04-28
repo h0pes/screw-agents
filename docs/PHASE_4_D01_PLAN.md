@@ -89,8 +89,10 @@ trace, and 0 auto-promoted to real-CVE fixtures.
 
 ### Task 3 — Fixture Materialization
 
-Status: seed review started. The tracked seed input is
-`benchmarks/data/rust-d01-reviewed-seeds.json`.
+Status: initial real-CVE materialization implemented. The tracked seed input is
+`benchmarks/data/rust-d01-reviewed-seeds.json`; the materializer is
+`benchmarks/scripts/materialize_rust_d01.py`; the tracked manifest is
+`benchmarks/external/manifests/rust-d01-real-cves.manifest.json`.
 
 Materialize accepted real-CVE Rust cases under the benchmark external tree and
 write bentoo-SARIF truth files.
@@ -101,6 +103,10 @@ Acceptance:
 - Method/function-level ground truth is present when the advisory supports it.
 - Fixture provenance records advisory IDs, repo URL, vulnerable ref, patched
   ref, and extraction notes.
+
+The generated per-case `truth.sarif` and `provenance.json` files live under
+`benchmarks/external/rust-d01-real-cves/` and remain ignored like other
+reproducible external benchmark material.
 
 Initial traced real-CVE seeds:
 - SQLi: Matrix Rust SDK `GHSA-275g-g844-73jh` / `CVE-2025-53549`.
