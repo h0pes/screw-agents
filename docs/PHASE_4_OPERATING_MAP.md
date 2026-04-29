@@ -1,6 +1,6 @@
 # Phase 4 Operating Map - Autoresearch
 
-> Last updated: 2026-04-28
+> Last updated: 2026-04-29
 
 Phase 4 is the controlled benchmark-and-improvement loop. Its goal is not to
 blindly run expensive benchmarks or automatically rewrite agent YAML. Its goal
@@ -15,7 +15,7 @@ There are three separate layers:
 |---|---|---|---|---|
 | Benchmark machinery | Runner, manifests, gates, extractors, planners, schemas | Yes | No | Already mostly built |
 | External benchmark material | Downloaded repos, Docker/Postgres exports, generated `truth.sarif`, local clones | No, intentionally ignored | Sometimes slow | Must be restored/materialized locally |
-| Claude benchmark execution | Running agents over vulnerable/patched cases | No result artifacts tracked by default | Yes | Next step is blocked smoke-plan review |
+| Claude benchmark execution | Running agents over vulnerable/patched cases | No result artifacts tracked by default | Yes | Controlled smoke execution is proven; next step is failure-input triage |
 
 The long-lived main checkout currently has the active G5 external material
 restored. A fresh worktree can still report second-layer blockers because the
@@ -40,7 +40,8 @@ Important scope rule:
 ### D-02 — Autoresearch Scaffold
 
 Status: main scaffold merged in PR #18; active G5 readiness is clean in the
-long-lived main checkout after local materialization.
+long-lived main checkout after local materialization; first controlled smoke
+execution completed 2026-04-29.
 
 What exists:
 - dry-run planner: inventories manifests, gates, extractor support, and lower
@@ -53,7 +54,9 @@ What exists:
   executable plans unless Claude invocation is explicitly allowed and required
   datasets are ready;
 - readiness checklist: explains which local datasets must be materialized before
-  a controlled run can start.
+  a controlled run can start;
+- controlled executor reporting: records overall benchmark metrics and
+  vulnerable/patched finding counts for each selected case.
 
 ## Current Readiness Picture
 
@@ -228,6 +231,15 @@ This is the first command in the Phase 4 sequence that can invoke Claude.
 Before running it, verify `ANTHROPIC_API_KEY` is unset so the Claude Pro
 subscription path is used rather than API billing.
 
+First verified run, 2026-04-29:
+- Output directory: `/tmp/screw-d02-exec-run-restored`.
+- Benchmark run ID: `20260429-062030`.
+- Seven active G5 slices executed, producing 14 raw case JSON files.
+- No executor issues were reported.
+- The result is a triage baseline, not a YAML-mutation trigger. Use the report's
+  metrics and finding-count tables to choose concrete missed-vulnerability and
+  false-positive examples for the failure-input schema.
+
 ## YAML Mutation Rule
 
 Agent YAML must not change because a gate percentage is low.
@@ -244,11 +256,13 @@ Even then, YAML mutation is not automatic. It is a reviewed engineering change.
 
 ## Recommended Next Sequence
 
-1. Merge the readiness checklist tooling.
-2. Materialize active G5 datasets locally, starting with the smallest or least
-   risky restoration path.
-3. Re-run the readiness checklist until active blockers are gone.
-4. Prepare a blocked controlled smoke plan and review selected slices.
-5. Discuss explicit Claude invocation before any paid benchmark execution.
-6. Convert failures into `phase4-autoresearch-failure-input/v1` payloads.
-7. Only then consider targeted YAML refinements.
+1. Keep active G5 external material available in the checkout used for
+   execution.
+2. Re-run readiness and controlled executor validation before any new paid
+   execution.
+3. Use controlled smoke reports to choose concrete missed-vulnerability and
+   false-positive examples.
+4. Convert those examples into `phase4-autoresearch-failure-input/v1` payloads.
+5. Review payloads manually before considering targeted YAML refinements.
+6. Only then consider a small, reviewed agent-knowledge change and re-run the
+   same controlled smoke slice.

@@ -1,8 +1,9 @@
 # Phase 4 D-02 — Autoresearch And Gate Optimization Plan
 
-> Status: dry-run, gate-audit, failure-input, readiness checklist, and
-> controlled-run scaffold merged. Active G5 dataset readiness is clean in the
-> long-lived main checkout after local materialization.
+> Status: dry-run, gate-audit, failure-input, readiness checklist,
+> controlled-run scaffold, and controlled smoke execution are complete. Active
+> G5 dataset readiness is clean in the long-lived main checkout after local
+> materialization.
 > Scope: plan and audit expensive benchmark/autoresearch runs before invoking
 > Claude or mutating agent YAML.
 
@@ -147,9 +148,11 @@ Acceptance:
 
 ### Task 5 — Controlled Execution
 
-Status: guarded scaffold implemented in
-`src/screw_agents/autoresearch/controlled_run.py` and
-`benchmarks/scripts/prepare_autoresearch_run.py`.
+Status: guarded scaffold and first controlled smoke execution complete.
+Implementation lives in `src/screw_agents/autoresearch/controlled_run.py`,
+`src/screw_agents/autoresearch/controlled_executor.py`,
+`benchmarks/scripts/prepare_autoresearch_run.py`, and
+`benchmarks/scripts/run_controlled_autoresearch.py`.
 
 Only after Tasks 1-4 are resolved:
 - prepare a blocked controlled smoke plan first
@@ -175,3 +178,17 @@ Only after Tasks 1-4 are resolved:
 
 The scaffold writes JSON and Markdown under ignored `benchmarks/results/`
 paths, but does not invoke Claude or execute benchmarks by itself.
+
+First controlled smoke execution, verified 2026-04-29:
+- The selected seven active G5 dataset/agent slices executed successfully after
+  Claude's Apr 28 service incident was resolved.
+- The executor wrote 14 vulnerable/patched raw finding JSON files under an
+  ignored benchmark run directory.
+- The executor report now includes overall metric summaries and per-case
+  vulnerable/patched finding counts, so failure triage no longer requires
+  manually opening every case JSON.
+- Initial signal is intentionally treated as diagnostic evidence, not as a
+  reason to mutate YAML: XSS and OSSF CmdI produced no vulnerable findings;
+  Reality Check Java CmdI and SQLi produced true positives but also false
+  positives. The next step is to turn concrete misses/false positives into
+  `phase4-autoresearch-failure-input/v1` payloads for reviewed analysis.
