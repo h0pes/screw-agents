@@ -527,7 +527,10 @@ the focused rerun on `rc-csharp-nhibernate-core-CVE-2024-39677` improved from
 XSS triage did not accept an `xss.yaml` change: the first XSS payload now
 surfaces one missing source excerpt, one sanitizer test-path span, and one
 Zope framework helper span that needs manual review before it can support an
-agent-knowledge change.
+agent-knowledge change. The OSSF extractor now rejects fallback files that do
+not cover the SARIF truth line range, preventing the `ossf-CVE-2018-16484`
+one-line metadata-repo `index.js` mismatch from being selected as valid XSS
+evidence.
 
 **When continuing Phase 4:** Continue from `docs/PHASE_4_D02_PLAN.md`; keep Rust metric claims scoped to real-CVE SQLi/Cmdi/XSS and synthetic-only SSTI unless refresh finds a verified SSTI advisory.
 Use `docs/PHASE_4_OPERATING_MAP.md` as the high-level map before restoring

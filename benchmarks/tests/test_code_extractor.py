@@ -203,6 +203,25 @@ def tmp_morefixes(tmp_path):
 
 
 @pytest.fixture
+def tmp_ossf(tmp_path):
+    repo = tmp_path / "ossf-cve-benchmark" / "repo"
+    (repo / "lib").mkdir(parents=True)
+    (repo / "lib" / "index.js").write_text(
+        "\n".join([f"line {line_no}" for line_no in range(1, 41)]) + "\n",
+        encoding="utf-8",
+    )
+    return tmp_path
+
+
+@pytest.fixture
+def tmp_ossf_bad_basename_fallback(tmp_path):
+    repo = tmp_path / "ossf-cve-benchmark" / "repo"
+    repo.mkdir(parents=True)
+    (repo / "index.js").write_text("module.exports = {};\n", encoding="utf-8")
+    return tmp_path
+
+
+@pytest.fixture
 def morefixes_case():
     return BenchmarkCase(
         case_id="morefixes-CVE-2024-0001-example",
@@ -223,6 +242,30 @@ def morefixes_case():
             ),
         ],
         source_dataset="morefixes",
+    )
+
+
+@pytest.fixture
+def ossf_case():
+    return BenchmarkCase(
+        case_id="ossf-CVE-2018-16484",
+        project="https://github.com/nunnly/m-server.git",
+        language=Language.JAVASCRIPT,
+        vulnerable_version="pre-patch",
+        patched_version="post-patch",
+        ground_truth=[
+            Finding(
+                cwe_id="CWE-79",
+                kind=FindingKind.FAIL,
+                location=CodeLocation(file="lib/index.js", start_line=39, end_line=39),
+            ),
+            Finding(
+                cwe_id="CWE-79",
+                kind=FindingKind.PASS,
+                location=CodeLocation(file="lib/index.js", start_line=39, end_line=39),
+            ),
+        ],
+        source_dataset="ossf-cve-benchmark",
     )
 
 
@@ -385,6 +428,27 @@ class TestExtractCodeForCase:
         assert "SELECT * FROM users WHERE id=" in vuln[0].content
         assert len(patched) == 1
         assert "prepared_query" in patched[0].content
+
+    def test_ossf_extracts_file_covering_truth_line(self, tmp_ossf, ossf_case):
+        vuln = extract_code_for_case(ossf_case, CodeVariant.VULNERABLE, tmp_ossf)
+        patched = extract_code_for_case(ossf_case, CodeVariant.PATCHED, tmp_ossf)
+
+        assert [piece.file_path for piece in vuln] == ["lib/index.js"]
+        assert [piece.file_path for piece in patched] == ["lib/index.js"]
+        assert "line 39" in vuln[0].content
+
+    def test_ossf_rejects_basename_fallback_that_misses_truth_line(
+        self,
+        tmp_ossf_bad_basename_fallback,
+        ossf_case,
+    ):
+        vuln = extract_code_for_case(
+            ossf_case,
+            CodeVariant.VULNERABLE,
+            tmp_ossf_bad_basename_fallback,
+        )
+
+        assert vuln == []
 
     def test_rust_d01_extracts_from_local_git_refs(self, tmp_rust_d01, rust_d01_case):
         vuln = extract_code_for_case(rust_d01_case, CodeVariant.VULNERABLE, tmp_rust_d01)
