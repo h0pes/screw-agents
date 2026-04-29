@@ -1,5 +1,5 @@
 # domains/injection-input-handling/sqli.yaml
-# SQL Injection Agent Definition — screw-agents v1.0.0
+# SQL Injection Agent Definition — screw-agents v1.0.1
 # Generated from 16 research files covering Tiers 1-4 of KNOWLEDGE_SOURCES.md
 # Research date: 2026-04-05
 
@@ -7,8 +7,8 @@ meta:
   name: sqli
   display_name: "SQL Injection Reviewer"
   domain: injection-input-handling
-  version: "1.0.0"
-  last_updated: "2026-04-05"
+  version: "1.0.1"
+  last_updated: "2026-04-29"
   short_description: "SQL injection via unsafe string concatenation, interpolation, or ORM raw query misuse reaching database query execution paths"
 
   cwes:
@@ -187,6 +187,10 @@ core_prompt: |
 
   **C#/.NET:** SqlCommand, OleDbCommand, OdbcCommand (System.Data); Database.ExecuteSqlRaw(),
   FromSqlRaw() with concatenation (EF Core); Dapper SqlMapper.Query/Execute.
+  ORM/library SQL literal renderers such as NHibernate `ILiteralType.ObjectToSQLString()`
+  are also sinks when they return quoted SQL fragments via raw string concatenation. Treat
+  them as vulnerable if embedded quotes, comment delimiters, or other SQL-control characters
+  are not escaped before the fragment is appended to generated SQL.
 
   **Rust:** sqlx::query(&format!("...{}", input)) — format! into runtime query function;
   sqlx::query_as::<_, T>(&format!("...")) — same with typed output;
@@ -230,6 +234,11 @@ core_prompt: |
   GORM: db.Raw(fmt.Sprintf(...)), db.Order(input) (CVE-2024-35181/82).
   Eloquent: DB::raw($input), DB::select("...$input").
   EF Core: ExecuteSqlRaw("..." + input), FromSqlRaw("..." + input).
+  NHibernate/.NET ORM internals: ObjectToSQLString() / ToSqlString() / SetComment() paths
+  that build quoted literals or SQL comments by concatenating raw values into generated SQL.
+  These may sit below application request handlers; review whether the library API accepts
+  values that can be model-, mapping-, tenant-, import-, or user-influenced, and whether the
+  renderer escapes quotes/comment terminators before returning SQL text.
   Querydsl: pathBuilder.get(userInput) in orderBy (CVE-2024-49203).
   MyBatis: ${input} in XML mappers or @Select annotations (vs safe #{input}).
 
@@ -373,6 +382,11 @@ detection_heuristics:
       pattern: "ExecuteSqlRaw / FromSqlRaw with string concatenation or String.Format"
       languages: [c_sharp]
       example: "context.Database.ExecuteSqlRaw(\"DELETE FROM Users WHERE Name = '\" + name + \"'\")"
+    - id: cs-orm-literal-renderer-concat
+      pattern: "ORM SQL literal/comment renderer returns SQL text by concatenating unescaped values"
+      languages: [c_sharp]
+      example: "return '\\'' + value.ToString() + '\\'';"
+      note: "Catches library-level SQL fragment generation such as NHibernate ObjectToSQLString() when quotes or comment delimiters are not escaped."
     # Rust
     - id: rs-sqlx-format
       pattern: "sqlx::query() or sqlx::query_as() with format!() — the Rust footgun"
@@ -613,6 +627,9 @@ remediation:
     - mistake: "Assuming ORM methods are always safe"
       why_insufficient: "Every ORM has raw query escape hatches (.raw(), .extra(), $queryRawUnsafe(), sql.raw()). Developers use them for complex queries and often forget to parameterize."
 
+    - mistake: "Assuming ORM internal SQL literal renderers are safe because they are not route handlers"
+      why_insufficient: "Libraries such as ORMs may expose APIs that render values, discriminator SQL, comments, or mapping metadata into generated SQL. If those renderers concatenate raw values into quoted literals or comments, the injection happens before the final database call and may affect every downstream query builder user."
+
 few_shot_examples:
   vulnerable:
     - language: python
@@ -709,6 +726,15 @@ few_shot_examples:
         context.Database.ExecuteSqlRaw(
             string.Format("DELETE FROM Users WHERE Name = '{0}'", name));
       explanation: "String.Format in ExecuteSqlRaw. Fix: context.Database.ExecuteSqlInterpolated($\"DELETE FROM Users WHERE Name = {name}\") — ExecuteSqlInterpolated auto-parameterizes."
+
+    - language: c_sharp
+      label: "NHibernate-style SQL literal renderer without quote escaping"
+      code: |
+        public override string ObjectToSQLString(object value, Dialect dialect)
+        {
+            return "'" + value.ToString() + "'";
+        }
+      explanation: "This library-level renderer returns a quoted SQL literal by raw concatenation. A value containing an apostrophe can break out of the literal before the generated SQL is executed. Fix by delegating literal quoting/escaping to the dialect or a parameterized rendering path."
 
     - language: rust
       label: "sqlx::query with format!() — the Rust footgun"

@@ -270,6 +270,14 @@ First controlled smoke execution, verified 2026-04-29:
 - Payloads also include a `diagnostics` count summary for missed examples:
   nearby same-file related findings, same-file-only related findings, pure
   misses, and patched-version false positives.
+- Focused SQLi/NHibernate review accepted a narrow `sqli.yaml` v1.0.1
+  refinement for C# ORM SQL literal/comment renderers such as NHibernate
+  `ObjectToSQLString()`. The focused rerun on
+  `rc-csharp-nhibernate-core-CVE-2024-39677` improved the vulnerable-side
+  result from 1 to 3 findings while keeping patched findings at 0:
+  TP 3, FP 0, TN 25, FN 22. The remaining capped failure payload has five
+  pure misses; several are likely truth-span/helper artifacts, so further SQLi
+  YAML changes should wait for another reviewed concrete slice.
 
 Focused rerun example:
 
