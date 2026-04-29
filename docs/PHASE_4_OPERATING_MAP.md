@@ -356,6 +356,33 @@ Review of the three remaining CmdI/Plexus misses:
   misses, and patched-version false positives so reviewers can triage a run
   without hand-counting every example first.
 
+Focused SQLi/NHibernate literal-renderer execution, verified 2026-04-29:
+- Output directory: `/tmp/screw-d02-sqli-nhibernate-v101-run`.
+- Benchmark run ID: `20260429-132147`.
+- Command shape: `--agent sqli --case-id
+  rc-csharp-nhibernate-core-CVE-2024-39677 --execute
+  --allow-claude-invocation`.
+- `sqli.yaml` was refined narrowly from v1.0.0 to v1.0.1 to cover C# ORM
+  SQL literal/comment renderers such as NHibernate `ObjectToSQLString()`.
+- Result: TP 3, FP 0, TN 25, FN 22; TPR 12.0%, FPR 0.0%, precision 100.0%,
+  F1 21.4%, accuracy 12.0%.
+- Raw finding counts: 3 vulnerable-version findings, 0 patched-version
+  findings. The previous focused baseline found only
+  `AbstractStringType.ObjectToSQLString`; v1.0.1 also localized
+  `AbstractCharType.ObjectToSQLString` and one low-confidence
+  `DateTimeOffSetType.ObjectToSQLString` truth span without adding patched
+  noise.
+- Generated focused failure payload:
+  `/tmp/screw-d02-sqli-nhibernate-v101-failure-inputs/sqli_failure_input.json`.
+- Remaining concrete misses in the capped payload are five pure misses:
+  a SQL comment builder test span, a dialect test helper, a boolean literal
+  helper, `ByteType.Set()`, and `CharBooleanType.ObjectToSQLString()`.
+  Treat the first three as likely truth-span or benchmark-granularity cases
+  before considering another SQLi YAML change. The remaining sibling literal
+  renderers may need either more focused prompt guidance or scoring/tooling
+  review, but v1.0.1 is accepted because it improves recall without patched
+  findings.
+
 ## YAML Mutation Rule
 
 Agent YAML must not change because a gate percentage is low.

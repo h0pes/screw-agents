@@ -518,6 +518,12 @@ payload review rejected the OSSF miss as bad source-material evidence and
 accepted the Plexus Java shell-wrapper examples as a narrow agent-knowledge
 refinement: `cmdi.yaml` now records custom Java shell-wrapper builders and
 patched single-quote wrapper overrides as a false-positive discriminator.
+Follow-up CmdI/Plexus related-context execution removed patched findings but
+left three vulnerable-side misses, so `cmdi.yaml` remains at v1.0.1 after a
+rejected over-reporting v1.0.2 trial. SQLi/NHibernate review then accepted a
+narrow `sqli.yaml` v1.0.1 refinement for C# ORM SQL literal/comment renderers;
+the focused rerun on `rc-csharp-nhibernate-core-CVE-2024-39677` improved from
+1 to 3 vulnerable findings while keeping patched findings at 0.
 
 **When continuing Phase 4:** Continue from `docs/PHASE_4_D02_PLAN.md`; keep Rust metric claims scoped to real-CVE SQLi/Cmdi/XSS and synthetic-only SSTI unless refresh finds a verified SSTI advisory.
 Use `docs/PHASE_4_OPERATING_MAP.md` as the high-level map before restoring
