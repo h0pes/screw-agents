@@ -66,6 +66,24 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=300,
         help="Timeout in seconds per Claude call when --execute is used.",
     )
+    parser.add_argument(
+        "--agent",
+        action="append",
+        default=[],
+        help=(
+            "Restrict validation/execution to a reviewed agent slice. "
+            "May be supplied multiple times."
+        ),
+    )
+    parser.add_argument(
+        "--case-id",
+        action="append",
+        default=[],
+        help=(
+            "Restrict validation/execution to a reviewed case ID. "
+            "May be supplied multiple times."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -86,6 +104,8 @@ def main(argv: list[str] | None = None) -> int:
         throttle_delay=args.throttle,
         max_retries=args.max_retries,
         timeout=args.timeout,
+        agents=args.agent,
+        case_ids=args.case_id,
     )
     json_path = output_dir / "controlled_executor_report.json"
     markdown_path = output_dir / "controlled_executor_report.md"

@@ -208,6 +208,8 @@ Only after Tasks 1-4 are resolved:
   from the local materialized benchmark data
 - validate the controlled executor first; by default it resolves selected
   cases and confirms vulnerable/patched code extraction without invoking Claude
+- optionally restrict validation/execution to reviewed slices with `--agent`
+  and/or `--case-id` when iterating on a concrete failure payload
 - require explicit `--allow-claude-invocation` before a plan can become
   executable
 - require a second executor-level `--allow-claude-invocation` with `--execute`
@@ -239,3 +241,20 @@ First controlled smoke execution, verified 2026-04-29:
 - Those payloads can now be generated mechanically from the controlled executor
   report and raw case JSON files. The next engineering step is human review of
   generated examples before proposing any agent-knowledge refinement.
+- The controlled executor now supports focused reruns through repeatable
+  `--agent <agent>` and `--case-id <case-id>` filters. Filters are recorded in
+  the JSON/Markdown report and block execution if they match no reviewed
+  selected cases, keeping narrow validation tied to the already approved smoke
+  plan.
+
+Focused rerun example:
+
+```bash
+uv run python benchmarks/scripts/run_controlled_autoresearch.py \
+  --controlled-plan <controlled_run_plan.json> \
+  --output-dir <focused-output-dir> \
+  --agent cmdi \
+  --case-id rc-java-plexus-utils-CVE-2017-1000487 \
+  --execute \
+  --allow-claude-invocation
+```
