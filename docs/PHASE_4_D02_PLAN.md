@@ -210,6 +210,8 @@ Only after Tasks 1-4 are resolved:
   cases and confirms vulnerable/patched code extraction without invoking Claude
 - optionally restrict validation/execution to reviewed slices with `--agent`
   and/or `--case-id` when iterating on a concrete failure payload
+- optionally include same-variant related truth files as prompt context with
+  `--include-related-context` for multi-file benchmark cases
 - require explicit `--allow-claude-invocation` before a plan can become
   executable
 - require a second executor-level `--allow-claude-invocation` with `--execute`
@@ -246,6 +248,10 @@ First controlled smoke execution, verified 2026-04-29:
   the JSON/Markdown report and block execution if they match no reviewed
   selected cases, keeping narrow validation tied to the already approved smoke
   plan.
+- The controlled executor can also enable related-file prompt context with
+  `--include-related-context`. This is intended for cases like the Plexus CmdI
+  benchmark where the primary file and the effective subclass/wrapper behavior
+  live in separate files. The default remains single-primary-file prompts.
 
 Focused rerun example:
 
@@ -255,6 +261,7 @@ uv run python benchmarks/scripts/run_controlled_autoresearch.py \
   --output-dir <focused-output-dir> \
   --agent cmdi \
   --case-id rc-java-plexus-utils-CVE-2017-1000487 \
+  --include-related-context \
   --execute \
   --allow-claude-invocation
 ```

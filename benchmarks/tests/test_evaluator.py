@@ -15,6 +15,7 @@ from benchmarks.runner.evaluator import (
     build_prompt,
     parse_findings_response,
 )
+from benchmarks.runner.code_extractor import ExtractedCode
 from benchmarks.runner.invoker import InvokeResult
 from benchmarks.runner.models import (
     BenchmarkCase,
@@ -103,6 +104,24 @@ class TestBuildPrompt:
         assert "Detect XSS" in prompt
         assert "document.innerHTML" in prompt
         assert "JSON" in prompt
+
+    def test_includes_related_context_as_context_only(self):
+        prompt = build_prompt(
+            core_prompt="Detect command injection.",
+            code="class Shell {}",
+            file_path="Shell.java",
+            context_files=[
+                ExtractedCode(
+                    file_path="BourneShell.java",
+                    content="class BourneShell extends Shell {}",
+                    language="java",
+                )
+            ],
+        )
+
+        assert "## Related Files For Context" in prompt
+        assert "**Context file:** `BourneShell.java`" in prompt
+        assert "findings only\nfor the primary file `Shell.java`" in prompt
 
 
 class TestParseFindingsResponse:

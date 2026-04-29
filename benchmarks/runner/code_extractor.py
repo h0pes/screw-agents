@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from urllib.parse import quote
@@ -29,6 +29,7 @@ class ExtractedCode:
     file_path: str
     content: str
     language: str
+    context_files: list[ExtractedCode] = field(default_factory=list)
 
 
 _RC_LANG_DIRS = {
@@ -44,12 +45,18 @@ def extract_code_for_case(
     case: BenchmarkCase,
     variant: CodeVariant,
     benchmarks_external_dir: Path,
+    include_related_context: bool = False,
 ) -> list[ExtractedCode]:
     """Extract source code for a benchmark case."""
     ds = case.source_dataset
 
     if ds in _RC_LANG_DIRS:
-        return _extract_reality_check(case, variant, benchmarks_external_dir)
+        return _extract_reality_check(
+            case,
+            variant,
+            benchmarks_external_dir,
+            include_related_context=include_related_context,
+        )
     elif ds == "crossvul":
         return _extract_crossvul(case, variant, benchmarks_external_dir)
     elif ds in ("go-sec-code-mutated", "skf-labs-mutated"):
@@ -66,14 +73,22 @@ def extract_code_for_case(
 
 
 def _extract_reality_check(
-    case: BenchmarkCase, variant: CodeVariant, ext_dir: Path,
+    case: BenchmarkCase,
+    variant: CodeVariant,
+    ext_dir: Path,
+    *,
+    include_related_context: bool = False,
 ) -> list[ExtractedCode]:
     lang_subdir = _RC_LANG_DIRS[case.source_dataset]
     repo_dir = ext_dir / case.source_dataset / "repo"
     if not repo_dir.exists():
         raise FileNotFoundError(f"reality-check repo not found: {repo_dir}")
 
-    version = case.vulnerable_version if variant == CodeVariant.VULNERABLE else case.patched_version
+    version = (
+        case.vulnerable_version
+        if variant == CodeVariant.VULNERABLE
+        else case.patched_version
+    )
     # Historical reality-check materialization used benchmark/ in fixtures,
     # while the restored upstream datasets use markup/.
     projects_dir = repo_dir / lang_subdir / "benchmark" / case.project / version
@@ -92,6 +107,7 @@ def _extract_reality_check(
         {f.location.file for f in case.ground_truth if f.kind == kind}
     )
 
+    loaded_by_rel_path: dict[str, ExtractedCode] = {}
     results = []
     for rel_file in truth_files:
         file_path = projects_dir / rel_file
@@ -102,14 +118,18 @@ def _extract_reality_check(
             else:
                 logger.warning("File not found: %s", file_path)
                 continue
-        results.append(ExtractedCode(
+        piece = ExtractedCode(
             file_path=rel_file,
             content=file_path.read_text(errors="replace"),
             language=case.language.value,
-        ))
+        )
+        loaded_by_rel_path[rel_file] = piece
+        results.append(piece)
         if len(results) >= _MAX_FILES_PER_CASE:
             logger.info("Capped at %d files for reality-check case", _MAX_FILES_PER_CASE)
             break
+    if include_related_context:
+        _attach_related_context(results, loaded_by_rel_path)
     return results
 
 
@@ -143,7 +163,12 @@ def _extract_crossvul(
             ext = parts[2]
             pair_id = "-".join(parts[3:])
             prefix = "bad_" if variant == CodeVariant.VULNERABLE else "good_"
-            file_path = _find_crossvul_root(dataset_dir) / f"CWE-{cwe_digits}" / ext / f"{prefix}{pair_id}"
+            file_path = (
+                _find_crossvul_root(dataset_dir)
+                / f"CWE-{cwe_digits}"
+                / ext
+                / f"{prefix}{pair_id}"
+            )
             if file_path.exists():
                 results.append(ExtractedCode(
                     file_path=f.location.file,
@@ -163,6 +188,19 @@ def _find_crossvul_root(dataset_dir: Path) -> Path:
         if child.is_dir() and child.name.upper().startswith("CWE"):
             return dataset_dir
     return dataset_dir
+
+
+def _attach_related_context(
+    results: list[ExtractedCode],
+    loaded_by_rel_path: dict[str, ExtractedCode],
+) -> None:
+    """Attach same-variant truth files as context for multi-file cases."""
+    for piece in results:
+        piece.context_files = [
+            context
+            for rel_file, context in sorted(loaded_by_rel_path.items())
+            if rel_file != piece.file_path
+        ]
 
 
 def _extract_monolithic(
@@ -199,7 +237,11 @@ def _extract_monolithic(
             continue
         content = file_path.read_text(errors="replace")
         if len(content) < 50:
-            logger.debug("Skipping file with too-short content: %s (%d chars)", rel_file, len(content))
+            logger.debug(
+                "Skipping file with too-short content: %s (%d chars)",
+                rel_file,
+                len(content),
+            )
             continue
         results.append(ExtractedCode(
             file_path=rel_file,

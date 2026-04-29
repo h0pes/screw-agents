@@ -240,7 +240,8 @@ uv run python benchmarks/scripts/run_controlled_autoresearch.py \
   --controlled-plan <controlled_run_plan.json> \
   --output-dir benchmarks/results/autoresearch-controlled-executor/<run-id> \
   --agent cmdi \
-  --case-id rc-java-plexus-utils-CVE-2017-1000487
+  --case-id rc-java-plexus-utils-CVE-2017-1000487 \
+  --include-related-context
 ```
 
 `--agent` and `--case-id` are repeatable filters over the reviewed
@@ -248,6 +249,13 @@ uv run python benchmarks/scripts/run_controlled_autoresearch.py \
 validation mode or with `--execute --allow-claude-invocation` to rerun only a
 specific diagnostic slice. The executor records active filters in the report
 and blocks execution when the filters match no reviewed cases.
+
+`--include-related-context` keeps the primary file as the only reportable
+finding target, but adds same-variant related truth files to the prompt as
+read-only context. Use it for multi-file benchmark evidence such as the Plexus
+CmdI case, where the sink path in `Shell.java` and the effective quoting
+behavior in `BourneShell.java` need to be understood together. This is a
+benchmark evidence-packaging improvement, not an agent YAML change.
 
 First verified run, 2026-04-29:
 - Output directory: `/tmp/screw-d02-exec-run-restored`.
@@ -298,6 +306,9 @@ First payload review, 2026-04-29:
   vulnerable finding did not overlap the benchmark truth span, and one patched
   `Shell.java` false positive remained. Continue with targeted executor/context
   improvements before making another CmdI YAML tweak.
+- Related-file prompt context is now available for that targeted rerun so the
+  next CmdI/Plexus validation can test evidence packaging before any further
+  `cmdi.yaml` refinement.
 
 ## YAML Mutation Rule
 

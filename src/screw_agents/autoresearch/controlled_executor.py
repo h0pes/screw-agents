@@ -38,6 +38,7 @@ class ControlledExecutorConfig(BaseModel):
     timeout: int = 300
     agents: list[str] = Field(default_factory=list)
     case_ids: list[str] = Field(default_factory=list)
+    include_related_context: bool = False
 
 
 class ControlledExecutorIssue(BaseModel):
@@ -109,6 +110,7 @@ def build_controlled_executor_report(
     timeout: int = 300,
     agents: list[str] | None = None,
     case_ids: list[str] | None = None,
+    include_related_context: bool = False,
 ) -> ControlledExecutorReport:
     """Validate or execute a reviewed controlled-run plan."""
     agent_filter = _normalize_filter_values(agents)
@@ -126,6 +128,7 @@ def build_controlled_executor_report(
         timeout=timeout,
         agents=agent_filter,
         case_ids=case_id_filter,
+        include_related_context=include_related_context,
     )
     issues: list[ControlledExecutorIssue] = []
     issue_keys: set[tuple[str, str]] = set()
@@ -201,6 +204,7 @@ def build_controlled_executor_report(
                 agent=selection.agent,
                 cwe_filter=selection.cwe_filter,
                 external_dir=external_dir,
+                include_related_context=include_related_context,
                 issues=issues,
                 issue_keys=issue_keys,
             )
@@ -233,6 +237,7 @@ def build_controlled_executor_report(
                 max_retries=max_retries,
                 timeout=timeout,
             ),
+            include_related_context=include_related_context,
         )
         evaluator = Evaluator(eval_config)
         summary_models = _run_evaluation(resolved_cases, evaluator)
@@ -270,6 +275,7 @@ def render_controlled_executor_report_markdown(
         f"- **Benchmark run ID:** {report.benchmark_run_id or '-'}",
         f"- **Agent filter:** {_format_filter(report.config.agents)}",
         f"- **Case ID filter:** {_format_filter(report.config.case_ids)}",
+        f"- **Related context:** {_yes_no(report.config.include_related_context)}",
         "",
         "## Issues",
         "",
@@ -416,12 +422,23 @@ def _validate_case_extraction(
     agent: str,
     cwe_filter: str | None,
     external_dir: Path,
+    include_related_context: bool,
     issues: list[ControlledExecutorIssue],
     issue_keys: set[tuple[str, str]],
 ) -> ControlledExecutorCase | None:
     try:
-        vulnerable = extract_code_for_case(case, CodeVariant.VULNERABLE, external_dir)
-        patched = extract_code_for_case(case, CodeVariant.PATCHED, external_dir)
+        vulnerable = extract_code_for_case(
+            case,
+            CodeVariant.VULNERABLE,
+            external_dir,
+            include_related_context=include_related_context,
+        )
+        patched = extract_code_for_case(
+            case,
+            CodeVariant.PATCHED,
+            external_dir,
+            include_related_context=include_related_context,
+        )
     except FileNotFoundError as exc:
         _append_issue(
             issues,

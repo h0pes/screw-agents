@@ -18,7 +18,10 @@ full safe-planning/materialization/paid-execution sequence; do not run
 expensive benchmarks until the dry-run plan's dataset and gate-definition
 issues are addressed. The controlled executor supports focused reruns with
 repeatable `--agent` and `--case-id` filters, so concrete failure-payload
-examples can be revalidated without repeating the full smoke set.
+examples can be revalidated without repeating the full smoke set. It also
+supports opt-in related-file prompt context for multi-file benchmark cases,
+which should be tried on the CmdI/Plexus slice before another `cmdi.yaml`
+refinement.
 
 **When starting Phase 4:** D-02 threshold optimization runs as part of the autoresearch loop. The benchmark pipeline is validated (PR #3).
 

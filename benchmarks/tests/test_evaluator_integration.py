@@ -48,7 +48,7 @@ def xss_case():
     )
 
 
-def _mock_extract(case, variant, ext_dir):
+def _mock_extract(case, variant, ext_dir, include_related_context=False):
     if variant == CodeVariant.VULNERABLE:
         return [ExtractedCode(
             file_path="view.py",
@@ -111,3 +111,22 @@ class TestIntegrationPipeline:
         cases_dir = config.results_dir / evaluator.run_id / "cases"
         assert (cases_dir / "integration-xss-1_vuln.json").exists()
         assert (cases_dir / "integration-xss-1_patched.json").exists()
+
+    def test_related_context_flag_reaches_extractor(self, engine, xss_case, tmp_path):
+        config = EvalConfig(
+            results_dir=tmp_path / "results",
+            invoker_config=InvokerConfig(throttle_delay=0.0),
+            include_related_context=True,
+        )
+        evaluator = Evaluator(config)
+        calls = []
+
+        def mock_extract(case, variant, ext_dir, include_related_context=False):
+            calls.append(include_related_context)
+            return _mock_extract(case, variant, ext_dir, include_related_context)
+
+        with patch("benchmarks.runner.evaluator.extract_code_for_case", side_effect=mock_extract), \
+             patch("benchmarks.runner.evaluator.invoke_claude", side_effect=_mock_invoke_patched):
+            evaluator.run([xss_case], engine)
+
+        assert calls == [True, True]
