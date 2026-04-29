@@ -277,6 +277,10 @@ First controlled smoke execution, verified 2026-04-29:
   is a sanitizer unit-test span, and the Zope miss needs manual review because
   its truth span is a framework namespace/evaluation helper rather than a
   direct HTML-output sink.
+- OSSF extraction now rejects same-basename fallback files that do not cover
+  the SARIF truth line range. This prevents cases such as
+  `ossf-CVE-2018-16484` from being treated as extractable when `lib/index.js`
+  resolves to an unrelated one-line `index.js` in the benchmark metadata repo.
 - Focused SQLi/NHibernate review accepted a narrow `sqli.yaml` v1.0.1
   refinement for C# ORM SQL literal/comment renderers such as NHibernate
   `ObjectToSQLString()`. The focused rerun on

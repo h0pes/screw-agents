@@ -404,6 +404,21 @@ XSS evidence-quality triage, verified 2026-04-29:
   either source-material repair for the OSSF case or a focused Zope review that
   proves a concrete XSS data/output path.
 
+OSSF extraction hardening, verified 2026-04-29:
+- The OSSF extractor previously fell back from a missing truth path such as
+  `lib/index.js` to any same-basename file under the benchmark metadata repo.
+  For `ossf-CVE-2018-16484`, that resolved to the metadata repo's one-line
+  `index.js`, while the SARIF truth span points to line 39.
+- The extractor now rejects OSSF fallback files that do not cover the truth
+  line range. This prevents a case from being selected or validated as
+  extractable when the source text cannot actually support the benchmark
+  evidence.
+- Re-preparing the controlled plan with materialized main external data now
+  skips `ossf-CVE-2018-16484` for OSSF/XSS and selects
+  `ossf-CVE-2019-13506`; OSSF/CmdI similarly selects
+  `ossf-CVE-2017-16087`. Validation-only executor run:
+  `/tmp/screw-d02-ossf-line-coverage-executor-validation`.
+
 ## YAML Mutation Rule
 
 Agent YAML must not change because a gate percentage is low.

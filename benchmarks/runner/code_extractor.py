@@ -264,6 +264,13 @@ def _extract_ossf(
 
     kind = FindingKind.FAIL if variant == CodeVariant.VULNERABLE else FindingKind.PASS
     truth_files = {f.location.file for f in case.ground_truth if f.kind == kind}
+    truth_by_file = {
+        rel_file: [
+            finding for finding in case.ground_truth
+            if finding.kind == kind and finding.location.file == rel_file
+        ]
+        for rel_file in truth_files
+    }
 
     results = []
     for rel_file in truth_files:
@@ -275,9 +282,23 @@ def _extract_ossf(
             else:
                 logger.warning("OSSF file not found: %s", rel_file)
                 continue
+        content = file_path.read_text(errors="replace")
+        line_count = len(content.splitlines())
+        if not any(
+            finding.location.end_line <= line_count
+            for finding in truth_by_file[rel_file]
+        ):
+            logger.warning(
+                "OSSF extracted file does not cover truth line range: "
+                "%s resolved to %s with %d line(s)",
+                rel_file,
+                file_path.relative_to(repo_dir),
+                line_count,
+            )
+            continue
         results.append(ExtractedCode(
             file_path=rel_file,
-            content=file_path.read_text(errors="replace"),
+            content=content,
             language=case.language.value,
         ))
     return results
