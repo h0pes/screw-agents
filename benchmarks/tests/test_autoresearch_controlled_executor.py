@@ -21,7 +21,7 @@ from screw_agents.autoresearch.controlled_run import (
 )
 
 
-def _write_morefixes_fixture(root: Path) -> Path:
+def _write_morefixes_fixture(root: Path, *, extra_case: bool = False) -> Path:
     external_dir = root / "external"
     manifests_dir = root / "manifests"
     case_id = "morefixes-CVE-2024-0001-example"
@@ -62,24 +62,79 @@ def _write_morefixes_fixture(root: Path) -> Path:
         "}\n",
         encoding="utf-8",
     )
+    manifest_cases = [
+        {
+            "case_id": case_id,
+            "project": "https://github.com/example/app",
+            "language": "php",
+            "vulnerable_version": "pre-deadbeef",
+            "patched_version": "deadbeef",
+            "published_date": None,
+            "fail_count": 1,
+            "pass_count": 1,
+        }
+    ]
+    if extra_case:
+        second_case_id = "morefixes-CVE-2024-0002-example"
+        second_case_dir = dataset_dir / second_case_id
+        second_truth_path = second_case_dir / "truth.sarif"
+        second_truth_path.parent.mkdir(parents=True, exist_ok=True)
+        write_bentoo_sarif(
+            second_truth_path,
+            [
+                Finding(
+                    cwe_id="CWE-89",
+                    kind=FindingKind.FAIL,
+                    location=CodeLocation(
+                        file="src/account.php", start_line=1, end_line=4
+                    ),
+                ),
+                Finding(
+                    cwe_id="CWE-89",
+                    kind=FindingKind.PASS,
+                    location=CodeLocation(
+                        file="src/account.php", start_line=1, end_line=4
+                    ),
+                ),
+            ],
+        )
+        second_vuln = second_case_dir / "code" / "vulnerable" / "src%2Faccount.php"
+        second_patched = second_case_dir / "code" / "patched" / "src%2Faccount.php"
+        second_vuln.parent.mkdir(parents=True, exist_ok=True)
+        second_patched.parent.mkdir(parents=True, exist_ok=True)
+        second_vuln.write_text(
+            "<?php\n"
+            "function account($name) {\n"
+            "  return query(\"SELECT * FROM accounts WHERE name='$name'\");\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        second_patched.write_text(
+            "<?php\n"
+            "function account($db, $name) {\n"
+            "  return prepared_query($db, 'SELECT * FROM accounts WHERE name=?', [$name]);\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        manifest_cases.append(
+            {
+                "case_id": second_case_id,
+                "project": "https://github.com/example/app",
+                "language": "php",
+                "vulnerable_version": "pre-feedface",
+                "patched_version": "feedface",
+                "published_date": None,
+                "fail_count": 1,
+                "pass_count": 1,
+            }
+        )
     manifest_path = manifests_dir / "morefixes.manifest.json"
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest_path.write_text(
         json.dumps(
             {
                 "dataset_name": "morefixes",
-                "cases": [
-                    {
-                        "case_id": case_id,
-                        "project": "https://github.com/example/app",
-                        "language": "php",
-                        "vulnerable_version": "pre-deadbeef",
-                        "patched_version": "deadbeef",
-                        "published_date": None,
-                        "fail_count": 1,
-                        "pass_count": 1,
-                    }
-                ],
+                "cases": manifest_cases,
             }
         )
         + "\n",
@@ -101,13 +156,13 @@ def _write_morefixes_fixture(root: Path) -> Path:
                     {
                         "dataset_name": "morefixes",
                         "manifest_path": str(manifest_path),
-                        "case_count": 1,
+                        "case_count": len(manifest_cases),
                         "data_dir_exists": True,
-                        "truth_file_count": 1,
+                        "truth_file_count": len(manifest_cases),
                         "supported_by_extractor": True,
                         "g5_gate_ids": ["G5.8"],
                         "estimated_min_invocations": 2,
-                        "estimated_truth_locations": 1,
+                        "estimated_truth_locations": len(manifest_cases),
                         "notes": [],
                     }
                 ],
@@ -135,12 +190,19 @@ def _write_morefixes_fixture(root: Path) -> Path:
     return dry_run_path
 
 
-def _write_controlled_plan(root: Path, *, execution_allowed: bool = True) -> Path:
-    dry_run_path = _write_morefixes_fixture(root)
+def _write_controlled_plan(
+    root: Path,
+    *,
+    execution_allowed: bool = True,
+    extra_case: bool = False,
+    max_cases_per_dataset: int = 1,
+) -> Path:
+    dry_run_path = _write_morefixes_fixture(root, extra_case=extra_case)
     controlled_plan = build_controlled_execution_plan(
         dry_run_plan_path=dry_run_path,
         output_dir=root / "controlled",
         allow_claude_invocation=execution_allowed,
+        max_cases_per_dataset=max_cases_per_dataset,
     )
     controlled_plan_path = root / "controlled_run_plan.json"
     write_controlled_execution_plan_json(controlled_plan_path, controlled_plan)
@@ -163,6 +225,56 @@ def test_executor_validation_resolves_selected_case_without_invocation(
     assert report.cases[0].case_id == "morefixes-CVE-2024-0001-example"
     assert report.cases[0].vulnerable_file_count == 1
     assert report.cases[0].patched_file_count == 1
+
+
+def test_executor_agent_filter_limits_reviewed_selection(tmp_path: Path) -> None:
+    controlled_plan_path = _write_controlled_plan(tmp_path)
+
+    report = build_controlled_executor_report(
+        controlled_plan_path=controlled_plan_path,
+        output_dir=tmp_path / "out",
+        agents=["sqli"],
+    )
+
+    assert report.issues == []
+    assert report.config.agents == ["sqli"]
+    assert len(report.cases) == 1
+    assert report.cases[0].agent == "sqli"
+
+
+def test_executor_case_id_filter_limits_reviewed_selection(tmp_path: Path) -> None:
+    controlled_plan_path = _write_controlled_plan(
+        tmp_path,
+        extra_case=True,
+        max_cases_per_dataset=2,
+    )
+
+    report = build_controlled_executor_report(
+        controlled_plan_path=controlled_plan_path,
+        output_dir=tmp_path / "out",
+        case_ids=["morefixes-CVE-2024-0002-example"],
+    )
+
+    assert report.issues == []
+    assert report.config.case_ids == ["morefixes-CVE-2024-0002-example"]
+    assert [case.case_id for case in report.cases] == [
+        "morefixes-CVE-2024-0002-example"
+    ]
+
+
+def test_executor_filter_empty_blocks_execution(tmp_path: Path) -> None:
+    controlled_plan_path = _write_controlled_plan(tmp_path)
+
+    report = build_controlled_executor_report(
+        controlled_plan_path=controlled_plan_path,
+        output_dir=tmp_path / "out",
+        execute=True,
+        allow_claude_invocation=True,
+        agents=["cmdi"],
+    )
+
+    assert report.execution_performed is False
+    assert {issue.code for issue in report.issues} == {"selection_filter_empty"}
 
 
 def test_executor_execute_requires_executor_level_allowance(tmp_path: Path) -> None:
@@ -246,7 +358,11 @@ def test_executor_can_run_selected_case_with_mocked_claude(tmp_path: Path) -> No
 
 
 def test_executor_cli_writes_validation_report(tmp_path: Path) -> None:
-    controlled_plan_path = _write_controlled_plan(tmp_path)
+    controlled_plan_path = _write_controlled_plan(
+        tmp_path,
+        extra_case=True,
+        max_cases_per_dataset=2,
+    )
     output_dir = tmp_path / "executor"
 
     exit_code = executor_main(
@@ -255,6 +371,8 @@ def test_executor_cli_writes_validation_report(tmp_path: Path) -> None:
             str(controlled_plan_path),
             "--output-dir",
             str(output_dir),
+            "--case-id",
+            "morefixes-CVE-2024-0002-example",
         ]
     )
 
@@ -263,5 +381,6 @@ def test_executor_cli_writes_validation_report(tmp_path: Path) -> None:
         (output_dir / "controlled_executor_report.json").read_text(encoding="utf-8")
     )
     assert written["execution_performed"] is False
-    assert written["cases"][0]["case_id"] == "morefixes-CVE-2024-0001-example"
+    assert written["config"]["case_ids"] == ["morefixes-CVE-2024-0002-example"]
+    assert written["cases"][0]["case_id"] == "morefixes-CVE-2024-0002-example"
     assert (output_dir / "controlled_executor_report.md").exists()

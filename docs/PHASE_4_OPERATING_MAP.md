@@ -233,6 +233,22 @@ This is the first command in the Phase 4 sequence that can invoke Claude.
 Before running it, verify `ANTHROPIC_API_KEY` is unset so the Claude Pro
 subscription path is used rather than API billing.
 
+Focused controlled reruns:
+
+```bash
+uv run python benchmarks/scripts/run_controlled_autoresearch.py \
+  --controlled-plan <controlled_run_plan.json> \
+  --output-dir benchmarks/results/autoresearch-controlled-executor/<run-id> \
+  --agent cmdi \
+  --case-id rc-java-plexus-utils-CVE-2017-1000487
+```
+
+`--agent` and `--case-id` are repeatable filters over the reviewed
+`selected_case_ids` already present in the controlled plan. They can be used in
+validation mode or with `--execute --allow-claude-invocation` to rerun only a
+specific diagnostic slice. The executor records active filters in the report
+and blocks execution when the filters match no reviewed cases.
+
 First verified run, 2026-04-29:
 - Output directory: `/tmp/screw-d02-exec-run-restored`.
 - Benchmark run ID: `20260429-062030`.
@@ -277,8 +293,11 @@ First payload review, 2026-04-29:
 - The Plexus Java shell-wrapper evidence supported a narrow `cmdi.yaml`
   refinement for custom shell command builders and patched single-quote wrapper
   discrimination.
-- Re-run the same controlled smoke slice after the PR lands before treating the
-  refinement as effective.
+- A focused rerun after the first CmdI refinement reduced the Plexus patched
+  finding count but did not prove the change effective: the remaining
+  vulnerable finding did not overlap the benchmark truth span, and one patched
+  `Shell.java` false positive remained. Continue with targeted executor/context
+  improvements before making another CmdI YAML tweak.
 
 ## YAML Mutation Rule
 

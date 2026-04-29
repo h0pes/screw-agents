@@ -36,6 +36,8 @@ class ControlledExecutorConfig(BaseModel):
     throttle_delay: float = 2.0
     max_retries: int = 3
     timeout: int = 300
+    agents: list[str] = Field(default_factory=list)
+    case_ids: list[str] = Field(default_factory=list)
 
 
 class ControlledExecutorIssue(BaseModel):
@@ -105,8 +107,12 @@ def build_controlled_executor_report(
     throttle_delay: float = 2.0,
     max_retries: int = 3,
     timeout: int = 300,
+    agents: list[str] | None = None,
+    case_ids: list[str] | None = None,
 ) -> ControlledExecutorReport:
     """Validate or execute a reviewed controlled-run plan."""
+    agent_filter = _normalize_filter_values(agents)
+    case_id_filter = _normalize_filter_values(case_ids)
     plan = ControlledExecutionPlan.model_validate_json(
         controlled_plan_path.read_text(encoding="utf-8")
     )
@@ -118,6 +124,8 @@ def build_controlled_executor_report(
         throttle_delay=throttle_delay,
         max_retries=max_retries,
         timeout=timeout,
+        agents=agent_filter,
+        case_ids=case_id_filter,
     )
     issues: list[ControlledExecutorIssue] = []
     issue_keys: set[tuple[str, str]] = set()
@@ -151,6 +159,8 @@ def build_controlled_executor_report(
     resolved_cases: list[BenchmarkCase] = []
     report_cases: list[ControlledExecutorCase] = []
     for selection in plan.selections:
+        if agent_filter and selection.agent not in agent_filter:
+            continue
         dataset = datasets_by_name.get(selection.dataset)
         if dataset is None:
             _append_issue(
@@ -163,6 +173,8 @@ def build_controlled_executor_report(
             continue
         manifest_cases = _load_manifest_cases(Path(str(dataset["manifest_path"])))
         for case_id in selection.selected_case_ids:
+            if case_id_filter and case_id not in case_id_filter:
+                continue
             raw_case = manifest_cases.get(case_id)
             if raw_case is None:
                 _append_issue(
@@ -194,6 +206,18 @@ def build_controlled_executor_report(
             )
             if report_case is not None:
                 report_cases.append(report_case)
+
+    if (agent_filter or case_id_filter) and not report_cases:
+        _append_issue(
+            issues,
+            issue_keys,
+            "blocker",
+            "selection_filter_empty",
+            (
+                "Controlled executor filters matched no reviewed cases "
+                f"(agents={agent_filter or '-'}, case_ids={case_id_filter or '-'})."
+            ),
+        )
 
     execution_performed = False
     benchmark_run_id: str | None = None
@@ -244,6 +268,8 @@ def render_controlled_executor_report_markdown(
         f"- **Cases:** {len(report.cases)}",
         f"- **Estimated calls:** {estimated_calls}",
         f"- **Benchmark run ID:** {report.benchmark_run_id or '-'}",
+        f"- **Agent filter:** {_format_filter(report.config.agents)}",
+        f"- **Case ID filter:** {_format_filter(report.config.case_ids)}",
         "",
         "## Issues",
         "",
@@ -490,6 +516,18 @@ def _overall_metric(summary: dict[str, Any]) -> dict[str, Any] | None:
 
 def _pct(value: float) -> str:
     return f"{value:.1%}"
+
+
+def _normalize_filter_values(values: list[str] | None) -> list[str]:
+    if not values:
+        return []
+    return [value for value in dict.fromkeys(item.strip() for item in values) if value]
+
+
+def _format_filter(values: list[str]) -> str:
+    if not values:
+        return "-"
+    return ", ".join(values)
 
 
 def _append_issue(

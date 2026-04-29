@@ -1,6 +1,6 @@
 # Project Status — screw-agents
 
-> Last updated: 2026-04-28
+> Last updated: 2026-04-29
 
 ## Deferred Obligations
 
@@ -16,7 +16,9 @@ Items explicitly deferred from earlier phases that must be completed in later ph
 `docs/PHASE_4_D02_PLAN.md` and use `docs/PHASE_4_OPERATING_MAP.md` for the
 full safe-planning/materialization/paid-execution sequence; do not run
 expensive benchmarks until the dry-run plan's dataset and gate-definition
-issues are addressed.
+issues are addressed. The controlled executor supports focused reruns with
+repeatable `--agent` and `--case-id` filters, so concrete failure-payload
+examples can be revalidated without repeating the full smoke set.
 
 **When starting Phase 4:** D-02 threshold optimization runs as part of the autoresearch loop. The benchmark pipeline is validated (PR #3).
 
