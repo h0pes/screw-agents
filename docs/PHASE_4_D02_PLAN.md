@@ -252,6 +252,11 @@ First controlled smoke execution, verified 2026-04-29:
   `--include-related-context`. This is intended for cases like the Plexus CmdI
   benchmark where the primary file and the effective subclass/wrapper behavior
   live in separate files. The default remains single-primary-file prompts.
+- Focused CmdI/Plexus execution with `--include-related-context` is verified:
+  `/tmp/screw-d02-cmdi-context-run`, benchmark run `20260429-090552`. The run
+  produced 9 vulnerable findings, 0 patched findings, TP 7, FP 2, TN 10, FN 3,
+  and a focused failure payload at
+  `/tmp/screw-d02-cmdi-context-failure-inputs/cmdi_failure_input.json`.
 
 Focused rerun example:
 

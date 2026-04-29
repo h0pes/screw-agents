@@ -20,8 +20,9 @@ issues are addressed. The controlled executor supports focused reruns with
 repeatable `--agent` and `--case-id` filters, so concrete failure-payload
 examples can be revalidated without repeating the full smoke set. It also
 supports opt-in related-file prompt context for multi-file benchmark cases,
-which should be tried on the CmdI/Plexus slice before another `cmdi.yaml`
-refinement.
+which has been verified on the CmdI/Plexus slice: patched-version findings
+dropped to zero, while remaining misses now need review as possible truth-span
+granularity artifacts before another `cmdi.yaml` refinement.
 
 **When starting Phase 4:** D-02 threshold optimization runs as part of the autoresearch loop. The benchmark pipeline is validated (PR #3).
 
