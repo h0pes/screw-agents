@@ -292,6 +292,24 @@ First controlled smoke execution, verified 2026-04-29:
   TP 3, FP 0, TN 25, FN 22. The remaining capped failure payload has five
   pure misses; several are likely truth-span/helper artifacts, so further SQLi
   YAML changes should wait for another reviewed concrete slice.
+- A filtered non-OSSF consolidation execution is verified at
+  `/tmp/screw-d02-nonossf-consolidation-run`, benchmark run
+  `20260429-182422`. It ran the five currently executable non-OSSF slices
+  after OSSF source extraction was blocked: AntiSamy/XSS, Zope/XSS,
+  Plexus/CmdI, NHibernate/SQLi, and MoreFixes Rails/SQLi. No executor issues
+  were reported. Zope remained fully detected and patched-clean; NHibernate
+  preserved the accepted low-recall/high-precision v1.0.1 behavior; AntiSamy
+  remained a test-file truth-span miss. Plexus produced a patched `Shell.java`
+  finding when run without related context, reinforcing that the Plexus slice
+  should use `--include-related-context` before evaluating further CmdI
+  changes. MoreFixes Rails produced patched `add_lock!` and `insert_fixture`
+  findings in the consolidation run even though the earlier focused Rails run
+  kept patched files clean. Treat this as a concrete SQLi precision and
+  repeatability review item, not as an automatic YAML mutation trigger.
+- Consolidation failure payloads were generated under
+  `/tmp/screw-d02-nonossf-consolidation-failure-inputs`. They keep
+  `yaml_mutation_allowed=false` and are the next evidence set to review before
+  changing any agent YAML.
 
 Focused rerun example:
 

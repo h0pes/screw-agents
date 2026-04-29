@@ -440,7 +440,7 @@ Structured as a dependency graph with three parallel tracks converging at smoke 
 | Phase 3a | Prompt infrastructure (trust, learning aggregation, plugin-namespace, core-prompt dedup) | **Complete** (PR #6-#9 series, merged 2026-04-16/17) |
 | Phase 3b | Adaptive Analysis & Learning Refinement | **Complete** — PR #4 (#10) 2026-04-18, PR #5 (#11) 2026-04-20, PR #6 (#12) 2026-04-23, Phase 3b-C2 2026-04-24, BACKLOG-PR6-22 (#14) 2026-04-24, T19-M D7 (#15) 2026-04-24, T-SCAN-REFACTOR final 2026-04-25 |
 | Phase 3c | Sandbox hardening sweep (seccomp filter + thread-safety + dedup) | **Deferred** — see `docs/DEFERRED_BACKLOG.md` §"Phase 3c (sandbox hardening follow-ups)" |
-| Phase 4 | Autoresearch & Self-Improvement | **In progress** — D-01 merged, D-02 controlled smoke and failure-input generation complete; payload review next |
+| Phase 4 | Autoresearch & Self-Improvement | **In progress** — D-01 merged, D-02 controlled smoke, focused refinements, and non-OSSF consolidation execution complete; consolidation false-positive review next |
 | Phase 5 | Multi-LLM Challenger System | Pending |
 | Phase 6 | Agent Expansion & Ecosystem | Pending |
 | Phase 7 | screw.nvim Integration (scan commands, review-before-import, exclusions) | Pending |
@@ -544,7 +544,19 @@ validation found the same class of problem in a harder form:
 `ossf-CVE-2019-13506` matched the benchmark metadata repo's report server
 `src/index.ts` by path and line number, not the devalue target source. The
 extractor now refuses to read from the OSSF metadata clone at all until target
-source snapshots are materialized.
+source snapshots are materialized. After OSSF was blocked, a filtered non-OSSF
+consolidation execution ran the five currently executable slices
+(AntiSamy/XSS, Zope/XSS, Plexus/CmdI, NHibernate/SQLi, MoreFixes Rails/SQLi)
+at `/tmp/screw-d02-nonossf-consolidation-run`, benchmark run
+`20260429-182422`. No executor issues were reported. Zope stayed fully clean,
+NHibernate retained its accepted high-precision v1.0.1 behavior, and AntiSamy
+remained a test-file truth-span miss. Plexus produced a patched `Shell.java`
+finding when run without related context, so future Plexus validation should
+keep using `--include-related-context`. MoreFixes Rails produced patched
+`add_lock!` and `insert_fixture` findings in the consolidation run despite the
+earlier focused Rails run keeping patched files clean; treat those concrete
+false positives as the next SQLi precision/repeatability review item before
+any further YAML change.
 
 **When continuing Phase 4:** Continue from `docs/PHASE_4_D02_PLAN.md`; keep Rust metric claims scoped to real-CVE SQLi/Cmdi/XSS and synthetic-only SSTI unless refresh finds a verified SSTI advisory.
 Use `docs/PHASE_4_OPERATING_MAP.md` as the high-level map before restoring
