@@ -269,6 +269,17 @@ Verified 2026-04-29 from the first controlled smoke output:
 | `sqli_failure_input.json` | 5 | 0 | no |
 | `xss_failure_input.json` | 3 | 0 | no |
 
+First payload review, 2026-04-29:
+- CmdI was reviewed first because it had both misses and patched-version
+  findings.
+- The OSSF CmdI miss was rejected as training evidence because the materialized
+  source file did not contain the truth line.
+- The Plexus Java shell-wrapper evidence supported a narrow `cmdi.yaml`
+  refinement for custom shell command builders and patched single-quote wrapper
+  discrimination.
+- Re-run the same controlled smoke slice after the PR lands before treating the
+  refinement as effective.
+
 ## YAML Mutation Rule
 
 Agent YAML must not change because a gate percentage is low.
