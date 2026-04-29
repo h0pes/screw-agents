@@ -38,6 +38,9 @@ from screw_agents.autoresearch.failure_input import (
     FailureExample,
     GuardrailState,
 )
+from screw_agents.autoresearch.failure_payloads import (
+    build_failure_payloads_from_controlled_report,
+)
 from screw_agents.autoresearch.planner import (
     DatasetPlan,
     GateAudit,
@@ -71,6 +74,7 @@ __all__ = [
     "RunPlan",
     "build_controlled_execution_plan",
     "build_controlled_executor_report",
+    "build_failure_payloads_from_controlled_report",
     "build_run_plan",
     "render_controlled_execution_plan_markdown",
     "render_controlled_executor_report_markdown",

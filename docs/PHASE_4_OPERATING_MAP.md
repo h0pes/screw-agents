@@ -15,7 +15,7 @@ There are three separate layers:
 |---|---|---|---|---|
 | Benchmark machinery | Runner, manifests, gates, extractors, planners, schemas | Yes | No | Already mostly built |
 | External benchmark material | Downloaded repos, Docker/Postgres exports, generated `truth.sarif`, local clones | No, intentionally ignored | Sometimes slow | Must be restored/materialized locally |
-| Claude benchmark execution | Running agents over vulnerable/patched cases | No result artifacts tracked by default | Yes | Controlled smoke execution is proven; next step is failure-input triage |
+| Claude benchmark execution | Running agents over vulnerable/patched cases | No result artifacts tracked by default | Yes | Controlled smoke execution is proven; failure-input payload generation is available |
 
 The long-lived main checkout currently has the active G5 external material
 restored. A fresh worktree can still report second-layer blockers because the
@@ -56,7 +56,9 @@ What exists:
 - readiness checklist: explains which local datasets must be materialized before
   a controlled run can start;
 - controlled executor reporting: records overall benchmark metrics and
-  vulnerable/patched finding counts for each selected case.
+  vulnerable/patched finding counts for each selected case;
+- failure-input payload generator: turns controlled-run misses and patched
+  findings into schema-valid `phase4-autoresearch-failure-input/v1` payloads.
 
 ## Current Readiness Picture
 
@@ -240,6 +242,33 @@ First verified run, 2026-04-29:
   metrics and finding-count tables to choose concrete missed-vulnerability and
   false-positive examples for the failure-input schema.
 
+Failure-input payload generation:
+
+```bash
+uv run python benchmarks/scripts/generate_autoresearch_failure_inputs.py \
+  --controlled-executor-report <controlled_executor_report.json> \
+  --output-dir <failure-input-output-dir>
+```
+
+When generating from an old report created in the long-lived main checkout
+while working from a fresh feature worktree, pass the materialized external data
+directory explicitly:
+
+```bash
+uv run python benchmarks/scripts/generate_autoresearch_failure_inputs.py \
+  --controlled-executor-report /tmp/screw-d02-exec-run-restored/controlled_executor_report.json \
+  --output-dir /tmp/screw-d02-failure-inputs \
+  --external-dir /home/marco/Programming/AI/screw-agents/benchmarks/external
+```
+
+Verified 2026-04-29 from the first controlled smoke output:
+
+| Payload | Missed | False positives | Mutation allowed |
+|---|---:|---:|---|
+| `cmdi_failure_input.json` | 5 | 3 | no |
+| `sqli_failure_input.json` | 5 | 0 | no |
+| `xss_failure_input.json` | 3 | 0 | no |
+
 ## YAML Mutation Rule
 
 Agent YAML must not change because a gate percentage is low.
@@ -260,9 +289,9 @@ Even then, YAML mutation is not automatic. It is a reviewed engineering change.
    execution.
 2. Re-run readiness and controlled executor validation before any new paid
    execution.
-3. Use controlled smoke reports to choose concrete missed-vulnerability and
-   false-positive examples.
-4. Convert those examples into `phase4-autoresearch-failure-input/v1` payloads.
-5. Review payloads manually before considering targeted YAML refinements.
-6. Only then consider a small, reviewed agent-knowledge change and re-run the
+3. Generate `phase4-autoresearch-failure-input/v1` payloads from controlled
+   smoke reports.
+4. Review payload examples manually before considering targeted YAML
+   refinements.
+5. Only then consider a small, reviewed agent-knowledge change and re-run the
    same controlled smoke slice.

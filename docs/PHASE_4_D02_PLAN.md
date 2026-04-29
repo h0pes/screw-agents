@@ -1,9 +1,9 @@
 # Phase 4 D-02 — Autoresearch And Gate Optimization Plan
 
 > Status: dry-run, gate-audit, failure-input, readiness checklist,
-> controlled-run scaffold, and controlled smoke execution are complete. Active
-> G5 dataset readiness is clean in the long-lived main checkout after local
-> materialization.
+> controlled-run scaffold, controlled smoke execution, and failure-input
+> payload generation are complete. Active G5 dataset readiness is clean in the
+> long-lived main checkout after local materialization.
 > Scope: plan and audit expensive benchmark/autoresearch runs before invoking
 > Claude or mutating agent YAML.
 
@@ -127,7 +127,10 @@ Correct stale G5 definitions before treating gate results as authoritative:
 
 ### Task 4 — Failure-Analysis Input Format
 
-Status: implemented in `src/screw_agents/autoresearch/failure_input.py`.
+Status: schema implemented in `src/screw_agents/autoresearch/failure_input.py`;
+controlled-run payload generation implemented in
+`src/screw_agents/autoresearch/failure_payloads.py` and
+`benchmarks/scripts/generate_autoresearch_failure_inputs.py`.
 
 Define the structured payload future autoresearch steps will consume:
 - missed finding examples
@@ -145,6 +148,33 @@ Acceptance:
   `case_provenance`, must match a single agent, and must still require human
   review.
 - Tests cover JSON round-trip and guardrail failures.
+
+Generation command:
+
+```bash
+uv run python benchmarks/scripts/generate_autoresearch_failure_inputs.py \
+  --controlled-executor-report <controlled_executor_report.json> \
+  --output-dir <failure-input-output-dir>
+```
+
+If the controlled executor report was produced from a different checkout whose
+dry-run plan used a relative `benchmarks/external` path, pass the checkout that
+holds the materialized ignored data:
+
+```bash
+uv run python benchmarks/scripts/generate_autoresearch_failure_inputs.py \
+  --controlled-executor-report <controlled_executor_report.json> \
+  --output-dir <failure-input-output-dir> \
+  --external-dir /home/marco/Programming/AI/screw-agents/benchmarks/external
+```
+
+Verified 2026-04-29 against the first controlled smoke output:
+- `cmdi_failure_input.json`: 5 missed examples, 3 false-positive examples.
+- `sqli_failure_input.json`: 5 missed examples, 0 false-positive examples.
+- `xss_failure_input.json`: 3 missed examples, 0 false-positive examples.
+- All generated payloads validate against
+  `phase4-autoresearch-failure-input/v1` and keep
+  `yaml_mutation_allowed=false`.
 
 ### Task 5 — Controlled Execution
 
@@ -192,3 +222,6 @@ First controlled smoke execution, verified 2026-04-29:
   Reality Check Java CmdI and SQLi produced true positives but also false
   positives. The next step is to turn concrete misses/false positives into
   `phase4-autoresearch-failure-input/v1` payloads for reviewed analysis.
+- Those payloads can now be generated mechanically from the controlled executor
+  report and raw case JSON files. The next engineering step is human review of
+  generated examples before proposing any agent-knowledge refinement.
