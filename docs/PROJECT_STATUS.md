@@ -523,7 +523,12 @@ left three vulnerable-side misses, so `cmdi.yaml` remains at v1.0.1 after a
 rejected over-reporting v1.0.2 trial. SQLi/NHibernate review then accepted a
 narrow `sqli.yaml` v1.0.1 refinement for C# ORM SQL literal/comment renderers;
 the focused rerun on `rc-csharp-nhibernate-core-CVE-2024-39677` improved from
-1 to 3 vulnerable findings while keeping patched findings at 0.
+1 to 3 vulnerable findings while keeping patched findings at 0. SQLi/MoreFixes
+Rails review then rejected a YAML change: the agent already found the real
+vulnerable `add_limit_offset!` LIMIT/OFFSET interpolation and kept patched
+files clean, while remaining misses are test-file truth spans or line drift
+around `sanitize_limit`; the extra `add_lock!` vulnerable-side report is
+outside the CVE-2008-4094 truth and argues against broadening the rule.
 XSS triage initially rejected an `xss.yaml` change because the first XSS
 payload surfaced one missing source excerpt, one sanitizer test-path span, and
 one Zope framework helper span needing manual review. Follow-up Zope review
