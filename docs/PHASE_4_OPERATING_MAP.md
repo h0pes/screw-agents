@@ -463,6 +463,34 @@ OSSF extraction hardening, verified 2026-04-29:
   OSSF/XSS (`G5.1`) and OSSF/CmdI (`G5.5`):
   `/tmp/screw-d02-ossf-source-resolver-controlled-rerun`.
 
+Non-OSSF consolidation execution, verified 2026-04-29:
+- Output directory: `/tmp/screw-d02-nonossf-consolidation-run`.
+- Benchmark run ID: `20260429-182422`.
+- Command shape: filtered executor run over the five currently executable
+  non-OSSF slices: AntiSamy/XSS, Zope/XSS, Plexus/CmdI, NHibernate/SQLi, and
+  MoreFixes Rails/SQLi.
+- No executor issues were reported. One NHibernate Claude invocation failed to
+  return an extractable findings array during the run, but retry handling
+  continued and the final report completed.
+- Result summary: Zope stayed clean at TP 1, FP 0, TN 1, FN 0; NHibernate
+  kept the accepted v1.0.1 shape at TP 3, FP 0, TN 25, FN 22; AntiSamy
+  remained a test-file truth-span miss with no findings; Plexus produced
+  vulnerable findings plus one patched `Shell.java` finding when run without
+  related context; MoreFixes Rails produced the expected vulnerable
+  `add_limit_offset!` finding but also patched `add_lock!` and
+  `insert_fixture` findings.
+- Generated consolidation failure payloads:
+  `/tmp/screw-d02-nonossf-consolidation-failure-inputs/cmdi_failure_input.json`,
+  `/tmp/screw-d02-nonossf-consolidation-failure-inputs/sqli_failure_input.json`,
+  and `/tmp/screw-d02-nonossf-consolidation-failure-inputs/xss_failure_input.json`.
+- Interpretation: do not mutate YAML from this aggregate run. Plexus should use
+  `--include-related-context` in focused multi-file reruns because the earlier
+  related-context run removed patched findings. Rails now has a precision and
+  repeatability question: the focused Rails run had no patched findings, while
+  the consolidation run flagged patched `add_lock!` and `insert_fixture`.
+  Review those concrete false-positive examples before any future SQLi Rails
+  guidance change.
+
 ## YAML Mutation Rule
 
 Agent YAML must not change because a gate percentage is low.
@@ -485,7 +513,7 @@ Even then, YAML mutation is not automatic. It is a reviewed engineering change.
    execution.
 3. Generate `phase4-autoresearch-failure-input/v1` payloads from controlled
    smoke reports.
-4. Review payload examples manually before considering targeted YAML
-   refinements.
-5. Only then consider a small, reviewed agent-knowledge change and re-run the
-   same controlled smoke slice.
+4. Review the non-OSSF consolidation false positives first, especially Rails
+   patched `add_lock!` / `insert_fixture` and Plexus without related context.
+5. Only then consider a small, reviewed agent-knowledge or evidence-packaging
+   change and re-run the same controlled smoke slice.
