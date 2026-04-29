@@ -351,6 +351,10 @@ Review of the three remaining CmdI/Plexus misses:
   same-file, same-CWE vulnerable findings that did not overlap the exact truth
   span. This makes truth-span granularity visible during review and avoids
   treating every non-overlap as a YAML knowledge gap.
+- The payload-level `diagnostics` summary counts total misses, misses with
+  nearby same-file related findings, same-file-only related findings, pure
+  misses, and patched-version false positives so reviewers can triage a run
+  without hand-counting every example first.
 
 ## YAML Mutation Rule
 

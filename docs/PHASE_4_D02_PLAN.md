@@ -267,6 +267,9 @@ First controlled smoke execution, verified 2026-04-29:
 - Failure payloads now include `related_agent_findings` for missed examples so
   review can distinguish true misses from same-file, same-CWE vulnerable
   findings that missed only the exact benchmark truth span.
+- Payloads also include a `diagnostics` count summary for missed examples:
+  nearby same-file related findings, same-file-only related findings, pure
+  misses, and patched-version false positives.
 
 Focused rerun example:
 

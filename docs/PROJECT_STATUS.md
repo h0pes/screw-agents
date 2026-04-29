@@ -27,8 +27,8 @@ two truth-span granularity cases and one bridge-method localization gap. A
 trial `cmdi.yaml` localization prompt was rejected because it caused
 vulnerable-side over-reporting; keep `cmdi.yaml` at v1.0.1 and address the
 remaining gap in scoring/failure-analysis tooling. Failure payloads now surface
-same-file related agent findings for missed truth spans to make that review
-explicit.
+same-file related agent findings and summary diagnostic counts for missed truth
+spans to make that review explicit.
 
 **When starting Phase 4:** D-02 threshold optimization runs as part of the autoresearch loop. The benchmark pipeline is validated (PR #3).
 

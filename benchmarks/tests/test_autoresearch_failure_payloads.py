@@ -79,6 +79,10 @@ def test_build_failure_payloads_from_controlled_report(tmp_path: Path) -> None:
     assert len(payload.case_provenance) == 1
     assert len(payload.missed_findings) == 1
     assert len(payload.false_positive_findings) == 1
+    assert payload.diagnostics is not None
+    assert payload.diagnostics.total_missed == 1
+    assert payload.diagnostics.pure_misses == 1
+    assert payload.diagnostics.false_positive_findings == 1
     assert payload.missed_findings[0].source_variant == "vulnerable"
     assert payload.false_positive_findings[0].source_variant == "patched"
     assert payload.missed_findings[0].code_excerpt is not None
@@ -159,3 +163,9 @@ def test_missed_payload_includes_related_vulnerable_findings(tmp_path: Path) -> 
     assert len(related) == 1
     assert related[0].relationship == "nearby_same_file"
     assert related[0].line_distance == 4
+    assert payload.diagnostics is not None
+    assert payload.diagnostics.total_missed == 1
+    assert payload.diagnostics.missed_with_related_findings == 1
+    assert payload.diagnostics.missed_with_nearby_same_file_findings == 1
+    assert payload.diagnostics.missed_with_same_file_only_findings == 0
+    assert payload.diagnostics.pure_misses == 0
