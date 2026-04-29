@@ -310,6 +310,28 @@ First payload review, 2026-04-29:
   next CmdI/Plexus validation can test evidence packaging before any further
   `cmdi.yaml` refinement.
 
+Focused CmdI/Plexus related-context execution, verified 2026-04-29:
+- Output directory: `/tmp/screw-d02-cmdi-context-run`.
+- Benchmark run ID: `20260429-090552`.
+- Command shape: `--agent cmdi --case-id
+  rc-java-plexus-utils-CVE-2017-1000487 --include-related-context --execute
+  --allow-claude-invocation`.
+- Result: TP 7, FP 2, TN 10, FN 3; TPR 70.0%, FPR 16.7%, precision 77.8%,
+  F1 73.7%, accuracy 53.3%.
+- Raw finding counts: 9 vulnerable-version findings, 0 patched-version
+  findings. This removed the remaining patched `Shell.java` finding from the
+  previous CmdI v1.0.1 focused rerun.
+- Generated focused failure payload:
+  `/tmp/screw-d02-cmdi-context-failure-inputs/cmdi_failure_input.json`.
+- Remaining concrete misses are three vulnerable truth spans in
+  `Commandline.java` and `BourneShell.java`; there are no patched-version false
+  positive examples in the focused payload.
+- Interpretation: related-file context materially improved the Plexus evidence
+  packaging and should remain part of focused multi-file controlled reruns. Do
+  not make another `cmdi.yaml` change from this run alone; first decide whether
+  the remaining misses are meaningful knowledge gaps or truth-span granularity
+  artifacts.
+
 ## YAML Mutation Rule
 
 Agent YAML must not change because a gate percentage is low.
