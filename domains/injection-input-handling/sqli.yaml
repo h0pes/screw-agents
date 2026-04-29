@@ -1,5 +1,5 @@
 # domains/injection-input-handling/sqli.yaml
-# SQL Injection Agent Definition — screw-agents v1.0.1
+# SQL Injection Agent Definition — screw-agents v1.0.2
 # Generated from 16 research files covering Tiers 1-4 of KNOWLEDGE_SOURCES.md
 # Research date: 2026-04-05
 
@@ -7,7 +7,7 @@ meta:
   name: sqli
   display_name: "SQL Injection Reviewer"
   domain: injection-input-handling
-  version: "1.0.1"
+  version: "1.0.2"
   last_updated: "2026-04-29"
   short_description: "SQL injection via unsafe string concatenation, interpolation, or ORM raw query misuse reaching database query execution paths"
 
@@ -158,6 +158,15 @@ core_prompt: |
   Environment variables, hardcoded constants, config file values, enum values, code-defined
   mappings (e.g., sort field allowlists), framework-generated internal queries.
 
+  **Rails framework-internal fragment helpers (context required):**
+  Do not report Rails/ActiveRecord lock-clause appenders or fixture insertion helpers merely
+  because they accept or concatenate SQL fragments. For helpers such as `add_lock!` and
+  `insert_fixture`, require visible attacker-controlled data flow into `:lock`, fixture
+  key/value lists, or an equivalent option/object before reporting. This discriminator does
+  NOT apply to Rails LIMIT/OFFSET appenders: pre-sanitization `add_limit_offset!` code that
+  interpolates `options[:limit]` / `options[:offset]` without integer/list coercion remains
+  reportable because those options are commonly request-controlled pagination inputs.
+
   ## Sink Identification by Language
 
   **Python:** cursor.execute(), cursor.executemany() (DB-API 2.0 — psycopg2, sqlite3,
@@ -262,7 +271,8 @@ core_prompt: |
   constants only; tagged template literals in Prisma $queryRaw or Drizzle sql; test/fixture
   code with hardcoded values; migration SQL with no runtime input; FromSqlInterpolated in
   EF Core (safe despite interpolation syntax); fmt.Sprintf with %d/%f only (integer/float,
-  not %s).
+  not %s); Rails/ActiveRecord lock-clause or fixture helper internals with no visible
+  attacker-controlled caller flow.
 
   ## Severity Assessment
 
@@ -481,6 +491,10 @@ detection_heuristics:
       pattern: "Configuration-sourced values used in SQL — verify the configuration source"
       languages: [python, java, javascript, typescript, go, ruby, php, c_sharp]
       note: "Usually safe, but if config is user-editable (e.g., admin panel), it becomes a source."
+    - id: rb-rails-lock-fixture-helper
+      pattern: "Rails/ActiveRecord lock-clause appenders or fixture insertion helpers without visible attacker-controlled caller flow"
+      languages: [ruby]
+      note: "Context-required only. Do not report unchanged add_lock!-style helpers, documented lock examples, or fixture.key_list/value_list interpolation unless attacker-controlled data flow into the option/object is visible. This does not suppress vulnerable LIMIT/OFFSET appenders without numeric/list coercion."
     - id: any-pdo-emulated
       pattern: "PDO with ATTR_EMULATE_PREPARES = true and multi-byte character set"
       languages: [php]
