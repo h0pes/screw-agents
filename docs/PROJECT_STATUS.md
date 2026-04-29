@@ -428,7 +428,7 @@ Structured as a dependency graph with three parallel tracks converging at smoke 
 | Phase 3a | Prompt infrastructure (trust, learning aggregation, plugin-namespace, core-prompt dedup) | **Complete** (PR #6-#9 series, merged 2026-04-16/17) |
 | Phase 3b | Adaptive Analysis & Learning Refinement | **Complete** — PR #4 (#10) 2026-04-18, PR #5 (#11) 2026-04-20, PR #6 (#12) 2026-04-23, Phase 3b-C2 2026-04-24, BACKLOG-PR6-22 (#14) 2026-04-24, T19-M D7 (#15) 2026-04-24, T-SCAN-REFACTOR final 2026-04-25 |
 | Phase 3c | Sandbox hardening sweep (seccomp filter + thread-safety + dedup) | **Deferred** — see `docs/DEFERRED_BACKLOG.md` §"Phase 3c (sandbox hardening follow-ups)" |
-| Phase 4 | Autoresearch & Self-Improvement | **In progress** — D-01 merged, D-02 controlled smoke execution complete; failure-input triage next |
+| Phase 4 | Autoresearch & Self-Improvement | **In progress** — D-01 merged, D-02 controlled smoke and failure-input generation complete; payload review next |
 | Phase 5 | Multi-LLM Challenger System | Pending |
 | Phase 6 | Agent Expansion & Ecosystem | Pending |
 | Phase 7 | screw.nvim Integration (scan commands, review-before-import, exclusions) | Pending |
@@ -440,8 +440,9 @@ Structured as a dependency graph with three parallel tracks converging at smoke 
 Phase 4 (Autoresearch & Self-Improvement) started with D-01. As of
 2026-04-29, D-01 is merged, D-02 planning scaffold is merged in PR #18, active
 G5 dataset readiness is clean in the long-lived main checkout after core
-dataset and MoreFixes materialization, and the first controlled smoke execution
-has completed successfully.
+dataset and MoreFixes materialization, the first controlled smoke execution has
+completed successfully, and concrete failure-input payloads can be generated
+from the controlled run output.
 
 ### D-01 — Rust benchmark corpus from GitHub Advisory Database + synthetic SSTI
 **Status:** MERGED in PR #17
@@ -495,9 +496,12 @@ executor issues. The controlled executor report now surfaces overall metrics
 and per-case finding counts directly in Markdown/JSON. Initial results are
 diagnostic: several XSS and OSSF CmdI slices produced misses, while Reality
 Check Java CmdI and SQLi produced some true positives plus false positives.
-These concrete outcomes must be converted into
-`phase4-autoresearch-failure-input/v1` payloads before any YAML refinement is
-considered.
+These concrete outcomes can now be converted by
+`benchmarks/scripts/generate_autoresearch_failure_inputs.py` into
+`phase4-autoresearch-failure-input/v1` payloads. Verified payload generation
+from the first smoke output produced `cmdi` (5 missed, 3 false-positive), `sqli`
+(5 missed), and `xss` (3 missed) payloads with YAML mutation disabled. Payload
+review is the next step before any YAML refinement is considered.
 
 **When continuing Phase 4:** Continue from `docs/PHASE_4_D02_PLAN.md`; keep Rust metric claims scoped to real-CVE SQLi/Cmdi/XSS and synthetic-only SSTI unless refresh finds a verified SSTI advisory.
 Use `docs/PHASE_4_OPERATING_MAP.md` as the high-level map before restoring
