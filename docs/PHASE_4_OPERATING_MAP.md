@@ -332,6 +332,26 @@ Focused CmdI/Plexus related-context execution, verified 2026-04-29:
   the remaining misses are meaningful knowledge gaps or truth-span granularity
   artifacts.
 
+Review of the three remaining CmdI/Plexus misses:
+- `BourneShell.getQuotingTriggerChars()` and the default `BourneShell()`
+  constructor are truth-span granularity cases: the agent already identified
+  the unsafe `unifyQuotes()`/double-quote model and the `getExecutable()` path,
+  but did not place findings on the small helper spans selected by the
+  benchmark.
+- `Commandline.verifyShellState()` is a real bridge-method localization gap:
+  it copies executable and working-directory state into the shell object before
+  `getShellCommandline()`/`execute()` build and invoke the shell command.
+- A trial `cmdi.yaml` v1.0.2 localization prompt was rejected. It kept patched
+  findings at zero but increased vulnerable findings from 9 to 18 and regressed
+  the focused metrics to TP 6, FP 12, TN 10, FN 4. The extra guidance made the
+  agent over-report helper/configuration methods instead of cleanly closing the
+  remaining truth spans. Keep `cmdi.yaml` at v1.0.1 and solve the remaining
+  diagnostic gap in scoring/failure-analysis tooling.
+- Failure payloads now include `related_agent_findings` on missed examples:
+  same-file, same-CWE vulnerable findings that did not overlap the exact truth
+  span. This makes truth-span granularity visible during review and avoids
+  treating every non-overlap as a YAML knowledge gap.
+
 ## YAML Mutation Rule
 
 Agent YAML must not change because a gate percentage is low.
