@@ -7,8 +7,8 @@ meta:
   name: cmdi
   display_name: "Command Injection Reviewer"
   domain: injection-input-handling
-  version: "1.0.0"
-  last_updated: "2026-04-06"
+  version: "1.0.1"
+  last_updated: "2026-04-29"
   short_description: "OS command injection via unsanitized user input reaching shell execution, subprocess calls, or argument construction"
 
   cwes:
@@ -236,9 +236,13 @@ core_prompt: |
   **False positive signals:** Array-based execution with shell=False and fixed command name
   (safe from metacharacters — but check for argument injection); hardcoded command strings with
   no user-controlled components; shlex.quote() applied correctly to every individual argument;
-  Rust Command::new("fixed").arg("fixed") with no user input; build scripts (build.rs) using
-  Command with compile-time values; commands in test fixtures with hardcoded values; validated
-  input matching strict allowlist or regex (e.g., ^[a-zA-Z0-9.-]+$).
+  Java shell-wrapper code where the effective subclass override unconditionally single-quotes
+  every executable, working-directory, and argument value before the final sh -c string is built
+  (for example a quoteOneItem(path, ...) helper that returns '\'' + path.replace("'", "'\"'\"'") +
+  '\'' and all wrapper paths call it); Rust Command::new("fixed").arg("fixed") with no user
+  input; build scripts (build.rs) using Command with compile-time values; commands in test
+  fixtures with hardcoded values; validated input matching strict allowlist or regex (e.g.,
+  ^[a-zA-Z0-9.-]+$).
 
   ## Severity Assessment
 
@@ -282,6 +286,10 @@ detection_heuristics:
       pattern: "Runtime.exec() with String[] containing sh -c and concatenated user input"
       languages: [java]
       example: "Runtime.exec(new String[]{\"sh\", \"-c\", \"ping \" + host})"
+    - id: java-shell-wrapper-concat
+      pattern: "Custom Java shell-wrapper APIs that assemble one shell command string and pass it to Runtime.exec(String[]) with /bin/sh -c, cmd /c, or equivalent shell arguments"
+      languages: [java]
+      example: "getShellCommandLine() returns [\"/bin/sh\", \"-c\", executable + \" \" + joinedArgs]"
     # JavaScript/Node.js
     - id: js-exec-template
       pattern: "child_process.exec() / execSync() with template literal or concatenation"

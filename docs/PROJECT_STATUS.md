@@ -501,7 +501,11 @@ These concrete outcomes can now be converted by
 `phase4-autoresearch-failure-input/v1` payloads. Verified payload generation
 from the first smoke output produced `cmdi` (5 missed, 3 false-positive), `sqli`
 (5 missed), and `xss` (3 missed) payloads with YAML mutation disabled. Payload
-review is the next step before any YAML refinement is considered.
+review is the next step before any YAML refinement is considered. First CmdI
+payload review rejected the OSSF miss as bad source-material evidence and
+accepted the Plexus Java shell-wrapper examples as a narrow agent-knowledge
+refinement: `cmdi.yaml` now records custom Java shell-wrapper builders and
+patched single-quote wrapper overrides as a false-positive discriminator.
 
 **When continuing Phase 4:** Continue from `docs/PHASE_4_D02_PLAN.md`; keep Rust metric claims scoped to real-CVE SQLi/Cmdi/XSS and synthetic-only SSTI unless refresh finds a verified SSTI advisory.
 Use `docs/PHASE_4_OPERATING_MAP.md` as the high-level map before restoring

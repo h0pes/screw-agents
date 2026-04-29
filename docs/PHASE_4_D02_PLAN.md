@@ -176,6 +176,20 @@ Verified 2026-04-29 against the first controlled smoke output:
   `phase4-autoresearch-failure-input/v1` and keep
   `yaml_mutation_allowed=false`.
 
+CmdI payload review, 2026-04-29:
+- The OSSF `ossf-CVE-2017-1000219` miss is not accepted as agent-training
+  evidence because the locally materialized source is a one-line entrypoint
+  while the truth location points to line 82.
+- The Reality Check Java Plexus examples are accepted as useful evidence:
+  vulnerable output showed the agent understands nearby shell-wrapper sinks,
+  but it missed some benchmark truth spans and still flagged patched
+  `Shell.java` code without accounting for the fixed `BourneShell.quoteOneItem`
+  override.
+- `cmdi.yaml` was refined narrowly to cover custom Java shell-wrapper command
+  builders and to treat unconditional single-quote wrapper overrides as a
+  false-positive discriminator. This is a reviewed human change, not automatic
+  YAML mutation.
+
 ### Task 5 — Controlled Execution
 
 Status: guarded scaffold and first controlled smoke execution complete.
