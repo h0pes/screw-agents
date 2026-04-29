@@ -18,6 +18,7 @@ from screw_agents.autoresearch.controlled_executor import (
 )
 from screw_agents.autoresearch.failure_input import FailureAnalysisInput
 from screw_agents.autoresearch.failure_payloads import (
+    _evidence_quality_flags,
     build_failure_payloads_from_controlled_report,
 )
 
@@ -86,6 +87,7 @@ def test_build_failure_payloads_from_controlled_report(tmp_path: Path) -> None:
     assert payload.missed_findings[0].source_variant == "vulnerable"
     assert payload.false_positive_findings[0].source_variant == "patched"
     assert payload.missed_findings[0].code_excerpt is not None
+    assert payload.missed_findings[0].evidence_quality_flags == []
 
 
 def test_failure_payload_cli_writes_payloads(tmp_path: Path) -> None:
@@ -169,3 +171,40 @@ def test_missed_payload_includes_related_vulnerable_findings(tmp_path: Path) -> 
     assert payload.diagnostics.missed_with_nearby_same_file_findings == 1
     assert payload.diagnostics.missed_with_same_file_only_findings == 0
     assert payload.diagnostics.pure_misses == 0
+
+
+def test_payload_diagnostics_count_evidence_quality_flags(tmp_path: Path) -> None:
+    report_path = _write_executed_report(tmp_path)
+    vulnerable_file = (
+        tmp_path
+        / "external"
+        / "morefixes"
+        / "morefixes-CVE-2024-0001-example"
+        / "code"
+        / "vulnerable"
+        / "src%2Fdb.php"
+    )
+    vulnerable_file.unlink()
+
+    paths = build_failure_payloads_from_controlled_report(
+        controlled_executor_report_path=report_path,
+        output_dir=tmp_path / "payloads",
+        domains_dir=Path("domains"),
+    )
+
+    payload = FailureAnalysisInput.model_validate_json(
+        paths[0].read_text(encoding="utf-8")
+    )
+    assert payload.missed_findings[0].evidence_quality_flags == [
+        "missing_code_excerpt"
+    ]
+    assert payload.diagnostics is not None
+    assert payload.diagnostics.missed_with_missing_code_excerpt == 1
+    assert payload.diagnostics.missed_in_test_file_paths == 0
+
+
+def test_evidence_quality_flags_identify_test_file_paths() -> None:
+    assert _evidence_quality_flags(
+        file_path="OWASP.AntiSamyTests/Html/AntiSamyTest.cs",
+        code_excerpt="public void TestSmuggledTagsInStyleContent() {}",
+    ) == ["test_file_path"]

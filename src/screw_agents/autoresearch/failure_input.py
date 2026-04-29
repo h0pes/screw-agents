@@ -94,6 +94,9 @@ class FailureExample(BaseModel):
     message: str | None = None
     code_excerpt: str | None = None
     related_agent_findings: list[RelatedAgentFinding] = []
+    evidence_quality_flags: list[
+        Literal["missing_code_excerpt", "test_file_path"]
+    ] = []
 
     @model_validator(mode="after")
     def check_line_order(self) -> FailureExample:
@@ -125,6 +128,8 @@ class MissDiagnosticsSummary(BaseModel):
     missed_with_same_file_only_findings: int = Field(ge=0)
     pure_misses: int = Field(ge=0)
     false_positive_findings: int = Field(ge=0)
+    missed_with_missing_code_excerpt: int = Field(default=0, ge=0)
+    missed_in_test_file_paths: int = Field(default=0, ge=0)
 
 
 class FailureAnalysisInput(BaseModel):

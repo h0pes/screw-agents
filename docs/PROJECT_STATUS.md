@@ -524,6 +524,10 @@ rejected over-reporting v1.0.2 trial. SQLi/NHibernate review then accepted a
 narrow `sqli.yaml` v1.0.1 refinement for C# ORM SQL literal/comment renderers;
 the focused rerun on `rc-csharp-nhibernate-core-CVE-2024-39677` improved from
 1 to 3 vulnerable findings while keeping patched findings at 0.
+XSS triage did not accept an `xss.yaml` change: the first XSS payload now
+surfaces one missing source excerpt, one sanitizer test-path span, and one
+Zope framework helper span that needs manual review before it can support an
+agent-knowledge change.
 
 **When continuing Phase 4:** Continue from `docs/PHASE_4_D02_PLAN.md`; keep Rust metric claims scoped to real-CVE SQLi/Cmdi/XSS and synthetic-only SSTI unless refresh finds a verified SSTI advisory.
 Use `docs/PHASE_4_OPERATING_MAP.md` as the high-level map before restoring
