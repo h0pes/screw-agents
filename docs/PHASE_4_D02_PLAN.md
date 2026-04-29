@@ -274,9 +274,12 @@ First controlled smoke execution, verified 2026-04-29:
   counts for missing code excerpts and test-file paths. This was added after
   XSS triage showed the first three XSS misses are not clean YAML-training
   evidence: one OSSF miss has no extractable source excerpt, one AntiSamy miss
-  is a sanitizer unit-test span, and the Zope miss needs manual review because
+  is a sanitizer unit-test span, and the Zope miss needed manual review because
   its truth span is a framework namespace/evaluation helper rather than a
-  direct HTML-output sink.
+  direct HTML-output sink. That Zope review is now accepted as a narrow
+  CVE-2009-5145 PageTemplates taint-preservation pattern: vulnerable code
+  pushes raw `request` into `TemplateDict`/`RestrictedDTML`, while patched code
+  applies `request.taintWrapper()` first.
 - OSSF extraction now rejects same-basename fallback files that do not cover
   the SARIF truth line range. This prevents cases such as
   `ossf-CVE-2018-16484` from being treated as extractable when `lib/index.js`

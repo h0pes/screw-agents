@@ -1,5 +1,5 @@
 # domains/injection-input-handling/xss.yaml
-# Cross-Site Scripting Agent Definition — screw-agents v1.0.0
+# Cross-Site Scripting Agent Definition — screw-agents v1.0.1
 # Generated from 4 research files covering Tiers 1-4 of KNOWLEDGE_SOURCES.md
 # Research date: 2026-04-06
 
@@ -7,8 +7,8 @@ meta:
   name: xss
   display_name: "Cross-Site Scripting Reviewer"
   domain: injection-input-handling
-  version: "1.0.0"
-  last_updated: "2026-04-06"
+  version: "1.0.1"
+  last_updated: "2026-04-29"
   short_description: "Cross-site scripting via unsanitized user input reflected into HTML, JavaScript, or other browser-executed contexts"
 
   cwes:
@@ -235,6 +235,12 @@ core_prompt: |
   EL without escapeXml, `response.getWriter().print()`, Thymeleaf `th:utext` (vs safe `th:text`).
   **C#/ASP.NET:** Razor `@var` auto-escapes. ONLY flag: `@Html.Raw()`, `new HtmlString()`,
   `Response.Write()` with request data.
+  **Zope PageTemplates:** request data in PageTemplate/TALES namespaces must preserve Zope's
+  taint tracking. In `Products.PageTemplates.ZRPythonExpr.call_with_ns`, pushing `request`
+  directly into a `TemplateDict`/`RestrictedDTML` namespace without `request.taintWrapper()`
+  disables the taint metadata that downstream rendering relies on. Flag this narrow pattern
+  when the code obtains `request = ns.get('request', ...)` and calls `td._push(request)`
+  without a preceding `hasattr(request, 'taintWrapper')` / `request.taintWrapper()` wrapper.
 
   **Rust Frameworks (no SAST coverage exists — this agent is the primary detector):**
 
@@ -274,7 +280,8 @@ core_prompt: |
 
   **Python:** `mark_safe()`, `SafeString()`, `HttpResponse()`, `Markup()`, `render_template_string()`,
   direct string return from Flask routes, `|safe` filter, `{% autoescape off/false %}`, `__html__()`,
-  `@html_safe`, Jinja2 direct `Template().render()`.
+  `@html_safe`, Jinja2 direct `Template().render()`, Zope PageTemplates request namespace push
+  without preserving `request.taintWrapper()`.
 
   **Java:** `response.getWriter().write/print()`, `<%= %>` scriptlet, `${param.x}` EL expression,
   Thymeleaf `th:utext`, `@ResponseBody` returning HTML string.
@@ -421,6 +428,13 @@ detection_heuristics:
       languages: [python]
       example: "jinja2.Template(template_string).render(name=user_input)"
       semgrep: "python.flask.security.xss.audit.direct-use-of-jinja2.direct-use-of-jinja2"
+    # Python / Zope PageTemplates
+    - id: py-zope-pagetemplate-request-taint
+      pattern: "Zope PageTemplate namespace pushes request into TemplateDict/RestrictedDTML without request.taintWrapper()"
+      languages: [python]
+      example: "request = ns.get('request', {}); td._push(request)"
+      cves: ["CVE-2009-5145"]
+      note: "Only flag the Zope PageTemplates/TALES namespace pattern where request taint metadata is dropped before template expression evaluation."
     # JavaScript / TypeScript
     - id: js-react-dangerouslysetinnerhtml
       pattern: "dangerouslySetInnerHTML with non-constant value (bypasses React escaping)"
@@ -905,6 +919,26 @@ few_shot_examples:
         <div>@Html.Raw(message)</div>
       explanation: "Html.Raw() bypasses Razor auto-escaping. Fix: Remove Html.Raw() — <div>@message</div> auto-escapes."
 
+    - language: python
+      label: "Zope PageTemplates request taint dropped"
+      code: |
+        from DocumentTemplate.DT_Util import TemplateDict, InstanceDict
+        from AccessControl.DTML import RestrictedDTML
+
+        class Rtd(RestrictedDTML, TemplateDict):
+            this = None
+
+        def call_with_ns(f, ns, arg=1):
+            td = Rtd()
+            this = ns.get('context', ns.get('here'))
+            td.this = this
+            request = ns.get('request', {})
+            td._push(request)
+            td._push(InstanceDict(td.this, td))
+            td._push(ns)
+            return f(td)
+      explanation: "Zope PageTemplates rely on request taint metadata during template expression rendering. Pushing raw request into the TemplateDict/RestrictedDTML namespace drops the taint wrapper. Fix: if hasattr(request, 'taintWrapper'): request = request.taintWrapper() before td._push(request)."
+
     - language: rust
       label: "Axum Html response with format!() — the Rust XSS footgun"
       code: |
@@ -1052,6 +1086,22 @@ few_shot_examples:
       code: |
         <p>@Model.UserInput</p>
       explanation: "Razor @ expressions auto-encode output. Contrast with @Html.Raw() which bypasses encoding."
+
+    - language: python
+      label: "Zope PageTemplates request taint preserved"
+      code: |
+        def call_with_ns(f, ns, arg=1):
+            td = Rtd()
+            this = ns.get('context', ns.get('here'))
+            td.this = this
+            request = ns.get('request', {})
+            if hasattr(request, 'taintWrapper'):
+                request = request.taintWrapper()
+            td._push(request)
+            td._push(InstanceDict(td.this, td))
+            td._push(ns)
+            return f(td)
+      explanation: "request.taintWrapper() preserves Zope's taint tracking before template namespace evaluation. This is the patched CVE-2009-5145 pattern."
 
     - language: rust
       label: "Askama auto-escaping (default)"
@@ -1244,6 +1294,10 @@ target_strategy:
     - "Response.Write"
     - "getWriter"
     - "render_template_string"
+    - "taintWrapper"
+    - "TemplateDict"
+    - "RestrictedDTML"
+    - "ZRPythonExpr"
     # Template escape filters
     - "|safe"
     - "|safeseq"
