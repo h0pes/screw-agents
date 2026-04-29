@@ -405,6 +405,15 @@ XSS evidence-quality triage, verified 2026-04-29:
 - No `xss.yaml` change is accepted from this triage slice. The next XSS step is
   either source-material repair for the OSSF case or a focused Zope review that
   proves a concrete XSS data/output path.
+- Focused Zope review accepted a narrow `xss.yaml` v1.0.1 refinement:
+  vulnerable Zope 2.12.1 pushes raw `request` into the PageTemplate
+  `TemplateDict`/`RestrictedDTML` namespace, while patched Zope 2.12.2 first
+  applies `request.taintWrapper()`. The same CVE-2009-5145 function is also
+  materialized in MoreFixes with CWE-79 truth, so the change is scoped to Zope
+  PageTemplates request taint preservation rather than generic helper methods.
+- Focused executor rerun:
+  `/tmp/screw-d02-xss-zope-v101-run/controlled_executor_report.md`. Result:
+  TP 1, FP 0, TN 1, FN 0; vulnerable findings 1; patched findings 0.
 
 OSSF extraction hardening, verified 2026-04-29:
 - The OSSF extractor previously fell back from a missing truth path such as

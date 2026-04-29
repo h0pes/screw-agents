@@ -524,17 +524,22 @@ rejected over-reporting v1.0.2 trial. SQLi/NHibernate review then accepted a
 narrow `sqli.yaml` v1.0.1 refinement for C# ORM SQL literal/comment renderers;
 the focused rerun on `rc-csharp-nhibernate-core-CVE-2024-39677` improved from
 1 to 3 vulnerable findings while keeping patched findings at 0.
-XSS triage did not accept an `xss.yaml` change: the first XSS payload now
-surfaces one missing source excerpt, one sanitizer test-path span, and one
-Zope framework helper span that needs manual review before it can support an
-agent-knowledge change. The OSSF extractor now rejects fallback files that do
-not cover the SARIF truth line range, preventing the `ossf-CVE-2018-16484`
-one-line metadata-repo `index.js` mismatch from being selected as valid XSS
-evidence. Follow-up OSSF/XSS validation found the same class of problem in a
-harder form: `ossf-CVE-2019-13506` matched the benchmark metadata repo's report
-server `src/index.ts` by path and line number, not the devalue target source.
-The extractor now refuses to read from the OSSF metadata clone at all until
-target source snapshots are materialized.
+XSS triage initially rejected an `xss.yaml` change because the first XSS
+payload surfaced one missing source excerpt, one sanitizer test-path span, and
+one Zope framework helper span needing manual review. Follow-up Zope review
+accepted a narrow `xss.yaml` v1.0.1 refinement for CVE-2009-5145: vulnerable
+Zope PageTemplates push raw `request` into the `TemplateDict`/`RestrictedDTML`
+namespace, while the patched version preserves taint metadata with
+`request.taintWrapper()`. The focused executor rerun on
+`rc-python-Zope-CVE-2009-5145` improved to TP 1, FP 0, TN 1, FN 0. The OSSF
+extractor now rejects fallback files that do not cover the SARIF truth line
+range, preventing the `ossf-CVE-2018-16484` one-line metadata-repo `index.js`
+mismatch from being selected as valid XSS evidence. Follow-up OSSF/XSS
+validation found the same class of problem in a harder form:
+`ossf-CVE-2019-13506` matched the benchmark metadata repo's report server
+`src/index.ts` by path and line number, not the devalue target source. The
+extractor now refuses to read from the OSSF metadata clone at all until target
+source snapshots are materialized.
 
 **When continuing Phase 4:** Continue from `docs/PHASE_4_D02_PLAN.md`; keep Rust metric claims scoped to real-CVE SQLi/Cmdi/XSS and synthetic-only SSTI unless refresh finds a verified SSTI advisory.
 Use `docs/PHASE_4_OPERATING_MAP.md` as the high-level map before restoring

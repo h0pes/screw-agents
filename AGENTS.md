@@ -74,7 +74,8 @@ instructions:
 6. Check PR mergeability and checks. If GitHub reports no checks, state that
    explicitly.
 7. Merge from the main checkout, not from a worktree whose branch is checked
-   out elsewhere.
+   out elsewhere. When using `gh pr merge`, do not pass `--delete-branch`;
+   branch deletion happens after the worktree is removed.
 8. After merge, align local main with `git pull --ff-only origin main`.
 9. Remove the worktree from the main checkout:
    `git worktree remove .worktrees/<branch>`.
