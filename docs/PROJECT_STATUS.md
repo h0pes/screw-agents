@@ -556,7 +556,19 @@ keep using `--include-related-context`. MoreFixes Rails produced patched
 `add_lock!` and `insert_fixture` findings in the consolidation run despite the
 earlier focused Rails run keeping patched files clean; treat those concrete
 false positives as the next SQLi precision/repeatability review item before
-any further YAML change.
+any further YAML change. A fresh Rails-only repeat reproduced the patched
+`add_lock!` and `insert_fixture` reports, so this is repeatable prompt
+behavior. The CVE-2008-4094 truth is specifically `add_limit_offset!` /
+`sanitize_limit`; `add_lock!` and `insert_fixture` are unchanged framework
+helpers. A broad SQLi prompt trial was rejected because it suppressed the real
+`add_limit_offset!` finding. The accepted `sqli.yaml` v1.0.2 refinement is
+narrower: Rails/ActiveRecord lock-clause and fixture helpers are
+context-required unless visible attacker-controlled data flows into the
+option/object, while vulnerable LIMIT/OFFSET appenders remain reportable.
+Focused v1.0.2 rerun
+`/tmp/screw-d02-sqli-morefixes-rails-precision-v102b-run` improved the slice to
+TP 1, FP 0, TN 5, FN 4 with one vulnerable `add_limit_offset!` finding and zero
+patched findings.
 
 **When continuing Phase 4:** Continue from `docs/PHASE_4_D02_PLAN.md`; keep Rust metric claims scoped to real-CVE SQLi/Cmdi/XSS and synthetic-only SSTI unless refresh finds a verified SSTI advisory.
 Use `docs/PHASE_4_OPERATING_MAP.md` as the high-level map before restoring

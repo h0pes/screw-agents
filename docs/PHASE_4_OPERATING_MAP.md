@@ -491,6 +491,31 @@ Non-OSSF consolidation execution, verified 2026-04-29:
   Review those concrete false-positive examples before any future SQLi Rails
   guidance change.
 
+Rails SQLi precision review, 2026-04-29:
+- The MoreFixes Rails SARIF truth for CVE-2008-4094 is narrow: the real target
+  is `add_limit_offset!` / `sanitize_limit` plus adapter tests for limit
+  sanitization. `add_lock!` and `insert_fixture` are unchanged between the
+  vulnerable and patched snapshots, so benchmark scoring correctly treats them
+  as out-of-CVE findings.
+- A fresh focused repeat at
+  `/tmp/screw-d02-sqli-morefixes-rails-repeat-run`, benchmark run
+  `20260429-190125`, reproduced the consolidation shape: 3 vulnerable findings
+  and 2 patched findings. This makes the issue repeatable, not a one-off
+  consolidation artifact.
+- An initial broad `sqli.yaml` trial was rejected because it over-suppressed
+  the slice to 0 vulnerable findings and 0 patched findings. The accepted
+  `sqli.yaml` v1.0.2 refinement is narrower: Rails/ActiveRecord lock-clause
+  and fixture helpers are context-required unless visible attacker-controlled
+  data flows into the option/object, while vulnerable LIMIT/OFFSET appenders
+  remain reportable.
+- Focused v1.0.2 rerun:
+  `/tmp/screw-d02-sqli-morefixes-rails-precision-v102b-run`, benchmark run
+  `20260429-191014`. Result: TP 1, FP 0, TN 5, FN 4; TPR 20.0%, FPR 0.0%,
+  precision 100.0%, F1 33.3%, accuracy 20.0%. Raw finding counts: 1
+  vulnerable-version finding on `add_limit_offset!`, 0 patched-version
+  findings. Generated failure payload:
+  `/tmp/screw-d02-sqli-morefixes-rails-precision-v102b-failure-inputs/sqli_failure_input.json`.
+
 ## YAML Mutation Rule
 
 Agent YAML must not change because a gate percentage is low.
