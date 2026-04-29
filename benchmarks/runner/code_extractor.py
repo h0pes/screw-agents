@@ -261,6 +261,13 @@ def _extract_ossf(
     repo_dir = ext_dir / "ossf-cve-benchmark" / "repo"
     if not repo_dir.exists():
         raise FileNotFoundError(f"OSSF repo not found: {repo_dir}")
+    if _is_ossf_metadata_repo(repo_dir):
+        logger.debug(
+            "OSSF target source snapshots are not materialized for %s; "
+            "refusing to read from the benchmark metadata repository.",
+            case.case_id,
+        )
+        return []
 
     kind = FindingKind.FAIL if variant == CodeVariant.VULNERABLE else FindingKind.PASS
     truth_files = {f.location.file for f in case.ground_truth if f.kind == kind}
@@ -302,6 +309,17 @@ def _extract_ossf(
             language=case.language.value,
         ))
     return results
+
+
+def _is_ossf_metadata_repo(repo_dir: Path) -> bool:
+    """Return True when repo_dir is the ossf-cve-benchmark metadata clone.
+
+    The benchmark repository stores CVE metadata and helper/reporting code, not
+    target-project source snapshots at the vulnerable and patched commits. Some
+    metadata files share paths and line numbers with truth entries by accident,
+    so extraction must fail closed until target snapshots are materialized.
+    """
+    return (repo_dir / "CVEs").is_dir() and (repo_dir / "schemas").is_dir()
 
 
 def _extract_morefixes(

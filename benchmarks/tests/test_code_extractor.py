@@ -222,6 +222,19 @@ def tmp_ossf_bad_basename_fallback(tmp_path):
 
 
 @pytest.fixture
+def tmp_ossf_metadata_repo_with_matching_source_path(tmp_path):
+    repo = tmp_path / "ossf-cve-benchmark" / "repo"
+    (repo / "CVEs").mkdir(parents=True)
+    (repo / "schemas").mkdir()
+    (repo / "src").mkdir()
+    (repo / "src" / "index.ts").write_text(
+        "\n".join([f"metadata line {line_no}" for line_no in range(1, 201)]) + "\n",
+        encoding="utf-8",
+    )
+    return tmp_path
+
+
+@pytest.fixture
 def morefixes_case():
     return BenchmarkCase(
         case_id="morefixes-CVE-2024-0001-example",
@@ -446,6 +459,47 @@ class TestExtractCodeForCase:
             ossf_case,
             CodeVariant.VULNERABLE,
             tmp_ossf_bad_basename_fallback,
+        )
+
+        assert vuln == []
+
+    def test_ossf_rejects_metadata_repo_even_when_path_and_line_match(
+        self,
+        tmp_ossf_metadata_repo_with_matching_source_path,
+    ):
+        case = BenchmarkCase(
+            case_id="ossf-CVE-2019-13506",
+            project="https://github.com/Rich-Harris/devalue.git",
+            language=Language.TYPESCRIPT,
+            vulnerable_version="pre-patch",
+            patched_version="post-patch",
+            ground_truth=[
+                Finding(
+                    cwe_id="CWE-79",
+                    kind=FindingKind.FAIL,
+                    location=CodeLocation(
+                        file="src/index.ts",
+                        start_line=190,
+                        end_line=190,
+                    ),
+                ),
+                Finding(
+                    cwe_id="CWE-79",
+                    kind=FindingKind.PASS,
+                    location=CodeLocation(
+                        file="src/index.ts",
+                        start_line=190,
+                        end_line=190,
+                    ),
+                ),
+            ],
+            source_dataset="ossf-cve-benchmark",
+        )
+
+        vuln = extract_code_for_case(
+            case,
+            CodeVariant.VULNERABLE,
+            tmp_ossf_metadata_repo_with_matching_source_path,
         )
 
         assert vuln == []

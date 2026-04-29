@@ -79,7 +79,7 @@ Long-lived main checkout result as of 2026-04-28:
 
 | Dataset | Needed for active G5? | Current meaning |
 |---|---|---|
-| `ossf-cve-benchmark` | Yes | Ready; 118 `truth.sarif` files materialized locally |
+| `ossf-cve-benchmark` | Yes | Truth ready; 118 `truth.sarif` files materialized locally, but target source snapshots are not yet materialized |
 | `reality-check-csharp` | Yes | Ready; 11 `truth.sarif` files materialized locally |
 | `reality-check-python` | Yes | Ready; 6 `truth.sarif` files materialized locally |
 | `reality-check-java` | Yes | Ready; 9 `truth.sarif` files materialized locally |
@@ -92,7 +92,8 @@ Long-lived main checkout result as of 2026-04-28:
 
 Verified core-dataset restoration as of 2026-04-28:
 - `uv run python -m benchmarks.scripts.ingest_ossf` restores 118
-  materialized OSSF case truth files.
+  materialized OSSF case truth files. It does not restore vulnerable/patched
+  target-project source snapshots.
 - `uv run python -m benchmarks.scripts.ingest_reality_check_csharp` restores
   11 materialized C# case truth files.
 - `uv run python -m benchmarks.scripts.ingest_reality_check_python` restores
@@ -184,9 +185,10 @@ datasets to be skipped. The plan records deterministic `selected_case_ids`
 from the dataset manifests, preferring cases whose `truth.sarif` matches the
 gate's CWE filter or the agent's default CWE and whose vulnerable/patched code
 can be extracted from the local materialized dataset. With the current active
-G5 inventory, that is expected to prepare seven small slices: OSSF/XSS,
-OSSF/CmdI, Reality Check C#/XSS, Reality Check C#/SQLi, Reality Check
-Python/XSS, Reality Check Java/CmdI, and MoreFixes/SQLi.
+G5 inventory, that currently prepares five small executable-source slices:
+Reality Check C#/XSS, Reality Check C#/SQLi, Reality Check Python/XSS,
+Reality Check Java/CmdI, and MoreFixes/SQLi. OSSF/XSS and OSSF/CmdI remain
+blocked until vulnerable/patched target source snapshots are materialized.
 
 Executable benchmark plan preparation:
 
@@ -418,6 +420,17 @@ OSSF extraction hardening, verified 2026-04-29:
   `ossf-CVE-2019-13506`; OSSF/CmdI similarly selects
   `ossf-CVE-2017-16087`. Validation-only executor run:
   `/tmp/screw-d02-ossf-line-coverage-executor-validation`.
+- A second OSSF/XSS validation found that `ossf-CVE-2019-13506` resolved to
+  the OSSF benchmark metadata repository's reporting server code at
+  `contrib/reports/explore-server/src/server/index.ts`, not the devalue target
+  repository source. The extractor now refuses to read from the OSSF metadata
+  clone at all. OSSF remains truth-materialized but blocked for executable
+  agent-quality runs until target source snapshots are materialized from the
+  recorded pre/post patch commits.
+- Re-preparing the controlled plan after this stricter source resolver selects
+  five non-OSSF slices and reports `case_selection_incomplete` blockers for
+  OSSF/XSS (`G5.1`) and OSSF/CmdI (`G5.5`):
+  `/tmp/screw-d02-ossf-source-resolver-controlled-rerun`.
 
 ## YAML Mutation Rule
 

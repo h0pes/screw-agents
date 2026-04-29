@@ -491,13 +491,13 @@ exact cases before any Claude call. The plan still requires explicit
 requires a second `--execute --allow-claude-invocation` before it can invoke
 Claude. The readiness checklist command is
 `uv run python benchmarks/scripts/check_autoresearch_readiness.py`; the
-long-lived main checkout currently reports 5 of 5 active G5 datasets ready
-after OSSF, reality-check, and MoreFixes materialization. A fresh worktree will
-still report blockers until the ignored external datasets are restored there.
-The OSSF and reality-check restoration path is verified: running their ingest
-scripts materializes the four core active G5 datasets. Unchanged manifest
-regeneration preserves the existing `ingested_at` value to avoid timestamp-only
-churn.
+long-lived main checkout currently has all active G5 truth files restored after
+OSSF, reality-check, and MoreFixes materialization. A fresh worktree will still
+report blockers until the ignored external datasets are restored there. OSSF is
+truth-materialized only: its ingest restores `truth.sarif` files but not the
+target-project vulnerable/patched source snapshots. Reality-check restoration
+is verified as executable source material. Unchanged manifest regeneration
+preserves the existing `ingested_at` value to avoid timestamp-only churn.
 MoreFixes Docker/Postgres restoration is now verified with explicit empty-volume
 import handling. The extractor materializes 2,601 case truth files plus 6,825
 vulnerable and 6,825 patched snapshots, and streams rows to avoid the previous
@@ -530,7 +530,11 @@ Zope framework helper span that needs manual review before it can support an
 agent-knowledge change. The OSSF extractor now rejects fallback files that do
 not cover the SARIF truth line range, preventing the `ossf-CVE-2018-16484`
 one-line metadata-repo `index.js` mismatch from being selected as valid XSS
-evidence.
+evidence. Follow-up OSSF/XSS validation found the same class of problem in a
+harder form: `ossf-CVE-2019-13506` matched the benchmark metadata repo's report
+server `src/index.ts` by path and line number, not the devalue target source.
+The extractor now refuses to read from the OSSF metadata clone at all until
+target source snapshots are materialized.
 
 **When continuing Phase 4:** Continue from `docs/PHASE_4_D02_PLAN.md`; keep Rust metric claims scoped to real-CVE SQLi/Cmdi/XSS and synthetic-only SSTI unless refresh finds a verified SSTI advisory.
 Use `docs/PHASE_4_OPERATING_MAP.md` as the high-level map before restoring
