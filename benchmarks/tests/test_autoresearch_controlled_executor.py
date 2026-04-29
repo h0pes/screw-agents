@@ -262,6 +262,20 @@ def test_executor_case_id_filter_limits_reviewed_selection(tmp_path: Path) -> No
     ]
 
 
+def test_executor_records_related_context_option(tmp_path: Path) -> None:
+    controlled_plan_path = _write_controlled_plan(tmp_path)
+
+    report = build_controlled_executor_report(
+        controlled_plan_path=controlled_plan_path,
+        output_dir=tmp_path / "out",
+        include_related_context=True,
+    )
+
+    assert report.issues == []
+    assert report.config.include_related_context is True
+    assert "**Related context:** yes" in render_controlled_executor_report_markdown(report)
+
+
 def test_executor_filter_empty_blocks_execution(tmp_path: Path) -> None:
     controlled_plan_path = _write_controlled_plan(tmp_path)
 
@@ -373,6 +387,7 @@ def test_executor_cli_writes_validation_report(tmp_path: Path) -> None:
             str(output_dir),
             "--case-id",
             "morefixes-CVE-2024-0002-example",
+            "--include-related-context",
         ]
     )
 
@@ -382,5 +397,6 @@ def test_executor_cli_writes_validation_report(tmp_path: Path) -> None:
     )
     assert written["execution_performed"] is False
     assert written["config"]["case_ids"] == ["morefixes-CVE-2024-0002-example"]
+    assert written["config"]["include_related_context"] is True
     assert written["cases"][0]["case_id"] == "morefixes-CVE-2024-0002-example"
     assert (output_dir / "controlled_executor_report.md").exists()

@@ -51,6 +51,78 @@ def rc_case():
 
 
 @pytest.fixture
+def tmp_reality_check_java(tmp_path):
+    repo = tmp_path / "reality-check-java" / "repo"
+    vuln_dir = repo / "java" / "benchmark" / "plexus" / "plexus-1.0.0"
+    patch_dir = repo / "java" / "benchmark" / "plexus" / "plexus-1.0.1"
+    vuln_dir.mkdir(parents=True)
+    patch_dir.mkdir(parents=True)
+    (vuln_dir / "Shell.java").write_text(
+        "class Shell {\n"
+        "  String[] getCommandLine(String executable, String[] args) {\n"
+        "    return new String[] { executable, String.join(\" \", args) };\n"
+        "  }\n"
+        "}\n"
+    )
+    (vuln_dir / "BourneShell.java").write_text(
+        "class BourneShell extends Shell {\n"
+        "  String quoteOneItem(String item) { return item; }\n"
+        "}\n"
+    )
+    (patch_dir / "Shell.java").write_text(
+        "class Shell {\n"
+        "  String[] getCommandLine(String executable, String[] args) {\n"
+        "    return new String[] { executable, String.join(\" \", args) };\n"
+        "  }\n"
+        "}\n"
+    )
+    (patch_dir / "BourneShell.java").write_text(
+        "class BourneShell extends Shell {\n"
+        "  String quoteOneItem(String item) { return \"'\" + item + \"'\"; }\n"
+        "}\n"
+    )
+    return tmp_path
+
+
+@pytest.fixture
+def rc_java_case():
+    return BenchmarkCase(
+        case_id="rc-java-plexus-utils-CVE-2017-1000487",
+        project="plexus",
+        language=Language.JAVA,
+        vulnerable_version="plexus-1.0.0",
+        patched_version="plexus-1.0.1",
+        ground_truth=[
+            Finding(
+                cwe_id="CWE-78",
+                kind=FindingKind.FAIL,
+                location=CodeLocation(file="Shell.java", start_line=1, end_line=4),
+            ),
+            Finding(
+                cwe_id="CWE-78",
+                kind=FindingKind.FAIL,
+                location=CodeLocation(
+                    file="BourneShell.java", start_line=1, end_line=3
+                ),
+            ),
+            Finding(
+                cwe_id="CWE-78",
+                kind=FindingKind.PASS,
+                location=CodeLocation(file="Shell.java", start_line=1, end_line=4),
+            ),
+            Finding(
+                cwe_id="CWE-78",
+                kind=FindingKind.PASS,
+                location=CodeLocation(
+                    file="BourneShell.java", start_line=1, end_line=3
+                ),
+            ),
+        ],
+        source_dataset="reality-check-java",
+    )
+
+
+@pytest.fixture
 def tmp_crossvul(tmp_path):
     """Create a minimal CrossVul directory structure."""
     cwe_dir = tmp_path / "crossvul" / "CWE-79" / "php"
@@ -260,6 +332,35 @@ class TestExtractCodeForCase:
         assert "Response.Write(input)" in vuln[0].content
         assert len(patched) == 1
         assert "Encode(input)" in patched[0].content
+
+    def test_reality_check_can_attach_related_context(
+        self,
+        tmp_reality_check_java,
+        rc_java_case,
+    ):
+        patched = extract_code_for_case(
+            rc_java_case,
+            CodeVariant.PATCHED,
+            tmp_reality_check_java,
+            include_related_context=True,
+        )
+
+        shell = next(piece for piece in patched if piece.file_path == "Shell.java")
+        assert [piece.file_path for piece in shell.context_files] == ["BourneShell.java"]
+        assert "quoteOneItem" in shell.context_files[0].content
+
+    def test_reality_check_omits_related_context_by_default(
+        self,
+        tmp_reality_check_java,
+        rc_java_case,
+    ):
+        patched = extract_code_for_case(
+            rc_java_case,
+            CodeVariant.PATCHED,
+            tmp_reality_check_java,
+        )
+
+        assert all(piece.context_files == [] for piece in patched)
 
     def test_crossvul_extracts_bad_good_pairs(self, tmp_crossvul, crossvul_case):
         vuln = extract_code_for_case(crossvul_case, CodeVariant.VULNERABLE, tmp_crossvul)

@@ -11,12 +11,17 @@ import logging
 import tempfile
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from benchmarks.runner.code_extractor import CodeVariant, ExtractedCode, extract_code_for_case
+from benchmarks.runner.code_extractor import (
+    CodeVariant,
+    ExtractedCode,
+    extract_code_for_case,
+)
 from benchmarks.runner.cwe import Cwe1400Hierarchy, load_hierarchy
-from benchmarks.runner.invoker import InvokeResult, InvokerConfig, invoke_claude
+from benchmarks.runner.invoker import InvokerConfig, invoke_claude
 from benchmarks.runner.metrics import compute_metrics
 from benchmarks.runner.models import (
     AgentRun,
@@ -28,6 +33,9 @@ from benchmarks.runner.models import (
     Summary,
 )
 from benchmarks.runner.sarif import load_bentoo_sarif
+
+if TYPE_CHECKING:
+    from screw_agents.engine import ScanEngine
 
 logger = logging.getLogger(__name__)
 
@@ -45,11 +53,16 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 @dataclass
 class EvalConfig:
     mode: str = "sample"
-    results_dir: Path = field(default_factory=lambda: REPO_ROOT / "benchmarks" / "results")
-    benchmarks_external_dir: Path = field(default_factory=lambda: REPO_ROOT / "benchmarks" / "external")
+    results_dir: Path = field(
+        default_factory=lambda: REPO_ROOT / "benchmarks" / "results"
+    )
+    benchmarks_external_dir: Path = field(
+        default_factory=lambda: REPO_ROOT / "benchmarks" / "external"
+    )
     domains_dir: Path = field(default_factory=lambda: REPO_ROOT / "domains")
     invoker_config: InvokerConfig = field(default_factory=InvokerConfig)
     sample_max_per_agent: int = 5
+    include_related_context: bool = False
 
 
 def load_cases_from_manifest(manifest_path: Path) -> list[dict]:
@@ -96,8 +109,14 @@ def map_case_to_agent(case: BenchmarkCase) -> str | None:
     return None
 
 
-def build_prompt(core_prompt: str, code: str, file_path: str) -> str:
+def build_prompt(
+    core_prompt: str,
+    code: str,
+    file_path: str,
+    context_files: list[ExtractedCode] | None = None,
+) -> str:
     """Assemble a detection prompt from agent knowledge and target code."""
+    related_context = _render_related_context(context_files or [])
     return f"""{core_prompt}
 
 ## Code to Analyze
@@ -108,11 +127,18 @@ def build_prompt(core_prompt: str, code: str, file_path: str) -> str:
 {code}
 ```
 
+{related_context}
+
 ## Instructions
 
-Analyze the code above using the detection knowledge provided. Return your findings as a JSON array. Each finding must have exactly these fields:
+Analyze the primary file above using the detection knowledge provided. Related
+files, when present, are context only: use them to understand call chains,
+overrides, sanitizers, wrappers, and patched behavior, but return findings only
+for the primary file `{file_path}`.
+
+Return your findings as a JSON array. Each finding must have exactly these fields:
 - "cwe_id": string (e.g., "CWE-79")
-- "file": string (the file path given above)
+- "file": string (the primary file path given above)
 - "start_line": integer (1-based line number where the vulnerability starts)
 - "end_line": integer (1-based line number where the vulnerability ends)
 - "confidence": float between 0.0 and 1.0
@@ -121,6 +147,24 @@ Analyze the code above using the detection knowledge provided. Return your findi
 If no vulnerabilities are found, return an empty array: []
 
 Return ONLY the JSON array, no other text."""
+
+
+def _render_related_context(context_files: list[ExtractedCode]) -> str:
+    if not context_files:
+        return ""
+    rendered = ["## Related Files For Context", ""]
+    for piece in context_files:
+        rendered.extend(
+            [
+                f"**Context file:** `{piece.file_path}`",
+                "",
+                "```",
+                piece.content,
+                "```",
+                "",
+            ]
+        )
+    return "\n".join(rendered).rstrip()
 
 
 def parse_findings_response(raw_findings: list[dict], agent_name: str) -> list[Finding]:
@@ -150,11 +194,11 @@ class Evaluator:
 
     def __init__(self, config: EvalConfig) -> None:
         self.config = config
-        self.run_id = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        self.run_id = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
         self._run_dir = config.results_dir / self.run_id
         self._cases_dir = self._run_dir / "cases"
 
-    def run(self, cases: list[BenchmarkCase], engine: "ScanEngine") -> list[Summary]:
+    def run(self, cases: list[BenchmarkCase], engine: ScanEngine) -> list[Summary]:
         """Run evaluation over all cases, returning per-agent summaries."""
         self._run_dir.mkdir(parents=True, exist_ok=True)
         self._cases_dir.mkdir(exist_ok=True)
@@ -182,7 +226,7 @@ class Evaluator:
         agent_name: str,
         dataset: str,
         cases: list[BenchmarkCase],
-        engine: "ScanEngine",
+        engine: ScanEngine,
         hierarchy: Cwe1400Hierarchy,
     ) -> Summary:
         vuln_runs = []
@@ -203,7 +247,7 @@ class Evaluator:
         self,
         case: BenchmarkCase,
         agent_name: str,
-        engine: "ScanEngine",
+        engine: ScanEngine,
     ) -> tuple[AgentRun, AgentRun]:
         vuln_result_path = self._cases_dir / f"{case.case_id}_vuln.json"
         patched_result_path = self._cases_dir / f"{case.case_id}_patched.json"
@@ -231,9 +275,14 @@ class Evaluator:
         case: BenchmarkCase,
         agent_name: str,
         variant: CodeVariant,
-        engine: "ScanEngine",
+        engine: ScanEngine,
     ) -> list[Finding]:
-        code_pieces = extract_code_for_case(case, variant, self.config.benchmarks_external_dir)
+        code_pieces = extract_code_for_case(
+            case,
+            variant,
+            self.config.benchmarks_external_dir,
+            include_related_context=self.config.include_related_context,
+        )
         if not code_pieces:
             return []
 
@@ -241,7 +290,11 @@ class Evaluator:
         for i, piece in enumerate(code_pieces):
             if i > 0:
                 time.sleep(self.config.invoker_config.throttle_delay)
-            with tempfile.NamedTemporaryFile(mode="w", suffix=f".{piece.language}", delete=False) as tmp:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                suffix=f".{piece.language}",
+                delete=False,
+            ) as tmp:
                 tmp.write(piece.content)
                 tmp_path = tmp.name
 
@@ -254,6 +307,7 @@ class Evaluator:
                     core_prompt=payload["core_prompt"],
                     code=payload["code"],
                     file_path=piece.file_path,
+                    context_files=piece.context_files,
                 )
                 result = invoke_claude(prompt, self.config.invoker_config)
                 if result.success:
@@ -269,7 +323,11 @@ class Evaluator:
                         )
                     all_findings.extend(findings)
                 else:
-                    logger.warning("Claude invocation failed for %s: %s", case.case_id, result.error)
+                    logger.warning(
+                        "Claude invocation failed for %s: %s",
+                        case.case_id,
+                        result.error,
+                    )
             finally:
                 Path(tmp_path).unlink(missing_ok=True)
 
