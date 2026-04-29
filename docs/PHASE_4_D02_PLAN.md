@@ -257,6 +257,16 @@ First controlled smoke execution, verified 2026-04-29:
   produced 9 vulnerable findings, 0 patched findings, TP 7, FP 2, TN 10, FN 3,
   and a focused failure payload at
   `/tmp/screw-d02-cmdi-context-failure-inputs/cmdi_failure_input.json`.
+- Review of the remaining three misses found two truth-span granularity cases
+  around `BourneShell` helper spans and one bridge-method localization gap in
+  `Commandline.verifyShellState()`. A trial `cmdi.yaml` v1.0.2 localization
+  prompt was rejected because it increased vulnerable-side over-reporting and
+  regressed the focused metrics to TP 6, FP 12, TN 10, FN 4 while keeping the
+  same zero patched findings. Keep `cmdi.yaml` at v1.0.1 and address the
+  remaining diagnostic gap in scoring/failure-analysis tooling.
+- Failure payloads now include `related_agent_findings` for missed examples so
+  review can distinguish true misses from same-file, same-CWE vulnerable
+  findings that missed only the exact benchmark truth span.
 
 Focused rerun example:
 

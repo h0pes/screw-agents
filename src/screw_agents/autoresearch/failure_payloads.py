@@ -39,6 +39,7 @@ from screw_agents.autoresearch.failure_input import (
     FailureAnalysisInput,
     FailureExample,
     GuardrailState,
+    RelatedAgentFinding,
 )
 
 
@@ -350,6 +351,11 @@ def _missed_examples(
                 )
                 if include_code_excerpt
                 else None,
+                related_agent_findings=_related_agent_findings(
+                    truth=truth,
+                    findings=vulnerable_findings,
+                    hierarchy=hierarchy,
+                ),
             )
         )
         if len(examples) >= max_count:
@@ -418,6 +424,49 @@ def _has_matching_finding(
         and hierarchy.broad_match(finding.cwe_id, truth.cwe_id)
         for finding in findings
     )
+
+
+def _related_agent_findings(
+    *,
+    truth: Finding,
+    findings: list[Finding],
+    hierarchy: Any,
+    max_count: int = 3,
+) -> list[RelatedAgentFinding]:
+    candidates: list[tuple[int, Finding]] = []
+    for finding in findings:
+        if finding.location.file != truth.location.file:
+            continue
+        if not hierarchy.broad_match(finding.cwe_id, truth.cwe_id):
+            continue
+        if locations_match(truth.location, finding.location):
+            continue
+        candidates.append((_line_distance(truth.location, finding.location), finding))
+
+    related: list[RelatedAgentFinding] = []
+    for distance, finding in sorted(candidates, key=lambda item: item[0])[:max_count]:
+        related.append(
+            RelatedAgentFinding(
+                file=finding.location.file,
+                start_line=finding.location.start_line,
+                end_line=finding.location.end_line,
+                cwe_id=finding.cwe_id,
+                line_distance=distance,
+                relationship=(
+                    "nearby_same_file" if distance <= 25 else "same_file"
+                ),
+                message=finding.message,
+            )
+        )
+    return related
+
+
+def _line_distance(a: CodeLocation, b: CodeLocation) -> int:
+    if locations_match(a, b):
+        return 0
+    if b.end_line < a.start_line:
+        return a.start_line - b.end_line
+    return b.start_line - a.end_line
 
 
 def _excerpt(

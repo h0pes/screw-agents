@@ -22,7 +22,11 @@ from screw_agents.autoresearch.failure_payloads import (
 )
 
 
-def _write_executed_report(tmp_path: Path) -> Path:
+def _write_executed_report(
+    tmp_path: Path,
+    *,
+    vulnerable_findings: list[dict[str, object]] | None = None,
+) -> Path:
     controlled_plan_path = _write_controlled_plan(tmp_path)
 
     def invoke(prompt: str, _config: object) -> InvokeResult:
@@ -40,7 +44,7 @@ def _write_executed_report(tmp_path: Path) -> Path:
                     }
                 ],
             )
-        return InvokeResult(success=True, findings=[])
+        return InvokeResult(success=True, findings=vulnerable_findings or [])
 
     with patch("benchmarks.runner.evaluator.invoke_claude", side_effect=invoke):
         report = build_controlled_executor_report(
@@ -125,3 +129,33 @@ def test_generator_supports_executor_reports_without_result_counts(
     )
     assert len(payload.missed_findings) == 1
     assert len(payload.false_positive_findings) == 1
+
+
+def test_missed_payload_includes_related_vulnerable_findings(tmp_path: Path) -> None:
+    report_path = _write_executed_report(
+        tmp_path,
+        vulnerable_findings=[
+            {
+                "cwe_id": "CWE-89",
+                "file": "src/db.php",
+                "start_line": 8,
+                "end_line": 10,
+                "confidence": 0.7,
+                "message": "Same file SQL construction but outside truth span.",
+            }
+        ],
+    )
+
+    paths = build_failure_payloads_from_controlled_report(
+        controlled_executor_report_path=report_path,
+        output_dir=tmp_path / "payloads",
+        domains_dir=Path("domains"),
+    )
+
+    payload = FailureAnalysisInput.model_validate_json(
+        paths[0].read_text(encoding="utf-8")
+    )
+    related = payload.missed_findings[0].related_agent_findings
+    assert len(related) == 1
+    assert related[0].relationship == "nearby_same_file"
+    assert related[0].line_distance == 4

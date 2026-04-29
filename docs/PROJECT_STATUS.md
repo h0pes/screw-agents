@@ -22,7 +22,13 @@ examples can be revalidated without repeating the full smoke set. It also
 supports opt-in related-file prompt context for multi-file benchmark cases,
 which has been verified on the CmdI/Plexus slice: patched-version findings
 dropped to zero, while remaining misses now need review as possible truth-span
-granularity artifacts before another `cmdi.yaml` refinement.
+granularity artifacts before another `cmdi.yaml` refinement. That review found
+two truth-span granularity cases and one bridge-method localization gap. A
+trial `cmdi.yaml` localization prompt was rejected because it caused
+vulnerable-side over-reporting; keep `cmdi.yaml` at v1.0.1 and address the
+remaining gap in scoring/failure-analysis tooling. Failure payloads now surface
+same-file related agent findings for missed truth spans to make that review
+explicit.
 
 **When starting Phase 4:** D-02 threshold optimization runs as part of the autoresearch loop. The benchmark pipeline is validated (PR #3).
 

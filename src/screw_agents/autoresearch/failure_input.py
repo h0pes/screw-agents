@@ -55,6 +55,26 @@ class CaseProvenance(BaseModel):
     source_url: str | None = None
 
 
+class RelatedAgentFinding(BaseModel):
+    """A nearby or same-file agent finding that may explain a missed truth span."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    file: str
+    start_line: int = Field(ge=1)
+    end_line: int = Field(ge=1)
+    cwe_id: str
+    line_distance: int = Field(ge=0)
+    relationship: Literal["nearby_same_file", "same_file"]
+    message: str | None = None
+
+    @model_validator(mode="after")
+    def check_line_order(self) -> RelatedAgentFinding:
+        if self.start_line > self.end_line:
+            raise ValueError("start_line must be <= end_line")
+        return self
+
+
 class FailureExample(BaseModel):
     """A concrete missed vulnerability or false-positive example."""
 
@@ -73,6 +93,7 @@ class FailureExample(BaseModel):
     observed_behavior: str
     message: str | None = None
     code_excerpt: str | None = None
+    related_agent_findings: list[RelatedAgentFinding] = []
 
     @model_validator(mode="after")
     def check_line_order(self) -> FailureExample:
