@@ -383,6 +383,27 @@ Focused SQLi/NHibernate literal-renderer execution, verified 2026-04-29:
   review, but v1.0.1 is accepted because it improves recall without patched
   findings.
 
+XSS evidence-quality triage, verified 2026-04-29:
+- Regenerated payload directory:
+  `/tmp/screw-d02-xss-evidence-quality-failure-inputs`.
+- Failure payload examples now include `evidence_quality_flags`, and
+  diagnostics count missed examples with missing code excerpts and test-file
+  paths.
+- XSS diagnostics from the first controlled smoke payload: total misses 3,
+  pure misses 3, missing code excerpts 1, test-file paths 1, false positives 0.
+- `ossf-CVE-2018-16484` is flagged `missing_code_excerpt`; do not treat it as
+  XSS YAML evidence until the source/truth materialization mismatch is
+  resolved.
+- `rc-csharp-antisamy-dotnet-CVE-2023-51652` is flagged `test_file_path`; it
+  is a sanitizer unit test span, not a normal application output sink.
+- `rc-python-Zope-CVE-2009-5145` has source text and is not a test path, but
+  the truth span is a Zope namespace/evaluation helper (`call_with_ns`) rather
+  than a direct HTML-output sink. Review this case manually before considering
+  an XSS YAML change.
+- No `xss.yaml` change is accepted from this triage slice. The next XSS step is
+  either source-material repair for the OSSF case or a focused Zope review that
+  proves a concrete XSS data/output path.
+
 ## YAML Mutation Rule
 
 Agent YAML must not change because a gate percentage is low.

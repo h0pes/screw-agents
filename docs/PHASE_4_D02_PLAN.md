@@ -270,6 +270,13 @@ First controlled smoke execution, verified 2026-04-29:
 - Payloads also include a `diagnostics` count summary for missed examples:
   nearby same-file related findings, same-file-only related findings, pure
   misses, and patched-version false positives.
+- Failure payload examples now include `evidence_quality_flags` and diagnostic
+  counts for missing code excerpts and test-file paths. This was added after
+  XSS triage showed the first three XSS misses are not clean YAML-training
+  evidence: one OSSF miss has no extractable source excerpt, one AntiSamy miss
+  is a sanitizer unit-test span, and the Zope miss needs manual review because
+  its truth span is a framework namespace/evaluation helper rather than a
+  direct HTML-output sink.
 - Focused SQLi/NHibernate review accepted a narrow `sqli.yaml` v1.0.1
   refinement for C# ORM SQL literal/comment renderers such as NHibernate
   `ObjectToSQLString()`. The focused rerun on

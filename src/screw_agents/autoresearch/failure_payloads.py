@@ -194,6 +194,8 @@ def _miss_diagnostics_summary(
     nearby = 0
     same_file_only = 0
     pure = 0
+    missing_code_excerpt = 0
+    test_file_paths = 0
     for example in missed_findings:
         relationships = {
             finding.relationship for finding in example.related_agent_findings
@@ -204,6 +206,11 @@ def _miss_diagnostics_summary(
             same_file_only += 1
         else:
             pure += 1
+        flags = set(example.evidence_quality_flags)
+        if "missing_code_excerpt" in flags:
+            missing_code_excerpt += 1
+        if "test_file_path" in flags:
+            test_file_paths += 1
     return MissDiagnosticsSummary(
         total_missed=len(missed_findings),
         missed_with_related_findings=nearby + same_file_only,
@@ -211,6 +218,8 @@ def _miss_diagnostics_summary(
         missed_with_same_file_only_findings=same_file_only,
         pure_misses=pure,
         false_positive_findings=len(false_positive_findings),
+        missed_with_missing_code_excerpt=missing_code_excerpt,
+        missed_in_test_file_paths=test_file_paths,
     )
 
 
@@ -360,6 +369,18 @@ def _missed_examples(
     for truth in _truths(context.case, FindingKind.FAIL):
         if _has_matching_finding(truth, vulnerable_findings, hierarchy):
             continue
+        code_excerpt = (
+            _excerpt(
+                context.case,
+                CodeVariant.VULNERABLE,
+                truth.location.file,
+                truth.location.start_line,
+                truth.location.end_line,
+                external_dir,
+            )
+            if include_code_excerpt
+            else None
+        )
         examples.append(
             FailureExample(
                 kind="missed",
@@ -374,20 +395,15 @@ def _missed_examples(
                 expected_behavior="Flag this ground-truth vulnerable location.",
                 observed_behavior="No matching vulnerable-version finding was returned.",
                 message=truth.message,
-                code_excerpt=_excerpt(
-                    context.case,
-                    CodeVariant.VULNERABLE,
-                    truth.location.file,
-                    truth.location.start_line,
-                    truth.location.end_line,
-                    external_dir,
-                )
-                if include_code_excerpt
-                else None,
+                code_excerpt=code_excerpt,
                 related_agent_findings=_related_agent_findings(
                     truth=truth,
                     findings=vulnerable_findings,
                     hierarchy=hierarchy,
+                ),
+                evidence_quality_flags=_evidence_quality_flags(
+                    file_path=truth.location.file,
+                    code_excerpt=code_excerpt,
                 ),
             )
         )
@@ -409,6 +425,18 @@ def _false_positive_examples(
         return []
     examples: list[FailureExample] = []
     for finding in patched_findings:
+        code_excerpt = (
+            _excerpt(
+                context.case,
+                CodeVariant.PATCHED,
+                finding.location.file,
+                finding.location.start_line,
+                finding.location.end_line,
+                external_dir,
+            )
+            if include_code_excerpt
+            else None
+        )
         examples.append(
             FailureExample(
                 kind="false_positive",
@@ -426,16 +454,11 @@ def _false_positive_examples(
                 ),
                 observed_behavior="Agent returned a finding on the patched version.",
                 message=finding.message,
-                code_excerpt=_excerpt(
-                    context.case,
-                    CodeVariant.PATCHED,
-                    finding.location.file,
-                    finding.location.start_line,
-                    finding.location.end_line,
-                    external_dir,
-                )
-                if include_code_excerpt
-                else None,
+                code_excerpt=code_excerpt,
+                evidence_quality_flags=_evidence_quality_flags(
+                    file_path=finding.location.file,
+                    code_excerpt=code_excerpt,
+                ),
             )
         )
         if len(examples) >= max_count:
@@ -500,6 +523,28 @@ def _line_distance(a: CodeLocation, b: CodeLocation) -> int:
     if b.end_line < a.start_line:
         return a.start_line - b.end_line
     return b.start_line - a.end_line
+
+
+def _evidence_quality_flags(
+    *,
+    file_path: str,
+    code_excerpt: str | None,
+) -> list[str]:
+    flags: list[str] = []
+    if not code_excerpt:
+        flags.append("missing_code_excerpt")
+    normalized = file_path.replace("\\", "/").lower()
+    path_parts = normalized.split("/")
+    file_name = path_parts[-1]
+    if (
+        "test" in path_parts
+        or "tests" in path_parts
+        or "test" in file_name
+        or file_name.endswith("spec.js")
+        or file_name.endswith("spec.ts")
+    ):
+        flags.append("test_file_path")
+    return flags
 
 
 def _excerpt(
