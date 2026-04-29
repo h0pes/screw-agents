@@ -114,6 +114,19 @@ class GuardrailState(BaseModel):
     reason: str
 
 
+class MissDiagnosticsSummary(BaseModel):
+    """Counts that help separate true misses from truth-span granularity."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    total_missed: int = Field(ge=0)
+    missed_with_related_findings: int = Field(ge=0)
+    missed_with_nearby_same_file_findings: int = Field(ge=0)
+    missed_with_same_file_only_findings: int = Field(ge=0)
+    pure_misses: int = Field(ge=0)
+    false_positive_findings: int = Field(ge=0)
+
+
 class FailureAnalysisInput(BaseModel):
     """Complete payload for autoresearch failure analysis."""
 
@@ -125,6 +138,7 @@ class FailureAnalysisInput(BaseModel):
     case_provenance: list[CaseProvenance]
     missed_findings: list[FailureExample] = []
     false_positive_findings: list[FailureExample] = []
+    diagnostics: MissDiagnosticsSummary | None = None
     guardrails: GuardrailState
 
     @model_validator(mode="after")

@@ -39,6 +39,7 @@ from screw_agents.autoresearch.failure_input import (
     FailureAnalysisInput,
     FailureExample,
     GuardrailState,
+    MissDiagnosticsSummary,
     RelatedAgentFinding,
 )
 
@@ -161,6 +162,10 @@ def build_failure_payloads_from_controlled_report(
             case_provenance=list(parts.case_provenance.values()),
             missed_findings=parts.missed_findings,
             false_positive_findings=parts.false_positive_findings,
+            diagnostics=_miss_diagnostics_summary(
+                missed_findings=parts.missed_findings,
+                false_positive_findings=parts.false_positive_findings,
+            ),
             guardrails=GuardrailState(
                 yaml_mutation_allowed=False,
                 aggregate_metrics_only=False,
@@ -179,6 +184,34 @@ def build_failure_payloads_from_controlled_report(
         )
         output_paths.append(path)
     return output_paths
+
+
+def _miss_diagnostics_summary(
+    *,
+    missed_findings: list[FailureExample],
+    false_positive_findings: list[FailureExample],
+) -> MissDiagnosticsSummary:
+    nearby = 0
+    same_file_only = 0
+    pure = 0
+    for example in missed_findings:
+        relationships = {
+            finding.relationship for finding in example.related_agent_findings
+        }
+        if "nearby_same_file" in relationships:
+            nearby += 1
+        elif "same_file" in relationships:
+            same_file_only += 1
+        else:
+            pure += 1
+    return MissDiagnosticsSummary(
+        total_missed=len(missed_findings),
+        missed_with_related_findings=nearby + same_file_only,
+        missed_with_nearby_same_file_findings=nearby,
+        missed_with_same_file_only_findings=same_file_only,
+        pure_misses=pure,
+        false_positive_findings=len(false_positive_findings),
+    )
 
 
 class ControlledCaseContext:
