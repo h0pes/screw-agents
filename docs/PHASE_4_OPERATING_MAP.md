@@ -385,6 +385,28 @@ Focused SQLi/NHibernate literal-renderer execution, verified 2026-04-29:
   review, but v1.0.1 is accepted because it improves recall without patched
   findings.
 
+Focused SQLi/MoreFixes Rails LIMIT/OFFSET execution, verified 2026-04-29:
+- Output directory:
+  `/tmp/screw-d02-sqli-morefixes-rails-baseline-run`.
+- Benchmark run ID: `20260429-181258`.
+- Case:
+  `morefixes-CVE-2008-4094-https_____github.com__rails__rails`.
+- Result: TP 1, FP 1, TN 5, FN 4; TPR 20.0%, FPR 16.7%, precision 50.0%,
+  F1 28.6%, accuracy 3.3%.
+- Raw finding counts: 2 vulnerable-version findings, 0 patched-version
+  findings. The agent correctly found vulnerable Rails
+  `add_limit_offset!`, where `options[:limit]` and `options[:offset]` are
+  interpolated directly into `LIMIT` / `OFFSET`, and patched Rails stayed
+  clean after `sanitize_limit(limit)` and `offset.to_i`.
+- No `sqli.yaml` change is accepted from this slice. The failure payload
+  `/tmp/screw-d02-sqli-morefixes-rails-baseline-failure-inputs/sqli_failure_input.json`
+  shows two missed truth spans in `adapter_test.rb` flagged as test-file
+  paths, one with a missing source excerpt. The remaining non-test miss is
+  line drift around `sanitize_limit`/comments while the agent already reported
+  nearby `add_limit_offset!`. The extra vulnerable-side `add_lock!` report is
+  outside this CVE truth and should be treated as potential over-reporting
+  risk before broadening Rails structural-SQL guidance.
+
 XSS evidence-quality triage, verified 2026-04-29:
 - Regenerated payload directory:
   `/tmp/screw-d02-xss-evidence-quality-failure-inputs`.
