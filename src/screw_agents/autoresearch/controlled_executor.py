@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from benchmarks.runner.code_extractor import CodeVariant, extract_code_for_case
 from benchmarks.runner.evaluator import EvalConfig, Evaluator
@@ -65,6 +65,20 @@ class ControlledExecutorCase(BaseModel):
     estimated_invocations: int = 2
 
 
+class ControlledExecutorResultCounts(BaseModel):
+    """Raw finding counts written by one executed vulnerable/patched pair."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    case_id: str
+    agent: str
+    dataset: str
+    vulnerable_finding_count: int
+    patched_finding_count: int
+    vulnerable_result_path: str
+    patched_result_path: str
+
+
 class ControlledExecutorReport(BaseModel):
     """Validation/execution report for a controlled-run plan."""
 
@@ -79,6 +93,7 @@ class ControlledExecutorReport(BaseModel):
     execution_performed: bool
     benchmark_run_id: str | None = None
     summaries: list[dict[str, Any]]
+    result_counts: list[ControlledExecutorResultCounts] = Field(default_factory=list)
 
 
 def build_controlled_executor_report(
@@ -183,6 +198,7 @@ def build_controlled_executor_report(
     execution_performed = False
     benchmark_run_id: str | None = None
     summaries: list[dict[str, Any]] = []
+    result_counts: list[ControlledExecutorResultCounts] = []
     if execute and not any(issue.severity == "blocker" for issue in issues):
         eval_config = EvalConfig(
             mode="controlled-smoke",
@@ -199,6 +215,7 @@ def build_controlled_executor_report(
         execution_performed = True
         benchmark_run_id = evaluator.run_id
         summaries = [_summary_to_dict(summary) for summary in summary_models]
+        result_counts = _load_result_counts(report_cases, evaluator._cases_dir)
 
     return ControlledExecutorReport(
         generated_at=datetime.now(UTC).isoformat(timespec="seconds"),
@@ -209,6 +226,7 @@ def build_controlled_executor_report(
         execution_performed=execution_performed,
         benchmark_run_id=benchmark_run_id,
         summaries=summaries,
+        result_counts=result_counts,
     )
 
 
@@ -254,6 +272,45 @@ def render_controlled_executor_report_markdown(
             f"{case.patched_file_count} | "
             f"{case.cwe_filter or '-'} |"
         )
+
+    if report.summaries:
+        lines.extend(["", "## Metrics Summary", ""])
+        lines.append(
+            "| Agent | Dataset | TP | FP | TN | FN | TPR | FPR | Precision | F1 | Accuracy |"
+        )
+        lines.append("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+        for summary in report.summaries:
+            metric = _overall_metric(summary)
+            if metric is None:
+                continue
+            lines.append(
+                "| "
+                f"{summary['agent_name']} | "
+                f"{summary['dataset']} | "
+                f"{metric['true_positives']} | "
+                f"{metric['false_positives']} | "
+                f"{metric['true_negatives']} | "
+                f"{metric['false_negatives']} | "
+                f"{_pct(metric['tpr'])} | "
+                f"{_pct(metric['fpr'])} | "
+                f"{_pct(metric['precision'])} | "
+                f"{_pct(metric['f1'])} | "
+                f"{_pct(metric['accuracy'])} |"
+            )
+
+    if report.result_counts:
+        lines.extend(["", "## Finding Counts", ""])
+        lines.append("| Agent | Dataset | Case ID | Vulnerable Findings | Patched Findings |")
+        lines.append("|---|---|---|---:|---:|")
+        for result in report.result_counts:
+            lines.append(
+                "| "
+                f"{result.agent} | "
+                f"{result.dataset} | "
+                f"{result.case_id} | "
+                f"{result.vulnerable_finding_count} | "
+                f"{result.patched_finding_count} |"
+            )
     lines.append("")
     return "\n".join(lines)
 
@@ -393,6 +450,46 @@ def _run_evaluation(
 
 def _summary_to_dict(summary: Summary) -> dict[str, Any]:
     return summary.model_dump(mode="json")
+
+
+def _load_result_counts(
+    cases: list[ControlledExecutorCase],
+    cases_dir: Path,
+) -> list[ControlledExecutorResultCounts]:
+    results: list[ControlledExecutorResultCounts] = []
+    for case in cases:
+        vuln_path = cases_dir / f"{case.case_id}_vuln.json"
+        patched_path = cases_dir / f"{case.case_id}_patched.json"
+        results.append(
+            ControlledExecutorResultCounts(
+                case_id=case.case_id,
+                agent=case.agent,
+                dataset=case.dataset,
+                vulnerable_finding_count=_json_array_len(vuln_path),
+                patched_finding_count=_json_array_len(patched_path),
+                vulnerable_result_path=str(vuln_path),
+                patched_result_path=str(patched_path),
+            )
+        )
+    return results
+
+
+def _json_array_len(path: Path) -> int:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, list):
+        raise ValueError(f"Expected JSON array at {path}")
+    return len(data)
+
+
+def _overall_metric(summary: dict[str, Any]) -> dict[str, Any] | None:
+    for metric in summary.get("metrics", []):
+        if metric.get("cwe_id") is None and metric.get("language") is None:
+            return metric
+    return None
+
+
+def _pct(value: float) -> str:
+    return f"{value:.1%}"
 
 
 def _append_issue(

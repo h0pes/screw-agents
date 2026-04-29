@@ -13,6 +13,7 @@ from benchmarks.runner.sarif import write_bentoo_sarif
 from benchmarks.scripts.run_controlled_autoresearch import main as executor_main
 from screw_agents.autoresearch.controlled_executor import (
     build_controlled_executor_report,
+    render_controlled_executor_report_markdown,
 )
 from screw_agents.autoresearch.controlled_run import (
     build_controlled_execution_plan,
@@ -229,7 +230,19 @@ def test_executor_can_run_selected_case_with_mocked_claude(tmp_path: Path) -> No
     assert report.execution_performed is True
     assert report.benchmark_run_id is not None
     assert len(report.summaries) == 1
+    assert len(report.result_counts) == 1
+    assert report.result_counts[0].vulnerable_finding_count == 1
+    assert report.result_counts[0].patched_finding_count == 0
     assert report.issues == []
+
+    rendered = render_controlled_executor_report_markdown(report)
+    assert "## Metrics Summary" in rendered
+    assert "## Finding Counts" in rendered
+    assert (
+        "| sqli | morefixes | 1 | 0 | 1 | 0 | 100.0% | "
+        "0.0% | 100.0% | 100.0% | 100.0% |"
+    ) in rendered
+    assert "| sqli | morefixes | morefixes-CVE-2024-0001-example | 1 | 0 |" in rendered
 
 
 def test_executor_cli_writes_validation_report(tmp_path: Path) -> None:

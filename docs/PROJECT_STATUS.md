@@ -428,7 +428,7 @@ Structured as a dependency graph with three parallel tracks converging at smoke 
 | Phase 3a | Prompt infrastructure (trust, learning aggregation, plugin-namespace, core-prompt dedup) | **Complete** (PR #6-#9 series, merged 2026-04-16/17) |
 | Phase 3b | Adaptive Analysis & Learning Refinement | **Complete** — PR #4 (#10) 2026-04-18, PR #5 (#11) 2026-04-20, PR #6 (#12) 2026-04-23, Phase 3b-C2 2026-04-24, BACKLOG-PR6-22 (#14) 2026-04-24, T19-M D7 (#15) 2026-04-24, T-SCAN-REFACTOR final 2026-04-25 |
 | Phase 3c | Sandbox hardening sweep (seccomp filter + thread-safety + dedup) | **Deferred** — see `docs/DEFERRED_BACKLOG.md` §"Phase 3c (sandbox hardening follow-ups)" |
-| Phase 4 | Autoresearch & Self-Improvement | **In progress** — D-01 merged, D-02 planning and dataset readiness active |
+| Phase 4 | Autoresearch & Self-Improvement | **In progress** — D-01 merged, D-02 controlled smoke execution complete; failure-input triage next |
 | Phase 5 | Multi-LLM Challenger System | Pending |
 | Phase 6 | Agent Expansion & Ecosystem | Pending |
 | Phase 7 | screw.nvim Integration (scan commands, review-before-import, exclusions) | Pending |
@@ -438,9 +438,10 @@ Structured as a dependency graph with three parallel tracks converging at smoke 
 ## Phase 4 Prerequisites (hard gates)
 
 Phase 4 (Autoresearch & Self-Improvement) started with D-01. As of
-2026-04-28, D-01 is merged, D-02 planning scaffold is merged in PR #18, and
-active G5 dataset readiness is clean in the long-lived main checkout after
-core dataset and MoreFixes materialization.
+2026-04-29, D-01 is merged, D-02 planning scaffold is merged in PR #18, active
+G5 dataset readiness is clean in the long-lived main checkout after core
+dataset and MoreFixes materialization, and the first controlled smoke execution
+has completed successfully.
 
 ### D-01 — Rust benchmark corpus from GitHub Advisory Database + synthetic SSTI
 **Status:** MERGED in PR #17
@@ -456,8 +457,8 @@ core dataset and MoreFixes materialization.
 ### D-02 — Detection-rate validation thresholds (SAMPLE COMPLETE)
 **Status:** Pipeline validated (PR #3, 2026-04-11); dry-run planning,
 gate correction, failure-input schema, and controlled-run scaffold merged in
-PR #18; dataset readiness checklist in progress on branch
-`phase4-d02-readiness`.
+PR #18; active dataset readiness materialization and controlled smoke execution
+are complete.
 **Why gating:** Not a hard blocker to STARTING Phase 4 — autoresearch IS the threshold-tuning loop. But the benchmark run feeds D-01's corpus. Sequenced inside Phase 4, not before.
 
 **Current D-02 closure:** `G5.8` now targets `morefixes` rather than stale
@@ -488,6 +489,15 @@ MoreFixes Docker/Postgres restoration is now verified with explicit empty-volume
 import handling. The extractor materializes 2,601 case truth files plus 6,825
 vulnerable and 6,825 patched snapshots, and streams rows to avoid the previous
 large Python memory spike.
+On 2026-04-29 the reviewed controlled smoke run executed seven active G5
+dataset/agent slices and wrote 14 vulnerable/patched result JSON files with no
+executor issues. The controlled executor report now surfaces overall metrics
+and per-case finding counts directly in Markdown/JSON. Initial results are
+diagnostic: several XSS and OSSF CmdI slices produced misses, while Reality
+Check Java CmdI and SQLi produced some true positives plus false positives.
+These concrete outcomes must be converted into
+`phase4-autoresearch-failure-input/v1` payloads before any YAML refinement is
+considered.
 
 **When continuing Phase 4:** Continue from `docs/PHASE_4_D02_PLAN.md`; keep Rust metric claims scoped to real-CVE SQLi/Cmdi/XSS and synthetic-only SSTI unless refresh finds a verified SSTI advisory.
 Use `docs/PHASE_4_OPERATING_MAP.md` as the high-level map before restoring
