@@ -523,8 +523,14 @@ def test_executor_can_run_selected_case_with_mocked_claude(tmp_path: Path) -> No
     controlled_plan_path = _write_controlled_plan(tmp_path)
     calls = 0
 
-    def invoke(prompt: str, _config: object) -> InvokeResult:
+    def invoke(
+        prompt: str,
+        _config: object,
+        context: dict[str, object] | None = None,
+    ) -> InvokeResult:
         nonlocal calls
+        assert context is not None
+        assert context["case_id"] == "morefixes-CVE-2024-0001-example"
         calls += 1
         if calls == 1:
             return InvokeResult(

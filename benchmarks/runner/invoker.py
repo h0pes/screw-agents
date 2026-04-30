@@ -9,6 +9,10 @@ import logging
 import subprocess
 import time
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+from uuid import uuid4
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +25,7 @@ class InvokerConfig:
     throttle_delay: float = 2.0    # seconds between calls
     timeout: int = 300             # seconds per call
     max_turns: int = 1
+    progress_log_path: Path | None = None
 
 
 @dataclass
@@ -33,7 +38,11 @@ class InvokeResult:
     duration_seconds: float = 0.0
 
 
-def invoke_claude(prompt: str, config: InvokerConfig) -> InvokeResult:
+def invoke_claude(
+    prompt: str,
+    config: InvokerConfig,
+    context: dict[str, Any] | None = None,
+) -> InvokeResult:
     """Send a prompt to Claude via `claude -p` and parse structured findings.
 
     Args:
@@ -51,9 +60,22 @@ def invoke_claude(prompt: str, config: InvokerConfig) -> InvokeResult:
             time.sleep(delay)
 
         start = time.monotonic()
+        invocation_id = uuid4().hex
+        _write_progress_event(
+            config.progress_log_path,
+            {
+                "status": "started",
+                "invocation_id": invocation_id,
+                "attempt": attempt + 1,
+                "max_retries": config.max_retries,
+                "timeout_seconds": config.timeout,
+                "prompt_chars": len(prompt),
+                **(context or {}),
+            },
+        )
         try:
-            proc = subprocess.run(
-                [
+            proc = subprocess.run(  # noqa: S603, S607
+                [  # noqa: S607
                     "claude", "-p",
                     "--output-format", "json",
                     "--max-turns", str(config.max_turns),
@@ -64,7 +86,19 @@ def invoke_claude(prompt: str, config: InvokerConfig) -> InvokeResult:
                 timeout=config.timeout,
             )
         except subprocess.TimeoutExpired:
+            elapsed = time.monotonic() - start
             last_error = f"Timeout after {config.timeout}s"
+            _write_progress_event(
+                config.progress_log_path,
+                {
+                    "status": "timeout",
+                    "invocation_id": invocation_id,
+                    "attempt": attempt + 1,
+                    "elapsed_seconds": round(elapsed, 3),
+                    "error": last_error,
+                    **(context or {}),
+                },
+            )
             logger.warning("Attempt %d: %s", attempt + 1, last_error)
             continue
 
@@ -72,12 +106,49 @@ def invoke_claude(prompt: str, config: InvokerConfig) -> InvokeResult:
 
         if proc.returncode != 0:
             last_error = f"Exit code {proc.returncode}: {proc.stderr[:200]}"
+            _write_progress_event(
+                config.progress_log_path,
+                {
+                    "status": "failed",
+                    "invocation_id": invocation_id,
+                    "attempt": attempt + 1,
+                    "elapsed_seconds": round(elapsed, 3),
+                    "returncode": proc.returncode,
+                    "error": last_error,
+                    **(context or {}),
+                },
+            )
             logger.warning("Attempt %d: %s", attempt + 1, last_error)
             continue
 
-        return _parse_output(proc.stdout, elapsed)
+        result = _parse_output(proc.stdout, elapsed)
+        _write_progress_event(
+            config.progress_log_path,
+            {
+                "status": "completed" if result.success else "failed",
+                "invocation_id": invocation_id,
+                "attempt": attempt + 1,
+                "elapsed_seconds": round(elapsed, 3),
+                "finding_count": len(result.findings),
+                "error": result.error,
+                **(context or {}),
+            },
+        )
+        return result
 
     return InvokeResult(success=False, error=last_error)
+
+
+def _write_progress_event(path: Path | None, event: dict[str, Any]) -> None:
+    if path is None:
+        return
+    payload = {
+        "timestamp": datetime.now(UTC).isoformat(timespec="seconds"),
+        **event,
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, sort_keys=True) + "\n")
 
 
 def _parse_output(stdout: str, elapsed: float) -> InvokeResult:

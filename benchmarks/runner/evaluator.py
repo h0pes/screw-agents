@@ -313,7 +313,17 @@ class Evaluator:
                     file_path=piece.file_path,
                     context_files=piece.context_files,
                 )
-                result = invoke_claude(prompt, self.config.invoker_config)
+                result = invoke_claude(
+                    prompt,
+                    self.config.invoker_config,
+                    context={
+                        "agent": agent_name,
+                        "case_id": case.case_id,
+                        "dataset": case.source_dataset,
+                        "variant": variant.value,
+                        "file": piece.file_path,
+                    },
+                )
                 if result.success:
                     findings = parse_findings_response(result.findings, agent_name)
                     # Normalize file paths: Claude may echo the temp file path
