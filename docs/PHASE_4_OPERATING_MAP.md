@@ -21,6 +21,54 @@ The long-lived main checkout currently has the active G5 external material
 restored. A fresh worktree can still report second-layer blockers because the
 large/generated benchmark material is intentionally ignored and worktree-local.
 
+## Calibration, Not Per-CVE Tuning
+
+Phase 4 must not become a manual queue of benchmark CVEs. The external
+benchmarks contain thousands of cases, and each real vulnerability has
+framework, library, source-layout, and truth-span details that are too specific
+to encode one by one. The durable value is not a list of CVE-specific
+exceptions; it is reusable domain knowledge plus a trustworthy measurement
+loop.
+
+Controlled slices are diagnostic probes. A small case can justify one of three
+outcomes:
+- an agent YAML change, only when the case exposes a reusable domain-level
+  vulnerability pattern;
+- a benchmark machinery change, when source extraction, related-file context,
+  scoring, or failure reporting is undercounting useful evidence;
+- a dataset/materialization decision, when the benchmark truth or source
+  snapshot is not trustworthy enough for executable scoring.
+
+Accepted YAML refinements must generalize beyond the package or CVE that
+surfaced them. For example, a Rails SQLi finding can motivate a general rule
+about attacker-controlled SQL clause construction versus unchanged framework
+helpers; it must not become a Rails/CVE-specific allowlist or denylist. A
+Plexus CmdI finding can motivate related-file evidence accounting; it must not
+teach the CmdI agent to memorize Plexus class names.
+
+Broader benchmark runs are still useful, but they serve a different purpose:
+validation and regression measurement. They should happen after the controlled
+path can classify failures into real agent gaps, scoring artifacts, source
+materialization problems, prompt/runtime issues, and truth-span noise. If a
+large run produces hundreds or thousands of misses, the next step is clustering
+and representative sampling, not manually tuning every miss.
+
+The validation ladder is:
+- focused case rerun: verify one suspected fix or failure classification;
+- mini consolidation: verify the current small multi-agent slice;
+- expanded stratified sample: run several trustworthy cases per executable
+  dataset/agent pair within an explicit prompt budget;
+- agent-level sampled benchmark: measure one agent across larger trusted slices;
+- full executable corpus: periodic confidence/regression check once source
+  materialization, scoring semantics, and cost controls are mature enough.
+
+Phase 4 closure does not require manually processing every benchmark
+vulnerability. It does require a reliable workflow, clear dataset
+inclusions/exclusions, prompt-budget guardrails, case-level failure payloads,
+and at least one broader representative validation that shows the accepted
+rules and infrastructure changes do not introduce obvious precision
+regressions.
+
 ## What Is Already Done
 
 ### D-01 — Rust Corpus

@@ -43,6 +43,11 @@ non-OSSF plan measured 34 actual per-file prompts and about 1,070,805
 retry-budgeted estimated tokens at `--max-retries 3`, so live execution should
 be narrowed or explicitly budget-approved before raising the default
 `--max-prompt-chars 250000` guard.
+Phase 4's operating rule is calibration, not exhaustive per-CVE tuning:
+controlled slices are probes for reusable agent knowledge, benchmark/scoring
+machinery issues, or dataset materialization decisions. Broader benchmark runs
+remain necessary for validation/regression, but misses should be clustered and
+sampled rather than manually tuned case by case.
 
 **When starting Phase 4:** D-02 threshold optimization runs as part of the autoresearch loop. The benchmark pipeline is validated (PR #3).
 
