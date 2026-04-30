@@ -239,6 +239,13 @@ Reality Check C#/XSS, Reality Check C#/SQLi, Reality Check Python/XSS,
 Reality Check Java/CmdI, and MoreFixes/SQLi. OSSF/XSS and OSSF/CmdI remain
 blocked until vulnerable/patched target source snapshots are materialized.
 
+For post-smoke validation, use `--selection-strategy expanded-stratified` with
+higher `--max-cases-per-dataset` and `--max-cases-per-agent` caps. This
+strategy selects up to the requested cap from each active dataset/agent pair,
+warns when fewer trustworthy executable cases are available, and blocks only
+when no executable case can be selected for a requested slice. It is intended
+for representative validation, not for exhaustive per-CVE tuning.
+
 Executable benchmark plan preparation:
 
 ```bash
@@ -732,6 +739,29 @@ Current no-Claude payload triage, verified 2026-04-30:
   change. The next useful step is expanded stratified validation with explicit
   prompt-budget review, not further per-case tuning of these slices.
 
+Expanded stratified validation planning, verified 2026-04-30:
+- Controlled plan:
+  `/tmp/screw-d02-expanded-stratified-controlled/controlled_run_plan.json`.
+- Command shape: `--selection-strategy expanded-stratified
+  --max-cases-per-dataset 3 --max-cases-per-agent 12
+  --allow-claude-invocation`.
+- Selected 7 cases total: the existing 1 executable case for each
+  reality-check active dataset/agent pair, plus 3 MoreFixes SQLi cases.
+- Reality-check C#/XSS, Python/XSS, Java/CmdI, and C#/SQLi each emitted
+  `case_selection_incomplete` warnings because only one currently trustworthy
+  executable case was selectable for the requested active gate/CWE slice.
+- No-Claude executor validation:
+  `/tmp/screw-d02-expanded-stratified-validation`.
+  It measured 40 prompts, 1,638,863 prompt characters, and about 1,229,199
+  retry-budgeted estimated tokens at `--max-retries 3`; live execution remains
+  blocked by the default `--max-prompt-chars 250000` guard.
+- Focused no-Claude validation of only the three MoreFixes SQLi cases:
+  `/tmp/screw-d02-expanded-stratified-morefixes-validation`.
+  It measured 10 prompts, 324,101 prompt characters, and about 243,090
+  retry-budgeted estimated tokens. This is the smallest useful live candidate
+  from the expanded plan, but it still requires explicit budget acceptance
+  before raising the prompt-character guard.
+
 ## YAML Mutation Rule
 
 Agent YAML must not change because a gate percentage is low.
@@ -766,3 +796,6 @@ Even then, YAML mutation is not automatic. It is a reviewed engineering change.
    YAML-training purposes. Plan an expanded stratified validation set over
    trustworthy executable cases before considering additional agent knowledge
    changes.
+8. Review the expanded stratified prompt budget before any live run. If a live
+   run is approved, start with the three-case MoreFixes SQLi subset rather than
+   the full seven-case expanded plan.

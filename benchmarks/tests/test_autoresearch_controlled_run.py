@@ -330,6 +330,33 @@ def test_controlled_run_can_become_executable_when_ready_and_allowed(
     assert plan.selections[0].estimated_invocations == 2
 
 
+def test_expanded_stratified_allows_partial_executable_selection(
+    tmp_path: Path,
+) -> None:
+    dry_run_path = tmp_path / "run_plan.json"
+    _write_dry_run_plan(dry_run_path, ready=True)
+    dry_run = json.loads(dry_run_path.read_text(encoding="utf-8"))
+    dry_run["datasets"][0]["case_count"] = 3
+    dry_run_path.write_text(json.dumps(dry_run) + "\n", encoding="utf-8")
+
+    plan = build_controlled_execution_plan(
+        dry_run_plan_path=dry_run_path,
+        output_dir=tmp_path / "out",
+        allow_claude_invocation=True,
+        max_cases_per_dataset=3,
+        selection_strategy="expanded-stratified",
+    )
+
+    assert plan.execution_allowed is True
+    assert [(issue.severity, issue.code) for issue in plan.issues] == [
+        ("warning", "case_selection_incomplete")
+    ]
+    assert plan.selections[0].selected_case_ids == [
+        "morefixes-sqli-1",
+        "morefixes-sqli-2",
+    ]
+
+
 def test_required_dataset_smoke_selects_each_dataset_agent_pair(
     tmp_path: Path,
 ) -> None:
