@@ -1,21 +1,21 @@
 """Tests for the evaluation orchestrator."""
+# ruff: noqa: S101
 from __future__ import annotations
 
 import json
-from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
+from benchmarks.runner.code_extractor import CodeVariant, ExtractedCode
 from benchmarks.runner.evaluator import (
-    Evaluator,
     EvalConfig,
+    Evaluator,
+    build_prompt,
     load_cases_from_manifest,
     map_case_to_agent,
-    build_prompt,
     parse_findings_response,
 )
-from benchmarks.runner.code_extractor import ExtractedCode
 from benchmarks.runner.invoker import InvokeResult
 from benchmarks.runner.models import (
     BenchmarkCase,
@@ -143,3 +143,56 @@ class TestParseFindingsResponse:
         ]
         findings = parse_findings_response(raw, agent_name="xss")
         assert len(findings) == 1
+
+
+class TestEvaluatorRelatedContext:
+    def test_related_context_can_be_enabled_for_one_case(self, tmp_path):
+        case = BenchmarkCase(
+            case_id="needs-context",
+            project="p",
+            language=Language.JAVA,
+            vulnerable_version="v1",
+            patched_version="v2",
+            ground_truth=[
+                Finding(
+                    cwe_id="CWE-78",
+                    kind=FindingKind.FAIL,
+                    location=CodeLocation(file="Shell.java", start_line=1, end_line=1),
+                )
+            ],
+            source_dataset="reality-check-java",
+        )
+        include_values = []
+
+        def extract(*_args, include_related_context=False):
+            include_values.append(include_related_context)
+            return [
+                ExtractedCode(
+                    file_path="Shell.java",
+                    content="class Shell {}",
+                    language="java",
+                )
+            ]
+
+        engine = MagicMock()
+        engine.assemble_scan.return_value = {
+            "core_prompt": "Detect command injection.",
+            "code": "class Shell {}",
+        }
+        evaluator = Evaluator(
+            EvalConfig(
+                results_dir=tmp_path,
+                include_related_context_case_ids={"needs-context"},
+            )
+        )
+
+        with (
+            patch("benchmarks.runner.evaluator.extract_code_for_case", side_effect=extract),
+            patch(
+                "benchmarks.runner.evaluator.invoke_claude",
+                return_value=InvokeResult(success=True, findings=[]),
+            ),
+        ):
+            evaluator._scan_variant(case, "cmdi", CodeVariant.PATCHED, engine)
+
+        assert include_values == [True]

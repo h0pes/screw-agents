@@ -17,7 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from benchmarks.runner.code_extractor import CodeVariant, extract_code_for_case
 from benchmarks.runner.evaluator import EvalConfig, Evaluator
 from benchmarks.runner.invoker import InvokerConfig
-from benchmarks.runner.models import BenchmarkCase, Language, Summary
+from benchmarks.runner.models import BenchmarkCase, FindingKind, Language, Summary
 from benchmarks.runner.sarif import load_bentoo_sarif
 from screw_agents.autoresearch.controlled_run import ControlledExecutionPlan
 
@@ -65,6 +65,7 @@ class ControlledExecutorCase(BaseModel):
     patched_file_count: int
     vulnerable_files: list[str]
     patched_files: list[str]
+    include_related_context: bool = False
     estimated_invocations: int = 2
 
 
@@ -161,9 +162,11 @@ def build_controlled_executor_report(
 
     resolved_cases: list[BenchmarkCase] = []
     report_cases: list[ControlledExecutorCase] = []
+    related_context_case_ids: set[str] = set()
     for selection in plan.selections:
         if agent_filter and selection.agent not in agent_filter:
             continue
+        planned_related_context_case_ids = set(selection.related_context_case_ids)
         dataset = datasets_by_name.get(selection.dataset)
         if dataset is None:
             _append_issue(
@@ -197,6 +200,13 @@ def build_controlled_executor_report(
             )
             if case is None:
                 continue
+            case_include_related_context = (
+                include_related_context
+                or case.case_id in planned_related_context_case_ids
+                or _case_needs_related_context(case, agent=selection.agent)
+            )
+            if case_include_related_context:
+                related_context_case_ids.add(case.case_id)
             resolved_cases.append(case)
             report_case = _validate_case_extraction(
                 case=case,
@@ -204,7 +214,7 @@ def build_controlled_executor_report(
                 agent=selection.agent,
                 cwe_filter=selection.cwe_filter,
                 external_dir=external_dir,
-                include_related_context=include_related_context,
+                include_related_context=case_include_related_context,
                 issues=issues,
                 issue_keys=issue_keys,
             )
@@ -238,6 +248,7 @@ def build_controlled_executor_report(
                 timeout=timeout,
             ),
             include_related_context=include_related_context,
+            include_related_context_case_ids=related_context_case_ids,
         )
         evaluator = Evaluator(eval_config)
         summary_models = _run_evaluation(resolved_cases, evaluator)
@@ -264,6 +275,9 @@ def render_controlled_executor_report_markdown(
 ) -> str:
     """Render a human-readable executor validation/execution report."""
     estimated_calls = sum(case.estimated_invocations for case in report.cases)
+    related_context_cases = [
+        case.case_id for case in report.cases if case.include_related_context
+    ]
     lines = [
         f"# Phase 4 Controlled Executor Report `{report.generated_at}`",
         "",
@@ -276,6 +290,7 @@ def render_controlled_executor_report_markdown(
         f"- **Agent filter:** {_format_filter(report.config.agents)}",
         f"- **Case ID filter:** {_format_filter(report.config.case_ids)}",
         f"- **Related context:** {_yes_no(report.config.include_related_context)}",
+        f"- **Related context cases:** {_format_filter(related_context_cases)}",
         "",
         "## Issues",
         "",
@@ -290,9 +305,10 @@ def render_controlled_executor_report_markdown(
 
     lines.extend(["", "## Cases", ""])
     lines.append(
-        "| Gate | Agent | Dataset | Case ID | Vulnerable Files | Patched Files | CWE |"
+        "| Gate | Agent | Dataset | Case ID | Vulnerable Files | Patched Files | "
+        "Related Context | CWE |"
     )
-    lines.append("|---|---|---|---|---:|---:|---|")
+    lines.append("|---|---|---|---|---:|---:|---|---|")
     for case in report.cases:
         lines.append(
             "| "
@@ -302,6 +318,7 @@ def render_controlled_executor_report_markdown(
             f"{case.case_id} | "
             f"{case.vulnerable_file_count} | "
             f"{case.patched_file_count} | "
+            f"{_yes_no(case.include_related_context)} | "
             f"{case.cwe_filter or '-'} |"
         )
 
@@ -476,7 +493,25 @@ def _validate_case_extraction(
         patched_file_count=len(patched),
         vulnerable_files=[piece.file_path for piece in vulnerable],
         patched_files=[piece.file_path for piece in patched],
+        include_related_context=include_related_context,
     )
+
+
+def _case_needs_related_context(case: BenchmarkCase, *, agent: str) -> bool:
+    """Detect multi-file truth where same-variant context can affect evidence."""
+    if agent != "cmdi":
+        return False
+    fail_files = {
+        finding.location.file
+        for finding in case.ground_truth
+        if finding.kind == FindingKind.FAIL
+    }
+    pass_files = {
+        finding.location.file
+        for finding in case.ground_truth
+        if finding.kind == FindingKind.PASS
+    }
+    return len(fail_files) > 1 or len(pass_files) > 1
 
 
 def _run_evaluation(

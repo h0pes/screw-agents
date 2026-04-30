@@ -259,6 +259,13 @@ CmdI case, where the sink path in `Shell.java` and the effective quoting
 behavior in `BourneShell.java` need to be understood together. This is a
 benchmark evidence-packaging improvement, not an agent YAML change.
 
+The controlled plan and executor now also support targeted case-level related
+context for CmdI multi-file selections. In mixed consolidation runs, this keeps
+the global related-context switch off while automatically marking the reviewed
+Plexus CmdI case for related context. The executor report lists both the global
+related-context mode and the exact related-context case IDs so reviewers can
+confirm other slices stayed on single-primary-file prompts.
+
 First verified run, 2026-04-29:
 - Output directory: `/tmp/screw-d02-exec-run-restored`.
 - Benchmark run ID: `20260429-062030`.
@@ -537,6 +544,29 @@ Non-OSSF v1.0.2 consolidation execution, verified 2026-04-30:
   `/tmp/screw-d02-nonossf-consolidation-v102-failure-inputs/sqli_failure_input.json`,
   and `/tmp/screw-d02-nonossf-consolidation-v102-failure-inputs/xss_failure_input.json`.
 
+CmdI/Plexus case-level related-context packaging, verified 2026-04-30:
+- Controlled plan/output setup:
+  `/tmp/screw-d02-plexus-related-context-nonossf-controlled`.
+- Validation-only executor report:
+  `/tmp/screw-d02-plexus-related-context-nonossf-validation`.
+- The mixed validation report keeps global related context off and marks only
+  `rc-java-plexus-utils-CVE-2017-1000487` as a related-context case. AntiSamy,
+  Zope, NHibernate, and Rails remain single-primary-file prompts.
+- Focused Plexus execution:
+  `/tmp/screw-d02-plexus-related-context-plexus-run`, benchmark run
+  `20260430-063651`. No executor issues were reported. Result: TP 1, FP 0,
+  TN 10, FN 9; vulnerable findings 1; patched findings 0. One Claude response
+  failed JSON extraction during the run, so treat recall as runtime-noisy.
+- Mixed non-OSSF execution:
+  `/tmp/screw-d02-plexus-related-context-nonossf-run`, benchmark run
+  `20260430-064528`. No executor issues were reported and the report confirms
+  related context was applied only to Plexus. Plexus produced 6 vulnerable
+  findings and 0 patched findings, improving the previous mixed run's three
+  patched `Shell.java` findings. Claude runtime/output failures occurred on
+  Plexus and NHibernate, and Rails scored a vulnerable-side FP despite unchanged
+  no-context packaging, so use this run as evidence that packaging is wired into
+  consolidation, not as a clean benchmark-quality baseline.
+
 ## YAML Mutation Rule
 
 Agent YAML must not change because a gate percentage is low.
@@ -560,6 +590,7 @@ Even then, YAML mutation is not automatic. It is a reviewed engineering change.
 3. Generate `phase4-autoresearch-failure-input/v1` payloads from controlled
    smoke reports.
 4. Treat SQLi/Rails v1.0.2 as accepted after the mixed consolidation rerun.
-5. Address CmdI/Plexus next as an evidence-packaging problem: make the
-   consolidation path use related context for multi-file cases, then rerun the
-   same Plexus slice before considering any further `cmdi.yaml` change.
+5. Treat CmdI/Plexus related-context packaging as implemented for controlled
+   consolidation. Do not mutate `cmdi.yaml` from the noisy mixed run; generate
+   or review failure payloads only after a stable executor run if more CmdI
+   evidence is needed.
