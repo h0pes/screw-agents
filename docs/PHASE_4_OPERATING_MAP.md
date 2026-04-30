@@ -762,6 +762,33 @@ Expanded stratified validation planning, verified 2026-04-30:
   from the expanded plan, but it still requires explicit budget acceptance
   before raising the prompt-character guard.
 
+Expanded MoreFixes SQLi live run, verified 2026-04-30:
+- Output directory: `/tmp/screw-d02-expanded-stratified-morefixes-run`.
+- Benchmark run ID: `20260430-125213`.
+- Command shape: `--agent sqli` with three MoreFixes case filters,
+  `--execute --allow-claude-invocation --max-prompt-chars 1000000`; run with
+  `ANTHROPIC_API_KEY` unset.
+- No executor issues were reported.
+- Prompt budget: 10 prompts, 324,101 prompt characters, about 243,090
+  retry-budgeted estimated tokens.
+- Result: TP 1, FP 10, TN 8, FN 10; TPR 9.1%, FPR 55.6%, precision 9.1%,
+  F1 9.1%, accuracy -46.5%.
+- Finding counts: Rails retained the accepted shape with 1 vulnerable finding
+  and 0 patched findings; `gesellix/titlelink` had 2 vulnerable and 2 patched
+  findings; `lierdakil/click-reminder` had 3 vulnerable and 4 patched findings.
+- Failure payload:
+  `/tmp/screw-d02-expanded-stratified-morefixes-failure-inputs/sqli_failure_input.json`.
+  Diagnostics: 5 capped misses, 5 capped patched findings, 2 test-file-path
+  misses, 1 missing excerpt, and 1 nearby same-file related miss.
+- Initial interpretation: this is not clean evidence for another SQLi YAML
+  mutation. The `titlelink` patched snapshot replaces raw interpolation with
+  `$database->quote(..., false)`, which needs human fix-semantics review before
+  deciding whether patched reports are false positives or residual risk. The
+  `click-reminder` patched snapshot adds a semicolon blacklist and numeric
+  `iid` check but leaves `sid` interpolation, so its patched findings may be
+  residual-risk or benchmark-fix-quality evidence rather than prompt
+  overbreadth. Review these two cases before any YAML change.
+
 ## YAML Mutation Rule
 
 Agent YAML must not change because a gate percentage is low.

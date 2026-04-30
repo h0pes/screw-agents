@@ -648,6 +648,12 @@ trustworthy executable cases, but the full no-Claude prompt budget is about
 1,229,199 retry-budgeted estimated tokens. A focused three-case MoreFixes SQLi
 subset is smaller at about 243,090 retry-budgeted estimated tokens and should
 be the first live candidate only after explicit budget acceptance.
+The focused MoreFixes SQLi subset was run live at
+`/tmp/screw-d02-expanded-stratified-morefixes-run`, benchmark run
+`20260430-125213`, with no executor issues. Rails stayed patched-clean, but
+the two new MoreFixes cases produced patched findings, so the generated
+payload at `/tmp/screw-d02-expanded-stratified-morefixes-failure-inputs` needs
+human fix-semantics review before any SQLi YAML mutation.
 The next guardrail is also in place: controlled executor validation now builds
 the exact prompts without invoking Claude and reports prompt character/token
 estimates plus a retry-adjusted budget. The current five-slice non-OSSF plan
