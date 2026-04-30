@@ -91,6 +91,8 @@ def test_build_failure_payloads_from_controlled_report(tmp_path: Path) -> None:
     assert payload.diagnostics.related_file_credit_candidates == 0
     assert payload.diagnostics.false_negatives_after_related_file_credit == 1
     assert payload.diagnostics.false_positive_findings == 1
+    assert payload.diagnostics.false_positive_fix_semantics_ambiguous == 0
+    assert payload.diagnostics.false_positive_residual_risk_or_incomplete_fix == 0
     assert payload.missed_findings[0].source_variant == "vulnerable"
     assert payload.false_positive_findings[0].source_variant == "patched"
     assert payload.missed_findings[0].code_excerpt is not None
@@ -425,3 +427,79 @@ def test_evidence_quality_flags_identify_test_file_paths() -> None:
         file_path="OWASP.AntiSamyTests/Html/AntiSamyTest.cs",
         code_excerpt="public void TestSmuggledTagsInStyleContent() {}",
     ) == ["test_file_path"]
+
+
+def test_diagnostics_count_fix_semantics_false_positive_flags() -> None:
+    false_positive_findings = [
+        FailureAnalysisInput.model_validate(
+            {
+                "run": {
+                    "run_id": "run",
+                    "generated_at": "2026-04-30T00:00:00+00:00",
+                    "mode": "controlled-smoke",
+                },
+                "agent": {
+                    "agent_name": "sqli",
+                    "domain_path": "domains/injection-input-handling/sqli.yaml",
+                    "yaml_sha256": "0" * 64,
+                },
+                "case_provenance": [
+                    {
+                        "dataset_name": "morefixes",
+                        "case_id": "case",
+                        "project": "app",
+                        "language": "php",
+                        "vulnerable_version": "vuln",
+                        "patched_version": "patched",
+                        "manifest_path": "manifest.json",
+                        "truth_path": "truth.sarif",
+                    }
+                ],
+                "false_positive_findings": [
+                    {
+                        "kind": "false_positive",
+                        "dataset_name": "morefixes",
+                        "case_id": "case",
+                        "source_variant": "patched",
+                        "agent_name": "sqli",
+                        "cwe_id": "CWE-89",
+                        "file": "plugin.php",
+                        "start_line": 30,
+                        "end_line": 33,
+                        "expected_behavior": "Do not flag clean patched code.",
+                        "observed_behavior": "Agent flagged patched code.",
+                        "evidence_quality_flags": ["fix_semantics_ambiguous"],
+                    },
+                    {
+                        "kind": "false_positive",
+                        "dataset_name": "morefixes",
+                        "case_id": "case",
+                        "source_variant": "patched",
+                        "agent_name": "sqli",
+                        "cwe_id": "CWE-89",
+                        "file": "action.php",
+                        "start_line": 60,
+                        "end_line": 64,
+                        "expected_behavior": "Do not flag clean patched code.",
+                        "observed_behavior": "Agent flagged patched code.",
+                        "evidence_quality_flags": [
+                            "residual_risk_or_incomplete_fix"
+                        ],
+                    },
+                ],
+                "guardrails": {
+                    "reason": "test",
+                    "aggregate_metrics_only": False,
+                },
+            }
+        ).false_positive_findings
+    ][0]
+
+    diagnostics = _miss_diagnostics_summary(
+        missed_findings=[],
+        false_positive_findings=false_positive_findings,
+    )
+
+    assert diagnostics.false_positive_findings == 2
+    assert diagnostics.false_positive_fix_semantics_ambiguous == 1
+    assert diagnostics.false_positive_residual_risk_or_incomplete_fix == 1

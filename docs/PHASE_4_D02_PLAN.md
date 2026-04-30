@@ -425,6 +425,12 @@ First controlled smoke execution, verified 2026-04-29:
   interpolates `$this->sid` into SQL after HTML-context escaping and a generic
   semicolon blacklist. Keep `sqli.yaml` unchanged and treat both cases as
   benchmark/fix-semantics review items.
+- Failure payloads can now encode that review outcome with
+  `fix_semantics_ambiguous` and `residual_risk_or_incomplete_fix` evidence
+  flags. The annotated payload at
+  `/tmp/screw-d02-expanded-stratified-morefixes-fix-semantics-input.json`
+  reports 2 ambiguous patched findings and 3 residual-risk/incomplete-fix
+  patched findings.
 
 Focused rerun example:
 
