@@ -398,6 +398,25 @@ Cleaner rerun review of the five CmdI/Plexus misses:
   related-context packaging; remaining recall loss is primarily truth-span and
   localization granularity, not evidence for broader CmdI knowledge.
 
+Related-file failure diagnostics, verified 2026-04-30:
+- Failure payload generation now records same-case related-file findings for
+  cases that were executed with related context, using the
+  `related_file_same_case` relationship. Same-file relationships remain
+  separate as `nearby_same_file` and `same_file`.
+- Regenerated payloads:
+  `/tmp/screw-d02-plexus-related-file-diagnostics-failure-inputs/cmdi_failure_input.json`,
+  `/tmp/screw-d02-plexus-related-file-diagnostics-failure-inputs/sqli_failure_input.json`,
+  and `/tmp/screw-d02-plexus-related-file-diagnostics-failure-inputs/xss_failure_input.json`.
+- CmdI/Plexus diagnostics now classify all five missed truth spans as
+  `missed_with_related_file_findings` and zero as `pure_misses`. Each miss
+  cites the three clean-run `BourneShell.java` findings that identify the
+  vulnerable quote behavior. This makes the earlier review mechanically visible
+  in the payload instead of relying on manual cross-file comparison.
+- SQLi and XSS diagnostics are intentionally unchanged by this cross-file rule:
+  SQLi still has five pure misses and one test-file-path miss, while XSS keeps
+  the known AntiSamy test-file miss. Related-file findings are only attached
+  when the executor actually ran the case with related context.
+
 Focused SQLi/NHibernate literal-renderer execution, verified 2026-04-29:
 - Output directory: `/tmp/screw-d02-sqli-nhibernate-v101-run`.
 - Benchmark run ID: `20260429-132147`.
@@ -640,7 +659,7 @@ Even then, YAML mutation is not automatic. It is a reviewed engineering change.
    smoke reports.
 4. Treat SQLi/Rails v1.0.2 as accepted after the mixed consolidation rerun.
 5. Treat CmdI/Plexus related-context packaging as implemented for controlled
-   consolidation. Use the cleaner rerun payloads for any next review, and do
-   not mutate `cmdi.yaml` from the current five Plexus misses. The next useful
-   engineering slice is scoring/failure-analysis support for related-file
-   call-chain credit and bridge-span classification.
+   consolidation. Use the related-file diagnostics payloads for any next
+   review, and do not mutate `cmdi.yaml` from the current five Plexus misses.
+   The next useful engineering slice is scoring support for applying related
+   call-chain evidence without overstating exact truth-span matches.

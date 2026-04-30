@@ -56,7 +56,7 @@ class CaseProvenance(BaseModel):
 
 
 class RelatedAgentFinding(BaseModel):
-    """A nearby or same-file agent finding that may explain a missed truth span."""
+    """An agent finding that may explain a missed truth span."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -65,7 +65,11 @@ class RelatedAgentFinding(BaseModel):
     end_line: int = Field(ge=1)
     cwe_id: str
     line_distance: int = Field(ge=0)
-    relationship: Literal["nearby_same_file", "same_file"]
+    relationship: Literal[
+        "nearby_same_file",
+        "same_file",
+        "related_file_same_case",
+    ]
     message: str | None = None
 
     @model_validator(mode="after")
@@ -126,6 +130,7 @@ class MissDiagnosticsSummary(BaseModel):
     missed_with_related_findings: int = Field(ge=0)
     missed_with_nearby_same_file_findings: int = Field(ge=0)
     missed_with_same_file_only_findings: int = Field(ge=0)
+    missed_with_related_file_findings: int = Field(default=0, ge=0)
     pure_misses: int = Field(ge=0)
     false_positive_findings: int = Field(ge=0)
     missed_with_missing_code_excerpt: int = Field(default=0, ge=0)
