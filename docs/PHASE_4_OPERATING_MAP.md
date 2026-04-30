@@ -516,6 +516,27 @@ Rails SQLi precision review, 2026-04-29:
   findings. Generated failure payload:
   `/tmp/screw-d02-sqli-morefixes-rails-precision-v102b-failure-inputs/sqli_failure_input.json`.
 
+Non-OSSF v1.0.2 consolidation execution, verified 2026-04-30:
+- Output directory: `/tmp/screw-d02-nonossf-consolidation-v102-run`.
+- Benchmark run ID: `20260430-055646`.
+- No executor issues were reported.
+- SQLi/Rails stayed fixed in the mixed run: TP 1, FP 0, TN 5, FN 4, with one
+  vulnerable `add_limit_offset!` finding and zero patched findings.
+- SQLi/NHibernate remained patched-clean but varied slightly on recall:
+  TP 2, FP 0, TN 25, FN 23, with vulnerable findings on
+  `AbstractCharType.ObjectToSQLString` and
+  `AbstractStringType.ObjectToSQLString`.
+- XSS/Zope remained clean at TP 1, FP 0, TN 1, FN 0. XSS/AntiSamy remained the
+  known test-file truth-span miss with no findings.
+- CmdI/Plexus worsened without related context: TP 2, FP 3, TN 8, FN 8, with
+  three patched `Shell.java` findings. This confirms the next engineering
+  slice should address multi-file evidence packaging for Plexus-style cases
+  rather than another `cmdi.yaml` mutation.
+- Generated consolidation failure payloads:
+  `/tmp/screw-d02-nonossf-consolidation-v102-failure-inputs/cmdi_failure_input.json`,
+  `/tmp/screw-d02-nonossf-consolidation-v102-failure-inputs/sqli_failure_input.json`,
+  and `/tmp/screw-d02-nonossf-consolidation-v102-failure-inputs/xss_failure_input.json`.
+
 ## YAML Mutation Rule
 
 Agent YAML must not change because a gate percentage is low.
@@ -538,7 +559,7 @@ Even then, YAML mutation is not automatic. It is a reviewed engineering change.
    execution.
 3. Generate `phase4-autoresearch-failure-input/v1` payloads from controlled
    smoke reports.
-4. Review the non-OSSF consolidation false positives first, especially Rails
-   patched `add_lock!` / `insert_fixture` and Plexus without related context.
-5. Only then consider a small, reviewed agent-knowledge or evidence-packaging
-   change and re-run the same controlled smoke slice.
+4. Treat SQLi/Rails v1.0.2 as accepted after the mixed consolidation rerun.
+5. Address CmdI/Plexus next as an evidence-packaging problem: make the
+   consolidation path use related context for multi-file cases, then rerun the
+   same Plexus slice before considering any further `cmdi.yaml` change.

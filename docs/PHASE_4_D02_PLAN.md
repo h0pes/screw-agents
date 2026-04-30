@@ -310,6 +310,19 @@ First controlled smoke execution, verified 2026-04-29:
   `/tmp/screw-d02-nonossf-consolidation-failure-inputs`. They keep
   `yaml_mutation_allowed=false` and are the next evidence set to review before
   changing any agent YAML.
+- After the accepted Rails SQLi v1.0.2 precision refinement, a second filtered
+  non-OSSF consolidation execution is verified at
+  `/tmp/screw-d02-nonossf-consolidation-v102-run`, benchmark run
+  `20260430-055646`. SQLi/Rails stayed fixed in the mixed run with TP 1, FP 0,
+  TN 5, FN 4, one vulnerable `add_limit_offset!` finding, and zero patched
+  findings. SQLi/NHibernate remained patched-clean with TP 2, FP 0, TN 25,
+  FN 23. XSS/Zope remained clean and AntiSamy remained the known test-file
+  truth-span miss. CmdI/Plexus produced three patched `Shell.java` findings
+  without related context, so the next D-02 slice should make multi-file
+  evidence packaging available in consolidation runs before considering any
+  further `cmdi.yaml` mutation.
+- Updated consolidation failure payloads were generated under
+  `/tmp/screw-d02-nonossf-consolidation-v102-failure-inputs`.
 
 Focused rerun example:
 
