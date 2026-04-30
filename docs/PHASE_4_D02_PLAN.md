@@ -365,6 +365,13 @@ First controlled smoke execution, verified 2026-04-29:
   trial. Keep `cmdi.yaml` at v1.0.1; the next useful engineering work is
   scoring/failure-analysis support for related-file call-chain credit and
   bridge-span classification.
+- Failure payload generation now records `related_file_same_case` findings for
+  related-context cases. Regenerated payloads under
+  `/tmp/screw-d02-plexus-related-file-diagnostics-failure-inputs` classify all
+  five CmdI/Plexus misses as related-file misses, not pure misses, because each
+  missed `Shell.java`/`Commandline.java` truth span cites the clean-run
+  `BourneShell.java` findings. SQLi and XSS diagnostics remain unchanged
+  because those cases did not run with related context.
 
 Focused rerun example:
 

@@ -98,6 +98,7 @@ def build_failure_payloads_from_controlled_report(
             / "truth.sarif",
             raw_case=raw_case,
             case=case,
+            include_related_context=report_case.include_related_context,
         )
 
     grouped: dict[str, AgentPayloadParts] = defaultdict(AgentPayloadParts)
@@ -193,6 +194,7 @@ def _miss_diagnostics_summary(
 ) -> MissDiagnosticsSummary:
     nearby = 0
     same_file_only = 0
+    related_file = 0
     pure = 0
     missing_code_excerpt = 0
     test_file_paths = 0
@@ -204,6 +206,8 @@ def _miss_diagnostics_summary(
             nearby += 1
         elif "same_file" in relationships:
             same_file_only += 1
+        elif "related_file_same_case" in relationships:
+            related_file += 1
         else:
             pure += 1
         flags = set(example.evidence_quality_flags)
@@ -213,9 +217,10 @@ def _miss_diagnostics_summary(
             test_file_paths += 1
     return MissDiagnosticsSummary(
         total_missed=len(missed_findings),
-        missed_with_related_findings=nearby + same_file_only,
+        missed_with_related_findings=nearby + same_file_only + related_file,
         missed_with_nearby_same_file_findings=nearby,
         missed_with_same_file_only_findings=same_file_only,
+        missed_with_related_file_findings=related_file,
         pure_misses=pure,
         false_positive_findings=len(false_positive_findings),
         missed_with_missing_code_excerpt=missing_code_excerpt,
@@ -234,12 +239,14 @@ class ControlledCaseContext:
         truth_path: Path,
         raw_case: dict[str, Any],
         case: BenchmarkCase,
+        include_related_context: bool,
     ) -> None:
         self.agent_name = agent_name
         self.manifest_path = manifest_path
         self.truth_path = truth_path
         self.raw_case = raw_case
         self.case = case
+        self.include_related_context = include_related_context
 
 
 class AgentPayloadParts:
@@ -400,6 +407,7 @@ def _missed_examples(
                     truth=truth,
                     findings=vulnerable_findings,
                     hierarchy=hierarchy,
+                    include_related_files=context.include_related_context,
                 ),
                 evidence_quality_flags=_evidence_quality_flags(
                     file_path=truth.location.file,
@@ -487,20 +495,28 @@ def _related_agent_findings(
     truth: Finding,
     findings: list[Finding],
     hierarchy: Any,
+    include_related_files: bool = True,
     max_count: int = 3,
 ) -> list[RelatedAgentFinding]:
-    candidates: list[tuple[int, Finding]] = []
+    same_file_candidates: list[tuple[int, Finding]] = []
+    related_file_candidates: list[Finding] = []
     for finding in findings:
-        if finding.location.file != truth.location.file:
-            continue
         if not hierarchy.broad_match(finding.cwe_id, truth.cwe_id):
             continue
-        if locations_match(truth.location, finding.location):
-            continue
-        candidates.append((_line_distance(truth.location, finding.location), finding))
+        if finding.location.file == truth.location.file:
+            if locations_match(truth.location, finding.location):
+                continue
+            same_file_candidates.append(
+                (_line_distance(truth.location, finding.location), finding)
+            )
+        elif include_related_files:
+            related_file_candidates.append(finding)
 
     related: list[RelatedAgentFinding] = []
-    for distance, finding in sorted(candidates, key=lambda item: item[0])[:max_count]:
+    for distance, finding in sorted(
+        same_file_candidates,
+        key=lambda item: item[0],
+    )[:max_count]:
         related.append(
             RelatedAgentFinding(
                 file=finding.location.file,
@@ -511,6 +527,22 @@ def _related_agent_findings(
                 relationship=(
                     "nearby_same_file" if distance <= 25 else "same_file"
                 ),
+                message=finding.message,
+            )
+        )
+    remaining = max_count - len(related)
+    for finding in sorted(
+        related_file_candidates,
+        key=lambda item: (item.location.file, item.location.start_line),
+    )[:remaining]:
+        related.append(
+            RelatedAgentFinding(
+                file=finding.location.file,
+                start_line=finding.location.start_line,
+                end_line=finding.location.end_line,
+                cwe_id=finding.cwe_id,
+                line_distance=0,
+                relationship="related_file_same_case",
                 message=finding.message,
             )
         )

@@ -34,6 +34,9 @@ YAML mutation: the agent found the vulnerable `BourneShell` quoting behavior
 and stayed patched-clean, while the remaining misses are broad base-class
 spans, bridge/delegation spans, or a single `verifyShellState()` localization
 gap better handled by scoring/failure-analysis tooling.
+Failure payloads now make that cross-file evidence explicit for related-context
+cases via `related_file_same_case`; the regenerated Plexus payload classifies
+all five misses as related-file misses and zero as pure misses.
 
 **When starting Phase 4:** D-02 threshold optimization runs as part of the autoresearch loop. The benchmark pipeline is validated (PR #3).
 
@@ -611,6 +614,12 @@ is not the shell quoting change, and `Commandline.verifyShellState()` is a
 single bridge-localization gap. Keep `cmdi.yaml` at v1.0.1; the next
 engineering slice should improve scoring/failure-analysis support for
 related-file call-chain credit and bridge-span classification.
+That failure-analysis support is now partly in place: regenerated payloads at
+`/tmp/screw-d02-plexus-related-file-diagnostics-failure-inputs` attach
+`related_file_same_case` findings for related-context cases. CmdI/Plexus now
+reports 5 related-file misses, 0 pure misses, and 0 false-positive findings,
+while SQLi and XSS remain unchanged because they did not run with related
+context.
 
 **When continuing Phase 4:** Continue from `docs/PHASE_4_D02_PLAN.md`; keep Rust metric claims scoped to real-CVE SQLi/Cmdi/XSS and synthetic-only SSTI unless refresh finds a verified SSTI advisory.
 Use `docs/PHASE_4_OPERATING_MAP.md` as the high-level map before restoring
