@@ -711,6 +711,27 @@ CmdI/Plexus case-level related-context packaging, verified 2026-04-30:
   5 pure misses, 1 test-file-path miss, and 0 false-positive findings; XSS has
   the known AntiSamy test-file miss and 0 false-positive findings.
 
+Current no-Claude payload triage, verified 2026-04-30:
+- Payload source:
+  `/tmp/screw-d02-plexus-related-file-scoring-failure-inputs`.
+- XSS/AntiSamy has one missed span in
+  `OWASP.AntiSamyTests/Html/AntiSamyTest.cs` and it is flagged as
+  `test_file_path`. Treat this as benchmark truth-span/test-fixture evidence,
+  not as a new `xss.yaml` mutation target.
+- CmdI/Plexus has 5 exact-span misses, all 5 are related-file credit
+  candidates, and patched findings remain 0. Treat this as closed for current
+  YAML purposes.
+- SQLi/NHibernate remains patched-clean. The capped misses are a SQL builder
+  test span, a test/helper dialect support method, a boolean literal helper,
+  `ByteType.Set()` typed parameter assignment, and
+  `CharBooleanType.ObjectToSQLString()`. The first four are not clean evidence
+  for broader SQLi prompt changes; the last is a sibling renderer already in
+  the accepted v1.0.1 pattern family. Do not mutate `sqli.yaml` from this
+  capped payload alone.
+- Conclusion: current non-OSSF payloads do not justify another agent YAML
+  change. The next useful step is expanded stratified validation with explicit
+  prompt-budget review, not further per-case tuning of these slices.
+
 ## YAML Mutation Rule
 
 Agent YAML must not change because a gate percentage is low.
@@ -741,3 +762,7 @@ Even then, YAML mutation is not automatic. It is a reviewed engineering change.
    diagnostics as implemented for controlled consolidation. Use the adjusted
    diagnostics to avoid retraining on the current five Plexus misses, and do
    not mutate `cmdi.yaml` from them.
+7. Treat the current AntiSamy, NHibernate, and Plexus payloads as exhausted for
+   YAML-training purposes. Plan an expanded stratified validation set over
+   trustworthy executable cases before considering additional agent knowledge
+   changes.
