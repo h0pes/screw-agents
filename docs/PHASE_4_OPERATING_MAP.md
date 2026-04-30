@@ -809,6 +809,16 @@ Expanded MoreFixes SQLi fix-semantics review, verified 2026-04-30:
 - Decision: do not mutate `sqli.yaml` from this expanded MoreFixes run. The
   correct next action is to mark these two cases as needing benchmark
   fix-semantics review before they can be used as precision-training evidence.
+- Failure payload schema now supports those review outcomes directly through
+  `evidence_quality_flags`: `fix_semantics_ambiguous` and
+  `residual_risk_or_incomplete_fix`. Diagnostics also count
+  `false_positive_fix_semantics_ambiguous` and
+  `false_positive_residual_risk_or_incomplete_fix`.
+- Annotated payload:
+  `/tmp/screw-d02-expanded-stratified-morefixes-fix-semantics-input.json`.
+  It classifies the 2 `titlelink` patched findings as fix-semantics ambiguous
+  and the 3 `click-reminder` patched findings as residual-risk/incomplete-fix
+  evidence.
 
 ## YAML Mutation Rule
 

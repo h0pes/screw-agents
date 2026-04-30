@@ -659,6 +659,11 @@ pending Joomla `$database->quote(..., false)` API/version evidence, and
 `lierdakil/click-reminder` as likely incomplete-fix/residual-risk evidence
 because the patched snapshot still interpolates `$this->sid` into SQL after
 HTML-context escaping. Keep `sqli.yaml` unchanged from this expanded run.
+Failure payloads now have structured evidence flags for those outcomes, and
+the annotated payload
+`/tmp/screw-d02-expanded-stratified-morefixes-fix-semantics-input.json`
+reports 2 fix-semantics ambiguous patched findings and 3 residual-risk or
+incomplete-fix patched findings.
 The next guardrail is also in place: controlled executor validation now builds
 the exact prompts without invoking Claude and reports prompt character/token
 estimates plus a retry-adjusted budget. The current five-slice non-OSSF plan

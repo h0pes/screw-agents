@@ -99,7 +99,12 @@ class FailureExample(BaseModel):
     code_excerpt: str | None = None
     related_agent_findings: list[RelatedAgentFinding] = []
     evidence_quality_flags: list[
-        Literal["missing_code_excerpt", "test_file_path"]
+        Literal[
+            "missing_code_excerpt",
+            "test_file_path",
+            "fix_semantics_ambiguous",
+            "residual_risk_or_incomplete_fix",
+        ]
     ] = []
 
     @model_validator(mode="after")
@@ -136,6 +141,8 @@ class MissDiagnosticsSummary(BaseModel):
     related_file_credit_candidates: int = Field(default=0, ge=0)
     false_negatives_after_related_file_credit: int = Field(default=0, ge=0)
     false_positive_findings: int = Field(ge=0)
+    false_positive_fix_semantics_ambiguous: int = Field(default=0, ge=0)
+    false_positive_residual_risk_or_incomplete_fix: int = Field(default=0, ge=0)
     missed_with_missing_code_excerpt: int = Field(default=0, ge=0)
     missed_in_test_file_paths: int = Field(default=0, ge=0)
 
