@@ -406,6 +406,17 @@ First controlled smoke execution, verified 2026-04-29:
   tokens, while the focused three-case MoreFixes SQLi subset measured about
   243,090. Do not run either live without explicit prompt-budget acceptance;
   if approved, start with the MoreFixes subset.
+- The focused three-case MoreFixes SQLi subset was then run live at
+  `/tmp/screw-d02-expanded-stratified-morefixes-run`, benchmark run
+  `20260430-125213`, with `ANTHROPIC_API_KEY` unset and an explicitly raised
+  `--max-prompt-chars 1000000` guard. Rails stayed patched-clean, but the two
+  new cases produced patched findings: `gesellix/titlelink` reported 2
+  vulnerable and 2 patched findings, and `lierdakil/click-reminder` reported 3
+  vulnerable and 4 patched findings. The payload at
+  `/tmp/screw-d02-expanded-stratified-morefixes-failure-inputs/sqli_failure_input.json`
+  needs human fix-semantics review before any SQLi YAML change because the
+  patched snapshots may still contain residual-risk patterns or incomplete
+  benchmark fixes.
 
 Focused rerun example:
 
