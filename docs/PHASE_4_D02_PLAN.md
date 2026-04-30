@@ -417,6 +417,14 @@ First controlled smoke execution, verified 2026-04-29:
   needs human fix-semantics review before any SQLi YAML change because the
   patched snapshots may still contain residual-risk patterns or incomplete
   benchmark fixes.
+- Fix-semantics review classified those two new cases as unsuitable for SQLi
+  YAML tuning right now. `gesellix/titlelink` is ambiguous because local
+  snapshots do not include the Joomla database API needed to prove
+  `$database->quote(..., false)` semantics. `lierdakil/click-reminder` is
+  likely an incomplete fix or residual-risk case because the patched code still
+  interpolates `$this->sid` into SQL after HTML-context escaping and a generic
+  semicolon blacklist. Keep `sqli.yaml` unchanged and treat both cases as
+  benchmark/fix-semantics review items.
 
 Focused rerun example:
 

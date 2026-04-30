@@ -789,6 +789,27 @@ Expanded MoreFixes SQLi live run, verified 2026-04-30:
   residual-risk or benchmark-fix-quality evidence rather than prompt
   overbreadth. Review these two cases before any YAML change.
 
+Expanded MoreFixes SQLi fix-semantics review, verified 2026-04-30:
+- `gesellix/titlelink`: vulnerable code directly interpolates `$phrase` into
+  `LIKE '%$phrase%'` / `= '$phrase'`. The patched snapshot changes those
+  expressions to `$database->quote('%'.$phrase.'%', false)` and
+  `$database->quote($phrase, false)`. The local MoreFixes snapshot does not
+  include the Joomla database implementation, so the exact meaning of the
+  second `quote()` argument cannot be proven from local source. Treat the
+  patched findings as **fix-semantics ambiguous**, not as accepted SQLi YAML
+  false positives. A future decision needs Joomla API/version evidence showing
+  whether `false` disables escaping or only controls surrounding quotes.
+- `lierdakil/click-reminder`: the patched snapshot adds a semicolon blacklist
+  in `db_query()` and validates `iid` with `is_numeric()`, but it still
+  interpolates `$this->sid` into `checkSIDValid()` and `updateLastActivity()`
+  SQL strings after `htmlspecialchars(..., ENT_QUOTES)`. That is HTML-context
+  escaping, not a parameterized SQL defense, and the patch still uses string
+  SQL execution. Treat the patched findings as **likely residual-risk /
+  incomplete-fix evidence**, not prompt overbreadth.
+- Decision: do not mutate `sqli.yaml` from this expanded MoreFixes run. The
+  correct next action is to mark these two cases as needing benchmark
+  fix-semantics review before they can be used as precision-training evidence.
+
 ## YAML Mutation Rule
 
 Agent YAML must not change because a gate percentage is low.
