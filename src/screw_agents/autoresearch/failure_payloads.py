@@ -222,6 +222,10 @@ def _miss_diagnostics_summary(
         missed_with_same_file_only_findings=same_file_only,
         missed_with_related_file_findings=related_file,
         pure_misses=pure,
+        exact_span_false_negatives=len(missed_findings),
+        related_file_credit_candidates=related_file,
+        false_negatives_after_related_file_credit=len(missed_findings)
+        - related_file,
         false_positive_findings=len(false_positive_findings),
         missed_with_missing_code_excerpt=missing_code_excerpt,
         missed_in_test_file_paths=test_file_paths,

@@ -433,6 +433,13 @@ Related-file failure diagnostics, verified 2026-04-30:
   cites the three clean-run `BourneShell.java` findings that identify the
   vulnerable quote behavior. This makes the earlier review mechanically visible
   in the payload instead of relying on manual cross-file comparison.
+- Related-file scoring diagnostics are now explicit in regenerated payloads at
+  `/tmp/screw-d02-plexus-related-file-scoring-failure-inputs`. CmdI/Plexus
+  still records 5 `exact_span_false_negatives`, but all 5 are
+  `related_file_credit_candidates`, so
+  `false_negatives_after_related_file_credit` is 0. Use this adjusted count
+  only for failure analysis and calibration; exact benchmark TP/FN metrics stay
+  unchanged.
 - SQLi and XSS diagnostics are intentionally unchanged by this cross-file rule:
   SQLi still has five pure misses and one test-file-path miss, while XSS keeps
   the known AntiSamy test-file miss. Related-file findings are only attached
@@ -682,8 +689,7 @@ Even then, YAML mutation is not automatic. It is a reviewed engineering change.
 4. Generate `phase4-autoresearch-failure-input/v1` payloads from controlled
    smoke reports.
 5. Treat SQLi/Rails v1.0.2 as accepted after the mixed consolidation rerun.
-6. Treat CmdI/Plexus related-context packaging as implemented for controlled
-   consolidation. Use the related-file diagnostics payloads for any next
-   review, and do not mutate `cmdi.yaml` from the current five Plexus misses.
-   The next useful engineering slice is scoring support for applying related
-   call-chain evidence without overstating exact truth-span matches.
+6. Treat CmdI/Plexus related-context packaging and related-file scoring
+   diagnostics as implemented for controlled consolidation. Use the adjusted
+   diagnostics to avoid retraining on the current five Plexus misses, and do
+   not mutate `cmdi.yaml` from them.
