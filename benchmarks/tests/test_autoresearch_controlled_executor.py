@@ -368,6 +368,16 @@ def test_executor_validation_resolves_selected_case_without_invocation(
     assert report.cases[0].case_id == "morefixes-CVE-2024-0001-example"
     assert report.cases[0].vulnerable_file_count == 1
     assert report.cases[0].patched_file_count == 1
+    assert report.prompt_budget is not None
+    assert report.prompt_budget.prompt_count == 2
+    assert report.prompt_budget.total_prompt_chars > 0
+    assert report.prompt_budget.retry_budgeted_prompt_chars == (
+        report.prompt_budget.total_prompt_chars * report.config.max_retries
+    )
+    assert {estimate.variant for estimate in report.prompt_estimates} == {
+        "vulnerable",
+        "patched",
+    }
 
 
 def test_executor_agent_filter_limits_reviewed_selection(tmp_path: Path) -> None:
@@ -442,6 +452,8 @@ def test_executor_auto_marks_multifile_cases_for_related_context(
     )
     assert "| G5.6 | cmdi | reality-check-java |" in rendered
     assert "| 2 | 2 | yes | CWE-78 |" in rendered
+    assert "## Prompt Estimates" in rendered
+    assert any(estimate.context_file_count == 1 for estimate in report.prompt_estimates)
 
 
 def test_executor_filter_empty_blocks_execution(tmp_path: Path) -> None:
@@ -470,6 +482,25 @@ def test_executor_execute_requires_executor_level_allowance(tmp_path: Path) -> N
 
     assert report.execution_performed is False
     assert {issue.code for issue in report.issues} == {"executor_invocation_disabled"}
+
+
+def test_executor_blocks_execution_when_prompt_budget_is_exceeded(
+    tmp_path: Path,
+) -> None:
+    controlled_plan_path = _write_controlled_plan(tmp_path)
+
+    report = build_controlled_executor_report(
+        controlled_plan_path=controlled_plan_path,
+        output_dir=tmp_path / "out",
+        execute=True,
+        allow_claude_invocation=True,
+        max_prompt_chars=1,
+    )
+
+    assert report.execution_performed is False
+    assert "prompt_budget_exceeded" in {issue.code for issue in report.issues}
+    assert report.prompt_budget is not None
+    assert report.prompt_budget.max_prompt_chars == 1
 
 
 def test_executor_blocks_when_controlled_plan_is_not_executable(
@@ -566,5 +597,8 @@ def test_executor_cli_writes_validation_report(tmp_path: Path) -> None:
     assert written["execution_performed"] is False
     assert written["config"]["case_ids"] == ["morefixes-CVE-2024-0002-example"]
     assert written["config"]["include_related_context"] is True
+    assert written["config"]["max_prompt_chars"] == 250000
+    assert written["prompt_budget"]["prompt_count"] == 2
+    assert written["prompt_estimates"]
     assert written["cases"][0]["case_id"] == "morefixes-CVE-2024-0002-example"
     assert (output_dir / "controlled_executor_report.md").exists()

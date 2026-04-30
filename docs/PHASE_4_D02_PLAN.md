@@ -208,6 +208,10 @@ Only after Tasks 1-4 are resolved:
   from the local materialized benchmark data
 - validate the controlled executor first; by default it resolves selected
   cases and confirms vulnerable/patched code extraction without invoking Claude
+- review the executor's prompt-budget estimate before any execution; validation
+  assembles the exact prompts without invoking Claude, and execution is blocked
+  by default when the retry-budgeted prompt character total exceeds
+  `--max-prompt-chars 250000`
 - optionally restrict validation/execution to reviewed slices with `--agent`
   and/or `--case-id` when iterating on a concrete failure payload
 - optionally include same-variant related truth files as prompt context with
@@ -257,6 +261,14 @@ First controlled smoke execution, verified 2026-04-29:
   evaluator without enabling related context globally. This makes mixed
   consolidation apply related context to Plexus while leaving AntiSamy, Zope,
   NHibernate, and Rails on their existing prompt shape.
+- The controlled executor now reports per-prompt character/token estimates and
+  a retry-adjusted prompt budget before any Claude call. A no-Claude validation
+  of the current five-slice non-OSSF plan at
+  `/tmp/screw-d02-prompt-budget-validation` measured 34 actual per-file
+  prompts, 1,427,680 prompt characters, and about 1,070,805 retry-budgeted
+  estimated tokens at `--max-retries 3`. Future live runs should be narrowed
+  or explicitly budget-approved before raising or disabling the default
+  `--max-prompt-chars 250000` guard.
 - Focused CmdI/Plexus execution with `--include-related-context` is verified:
   `/tmp/screw-d02-cmdi-context-run`, benchmark run `20260429-090552`. The run
   produced 9 vulnerable findings, 0 patched findings, TP 7, FP 2, TN 10, FN 3,
