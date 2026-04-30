@@ -1,6 +1,6 @@
 # Project Status — screw-agents
 
-> Last updated: 2026-04-29
+> Last updated: 2026-04-30
 
 ## Deferred Obligations
 
@@ -440,7 +440,7 @@ Structured as a dependency graph with three parallel tracks converging at smoke 
 | Phase 3a | Prompt infrastructure (trust, learning aggregation, plugin-namespace, core-prompt dedup) | **Complete** (PR #6-#9 series, merged 2026-04-16/17) |
 | Phase 3b | Adaptive Analysis & Learning Refinement | **Complete** — PR #4 (#10) 2026-04-18, PR #5 (#11) 2026-04-20, PR #6 (#12) 2026-04-23, Phase 3b-C2 2026-04-24, BACKLOG-PR6-22 (#14) 2026-04-24, T19-M D7 (#15) 2026-04-24, T-SCAN-REFACTOR final 2026-04-25 |
 | Phase 3c | Sandbox hardening sweep (seccomp filter + thread-safety + dedup) | **Deferred** — see `docs/DEFERRED_BACKLOG.md` §"Phase 3c (sandbox hardening follow-ups)" |
-| Phase 4 | Autoresearch & Self-Improvement | **In progress** — D-01 merged, D-02 controlled smoke, focused refinements, and non-OSSF consolidation execution complete; consolidation false-positive review next |
+| Phase 4 | Autoresearch & Self-Improvement | **In progress** — D-01 merged, D-02 controlled smoke, focused refinements, and SQLi/Rails v1.0.2 consolidation accepted; CmdI/Plexus related-context consolidation next |
 | Phase 5 | Multi-LLM Challenger System | Pending |
 | Phase 6 | Agent Expansion & Ecosystem | Pending |
 | Phase 7 | screw.nvim Integration (scan commands, review-before-import, exclusions) | Pending |
@@ -568,7 +568,15 @@ option/object, while vulnerable LIMIT/OFFSET appenders remain reportable.
 Focused v1.0.2 rerun
 `/tmp/screw-d02-sqli-morefixes-rails-precision-v102b-run` improved the slice to
 TP 1, FP 0, TN 5, FN 4 with one vulnerable `add_limit_offset!` finding and zero
-patched findings.
+patched findings. The follow-up mixed non-OSSF consolidation
+`/tmp/screw-d02-nonossf-consolidation-v102-run`, benchmark run
+`20260430-055646`, confirmed the Rails fix in context: SQLi/MoreFixes reported
+TP 1, FP 0, TN 5, FN 4, with one vulnerable `add_limit_offset!` finding and no
+patched findings. SQLi/NHibernate remained patched-clean, XSS/Zope remained
+clean, and AntiSamy remained the known test-file truth-span miss. CmdI/Plexus
+produced three patched `Shell.java` findings without related context, so the
+next D-02 slice is evidence packaging for multi-file Plexus-style cases, not
+another CmdI YAML change.
 
 **When continuing Phase 4:** Continue from `docs/PHASE_4_D02_PLAN.md`; keep Rust metric claims scoped to real-CVE SQLi/Cmdi/XSS and synthetic-only SSTI unless refresh finds a verified SSTI advisory.
 Use `docs/PHASE_4_OPERATING_MAP.md` as the high-level map before restoring
