@@ -219,8 +219,15 @@ Only after Tasks 1-4 are resolved:
 - use `--selection-strategy priority-stratified` for larger controlled samples
   when the first cases should favor explicit manifest priority, known
   exploitation metadata, CVSS/severity metadata, CVE-backed cases, richer
-  truth-span counts, and recency; keep `expanded-stratified` available when the
-  goal is less opinionated representative coverage
+  truth-span counts, and recency; this strategy, like `expanded-stratified`,
+  records incomplete or zero-case gate selections as warnings when the broader
+  plan still has executable selections; keep `expanded-stratified` available
+  when the goal is less opinionated representative coverage
+- 2026-04-30 priority-stratified no-Claude probe:
+  `/tmp/screw-d02-priority-stratified-executor-validation` selected 7
+  executable cases and validated extraction, but estimated 90 prompts and about
+  12.55M retry-budgeted prompt characters at `--max-retries 3`; do not execute
+  the whole priority slice without narrowing filters or explicit budget review
 - require explicit `--allow-claude-invocation` before a plan can become
   executable
 - require a second executor-level `--allow-claude-invocation` with `--execute`

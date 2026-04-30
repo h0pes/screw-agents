@@ -441,6 +441,72 @@ def test_priority_stratified_ranks_higher_signal_cases_first(
     ]
 
 
+def test_priority_stratified_allows_partial_executable_selection(
+    tmp_path: Path,
+) -> None:
+    dry_run_path = tmp_path / "run_plan.json"
+    _write_dry_run_plan(dry_run_path, ready=True)
+    dry_run = json.loads(dry_run_path.read_text(encoding="utf-8"))
+    dry_run["datasets"][0]["case_count"] = 3
+    dry_run_path.write_text(json.dumps(dry_run) + "\n", encoding="utf-8")
+
+    plan = build_controlled_execution_plan(
+        dry_run_plan_path=dry_run_path,
+        output_dir=tmp_path / "out",
+        allow_claude_invocation=True,
+        max_cases_per_dataset=3,
+        selection_strategy="priority-stratified",
+    )
+
+    assert plan.execution_allowed is True
+    assert [(issue.severity, issue.code) for issue in plan.issues] == [
+        ("warning", "case_selection_incomplete")
+    ]
+    assert plan.selections[0].selected_case_ids == [
+        "morefixes-sqli-1",
+        "morefixes-sqli-2",
+    ]
+
+
+def test_priority_stratified_allows_zero_case_gate_when_other_selections_exist(
+    tmp_path: Path,
+) -> None:
+    dry_run_path = tmp_path / "run_plan.json"
+    _write_multi_dataset_dry_run_plan(dry_run_path, ready=True)
+    dry_run = json.loads(dry_run_path.read_text(encoding="utf-8"))
+    dry_run["datasets"][0]["case_count"] = 3
+    dry_run["datasets"][1]["case_count"] = 3
+    dry_run_path.write_text(json.dumps(dry_run) + "\n", encoding="utf-8")
+    ossf_dir = tmp_path / "external" / "ossf-cve-benchmark"
+    for truth_path in ossf_dir.glob("*/truth.sarif"):
+        truth_path.unlink()
+
+    plan = build_controlled_execution_plan(
+        dry_run_plan_path=dry_run_path,
+        output_dir=tmp_path / "out",
+        allow_claude_invocation=True,
+        max_cases_per_dataset=3,
+        selection_strategy="priority-stratified",
+    )
+
+    assert plan.execution_allowed is True
+    assert all(issue.severity == "warning" for issue in plan.issues)
+    assert any(
+        issue.message
+        == "Gate G5.1 requested 3 ossf-cve-benchmark case(s) for CWE-79, but only selected 0."
+        for issue in plan.issues
+    )
+    assert {
+        (selection.dataset, selection.agent) for selection in plan.selections
+    } == {
+        ("reality-check-csharp", "xss"),
+        ("reality-check-csharp", "sqli"),
+        ("reality-check-python", "xss"),
+        ("reality-check-java", "cmdi"),
+        ("morefixes", "sqli"),
+    }
+
+
 def test_required_dataset_smoke_selects_each_dataset_agent_pair(
     tmp_path: Path,
 ) -> None:

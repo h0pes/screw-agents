@@ -51,7 +51,10 @@ sampled rather than manually tuned case by case. Slice selection now has an
 explicit `priority-stratified` mode for expensive expanded batches, so early
 Claude calls can favor higher-signal CVE-backed, severe, richly annotated, or
 review-prioritized cases while preserving smoke/default modes for less
-opinionated representative coverage.
+opinionated representative coverage. The first no-Claude priority-stratified
+planning probe selected 7 executable cases but estimated 90 prompts and about
+12.55M retry-budgeted prompt characters, so the next live run should be
+narrowed by agent/case rather than executed as a full priority slice.
 
 **When starting Phase 4:** D-02 threshold optimization runs as part of the autoresearch loop. The benchmark pipeline is validated (PR #3).
 
