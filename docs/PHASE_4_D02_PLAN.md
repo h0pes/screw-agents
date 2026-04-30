@@ -353,6 +353,18 @@ First controlled smoke execution, verified 2026-04-29:
   payloads are under
   `/tmp/screw-d02-plexus-related-context-nonossf-rerun-failure-inputs`; use
   those payloads, not the noisy previous mixed run, for any follow-on review.
+- Review of the clean CmdI/Plexus payload found no current `cmdi.yaml`
+  mutation target. The three clean-run vulnerable findings correctly localize
+  the real Bourne-shell quoting defect in `BourneShell.java`, and patched
+  findings remain zero after 3.0.16 switches to single-quote-style
+  `quoteOneItem()`. The missed `Shell.java` spans are broad base-class or
+  delegation spans, `Commandline.getCommandline()` is a benchmark
+  localization/scoring artifact rather than the shell quoting change, and
+  `Commandline.verifyShellState()` is a plausible bridge-localization gap but
+  not enough to justify another prompt change after the rejected over-reporting
+  trial. Keep `cmdi.yaml` at v1.0.1; the next useful engineering work is
+  scoring/failure-analysis support for related-file call-chain credit and
+  bridge-span classification.
 
 Focused rerun example:
 

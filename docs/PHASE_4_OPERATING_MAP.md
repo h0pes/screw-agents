@@ -365,6 +365,39 @@ Review of the three remaining CmdI/Plexus misses:
   misses, and patched-version false positives so reviewers can triage a run
   without hand-counting every example first.
 
+Cleaner rerun review of the five CmdI/Plexus misses:
+- Payload reviewed:
+  `/tmp/screw-d02-plexus-related-context-nonossf-rerun-failure-inputs/cmdi_failure_input.json`.
+- Clean-run vulnerable findings are all in `BourneShell.java` on the actual
+  vulnerable quoting behavior: `getExecutable()`/`getExecutionPreamble()` call
+  `unifyQuotes()`, which uses double-quote-style shell quoting. Patched
+  3.0.16 replaces this path with unconditional single-quote-style
+  `quoteOneItem()` and keeps patched findings at zero.
+- `Shell.java:40-409` and `Shell.java:132-178` are broad truth-span/scoring
+  artifacts. The spans cover the base shell builder and `getRawCommandLine()`,
+  but the concrete vulnerable behavior in this CVE is the Bourne-shell override
+  and its quote model. The agent found the subclass behavior and stayed
+  patched-clean, so broadening `cmdi.yaml` to force base-class hits would risk
+  reviving patched `Shell.java` false positives.
+- `Shell.java:266-285` is a bridge-span artifact. It assembles
+  `getShellCommandLine()` by delegating to `getCommandLine()` and is useful for
+  call-chain understanding, but it is not where the escaping semantics changed.
+- `Commandline.java:483-496` is not a good YAML-training target. In the
+  vulnerable version it returns `getExecutable()` plus arguments; in patched
+  3.0.16 it returns the literal executable for non-shell execution while
+  `getShellCommandline()` remains the shell path. Treat this as benchmark
+  localization/scoring noise unless another case proves a reusable pattern.
+- `Commandline.java:665-676` (`verifyShellState()`) remains the only plausible
+  bridge-localization gap because it copies working directory and executable
+  state into the shell object before shell command construction. A previous
+  prompt trial for this class of helper regressed badly, so do not mutate
+  `cmdi.yaml` from this single span. The better next improvement is scoring or
+  failure-analysis support for related-file/call-chain credit, plus clearer
+  bridge-span classification in payloads.
+- Conclusion: keep `cmdi.yaml` at v1.0.1. Plexus is now patched-clean under
+  related-context packaging; remaining recall loss is primarily truth-span and
+  localization granularity, not evidence for broader CmdI knowledge.
+
 Focused SQLi/NHibernate literal-renderer execution, verified 2026-04-29:
 - Output directory: `/tmp/screw-d02-sqli-nhibernate-v101-run`.
 - Benchmark run ID: `20260429-132147`.
@@ -608,5 +641,6 @@ Even then, YAML mutation is not automatic. It is a reviewed engineering change.
 4. Treat SQLi/Rails v1.0.2 as accepted after the mixed consolidation rerun.
 5. Treat CmdI/Plexus related-context packaging as implemented for controlled
    consolidation. Use the cleaner rerun payloads for any next review, and do
-   not mutate `cmdi.yaml` unless those concrete examples justify a targeted
-   change after human review.
+   not mutate `cmdi.yaml` from the current five Plexus misses. The next useful
+   engineering slice is scoring/failure-analysis support for related-file
+   call-chain credit and bridge-span classification.
