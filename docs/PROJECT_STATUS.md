@@ -47,7 +47,11 @@ Phase 4's operating rule is calibration, not exhaustive per-CVE tuning:
 controlled slices are probes for reusable agent knowledge, benchmark/scoring
 machinery issues, or dataset materialization decisions. Broader benchmark runs
 remain necessary for validation/regression, but misses should be clustered and
-sampled rather than manually tuned case by case.
+sampled rather than manually tuned case by case. Slice selection now has an
+explicit `priority-stratified` mode for expensive expanded batches, so early
+Claude calls can favor higher-signal CVE-backed, severe, richly annotated, or
+review-prioritized cases while preserving smoke/default modes for less
+opinionated representative coverage.
 
 **When starting Phase 4:** D-02 threshold optimization runs as part of the autoresearch loop. The benchmark pipeline is validated (PR #3).
 

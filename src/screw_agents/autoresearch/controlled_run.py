@@ -30,6 +30,7 @@ SelectionStrategy = Literal[
     "required-dataset-smoke",
     "gate-order",
     "expanded-stratified",
+    "priority-stratified",
 ]
 
 
@@ -358,7 +359,11 @@ def _select_case_ids(
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     selected: list[str] = []
-    for case in manifest.get("cases", []):
+    raw_cases = list(manifest.get("cases", []))
+    if selection_strategy == "priority-stratified":
+        raw_cases = _priority_ranked_cases(raw_cases)
+
+    for case in raw_cases:
         case_id = str(case["case_id"])
         truth_path = external_dir / dataset_name / case_id / "truth.sarif"
         if not truth_path.exists():
@@ -407,6 +412,84 @@ def _select_case_ids(
             ),
         )
     return selected
+
+
+def _priority_ranked_cases(cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    indexed_cases = list(enumerate(cases))
+    indexed_cases.sort(key=lambda item: _case_priority_sort_key(*item))
+    return [case for _index, case in indexed_cases]
+
+
+def _case_priority_sort_key(index: int, case: dict[str, Any]) -> tuple[Any, ...]:
+    """Rank higher-signal benchmark cases first while preserving determinism."""
+    explicit_priority = _optional_float(
+        case.get("sample_priority") or case.get("priority")
+    )
+    cvss_score = _optional_float(
+        case.get("cvss_score") or case.get("cvss") or case.get("severity_score")
+    )
+    severity_rank = _severity_rank(case.get("severity"))
+    known_exploited = _truthy(
+        case.get("known_exploited") or case.get("kev") or case.get("cisa_kev")
+    )
+    truth_span_count = _optional_int(case.get("fail_count")) + _optional_int(
+        case.get("pass_count")
+    )
+    published_date = str(case.get("published_date") or "")
+    case_id = str(case.get("case_id") or "")
+    cve_backed = case_id.startswith(("CVE-", "ossf-CVE", "morefixes-CVE")) or bool(
+        case.get("cve_id")
+    )
+
+    return (
+        -explicit_priority,
+        not known_exploited,
+        -cvss_score,
+        -severity_rank,
+        not cve_backed,
+        -truth_span_count,
+        not bool(published_date),
+        _reverse_lexicographic_key(published_date),
+        index,
+    )
+
+
+def _optional_float(value: Any) -> float:
+    if value is None:
+        return 0.0
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _optional_int(value: Any) -> int:
+    if value is None:
+        return 0
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _severity_rank(value: Any) -> int:
+    return {
+        "critical": 4,
+        "high": 3,
+        "medium": 2,
+        "moderate": 2,
+        "low": 1,
+    }.get(str(value or "").lower(), 0)
+
+
+def _truthy(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or "").lower() in {"1", "true", "yes", "y"}
+
+
+def _reverse_lexicographic_key(value: str) -> tuple[int, ...]:
+    return tuple(-ord(char) for char in value)
 
 
 def _load_manifest_cases(manifest_path: Path) -> dict[str, dict[str, Any]]:

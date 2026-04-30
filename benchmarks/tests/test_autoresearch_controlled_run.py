@@ -357,6 +357,90 @@ def test_expanded_stratified_allows_partial_executable_selection(
     ]
 
 
+def test_priority_stratified_ranks_higher_signal_cases_first(
+    tmp_path: Path,
+) -> None:
+    dry_run_path = tmp_path / "run_plan.json"
+    manifest_path = _write_manifest_and_truth(
+        tmp_path,
+        dataset_name="morefixes",
+        cases=[
+            ("morefixes-CVE-2024-0001-low-signal", "CWE-89"),
+            ("morefixes-CVE-2021-0002-high-cvss", "CWE-89"),
+            ("morefixes-CVE-2019-0003-explicit-priority", "CWE-89"),
+        ],
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["cases"][0]["fail_count"] = 1
+    manifest["cases"][0]["pass_count"] = 1
+    manifest["cases"][0]["published_date"] = "2024-01-01"
+    manifest["cases"][1]["cvss_score"] = 9.8
+    manifest["cases"][1]["published_date"] = "2021-01-01"
+    manifest["cases"][2]["sample_priority"] = 50
+    manifest["cases"][2]["published_date"] = "2019-01-01"
+    manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+    dry_run_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "phase4-autoresearch-run-plan/v1",
+                "generated_at": "2026-04-30T00:00:00+00:00",
+                "mode": "dry-run",
+                "external_dir": str(tmp_path / "external"),
+                "dataset_count": 1,
+                "total_cases": 3,
+                "estimated_min_invocations": 6,
+                "datasets": [
+                    {
+                        "dataset_name": "morefixes",
+                        "manifest_path": str(manifest_path),
+                        "case_count": 3,
+                        "data_dir_exists": True,
+                        "truth_file_count": 3,
+                        "supported_by_extractor": True,
+                        "g5_gate_ids": ["G5.8"],
+                        "estimated_min_invocations": 6,
+                        "estimated_truth_locations": 6,
+                        "notes": [],
+                    }
+                ],
+                "gate_audit": [
+                    {
+                        "gate_id": "G5.8",
+                        "agent": "sqli",
+                        "dataset": "morefixes",
+                        "metric": "tpr",
+                        "threshold": 0.5,
+                        "comparison": "gte",
+                        "cwe_filter": "CWE-89",
+                        "manifest_exists": True,
+                        "extractor_supported": True,
+                        "issue": None,
+                    }
+                ],
+                "retired_gates": [],
+                "guardrails": [],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    plan = build_controlled_execution_plan(
+        dry_run_plan_path=dry_run_path,
+        output_dir=tmp_path / "out",
+        allow_claude_invocation=True,
+        max_cases_per_dataset=2,
+        selection_strategy="priority-stratified",
+    )
+
+    assert plan.execution_allowed is True
+    assert plan.issues == []
+    assert plan.selections[0].selected_case_ids == [
+        "morefixes-CVE-2019-0003-explicit-priority",
+        "morefixes-CVE-2021-0002-high-cvss",
+    ]
+
+
 def test_required_dataset_smoke_selects_each_dataset_agent_pair(
     tmp_path: Path,
 ) -> None:

@@ -216,6 +216,11 @@ Only after Tasks 1-4 are resolved:
   and/or `--case-id` when iterating on a concrete failure payload
 - optionally include same-variant related truth files as prompt context with
   `--include-related-context` for multi-file benchmark cases
+- use `--selection-strategy priority-stratified` for larger controlled samples
+  when the first cases should favor explicit manifest priority, known
+  exploitation metadata, CVSS/severity metadata, CVE-backed cases, richer
+  truth-span counts, and recency; keep `expanded-stratified` available when the
+  goal is less opinionated representative coverage
 - require explicit `--allow-claude-invocation` before a plan can become
   executable
 - require a second executor-level `--allow-claude-invocation` with `--execute`
