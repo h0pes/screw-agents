@@ -1,15 +1,16 @@
 """Integration test: full pipeline with mocked Claude invoker."""
+# ruff: noqa: E501, S101
+
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
 from benchmarks.runner.code_extractor import CodeVariant, ExtractedCode
-from benchmarks.runner.evaluator import Evaluator, EvalConfig
-from benchmarks.runner.invoker import InvokeResult, InvokerConfig
+from benchmarks.runner.evaluator import EvalConfig, Evaluator
+from benchmarks.runner.invoker import InvokerConfig, InvokeResult
 from benchmarks.runner.models import (
     BenchmarkCase,
     CodeLocation,
@@ -17,10 +18,8 @@ from benchmarks.runner.models import (
     FindingKind,
     Language,
 )
-
 from screw_agents.engine import ScanEngine
 from screw_agents.registry import AgentRegistry
-
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -62,7 +61,7 @@ def _mock_extract(case, variant, ext_dir, include_related_context=False):
     )]
 
 
-def _mock_invoke_vuln(prompt, config):
+def _mock_invoke_vuln(prompt, config, context=None):
     return InvokeResult(
         success=True,
         findings=[{
@@ -76,7 +75,7 @@ def _mock_invoke_vuln(prompt, config):
     )
 
 
-def _mock_invoke_patched(prompt, config):
+def _mock_invoke_patched(prompt, config, context=None):
     return InvokeResult(success=True, findings=[])
 
 
@@ -90,12 +89,14 @@ class TestIntegrationPipeline:
 
         call_count = 0
 
-        def mock_invoke(prompt, cfg):
+        def mock_invoke(prompt, cfg, context=None):
             nonlocal call_count
+            assert context is not None
+            assert context["case_id"] == "integration-xss-1"
             call_count += 1
             if call_count % 2 == 1:
-                return _mock_invoke_vuln(prompt, cfg)
-            return _mock_invoke_patched(prompt, cfg)
+                return _mock_invoke_vuln(prompt, cfg, context)
+            return _mock_invoke_patched(prompt, cfg, context)
 
         with patch("benchmarks.runner.evaluator.extract_code_for_case", side_effect=_mock_extract), \
              patch("benchmarks.runner.evaluator.invoke_claude", side_effect=mock_invoke):

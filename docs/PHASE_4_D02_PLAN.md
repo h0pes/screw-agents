@@ -228,10 +228,20 @@ Only after Tasks 1-4 are resolved:
   executable cases and validated extraction, but estimated 90 prompts and about
   12.55M retry-budgeted prompt characters at `--max-retries 3`; do not execute
   the whole priority slice without narrowing filters or explicit budget review
+- 2026-04-30 narrowed priority live run:
+  `/tmp/screw-d02-priority-morefixes-thetis-run` executed one MoreFixes SQLi
+  case (`morefixes-CVE-2015-2972-https_____github.com__sysphonic__thetis`) with
+  `--max-retries 1`; result was TP 1, FP 9, TN 542, FN 546, vulnerable
+  findings 6, patched findings 5; use the resulting payload for evidence
+  review before considering any SQLi knowledge change
 - require explicit `--allow-claude-invocation` before a plan can become
   executable
 - require a second executor-level `--allow-claude-invocation` with `--execute`
   before the executor can invoke Claude
+- live executor runs write `invocation_progress.jsonl` in the executor output
+  directory; use `benchmarks/scripts/show_invocation_progress.py` to distinguish
+  active Claude calls from stale calls that have exceeded their timeout plus
+  grace period
 - keep YAML mutation disabled in the controlled-run schema
 - block execution when external dataset dirs, truth files, or extractors are
   missing

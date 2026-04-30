@@ -42,7 +42,11 @@ adds a no-Claude prompt-budget preflight. Validation of the current five-slice
 non-OSSF plan measured 34 actual per-file prompts and about 1,070,805
 retry-budgeted estimated tokens at `--max-retries 3`, so live execution should
 be narrowed or explicitly budget-approved before raising the default
-`--max-prompt-chars 250000` guard.
+`--max-prompt-chars 250000` guard. Live executor runs now also write
+`invocation_progress.jsonl`, and
+`benchmarks/scripts/show_invocation_progress.py` can classify active versus
+stale Claude calls from that event log instead of relying on process-list
+guesswork.
 Phase 4's operating rule is calibration, not exhaustive per-CVE tuning:
 controlled slices are probes for reusable agent knowledge, benchmark/scoring
 machinery issues, or dataset materialization decisions. Broader benchmark runs
@@ -55,6 +59,12 @@ opinionated representative coverage. The first no-Claude priority-stratified
 planning probe selected 7 executable cases but estimated 90 prompts and about
 12.55M retry-budgeted prompt characters, so the next live run should be
 narrowed by agent/case rather than executed as a full priority slice.
+The first narrowed live priority run,
+`/tmp/screw-d02-priority-morefixes-thetis-run`, executed one MoreFixes SQLi
+case with `--max-retries 1`: 20 prompts, about 650k prompt chars, TP 1, FP 9,
+TN 542, FN 546, vulnerable findings 6, patched findings 5. This is evidence
+for failure-payload review and prompt/progress tooling, not immediate
+`sqli.yaml` mutation.
 
 **When starting Phase 4:** D-02 threshold optimization runs as part of the autoresearch loop. The benchmark pipeline is validated (PR #3).
 

@@ -308,6 +308,7 @@ def build_controlled_executor_report(
                 throttle_delay=throttle_delay,
                 max_retries=max_retries,
                 timeout=timeout,
+                progress_log_path=output_dir / "invocation_progress.jsonl",
             ),
             include_related_context=include_related_context,
             include_related_context_case_ids=related_context_case_ids,
@@ -355,6 +356,8 @@ def render_controlled_executor_report_markdown(
         f"- **Case ID filter:** {_format_filter(report.config.case_ids)}",
         f"- **Related context:** {_yes_no(report.config.include_related_context)}",
         f"- **Related context cases:** {_format_filter(related_context_cases)}",
+        "- **Invocation progress log:** "
+        f"{Path(report.config.output_dir) / 'invocation_progress.jsonl'}",
         f"- **Prompt count:** {report.prompt_budget.prompt_count if report.prompt_budget else 0}",
         "- **Prompt chars:** "
         f"{report.prompt_budget.total_prompt_chars if report.prompt_budget else 0}",

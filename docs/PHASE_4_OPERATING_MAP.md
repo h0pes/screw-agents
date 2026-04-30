@@ -265,6 +265,20 @@ Reality Check C#/XSS, Reality Check C#/SQLi, Reality Check Python/XSS,
 Reality Check Java/CmdI, and MoreFixes/SQLi. OSSF/XSS and OSSF/CmdI remain
 blocked until vulnerable/patched target source snapshots are materialized.
 
+Live controlled executor runs now write an invocation progress JSONL file in
+the executor output directory:
+
+```bash
+uv run python benchmarks/scripts/show_invocation_progress.py \
+  <executor-output-dir>/invocation_progress.jsonl
+```
+
+Use this while a run is active to see started, completed, failed, timed-out,
+active, and stale Claude calls. A stale call means the last `started` event is
+older than that call's timeout plus the helper's grace period; it is evidence
+for interrupting or investigating the run without guessing from result files or
+process listings alone.
+
 For post-smoke validation, use `--selection-strategy expanded-stratified` with
 higher `--max-cases-per-dataset` and `--max-cases-per-agent` caps. This
 strategy selects up to the requested cap from each active dataset/agent pair,

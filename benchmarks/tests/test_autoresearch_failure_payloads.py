@@ -34,7 +34,13 @@ def _write_executed_report(
 ) -> Path:
     controlled_plan_path = _write_controlled_plan(tmp_path)
 
-    def invoke(prompt: str, _config: object) -> InvokeResult:
+    def invoke(
+        prompt: str,
+        _config: object,
+        context: dict[str, object] | None = None,
+    ) -> InvokeResult:
+        assert context is not None
+        assert context["case_id"] == "morefixes-CVE-2024-0001-example"
         if "prepared_query" in prompt:
             return InvokeResult(
                 success=True,
