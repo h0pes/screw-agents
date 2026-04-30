@@ -396,7 +396,7 @@ def _select_case_ids(
     if len(selected) < limit:
         severity = (
             "warning"
-            if selection_strategy == "expanded-stratified" and selected
+            if _allows_partial_executable_selection(selection_strategy)
             else "blocker"
         )
         _append_issue(
@@ -412,6 +412,10 @@ def _select_case_ids(
             ),
         )
     return selected
+
+
+def _allows_partial_executable_selection(strategy: SelectionStrategy) -> bool:
+    return strategy in {"expanded-stratified", "priority-stratified"}
 
 
 def _priority_ranked_cases(cases: list[dict[str, Any]]) -> list[dict[str, Any]]:

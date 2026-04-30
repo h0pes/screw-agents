@@ -74,8 +74,19 @@ Case selection should balance two useful signals:
 Use `priority-stratified` for cost-sensitive expanded batches where the first
 Claude calls should buy the most security signal. Use `expanded-stratified` or
 the smoke defaults when the goal is a less opinionated sample of the executable
-dataset surface. Neither mode makes YAML changes by itself; both only produce
-case-level evidence for later review.
+dataset surface. Both expanded strategies record incomplete or zero-case gate
+selections as warnings when the broader plan still has executable selections.
+Neither mode makes YAML changes by itself; both only produce case-level
+evidence for later review.
+
+The first no-Claude `priority-stratified` probe on 2026-04-30 used the
+long-lived main checkout's materialized benchmark data and produced
+`/tmp/screw-d02-priority-stratified-executor-validation`. It selected seven
+executable cases across XSS, CmdI, and SQLi, including three higher-priority
+MoreFixes SQLi cases, but estimated 90 prompts and about 12.55M retry-budgeted
+prompt characters at `--max-retries 3`. Treat that as a planning signal: run
+narrower live validation slices first unless the larger prompt budget is
+explicitly approved.
 
 Phase 4 closure does not require manually processing every benchmark
 vulnerability. It does require a reliable workflow, clear dataset
