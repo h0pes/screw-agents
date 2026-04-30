@@ -23,11 +23,12 @@ supports related-file prompt context for multi-file benchmark cases. Focused
 Plexus runs can still opt in explicitly, and controlled consolidation now marks
 the CmdI/Plexus case for related context without enabling it globally for other
 slices. The latest focused and mixed validations both kept Plexus patched
-findings at zero, but the mixed run had Claude runtime/output noise, so keep
-`cmdi.yaml` at v1.0.1 and treat any further CmdI work as reviewed
-failure-payload/scoring analysis, not prompt mutation from aggregate metrics.
-Failure payloads now surface same-file related agent findings and summary
-diagnostic counts for missed truth spans to make that review explicit.
+findings at zero. A cleaner mixed stability rerun also kept Rails at the
+accepted v1.0.2 shape, so use the cleaner rerun payloads for any follow-on
+review. Keep `cmdi.yaml` at v1.0.1 unless concrete reviewed examples justify a
+targeted change. Failure payloads now surface same-file related agent findings
+and summary diagnostic counts for missed truth spans to make that review
+explicit.
 
 **When starting Phase 4:** D-02 threshold optimization runs as part of the autoresearch loop. The benchmark pipeline is validated (PR #3).
 
@@ -590,6 +591,14 @@ run `/tmp/screw-d02-plexus-related-context-nonossf-run`, benchmark run
 findings with related context scoped only to Plexus. The mixed run had Claude
 runtime/output failures and a Rails vulnerable-side FP despite unchanged Rails
 packaging, so it is wiring validation rather than clean YAML-training evidence.
+Cleaner stability rerun
+`/tmp/screw-d02-plexus-related-context-nonossf-rerun`, benchmark run
+`20260430-075117`, emitted no executor issues or Claude retry/output failures.
+Plexus remained patched-clean at TP 3, FP 0, TN 10, FN 7, with 3 vulnerable
+findings and 0 patched findings. Rails returned to the accepted v1.0.2 shape:
+TP 1, FP 0, TN 5, FN 4, with one vulnerable `add_limit_offset!` finding and no
+patched findings. Cleaner-run failure payloads are under
+`/tmp/screw-d02-plexus-related-context-nonossf-rerun-failure-inputs`.
 
 **When continuing Phase 4:** Continue from `docs/PHASE_4_D02_PLAN.md`; keep Rust metric claims scoped to real-CVE SQLi/Cmdi/XSS and synthetic-only SSTI unless refresh finds a verified SSTI advisory.
 Use `docs/PHASE_4_OPERATING_MAP.md` as the high-level map before restoring

@@ -343,6 +343,16 @@ First controlled smoke execution, verified 2026-04-29:
   Claude runtime/output failures and a Rails vulnerable-side FP despite
   unchanged Rails packaging, so it proves the consolidation wiring but should
   not be used as clean YAML-training evidence.
+- A cleaner mixed non-OSSF stability rerun at
+  `/tmp/screw-d02-plexus-related-context-nonossf-rerun`, benchmark run
+  `20260430-075117`, emitted no executor issues or Claude retry/output
+  failures. Plexus remained patched-clean with TP 3, FP 0, TN 10, FN 7 and raw
+  counts of 3 vulnerable findings, 0 patched findings. Rails returned to the
+  accepted v1.0.2 shape: TP 1, FP 0, TN 5, FN 4, with one vulnerable
+  `add_limit_offset!` finding and zero patched findings. Cleaner-run failure
+  payloads are under
+  `/tmp/screw-d02-plexus-related-context-nonossf-rerun-failure-inputs`; use
+  those payloads, not the noisy previous mixed run, for any follow-on review.
 
 Focused rerun example:
 

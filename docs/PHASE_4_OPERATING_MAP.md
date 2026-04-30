@@ -566,6 +566,22 @@ CmdI/Plexus case-level related-context packaging, verified 2026-04-30:
   Plexus and NHibernate, and Rails scored a vulnerable-side FP despite unchanged
   no-context packaging, so use this run as evidence that packaging is wired into
   consolidation, not as a clean benchmark-quality baseline.
+- Cleaner mixed non-OSSF stability rerun:
+  `/tmp/screw-d02-plexus-related-context-nonossf-rerun`, benchmark run
+  `20260430-075117`. No executor issues or Claude retry/output failures were
+  emitted. Plexus remained patched-clean with TP 3, FP 0, TN 10, FN 7 and raw
+  finding counts of 3 vulnerable, 0 patched. Rails returned to the accepted
+  v1.0.2 shape with TP 1, FP 0, TN 5, FN 4 and one vulnerable
+  `add_limit_offset!` finding. NHibernate stayed patched-clean at TP 2, FP 0,
+  TN 25, FN 23; Zope stayed clean; AntiSamy remained the known test-file
+  truth-span miss.
+- Cleaner-run failure payloads:
+  `/tmp/screw-d02-plexus-related-context-nonossf-rerun-failure-inputs/cmdi_failure_input.json`,
+  `/tmp/screw-d02-plexus-related-context-nonossf-rerun-failure-inputs/sqli_failure_input.json`,
+  and `/tmp/screw-d02-plexus-related-context-nonossf-rerun-failure-inputs/xss_failure_input.json`.
+  Diagnostics: CmdI has 5 pure misses and 0 false-positive findings; SQLi has
+  5 pure misses, 1 test-file-path miss, and 0 false-positive findings; XSS has
+  the known AntiSamy test-file miss and 0 false-positive findings.
 
 ## YAML Mutation Rule
 
@@ -591,6 +607,6 @@ Even then, YAML mutation is not automatic. It is a reviewed engineering change.
    smoke reports.
 4. Treat SQLi/Rails v1.0.2 as accepted after the mixed consolidation rerun.
 5. Treat CmdI/Plexus related-context packaging as implemented for controlled
-   consolidation. Do not mutate `cmdi.yaml` from the noisy mixed run; generate
-   or review failure payloads only after a stable executor run if more CmdI
-   evidence is needed.
+   consolidation. Use the cleaner rerun payloads for any next review, and do
+   not mutate `cmdi.yaml` unless those concrete examples justify a targeted
+   change after human review.
