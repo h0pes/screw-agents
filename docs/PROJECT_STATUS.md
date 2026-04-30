@@ -642,6 +642,12 @@ related-file credited and patched-clean, and the capped NHibernate misses are
 mostly test/helper/typed-parameter or already-covered sibling renderer spans.
 The next D-02 move should be expanded stratified validation over trustworthy
 executable cases, not more tuning of these same slices.
+That validation path is now planned without Claude: `expanded-stratified`
+selection at `/tmp/screw-d02-expanded-stratified-controlled` selected 7
+trustworthy executable cases, but the full no-Claude prompt budget is about
+1,229,199 retry-budgeted estimated tokens. A focused three-case MoreFixes SQLi
+subset is smaller at about 243,090 retry-budgeted estimated tokens and should
+be the first live candidate only after explicit budget acceptance.
 The next guardrail is also in place: controlled executor validation now builds
 the exact prompts without invoking Claude and reports prompt character/token
 estimates plus a retry-adjusted budget. The current five-slice non-OSSF plan

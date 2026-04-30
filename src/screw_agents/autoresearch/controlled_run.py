@@ -26,6 +26,12 @@ _AGENT_DEFAULT_CWE = {
     "ssti": "CWE-1336",
 }
 
+SelectionStrategy = Literal[
+    "required-dataset-smoke",
+    "gate-order",
+    "expanded-stratified",
+]
+
 
 class ControlledRunConfig(BaseModel):
     """User-selected limits and safety switches for a controlled run."""
@@ -33,9 +39,7 @@ class ControlledRunConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     mode: Literal["sample"] = "sample"
-    selection_strategy: Literal["required-dataset-smoke", "gate-order"] = (
-        "required-dataset-smoke"
-    )
+    selection_strategy: SelectionStrategy = "required-dataset-smoke"
     dry_run_plan_path: str
     output_dir: str
     max_cases_per_dataset: int = Field(default=1, ge=1)
@@ -93,9 +97,7 @@ def build_controlled_execution_plan(
     max_cases_per_dataset: int = 1,
     max_cases_per_agent: int = 10,
     mode: Literal["sample"] = "sample",
-    selection_strategy: Literal["required-dataset-smoke", "gate-order"] = (
-        "required-dataset-smoke"
-    ),
+    selection_strategy: SelectionStrategy = "required-dataset-smoke",
 ) -> ControlledExecutionPlan:
     """Prepare a small sample execution plan from a dry-run plan JSON."""
     dry_run = json.loads(dry_run_plan_path.read_text(encoding="utf-8"))
@@ -171,6 +173,7 @@ def build_controlled_execution_plan(
             gate=gate,
             external_dir=external_dir,
             limit=selected_case_count,
+            selection_strategy=selection_strategy,
             issues=issues,
             issue_keys=issue_keys,
         )
@@ -297,7 +300,7 @@ def write_controlled_execution_plan_markdown(
 def _select_candidate_gates(
     gates: list[dict[str, Any]],
     *,
-    strategy: Literal["required-dataset-smoke", "gate-order"],
+    strategy: SelectionStrategy,
 ) -> list[dict[str, Any]]:
     if strategy == "gate-order":
         return gates
@@ -319,6 +322,7 @@ def _select_case_ids(
     gate: dict[str, Any],
     external_dir: Path,
     limit: int,
+    selection_strategy: SelectionStrategy,
     issues: list[ReadinessIssue],
     issue_keys: set[tuple[str, str]],
 ) -> list[str]:
@@ -385,11 +389,16 @@ def _select_case_ids(
             break
 
     if len(selected) < limit:
+        severity = (
+            "warning"
+            if selection_strategy == "expanded-stratified" and selected
+            else "blocker"
+        )
         _append_issue(
             issues,
             issue_keys,
             ReadinessIssue(
-                severity="blocker",
+                severity=severity,
                 code="case_selection_incomplete",
                 message=(
                     f"Gate {gate['gate_id']} requested {limit} {dataset_name} "

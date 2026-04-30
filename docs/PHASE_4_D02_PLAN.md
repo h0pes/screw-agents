@@ -398,6 +398,14 @@ First controlled smoke execution, verified 2026-04-29:
   renderer spans that do not justify broadening `sqli.yaml` from this evidence
   alone. The next D-02 step should be expanded stratified validation over
   trustworthy executable cases, with prompt-budget review first.
+- The controlled planner now supports `expanded-stratified` selection for that
+  next step. The first no-Claude expanded plan at
+  `/tmp/screw-d02-expanded-stratified-controlled` selected 7 executable cases:
+  one each for the active reality-check slices plus 3 MoreFixes SQLi cases.
+  Full expanded validation measured about 1,229,199 retry-budgeted estimated
+  tokens, while the focused three-case MoreFixes SQLi subset measured about
+  243,090. Do not run either live without explicit prompt-budget acceptance;
+  if approved, start with the MoreFixes subset.
 
 Focused rerun example:
 
