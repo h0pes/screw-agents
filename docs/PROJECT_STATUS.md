@@ -37,6 +37,12 @@ gap better handled by scoring/failure-analysis tooling.
 Failure payloads now make that cross-file evidence explicit for related-context
 cases via `related_file_same_case`; the regenerated Plexus payload classifies
 all five misses as related-file misses and zero as pure misses.
+After Claude Code reported plan-limit pressure, the controlled executor now
+adds a no-Claude prompt-budget preflight. Validation of the current five-slice
+non-OSSF plan measured 34 actual per-file prompts and about 1,070,805
+retry-budgeted estimated tokens at `--max-retries 3`, so live execution should
+be narrowed or explicitly budget-approved before raising the default
+`--max-prompt-chars 250000` guard.
 
 **When starting Phase 4:** D-02 threshold optimization runs as part of the autoresearch loop. The benchmark pipeline is validated (PR #3).
 
@@ -620,6 +626,14 @@ That failure-analysis support is now partly in place: regenerated payloads at
 reports 5 related-file misses, 0 pure misses, and 0 false-positive findings,
 while SQLi and XSS remain unchanged because they did not run with related
 context.
+The next guardrail is also in place: controlled executor validation now builds
+the exact prompts without invoking Claude and reports prompt character/token
+estimates plus a retry-adjusted budget. The current five-slice non-OSSF plan
+at `/tmp/screw-d02-prompt-budget-validation` measured 34 prompts, 1,427,680
+prompt characters, and about 1,070,805 retry-budgeted estimated tokens at
+`--max-retries 3`; in execution mode the same budget would be blocked by the
+default `--max-prompt-chars 250000` limit unless the run is narrowed or the
+budget is explicitly accepted.
 
 **When continuing Phase 4:** Continue from `docs/PHASE_4_D02_PLAN.md`; keep Rust metric claims scoped to real-CVE SQLi/Cmdi/XSS and synthetic-only SSTI unless refresh finds a verified SSTI advisory.
 Use `docs/PHASE_4_OPERATING_MAP.md` as the high-level map before restoring

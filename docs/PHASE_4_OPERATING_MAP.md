@@ -55,8 +55,9 @@ What exists:
   datasets are ready;
 - readiness checklist: explains which local datasets must be materialized before
   a controlled run can start;
-- controlled executor reporting: records overall benchmark metrics and
-  vulnerable/patched finding counts for each selected case;
+- controlled executor reporting: records overall benchmark metrics,
+  vulnerable/patched finding counts, and pre-execution prompt-budget estimates
+  for each selected case;
 - failure-input payload generator: turns controlled-run misses and patched
   findings into schema-valid `phase4-autoresearch-failure-input/v1` payloads.
 
@@ -220,6 +221,24 @@ invoke Claude unless `--execute` and executor-level
 The executor validation is intentionally stricter than readiness: readiness
 checks truth materialization and extractor availability, while executor
 validation checks the exact reviewed cases against the local source layout.
+Validation also assembles the exact per-file prompts and reports prompt
+character/token estimates before any Claude call. The default execution guard
+is `--max-prompt-chars 250000`, applied to the retry-budgeted prompt character
+total. Use `--max-prompt-chars 0` only for an explicitly reviewed run.
+
+Latest no-Claude budget validation, 2026-04-30:
+- Output directory: `/tmp/screw-d02-prompt-budget-validation`.
+- Input plan:
+  `/tmp/screw-d02-plexus-related-context-nonossf-controlled/controlled_run_plan.json`.
+- Prompt count: 34 actual per-file prompts for the five selected non-OSSF
+  slices. This is higher than the case-pair "estimated calls" summary because
+  multi-truth cases can produce several vulnerable/patched file prompts.
+- Prompt chars: 1,427,680; retry-budgeted prompt chars at `--max-retries 3`:
+  4,283,040.
+- Estimated tokens: 356,935; retry-budgeted estimated tokens: 1,070,805.
+- The validation emits `prompt_budget_exceeded` in warning mode. The same plan
+  would be blocked in execution mode unless narrowed with filters or given an
+  explicitly reviewed higher budget.
 
 Controlled smoke execution:
 
@@ -233,7 +252,9 @@ uv run python benchmarks/scripts/run_controlled_autoresearch.py \
 
 This is the first command in the Phase 4 sequence that can invoke Claude.
 Before running it, verify `ANTHROPIC_API_KEY` is unset so the Claude Pro
-subscription path is used rather than API billing.
+subscription path is used rather than API billing. Also inspect the validation
+report's `Prompt Estimates` section first; the default prompt-budget guard is
+there to prevent accidental high-token Claude Code plan consumption.
 
 Focused controlled reruns:
 
@@ -655,10 +676,13 @@ Even then, YAML mutation is not automatic. It is a reviewed engineering change.
    execution.
 2. Re-run readiness and controlled executor validation before any new paid
    execution.
-3. Generate `phase4-autoresearch-failure-input/v1` payloads from controlled
+3. Review the prompt-budget estimate from validation before any live Claude
+   execution. Narrow runs with `--agent` / `--case-id` first; only raise or
+   disable `--max-prompt-chars` after explicitly accepting the budget.
+4. Generate `phase4-autoresearch-failure-input/v1` payloads from controlled
    smoke reports.
-4. Treat SQLi/Rails v1.0.2 as accepted after the mixed consolidation rerun.
-5. Treat CmdI/Plexus related-context packaging as implemented for controlled
+5. Treat SQLi/Rails v1.0.2 as accepted after the mixed consolidation rerun.
+6. Treat CmdI/Plexus related-context packaging as implemented for controlled
    consolidation. Use the related-file diagnostics payloads for any next
    review, and do not mutate `cmdi.yaml` from the current five Plexus misses.
    The next useful engineering slice is scoring support for applying related

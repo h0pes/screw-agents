@@ -15,11 +15,12 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from benchmarks.runner.code_extractor import CodeVariant, extract_code_for_case
-from benchmarks.runner.evaluator import EvalConfig, Evaluator
+from benchmarks.runner.evaluator import EvalConfig, Evaluator, build_prompt
 from benchmarks.runner.invoker import InvokerConfig
 from benchmarks.runner.models import BenchmarkCase, FindingKind, Language, Summary
 from benchmarks.runner.sarif import load_bentoo_sarif
 from screw_agents.autoresearch.controlled_run import ControlledExecutionPlan
+from screw_agents.resolver import ResolvedCode
 
 SCHEMA_VERSION = "phase4-autoresearch-controlled-execution/v1"
 
@@ -39,6 +40,7 @@ class ControlledExecutorConfig(BaseModel):
     agents: list[str] = Field(default_factory=list)
     case_ids: list[str] = Field(default_factory=list)
     include_related_context: bool = False
+    max_prompt_chars: int = Field(default=250_000, ge=0)
 
 
 class ControlledExecutorIssue(BaseModel):
@@ -83,6 +85,37 @@ class ControlledExecutorResultCounts(BaseModel):
     patched_result_path: str
 
 
+class ControlledPromptEstimate(BaseModel):
+    """One prompt that would be sent to Claude for a selected code piece."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    case_id: str
+    agent: str
+    dataset: str
+    variant: Literal["vulnerable", "patched"]
+    file: str
+    prompt_chars: int
+    estimated_tokens: int
+    primary_code_chars: int
+    context_file_count: int
+    context_chars: int
+
+
+class ControlledPromptBudget(BaseModel):
+    """Aggregate prompt budget preflight for a controlled executor run."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    prompt_count: int
+    total_prompt_chars: int
+    estimated_tokens: int
+    max_prompt_chars: int
+    retry_budgeted_prompt_chars: int
+    retry_budgeted_estimated_tokens: int
+    max_retries: int
+
+
 class ControlledExecutorReport(BaseModel):
     """Validation/execution report for a controlled-run plan."""
 
@@ -98,6 +131,8 @@ class ControlledExecutorReport(BaseModel):
     benchmark_run_id: str | None = None
     summaries: list[dict[str, Any]]
     result_counts: list[ControlledExecutorResultCounts] = Field(default_factory=list)
+    prompt_estimates: list[ControlledPromptEstimate] = Field(default_factory=list)
+    prompt_budget: ControlledPromptBudget | None = None
 
 
 def build_controlled_executor_report(
@@ -112,6 +147,7 @@ def build_controlled_executor_report(
     agents: list[str] | None = None,
     case_ids: list[str] | None = None,
     include_related_context: bool = False,
+    max_prompt_chars: int = 250_000,
 ) -> ControlledExecutorReport:
     """Validate or execute a reviewed controlled-run plan."""
     agent_filter = _normalize_filter_values(agents)
@@ -130,6 +166,7 @@ def build_controlled_executor_report(
         agents=agent_filter,
         case_ids=case_id_filter,
         include_related_context=include_related_context,
+        max_prompt_chars=max_prompt_chars,
     )
     issues: list[ControlledExecutorIssue] = []
     issue_keys: set[tuple[str, str]] = set()
@@ -233,6 +270,31 @@ def build_controlled_executor_report(
             ),
         )
 
+    prompt_estimates = _build_prompt_estimates(
+        cases=resolved_cases,
+        report_cases=report_cases,
+        external_dir=external_dir,
+    )
+    prompt_budget = _prompt_budget(
+        prompt_estimates=prompt_estimates,
+        max_prompt_chars=max_prompt_chars,
+        max_retries=max_retries,
+    )
+    if max_prompt_chars > 0 and prompt_budget.retry_budgeted_prompt_chars > max_prompt_chars:
+        _append_issue(
+            issues,
+            issue_keys,
+            "blocker" if execute else "warning",
+            "prompt_budget_exceeded",
+            (
+                "Estimated retry-budgeted prompt characters "
+                f"{prompt_budget.retry_budgeted_prompt_chars} exceed "
+                f"--max-prompt-chars {max_prompt_chars}. Use narrower filters, "
+                "fewer retries, or an explicit larger budget before live "
+                "execution."
+            ),
+        )
+
     execution_performed = False
     benchmark_run_id: str | None = None
     summaries: list[dict[str, Any]] = []
@@ -267,6 +329,8 @@ def build_controlled_executor_report(
         benchmark_run_id=benchmark_run_id,
         summaries=summaries,
         result_counts=result_counts,
+        prompt_estimates=prompt_estimates,
+        prompt_budget=prompt_budget,
     )
 
 
@@ -291,6 +355,16 @@ def render_controlled_executor_report_markdown(
         f"- **Case ID filter:** {_format_filter(report.config.case_ids)}",
         f"- **Related context:** {_yes_no(report.config.include_related_context)}",
         f"- **Related context cases:** {_format_filter(related_context_cases)}",
+        f"- **Prompt count:** {report.prompt_budget.prompt_count if report.prompt_budget else 0}",
+        "- **Prompt chars:** "
+        f"{report.prompt_budget.total_prompt_chars if report.prompt_budget else 0}",
+        "- **Retry-budgeted prompt chars:** "
+        f"{report.prompt_budget.retry_budgeted_prompt_chars if report.prompt_budget else 0}",
+        "- **Estimated tokens:** "
+        f"{report.prompt_budget.estimated_tokens if report.prompt_budget else 0}",
+        "- **Retry-budgeted estimated tokens:** "
+        f"{report.prompt_budget.retry_budgeted_estimated_tokens if report.prompt_budget else 0}",
+        f"- **Max prompt chars:** {report.config.max_prompt_chars or 'disabled'}",
         "",
         "## Issues",
         "",
@@ -321,6 +395,27 @@ def render_controlled_executor_report_markdown(
             f"{_yes_no(case.include_related_context)} | "
             f"{case.cwe_filter or '-'} |"
         )
+
+    if report.prompt_estimates:
+        lines.extend(["", "## Prompt Estimates", ""])
+        lines.append(
+            "| Agent | Dataset | Case ID | Variant | File | Prompt Chars | "
+            "Est. Tokens | Context Files | Context Chars |"
+        )
+        lines.append("|---|---|---|---|---|---:|---:|---:|---:|")
+        for estimate in report.prompt_estimates:
+            lines.append(
+                "| "
+                f"{estimate.agent} | "
+                f"{estimate.dataset} | "
+                f"{estimate.case_id} | "
+                f"{estimate.variant} | "
+                f"{estimate.file} | "
+                f"{estimate.prompt_chars} | "
+                f"{estimate.estimated_tokens} | "
+                f"{estimate.context_file_count} | "
+                f"{estimate.context_chars} |"
+            )
 
     if report.summaries:
         lines.extend(["", "## Metrics Summary", ""])
@@ -495,6 +590,94 @@ def _validate_case_extraction(
         patched_files=[piece.file_path for piece in patched],
         include_related_context=include_related_context,
     )
+
+
+def _build_prompt_estimates(
+    *,
+    cases: list[BenchmarkCase],
+    report_cases: list[ControlledExecutorCase],
+    external_dir: Path,
+) -> list[ControlledPromptEstimate]:
+    from screw_agents.engine import ScanEngine
+    from screw_agents.registry import AgentRegistry
+
+    repo_root = Path(__file__).resolve().parents[3]
+    engine = ScanEngine(AgentRegistry(repo_root / "domains"))
+    report_by_key = {
+        (case.dataset, case.case_id): case
+        for case in report_cases
+    }
+    estimates: list[ControlledPromptEstimate] = []
+    for case in cases:
+        report_case = report_by_key.get((case.source_dataset, case.case_id))
+        if report_case is None:
+            continue
+        for variant in (CodeVariant.VULNERABLE, CodeVariant.PATCHED):
+            pieces = extract_code_for_case(
+                case,
+                variant,
+                external_dir,
+                include_related_context=report_case.include_related_context,
+            )
+            for piece in pieces:
+                payload = engine.assemble_scan(
+                    agent_name=report_case.agent,
+                    target={"type": "file", "path": piece.file_path},
+                    preloaded_codes=[
+                        ResolvedCode(
+                            file_path=piece.file_path,
+                            content=piece.content,
+                            language=piece.language,
+                        )
+                    ],
+                )
+                prompt = build_prompt(
+                    core_prompt=payload["core_prompt"],
+                    code=payload["code"],
+                    file_path=piece.file_path,
+                    context_files=piece.context_files,
+                )
+                context_chars = sum(
+                    len(context.content) for context in piece.context_files
+                )
+                estimates.append(
+                    ControlledPromptEstimate(
+                        case_id=case.case_id,
+                        agent=report_case.agent,
+                        dataset=case.source_dataset,
+                        variant=variant.value,
+                        file=piece.file_path,
+                        prompt_chars=len(prompt),
+                        estimated_tokens=_estimated_tokens(len(prompt)),
+                        primary_code_chars=len(piece.content),
+                        context_file_count=len(piece.context_files),
+                        context_chars=context_chars,
+                    )
+                )
+    return estimates
+
+
+def _prompt_budget(
+    *,
+    prompt_estimates: list[ControlledPromptEstimate],
+    max_prompt_chars: int,
+    max_retries: int,
+) -> ControlledPromptBudget:
+    total_prompt_chars = sum(estimate.prompt_chars for estimate in prompt_estimates)
+    estimated_tokens = sum(estimate.estimated_tokens for estimate in prompt_estimates)
+    return ControlledPromptBudget(
+        prompt_count=len(prompt_estimates),
+        total_prompt_chars=total_prompt_chars,
+        estimated_tokens=estimated_tokens,
+        max_prompt_chars=max_prompt_chars,
+        retry_budgeted_prompt_chars=total_prompt_chars * max_retries,
+        retry_budgeted_estimated_tokens=estimated_tokens * max_retries,
+        max_retries=max_retries,
+    )
+
+
+def _estimated_tokens(prompt_chars: int) -> int:
+    return max(1, (prompt_chars + 3) // 4)
 
 
 def _case_needs_related_context(case: BenchmarkCase, *, agent: str) -> bool:

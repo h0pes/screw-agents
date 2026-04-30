@@ -92,6 +92,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "multi-file controlled cases."
         ),
     )
+    parser.add_argument(
+        "--max-prompt-chars",
+        type=int,
+        default=250_000,
+        help=(
+            "Maximum retry-budgeted prompt characters allowed when --execute "
+            "is used. Set to 0 to disable this guardrail."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -115,6 +124,7 @@ def main(argv: list[str] | None = None) -> int:
         agents=args.agent,
         case_ids=args.case_id,
         include_related_context=args.include_related_context,
+        max_prompt_chars=args.max_prompt_chars,
     )
     json_path = output_dir / "controlled_executor_report.json"
     markdown_path = output_dir / "controlled_executor_report.md"
