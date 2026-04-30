@@ -29,6 +29,11 @@ review. Keep `cmdi.yaml` at v1.0.1 unless concrete reviewed examples justify a
 targeted change. Failure payloads now surface same-file related agent findings
 and summary diagnostic counts for missed truth spans to make that review
 explicit.
+The clean CmdI/Plexus payload has now been reviewed and does not justify a
+YAML mutation: the agent found the vulnerable `BourneShell` quoting behavior
+and stayed patched-clean, while the remaining misses are broad base-class
+spans, bridge/delegation spans, or a single `verifyShellState()` localization
+gap better handled by scoring/failure-analysis tooling.
 
 **When starting Phase 4:** D-02 threshold optimization runs as part of the autoresearch loop. The benchmark pipeline is validated (PR #3).
 
@@ -599,6 +604,13 @@ findings and 0 patched findings. Rails returned to the accepted v1.0.2 shape:
 TP 1, FP 0, TN 5, FN 4, with one vulnerable `add_limit_offset!` finding and no
 patched findings. Cleaner-run failure payloads are under
 `/tmp/screw-d02-plexus-related-context-nonossf-rerun-failure-inputs`.
+Review of the clean CmdI payload classified the five Plexus misses as
+truth-span/localization issues rather than YAML-training evidence:
+`Shell.java` misses are broad base/delegation spans, `Commandline.getCommandline()`
+is not the shell quoting change, and `Commandline.verifyShellState()` is a
+single bridge-localization gap. Keep `cmdi.yaml` at v1.0.1; the next
+engineering slice should improve scoring/failure-analysis support for
+related-file call-chain credit and bridge-span classification.
 
 **When continuing Phase 4:** Continue from `docs/PHASE_4_D02_PLAN.md`; keep Rust metric claims scoped to real-CVE SQLi/Cmdi/XSS and synthetic-only SSTI unless refresh finds a verified SSTI advisory.
 Use `docs/PHASE_4_OPERATING_MAP.md` as the high-level map before restoring
