@@ -636,6 +636,12 @@ payloads at `/tmp/screw-d02-plexus-related-file-scoring-failure-inputs` keep
 CmdI/Plexus at 5 exact-span false negatives, but mark all 5 as related-file
 credit candidates, leaving 0 false negatives after related-file credit. This
 is calibration evidence only; exact benchmark TP/FN metrics remain unchanged.
+No-Claude triage of the current regenerated non-OSSF payloads found no further
+YAML-training target: AntiSamy remains a test-file truth-span miss, Plexus is
+related-file credited and patched-clean, and the capped NHibernate misses are
+mostly test/helper/typed-parameter or already-covered sibling renderer spans.
+The next D-02 move should be expanded stratified validation over trustworthy
+executable cases, not more tuning of these same slices.
 The next guardrail is also in place: controlled executor validation now builds
 the exact prompts without invoking Claude and reports prompt character/token
 estimates plus a retry-adjusted budget. The current five-slice non-OSSF plan

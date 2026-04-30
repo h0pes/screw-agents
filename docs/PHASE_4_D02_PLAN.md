@@ -391,6 +391,13 @@ First controlled smoke execution, verified 2026-04-29:
   `related_file_credit_candidates`, leaving 0 false negatives after
   related-file credit. This is diagnostic credit only; it does not rewrite the
   benchmark's exact span TP/FN metrics.
+- No-Claude triage of those regenerated payloads found no further YAML-training
+  target in the current capped examples. AntiSamy remains a test-file
+  truth-span miss; Plexus is covered by related-file credit; and NHibernate's
+  remaining capped examples are mostly test/helper/typed-parameter or sibling
+  renderer spans that do not justify broadening `sqli.yaml` from this evidence
+  alone. The next D-02 step should be expanded stratified validation over
+  trustworthy executable cases, with prompt-budget review first.
 
 Focused rerun example:
 
