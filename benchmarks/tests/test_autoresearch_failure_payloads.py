@@ -87,6 +87,9 @@ def test_build_failure_payloads_from_controlled_report(tmp_path: Path) -> None:
     assert payload.diagnostics is not None
     assert payload.diagnostics.total_missed == 1
     assert payload.diagnostics.pure_misses == 1
+    assert payload.diagnostics.exact_span_false_negatives == 1
+    assert payload.diagnostics.related_file_credit_candidates == 0
+    assert payload.diagnostics.false_negatives_after_related_file_credit == 1
     assert payload.diagnostics.false_positive_findings == 1
     assert payload.missed_findings[0].source_variant == "vulnerable"
     assert payload.false_positive_findings[0].source_variant == "patched"
@@ -176,6 +179,9 @@ def test_missed_payload_includes_related_vulnerable_findings(tmp_path: Path) -> 
     assert payload.diagnostics.missed_with_same_file_only_findings == 0
     assert payload.diagnostics.missed_with_related_file_findings == 0
     assert payload.diagnostics.pure_misses == 0
+    assert payload.diagnostics.exact_span_false_negatives == 1
+    assert payload.diagnostics.related_file_credit_candidates == 0
+    assert payload.diagnostics.false_negatives_after_related_file_credit == 1
 
 
 def test_related_agent_findings_include_same_case_related_files() -> None:
@@ -300,6 +306,88 @@ def test_diagnostics_count_related_file_misses() -> None:
     assert diagnostics.missed_with_related_findings == 1
     assert diagnostics.missed_with_related_file_findings == 1
     assert diagnostics.pure_misses == 0
+    assert diagnostics.exact_span_false_negatives == 1
+    assert diagnostics.related_file_credit_candidates == 1
+    assert diagnostics.false_negatives_after_related_file_credit == 0
+
+
+def test_related_file_credit_keeps_exact_false_negative_visible() -> None:
+    payload = FailureAnalysisInput(
+        run={
+            "run_id": "run",
+            "generated_at": "2026-04-30T00:00:00+00:00",
+            "mode": "controlled-smoke",
+        },
+        agent={
+            "agent_name": "cmdi",
+            "domain_path": "domains/injection-input-handling/cmdi.yaml",
+            "yaml_sha256": "0" * 64,
+        },
+        case_provenance=[
+            {
+                "dataset_name": "reality-check-java",
+                "case_id": "case",
+                "project": "plexus-utils",
+                "language": "java",
+                "vulnerable_version": "vuln",
+                "patched_version": "patched",
+                "manifest_path": "manifest.json",
+                "truth_path": "truth.sarif",
+            }
+        ],
+        missed_findings=[
+            {
+                "kind": "missed",
+                "dataset_name": "reality-check-java",
+                "case_id": "case",
+                "source_variant": "vulnerable",
+                "agent_name": "cmdi",
+                "cwe_id": "CWE-78",
+                "file": "Shell.java",
+                "start_line": 40,
+                "end_line": 409,
+                "expected_behavior": "Flag this span.",
+                "observed_behavior": "No exact match.",
+                "related_agent_findings": [
+                    {
+                        "file": "BourneShell.java",
+                        "start_line": 72,
+                        "end_line": 80,
+                        "cwe_id": "CWE-78",
+                        "line_distance": 0,
+                        "relationship": "related_file_same_case",
+                    }
+                ],
+            },
+            {
+                "kind": "missed",
+                "dataset_name": "reality-check-java",
+                "case_id": "case",
+                "source_variant": "vulnerable",
+                "agent_name": "cmdi",
+                "cwe_id": "CWE-78",
+                "file": "Shell.java",
+                "start_line": 500,
+                "end_line": 510,
+                "expected_behavior": "Flag this span.",
+                "observed_behavior": "No exact match.",
+            },
+        ],
+        guardrails={
+            "reason": "test",
+            "aggregate_metrics_only": False,
+        },
+    )
+
+    diagnostics = _miss_diagnostics_summary(
+        missed_findings=payload.missed_findings,
+        false_positive_findings=[],
+    )
+
+    assert diagnostics.total_missed == 2
+    assert diagnostics.exact_span_false_negatives == 2
+    assert diagnostics.related_file_credit_candidates == 1
+    assert diagnostics.false_negatives_after_related_file_credit == 1
 
 
 def test_payload_diagnostics_count_evidence_quality_flags(tmp_path: Path) -> None:

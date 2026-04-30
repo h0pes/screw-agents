@@ -626,6 +626,11 @@ That failure-analysis support is now partly in place: regenerated payloads at
 reports 5 related-file misses, 0 pure misses, and 0 false-positive findings,
 while SQLi and XSS remain unchanged because they did not run with related
 context.
+Related-file scoring diagnostics are now explicit as well: regenerated
+payloads at `/tmp/screw-d02-plexus-related-file-scoring-failure-inputs` keep
+CmdI/Plexus at 5 exact-span false negatives, but mark all 5 as related-file
+credit candidates, leaving 0 false negatives after related-file credit. This
+is calibration evidence only; exact benchmark TP/FN metrics remain unchanged.
 The next guardrail is also in place: controlled executor validation now builds
 the exact prompts without invoking Claude and reports prompt character/token
 estimates plus a retry-adjusted budget. The current five-slice non-OSSF plan

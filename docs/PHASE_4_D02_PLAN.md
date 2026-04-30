@@ -384,6 +384,13 @@ First controlled smoke execution, verified 2026-04-29:
   missed `Shell.java`/`Commandline.java` truth span cites the clean-run
   `BourneShell.java` findings. SQLi and XSS diagnostics remain unchanged
   because those cases did not run with related context.
+- Failure payload diagnostics now also expose related-file scoring credit
+  separately from strict truth-span scoring. Regenerated payloads under
+  `/tmp/screw-d02-plexus-related-file-scoring-failure-inputs` keep CmdI/Plexus
+  at 5 exact-span false negatives, but mark all 5 as
+  `related_file_credit_candidates`, leaving 0 false negatives after
+  related-file credit. This is diagnostic credit only; it does not rewrite the
+  benchmark's exact span TP/FN metrics.
 
 Focused rerun example:
 
