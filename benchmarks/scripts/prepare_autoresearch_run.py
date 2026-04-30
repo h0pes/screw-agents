@@ -54,13 +54,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--selection-strategy",
-        choices=("required-dataset-smoke", "gate-order", "expanded-stratified"),
+        choices=(
+            "required-dataset-smoke",
+            "gate-order",
+            "expanded-stratified",
+            "priority-stratified",
+        ),
         default="required-dataset-smoke",
         help=(
             "Selection strategy for sample planning. The default selects at most "
             "one case for each required dataset/agent pair. "
             "expanded-stratified selects up to the requested case cap and warns "
-            "when fewer executable cases are available."
+            "when fewer executable cases are available. priority-stratified "
+            "uses the same caps but ranks cases by explicit priority, known "
+            "exploitation, CVSS/severity, CVE signal, truth-span count, and recency."
         ),
     )
     parser.add_argument(

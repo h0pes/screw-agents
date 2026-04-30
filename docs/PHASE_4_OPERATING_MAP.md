@@ -62,6 +62,21 @@ The validation ladder is:
 - full executable corpus: periodic confidence/regression check once source
   materialization, scoring semantics, and cost controls are mature enough.
 
+Case selection should balance two useful signals:
+- priority-frontier coverage: front-load cases that are CVE-backed, known
+  exploited when metadata is available, high severity/CVSS when metadata is
+  available, rich in vulnerable/patched truth spans, recent, or explicitly
+  marked as high-priority by a reviewed manifest;
+- representative coverage: keep deterministic manifest-order or random-like
+  slices available so benchmark work does not overfit to famous frameworks or
+  hand-picked cases.
+
+Use `priority-stratified` for cost-sensitive expanded batches where the first
+Claude calls should buy the most security signal. Use `expanded-stratified` or
+the smoke defaults when the goal is a less opinionated sample of the executable
+dataset surface. Neither mode makes YAML changes by itself; both only produce
+case-level evidence for later review.
+
 Phase 4 closure does not require manually processing every benchmark
 vulnerability. It does require a reliable workflow, clear dataset
 inclusions/exclusions, prompt-budget guardrails, case-level failure payloads,
