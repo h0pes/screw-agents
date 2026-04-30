@@ -654,6 +654,11 @@ The focused MoreFixes SQLi subset was run live at
 the two new MoreFixes cases produced patched findings, so the generated
 payload at `/tmp/screw-d02-expanded-stratified-morefixes-failure-inputs` needs
 human fix-semantics review before any SQLi YAML mutation.
+That review now classifies `gesellix/titlelink` as fix-semantics ambiguous
+pending Joomla `$database->quote(..., false)` API/version evidence, and
+`lierdakil/click-reminder` as likely incomplete-fix/residual-risk evidence
+because the patched snapshot still interpolates `$this->sid` into SQL after
+HTML-context escaping. Keep `sqli.yaml` unchanged from this expanded run.
 The next guardrail is also in place: controlled executor validation now builds
 the exact prompts without invoking Claude and reports prompt character/token
 estimates plus a retry-adjusted budget. The current five-slice non-OSSF plan
