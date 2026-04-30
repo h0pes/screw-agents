@@ -252,6 +252,11 @@ First controlled smoke execution, verified 2026-04-29:
   `--include-related-context`. This is intended for cases like the Plexus CmdI
   benchmark where the primary file and the effective subclass/wrapper behavior
   live in separate files. The default remains single-primary-file prompts.
+- The controlled plan now records targeted `related_context_case_ids` for CmdI
+  multi-file selections, and the executor can pass those case IDs into the
+  evaluator without enabling related context globally. This makes mixed
+  consolidation apply related context to Plexus while leaving AntiSamy, Zope,
+  NHibernate, and Rails on their existing prompt shape.
 - Focused CmdI/Plexus execution with `--include-related-context` is verified:
   `/tmp/screw-d02-cmdi-context-run`, benchmark run `20260429-090552`. The run
   produced 9 vulnerable findings, 0 patched findings, TP 7, FP 2, TN 10, FN 3,
@@ -323,6 +328,21 @@ First controlled smoke execution, verified 2026-04-29:
   further `cmdi.yaml` mutation.
 - Updated consolidation failure payloads were generated under
   `/tmp/screw-d02-nonossf-consolidation-v102-failure-inputs`.
+- CmdI/Plexus related-context packaging is now wired into controlled
+  consolidation. Validation-only report
+  `/tmp/screw-d02-plexus-related-context-nonossf-validation` shows global
+  related context off with only `rc-java-plexus-utils-CVE-2017-1000487` marked
+  for related context. Focused Plexus execution
+  `/tmp/screw-d02-plexus-related-context-plexus-run`, benchmark run
+  `20260430-063651`, produced 1 vulnerable finding and 0 patched findings with
+  no executor issues, though one Claude response failed JSON extraction. Mixed
+  non-OSSF execution
+  `/tmp/screw-d02-plexus-related-context-nonossf-run`, benchmark run
+  `20260430-064528`, produced 6 Plexus vulnerable findings and 0 patched
+  findings while keeping related context scoped to Plexus. That mixed run had
+  Claude runtime/output failures and a Rails vulnerable-side FP despite
+  unchanged Rails packaging, so it proves the consolidation wiring but should
+  not be used as clean YAML-training evidence.
 
 Focused rerun example:
 
@@ -332,7 +352,6 @@ uv run python benchmarks/scripts/run_controlled_autoresearch.py \
   --output-dir <focused-output-dir> \
   --agent cmdi \
   --case-id rc-java-plexus-utils-CVE-2017-1000487 \
-  --include-related-context \
   --execute \
   --allow-claude-invocation
 ```

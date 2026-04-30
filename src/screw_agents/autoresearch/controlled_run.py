@@ -56,6 +56,7 @@ class ControlledRunSelection(BaseModel):
     threshold: float
     cwe_filter: str | None = None
     selected_case_ids: list[str]
+    related_context_case_ids: list[str] = Field(default_factory=list)
     selected_case_count: int
     estimated_invocations: int
 
@@ -175,6 +176,13 @@ def build_controlled_execution_plan(
         )
         if not selected_case_ids:
             continue
+        related_context_case_ids = _select_related_context_case_ids(
+            agent=str(gate["agent"]),
+            dataset_name=dataset_name,
+            selected_case_ids=selected_case_ids,
+            manifest_cases=_load_manifest_cases(Path(str(dataset["manifest_path"]))),
+            external_dir=external_dir,
+        )
         selected_case_count = len(selected_case_ids)
         selected_by_agent[gate["agent"]] = (
             selected_by_agent.get(gate["agent"], 0) + selected_case_count
@@ -188,6 +196,7 @@ def build_controlled_execution_plan(
                 threshold=float(gate["threshold"]),
                 cwe_filter=gate.get("cwe_filter"),
                 selected_case_ids=selected_case_ids,
+                related_context_case_ids=related_context_case_ids,
                 selected_case_count=selected_case_count,
                 estimated_invocations=selected_case_count * 2,
             )
@@ -241,8 +250,11 @@ def render_controlled_execution_plan_markdown(plan: ControlledExecutionPlan) -> 
     else:
         lines.append("No readiness issues detected.")
     lines.extend(["", "## Selections", ""])
-    lines.append("| Gate | Agent | Dataset | Cases | Case IDs | Estimated Calls | CWE |")
-    lines.append("|---|---|---|---:|---|---:|---|")
+    lines.append(
+        "| Gate | Agent | Dataset | Cases | Case IDs | Related Context Cases | "
+        "Estimated Calls | CWE |"
+    )
+    lines.append("|---|---|---|---:|---|---|---:|---|")
     for selection in plan.selections:
         lines.append(
             "| "
@@ -251,6 +263,7 @@ def render_controlled_execution_plan_markdown(plan: ControlledExecutionPlan) -> 
             f"{selection.dataset} | "
             f"{selection.selected_case_count} | "
             f"{', '.join(selection.selected_case_ids)} | "
+            f"{', '.join(selection.related_context_case_ids) or '-'} | "
             f"{selection.estimated_invocations} | "
             f"{selection.cwe_filter or '-'} |"
         )
@@ -385,6 +398,50 @@ def _select_case_ids(
             ),
         )
     return selected
+
+
+def _load_manifest_cases(manifest_path: Path) -> dict[str, dict[str, Any]]:
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    return {str(case["case_id"]): case for case in manifest.get("cases", [])}
+
+
+def _select_related_context_case_ids(
+    *,
+    agent: str,
+    dataset_name: str,
+    selected_case_ids: list[str],
+    manifest_cases: dict[str, dict[str, Any]],
+    external_dir: Path,
+) -> list[str]:
+    return [
+        case_id
+        for case_id in selected_case_ids
+        if _case_needs_related_context(
+            agent=agent,
+            raw_case=manifest_cases[case_id],
+            dataset_name=dataset_name,
+            external_dir=external_dir,
+        )
+    ]
+
+
+def _case_needs_related_context(
+    *,
+    agent: str,
+    raw_case: dict[str, Any],
+    dataset_name: str,
+    external_dir: Path,
+) -> bool:
+    if agent != "cmdi":
+        return False
+    truth_path = external_dir / dataset_name / str(raw_case["case_id"]) / "truth.sarif"
+    try:
+        findings = load_bentoo_sarif(truth_path)
+    except (OSError, ValueError, json.JSONDecodeError):
+        return False
+    fail_files = {finding.location.file for finding in findings if finding.kind == "fail"}
+    pass_files = {finding.location.file for finding in findings if finding.kind == "pass"}
+    return len(fail_files) > 1 or len(pass_files) > 1
 
 
 def _case_has_extractable_code(

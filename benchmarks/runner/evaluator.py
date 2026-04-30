@@ -63,6 +63,7 @@ class EvalConfig:
     invoker_config: InvokerConfig = field(default_factory=InvokerConfig)
     sample_max_per_agent: int = 5
     include_related_context: bool = False
+    include_related_context_case_ids: set[str] = field(default_factory=set)
 
 
 def load_cases_from_manifest(manifest_path: Path) -> list[dict]:
@@ -281,7 +282,10 @@ class Evaluator:
             case,
             variant,
             self.config.benchmarks_external_dir,
-            include_related_context=self.config.include_related_context,
+            include_related_context=(
+                self.config.include_related_context
+                or case.case_id in self.config.include_related_context_case_ids
+            ),
         )
         if not code_pieces:
             return []

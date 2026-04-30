@@ -190,6 +190,137 @@ def _write_morefixes_fixture(root: Path, *, extra_case: bool = False) -> Path:
     return dry_run_path
 
 
+def _write_reality_check_java_fixture(root: Path) -> Path:
+    external_dir = root / "external"
+    manifests_dir = root / "manifests"
+    dataset_name = "reality-check-java"
+    case_id = "rc-java-plexus-utils-CVE-2017-1000487"
+    case_dir = external_dir / dataset_name / case_id
+    truth_path = case_dir / "truth.sarif"
+    truth_path.parent.mkdir(parents=True, exist_ok=True)
+    write_bentoo_sarif(
+        truth_path,
+        [
+            Finding(
+                cwe_id="CWE-78",
+                kind=FindingKind.FAIL,
+                location=CodeLocation(file="Shell.java", start_line=1, end_line=3),
+            ),
+            Finding(
+                cwe_id="CWE-78",
+                kind=FindingKind.FAIL,
+                location=CodeLocation(
+                    file="BourneShell.java", start_line=1, end_line=3
+                ),
+            ),
+            Finding(
+                cwe_id="CWE-78",
+                kind=FindingKind.PASS,
+                location=CodeLocation(file="Shell.java", start_line=1, end_line=3),
+            ),
+            Finding(
+                cwe_id="CWE-78",
+                kind=FindingKind.PASS,
+                location=CodeLocation(
+                    file="BourneShell.java", start_line=1, end_line=3
+                ),
+            ),
+        ],
+    )
+    for version, shell_content, bourne_content in (
+        ("vuln", "class Shell { void run(String s) {} }\n", "class BourneShell {}\n"),
+        (
+            "patched",
+            "class Shell { void run(String s) {} }\n",
+            "class BourneShell { String quoteOneItem(String s) { return s; } }\n",
+        ),
+    ):
+        version_dir = (
+            external_dir
+            / dataset_name
+            / "repo"
+            / "java"
+            / "markup"
+            / "plexus-utils"
+            / version
+        )
+        version_dir.mkdir(parents=True, exist_ok=True)
+        (version_dir / "Shell.java").write_text(shell_content, encoding="utf-8")
+        (version_dir / "BourneShell.java").write_text(bourne_content, encoding="utf-8")
+
+    manifest_path = manifests_dir / "reality-check-java.manifest.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "dataset_name": dataset_name,
+                "cases": [
+                    {
+                        "case_id": case_id,
+                        "project": "plexus-utils",
+                        "language": "java",
+                        "vulnerable_version": "vuln",
+                        "patched_version": "patched",
+                        "published_date": None,
+                        "fail_count": 2,
+                        "pass_count": 2,
+                    }
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    dry_run_path = root / "run_plan.json"
+    dry_run_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "phase4-autoresearch-run-plan/v1",
+                "generated_at": "2026-04-28T00:00:00+00:00",
+                "mode": "dry-run",
+                "manifests_dir": str(manifests_dir),
+                "external_dir": str(external_dir),
+                "dataset_count": 1,
+                "total_cases": 1,
+                "estimated_min_invocations": 2,
+                "datasets": [
+                    {
+                        "dataset_name": dataset_name,
+                        "manifest_path": str(manifest_path),
+                        "case_count": 1,
+                        "data_dir_exists": True,
+                        "truth_file_count": 1,
+                        "supported_by_extractor": True,
+                        "g5_gate_ids": ["G5.6"],
+                        "estimated_min_invocations": 2,
+                        "estimated_truth_locations": 4,
+                        "notes": [],
+                    }
+                ],
+                "gate_audit": [
+                    {
+                        "gate_id": "G5.6",
+                        "agent": "cmdi",
+                        "dataset": dataset_name,
+                        "metric": "tpr",
+                        "threshold": 0.5,
+                        "comparison": "gte",
+                        "cwe_filter": "CWE-78",
+                        "manifest_exists": True,
+                        "extractor_supported": True,
+                        "issue": None,
+                    }
+                ],
+                "retired_gates": [],
+                "guardrails": [],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return dry_run_path
+
+
 def _write_controlled_plan(
     root: Path,
     *,
@@ -203,6 +334,18 @@ def _write_controlled_plan(
         output_dir=root / "controlled",
         allow_claude_invocation=execution_allowed,
         max_cases_per_dataset=max_cases_per_dataset,
+    )
+    controlled_plan_path = root / "controlled_run_plan.json"
+    write_controlled_execution_plan_json(controlled_plan_path, controlled_plan)
+    return controlled_plan_path
+
+
+def _write_reality_check_java_controlled_plan(root: Path) -> Path:
+    dry_run_path = _write_reality_check_java_fixture(root)
+    controlled_plan = build_controlled_execution_plan(
+        dry_run_plan_path=dry_run_path,
+        output_dir=root / "controlled",
+        allow_claude_invocation=True,
     )
     controlled_plan_path = root / "controlled_run_plan.json"
     write_controlled_execution_plan_json(controlled_plan_path, controlled_plan)
@@ -274,6 +417,31 @@ def test_executor_records_related_context_option(tmp_path: Path) -> None:
     assert report.issues == []
     assert report.config.include_related_context is True
     assert "**Related context:** yes" in render_controlled_executor_report_markdown(report)
+
+
+def test_executor_auto_marks_multifile_cases_for_related_context(
+    tmp_path: Path,
+) -> None:
+    controlled_plan_path = _write_reality_check_java_controlled_plan(tmp_path)
+
+    report = build_controlled_executor_report(
+        controlled_plan_path=controlled_plan_path,
+        output_dir=tmp_path / "out",
+    )
+
+    assert report.issues == []
+    assert report.config.include_related_context is False
+    assert len(report.cases) == 1
+    assert report.cases[0].case_id == "rc-java-plexus-utils-CVE-2017-1000487"
+    assert report.cases[0].include_related_context is True
+    rendered = render_controlled_executor_report_markdown(report)
+    assert "**Related context:** no" in rendered
+    assert (
+        "**Related context cases:** rc-java-plexus-utils-CVE-2017-1000487"
+        in rendered
+    )
+    assert "| G5.6 | cmdi | reality-check-java |" in rendered
+    assert "| 2 | 2 | yes | CWE-78 |" in rendered
 
 
 def test_executor_filter_empty_blocks_execution(tmp_path: Path) -> None:

@@ -19,16 +19,15 @@ expensive benchmarks until the dry-run plan's dataset and gate-definition
 issues are addressed. The controlled executor supports focused reruns with
 repeatable `--agent` and `--case-id` filters, so concrete failure-payload
 examples can be revalidated without repeating the full smoke set. It also
-supports opt-in related-file prompt context for multi-file benchmark cases,
-which has been verified on the CmdI/Plexus slice: patched-version findings
-dropped to zero, while remaining misses now need review as possible truth-span
-granularity artifacts before another `cmdi.yaml` refinement. That review found
-two truth-span granularity cases and one bridge-method localization gap. A
-trial `cmdi.yaml` localization prompt was rejected because it caused
-vulnerable-side over-reporting; keep `cmdi.yaml` at v1.0.1 and address the
-remaining gap in scoring/failure-analysis tooling. Failure payloads now surface
-same-file related agent findings and summary diagnostic counts for missed truth
-spans to make that review explicit.
+supports related-file prompt context for multi-file benchmark cases. Focused
+Plexus runs can still opt in explicitly, and controlled consolidation now marks
+the CmdI/Plexus case for related context without enabling it globally for other
+slices. The latest focused and mixed validations both kept Plexus patched
+findings at zero, but the mixed run had Claude runtime/output noise, so keep
+`cmdi.yaml` at v1.0.1 and treat any further CmdI work as reviewed
+failure-payload/scoring analysis, not prompt mutation from aggregate metrics.
+Failure payloads now surface same-file related agent findings and summary
+diagnostic counts for missed truth spans to make that review explicit.
 
 **When starting Phase 4:** D-02 threshold optimization runs as part of the autoresearch loop. The benchmark pipeline is validated (PR #3).
 
@@ -577,6 +576,20 @@ clean, and AntiSamy remained the known test-file truth-span miss. CmdI/Plexus
 produced three patched `Shell.java` findings without related context, so the
 next D-02 slice is evidence packaging for multi-file Plexus-style cases, not
 another CmdI YAML change.
+That evidence-packaging slice is now implemented: controlled plans record
+targeted related-context case IDs for CmdI multi-file selections, and the
+executor passes those case IDs into the evaluator while leaving global related
+context off. Validation
+`/tmp/screw-d02-plexus-related-context-nonossf-validation` confirms only
+`rc-java-plexus-utils-CVE-2017-1000487` is marked for related context in the
+five-slice non-OSSF plan. Focused run
+`/tmp/screw-d02-plexus-related-context-plexus-run`, benchmark run
+`20260430-063651`, produced 1 vulnerable finding and 0 patched findings. Mixed
+run `/tmp/screw-d02-plexus-related-context-nonossf-run`, benchmark run
+`20260430-064528`, produced 6 Plexus vulnerable findings and 0 patched
+findings with related context scoped only to Plexus. The mixed run had Claude
+runtime/output failures and a Rails vulnerable-side FP despite unchanged Rails
+packaging, so it is wiring validation rather than clean YAML-training evidence.
 
 **When continuing Phase 4:** Continue from `docs/PHASE_4_D02_PLAN.md`; keep Rust metric claims scoped to real-CVE SQLi/Cmdi/XSS and synthetic-only SSTI unless refresh finds a verified SSTI advisory.
 Use `docs/PHASE_4_OPERATING_MAP.md` as the high-level map before restoring
