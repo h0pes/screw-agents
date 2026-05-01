@@ -108,6 +108,22 @@ characters. Exponent CMS alone fits the default one-retry guardrail with cap 2:
 `/tmp/screw-d02-morefixes-packaging-exponent-cap2-validation` measured 4
 prompts and 247,637 prompt characters.
 
+The first narrowed cross-agent live run using cap 3,
+`/tmp/screw-d02-cross-agent-noncmdi-cap3-run`, benchmark run
+`20260501-175446`, completed cleanly: 12 invocations, 12 completed, 0 failed,
+0 timed out, and 0 stale. It covered XSS AntiSamy/Zope, SQLi NHibernate, and
+SSTI MLflow while reusing the separate tool-disabled Plexus run as CmdI
+related-context evidence. Its useful finding was a packaging flaw, not an
+agent-knowledge signal: the initial cap truncated NHibernate to low-signal
+test/support files and produced 0 SQLi vulnerable findings. The cap now ranks
+files by production-path likelihood and matching truth-span count before
+truncation. No-Claude validation at
+`/tmp/screw-d02-nhibernate-ranked-cap3-validation-v3` shows the NHibernate cap
+now selects `Dialect`, `AbstractCharType`, and `AbstractStringType`; the
+updated cross-agent preflight at
+`/tmp/screw-d02-cross-agent-ranked-noncmdi-cap3-validation` remains within the
+one-retry budget at 12 prompts and 663,520 prompt characters.
+
 The first capped Exponent CMS live sampling run,
 `/tmp/screw-d02-morefixes-exponent-cap2-run`, benchmark run
 `20260501-091647`, produced 7 vulnerable findings and 0 patched findings, but
