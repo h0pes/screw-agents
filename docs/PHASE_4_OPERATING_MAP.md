@@ -140,6 +140,33 @@ write full stdout/stderr artifacts under `invocation_failures/` beside
 artifact. Use those artifacts to classify future failures before spending more
 Claude calls or changing agent YAML.
 
+Exponent CMS fix-semantics review, verified 2026-05-01:
+- Annotated payload:
+  `/tmp/screw-d02-localization-exponent-cap2-fix-semantics-input.json`.
+  It was generated from the full capped payload at
+  `/tmp/screw-d02-localization-exponent-cap2-failure-inputs-full` and validates
+  against `phase4-autoresearch-failure-input/v1`.
+- `addressController.php:87` is likely residual-risk / incomplete-fix
+  evidence: the patched snapshot still assigns request-derived
+  `$this->params['user_id']` to `$userid` and concatenates it into
+  `'user_id='.$userid` for `find()`. That code is unchanged by the CVE patch.
+- `administrationController.php:129` is likely residual-risk /
+  incomplete-fix evidence: the patched snapshot still derives `$basename` from
+  request-selected `tables[]` and passes it to `dropTable()`, whose local
+  implementation wraps the identifier in backticks but does not escape
+  embedded identifier delimiters.
+- `administrationController.php:184`, `:211`, and `:221` are fix-semantics
+  ambiguous: the raw WHERE strings are present, but the evidence depends on
+  whether stored `sectionref` / container metadata is attacker-writable and
+  whether upstream framework paths normalize it before this repair workflow.
+- `addressController.php:146`, `:152`, and `administrationController.php:227`
+  are weak/speculative patched reports: they depend on model IDs or primary
+  keys read back from the database rather than a proven request-controlled SQL
+  string in the capped slice.
+- Decision: keep `sqli.yaml` unchanged. The Exponent slice is useful evidence
+  that fix quality and scoring labels are mixed in MoreFixes, but it is not
+  clean precision-training evidence.
+
 Phase 4 closure does not require manually processing every benchmark
 vulnerability. It does require a reliable workflow, clear dataset
 inclusions/exclusions, prompt-budget guardrails, case-level failure payloads,
@@ -976,5 +1003,6 @@ Even then, YAML mutation is not automatic. It is a reviewed engineering change.
     not compare their aggregate TP/FN counts against uncapped benchmark gates.
 11. For capped Exponent CMS, the sink-line anchoring rerun is complete. It
     confirmed one localization improvement. JSON-extraction failures now
-    produce artifacts for review, but this slice still has patched-source
-    interpretation issues, so do not mutate `sqli.yaml` from it.
+    produce artifacts for review. The patched-source review classified the
+    slice as mixed residual-risk, ambiguity, and speculative findings, so do
+    not mutate `sqli.yaml` from it.

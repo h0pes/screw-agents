@@ -296,6 +296,24 @@ Only after Tasks 1-4 are resolved:
   progress event. Use those artifacts before deciding whether a future
   structured-output failure is parser noise, prompt drift, or a genuine model
   failure.
+- Exponent CMS fix-semantics review is recorded in the annotated payload at
+  `/tmp/screw-d02-localization-exponent-cap2-fix-semantics-input.json` and
+  validates against `phase4-autoresearch-failure-input/v1`. Review used the
+  full 8 patched findings from
+  `/tmp/screw-d02-localization-exponent-cap2-failure-inputs-full`. Two patched
+  findings are **likely residual-risk / incomplete-fix evidence**:
+  `addressController.php:87` still sends request-derived `user_id` into a raw
+  `find()` WHERE fragment, and `administrationController.php:129` still passes
+  request-selected table identifiers into `dropTable()` with only prefix
+  stripping. Three patched findings are **fix-semantics ambiguous**:
+  `administrationController.php:184`, `:211`, and `:221` depend on stored
+  `sectionref`/container values and local snapshots do not prove whether the
+  values are attacker-writable or sufficiently normalized before the repair
+  workflow. The remaining patched findings at `addressController.php:146`,
+  `:152`, and `administrationController.php:227` are weak/speculative because
+  they depend on model IDs read back from the database or primary-key drift.
+  Treat the Exponent slice as mixed benchmark/fix-semantics evidence, not as
+  clean SQLi precision evidence.
 - 2026-04-30 narrowed priority live run:
   `/tmp/screw-d02-priority-morefixes-thetis-run` executed one MoreFixes SQLi
   case (`morefixes-CVE-2015-2972-https_____github.com__sysphonic__thetis`) with
@@ -544,8 +562,8 @@ First controlled smoke execution, verified 2026-04-29:
 - Do not mutate `sqli.yaml` from the capped Exponent CMS runs. Sink-line
   anchoring fixed one concrete localization defect. Structured-output failures
   now leave raw artifacts for review, but the latest live metrics remain
-  blocked by that failed invocation and patched-source fix-semantics ambiguity
-  rather than reusable SQLi knowledge evidence.
+  blocked by that failed invocation and mixed patched-source fix-semantics
+  outcomes rather than reusable SQLi knowledge evidence.
 
 Focused rerun example:
 
