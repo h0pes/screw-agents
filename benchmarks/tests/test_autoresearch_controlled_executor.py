@@ -12,6 +12,7 @@ from benchmarks.runner.models import CodeLocation, Finding, FindingKind
 from benchmarks.runner.sarif import write_bentoo_sarif
 from benchmarks.scripts.run_controlled_autoresearch import main as executor_main
 from screw_agents.autoresearch.controlled_executor import (
+    _append_invocation_progress_issues,
     build_controlled_executor_report,
     render_controlled_executor_report_markdown,
 )
@@ -527,6 +528,35 @@ def test_executor_max_files_per_variant_limits_execution_calls(
     assert report.config.max_files_per_variant == 1
     assert report.cases[0].vulnerable_file_count == 1
     assert report.cases[0].patched_file_count == 1
+
+
+def test_invocation_progress_failures_become_executor_warnings(tmp_path: Path) -> None:
+    progress_log = tmp_path / "invocation_progress.jsonl"
+    progress_log.write_text(
+        "\n".join(
+            [
+                json.dumps({"status": "started", "invocation_id": "one"}),
+                json.dumps({"status": "failed", "invocation_id": "one"}),
+                json.dumps({"status": "timeout", "invocation_id": "two"}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    issues = []
+    issue_keys = set()
+
+    _append_invocation_progress_issues(
+        issues,
+        issue_keys,
+        progress_log_path=progress_log,
+    )
+
+    assert [issue.code for issue in issues] == [
+        "claude_invocation_failures_detected",
+        "claude_invocation_timeouts_detected",
+    ]
+    assert all(issue.severity == "warning" for issue in issues)
 
 
 def test_executor_records_related_context_option(tmp_path: Path) -> None:

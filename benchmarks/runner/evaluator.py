@@ -141,10 +141,19 @@ for the primary file `{file_path}`.
 Return your findings as a JSON array. Each finding must have exactly these fields:
 - "cwe_id": string (e.g., "CWE-79")
 - "file": string (the primary file path given above)
-- "start_line": integer (1-based line number where the vulnerability starts)
-- "end_line": integer (1-based line number where the vulnerability ends)
+- "start_line": integer (1-based line number where the vulnerable sink,
+  unsafe source-to-sink handoff, or unsafe security-sensitive call starts)
+- "end_line": integer (1-based line number where that same vulnerable
+  expression/call ends)
 - "confidence": float between 0.0 and 1.0
 - "message": string (brief explanation of the vulnerability)
+
+Line-location discipline:
+- Anchor the span on the exact vulnerable expression/call, not on a nearby
+  function declaration, control block, closing brace, or surrounding helper.
+- If your message names a sink/query/template/shell/framework call, the line
+  span must cover that named call/expression.
+- Prefer a narrow sink span over a broad method/function span.
 
 If no vulnerabilities are found, return an empty array: []
 

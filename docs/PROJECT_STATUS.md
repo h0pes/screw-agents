@@ -76,6 +76,17 @@ characters. Exponent CMS alone drops to 4 prompts and 247,637 prompt characters
 with cap 2 at `/tmp/screw-d02-morefixes-packaging-exponent-cap2-validation`,
 which fits the default one-retry prompt guardrail. Capped results are sampling
 evidence, not full-case gate metrics.
+The capped Exponent CMS live sampling run at
+`/tmp/screw-d02-morefixes-exponent-cap2-run`, benchmark run `20260501-091647`,
+returned 7 vulnerable findings and 0 patched findings, but both patched
+invocations failed JSON extraction, so patched-clean precision is not proven.
+The generated payload
+`/tmp/screw-d02-morefixes-exponent-cap2-failure-inputs/sqli_failure_input.json`
+contains 5 concrete missed spans, all with nearby same-file findings. Manual
+review found a true localization defect: the agent described the
+`activate_address` sink at line 172 but returned lines 158-159. Benchmark
+prompts now require exact sink-expression line anchoring, and executor reports
+warn when invocation progress records failed or timed-out Claude calls.
 The first narrowed live priority run,
 `/tmp/screw-d02-priority-morefixes-thetis-run`, executed one MoreFixes SQLi
 case with `--max-retries 1`: 20 prompts, about 650k prompt chars, TP 1, FP 9,
@@ -743,6 +754,13 @@ Exponent CMS validation at
 `/tmp/screw-d02-morefixes-packaging-exponent-cap2-validation` drops to
 4 prompts and 247,637 prompt characters. Use capped runs only as explicit
 sampling probes; keep uncapped runs for final aggregate benchmark claims.
+After the capped live Exponent CMS run, the practical issue is not a missing
+SQLi pattern in `sqli.yaml`: the agent found vulnerable SQLi behavior, but at
+least one finding was anchored to nearby lines instead of the sink call it
+described. The next capped Exponent rerun should use the new sink-line
+anchoring prompt and the no-Claude validation artifact
+`/tmp/screw-d02-localization-exponent-cap2-validation-v2`, which measures
+4 prompts and 249,461 prompt characters under `--max-files-per-variant 2`.
 
 **When continuing Phase 4:** Continue from `docs/PHASE_4_D02_PLAN.md`; keep Rust metric claims scoped to real-CVE SQLi/Cmdi/XSS and synthetic-only SSTI unless refresh finds a verified SSTI advisory.
 Use `docs/PHASE_4_OPERATING_MAP.md` as the high-level map before restoring
