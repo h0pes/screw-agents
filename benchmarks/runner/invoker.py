@@ -26,6 +26,7 @@ class InvokerConfig:
     timeout: int = 300             # seconds per call
     max_turns: int = 1
     progress_log_path: Path | None = None
+    failure_artifact_dir: Path | None = None
 
 
 @dataclass
@@ -106,6 +107,15 @@ def invoke_claude(
 
         if proc.returncode != 0:
             last_error = f"Exit code {proc.returncode}: {proc.stderr[:200]}"
+            artifact_path = _write_failure_artifact(
+                config,
+                invocation_id=invocation_id,
+                attempt=attempt + 1,
+                error=last_error,
+                stdout=proc.stdout,
+                stderr=proc.stderr,
+                context=context,
+            )
             _write_progress_event(
                 config.progress_log_path,
                 {
@@ -115,6 +125,7 @@ def invoke_claude(
                     "elapsed_seconds": round(elapsed, 3),
                     "returncode": proc.returncode,
                     "error": last_error,
+                    **({"failure_artifact": str(artifact_path)} if artifact_path else {}),
                     **(context or {}),
                 },
             )
@@ -122,6 +133,17 @@ def invoke_claude(
             continue
 
         result = _parse_output(proc.stdout, elapsed)
+        artifact_path = None
+        if not result.success:
+            artifact_path = _write_failure_artifact(
+                config,
+                invocation_id=invocation_id,
+                attempt=attempt + 1,
+                error=result.error,
+                stdout=proc.stdout,
+                stderr=proc.stderr,
+                context=context,
+            )
         _write_progress_event(
             config.progress_log_path,
             {
@@ -131,6 +153,7 @@ def invoke_claude(
                 "elapsed_seconds": round(elapsed, 3),
                 "finding_count": len(result.findings),
                 "error": result.error,
+                **({"failure_artifact": str(artifact_path)} if artifact_path else {}),
                 **(context or {}),
             },
         )
@@ -151,6 +174,37 @@ def _write_progress_event(path: Path | None, event: dict[str, Any]) -> None:
         handle.write(json.dumps(payload, sort_keys=True) + "\n")
 
 
+def _write_failure_artifact(
+    config: InvokerConfig,
+    *,
+    invocation_id: str,
+    attempt: int,
+    error: str,
+    stdout: str,
+    stderr: str,
+    context: dict[str, Any] | None,
+) -> Path | None:
+    artifact_dir = config.failure_artifact_dir
+    if artifact_dir is None and config.progress_log_path is not None:
+        artifact_dir = config.progress_log_path.parent / "invocation_failures"
+    if artifact_dir is None:
+        return None
+
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    path = artifact_dir / f"{invocation_id}-attempt-{attempt}.json"
+    payload = {
+        "timestamp": datetime.now(UTC).isoformat(timespec="seconds"),
+        "invocation_id": invocation_id,
+        "attempt": attempt,
+        "error": error,
+        "context": context or {},
+        "stdout": stdout,
+        "stderr": stderr,
+    }
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    return path
+
+
 def _parse_output(stdout: str, elapsed: float) -> InvokeResult:
     """Parse claude --output-format json stdout into findings."""
     try:
@@ -162,26 +216,10 @@ def _parse_output(stdout: str, elapsed: float) -> InvokeResult:
         )
 
     # claude --output-format json returns {"result": "...", "structured_output": ...}
-    findings_raw = data.get("structured_output")
-    if findings_raw is None:
-        findings_raw = data.get("result", "")
-
-    # If structured_output is a string, try to parse it as JSON
-    if isinstance(findings_raw, str):
-        try:
-            findings_raw = json.loads(findings_raw)
-        except (json.JSONDecodeError, ValueError):
-            findings_raw = _extract_json_array(findings_raw)
-
-    if isinstance(findings_raw, list):
+    findings_raw = _extract_findings_from_claude_payload(data)
+    if findings_raw is not None:
         return InvokeResult(
             success=True, findings=findings_raw,
-            raw_output=stdout[:500], duration_seconds=elapsed,
-        )
-
-    if isinstance(findings_raw, dict) and "findings" in findings_raw:
-        return InvokeResult(
-            success=True, findings=findings_raw["findings"],
             raw_output=stdout[:500], duration_seconds=elapsed,
         )
 
@@ -192,20 +230,77 @@ def _parse_output(stdout: str, elapsed: float) -> InvokeResult:
     )
 
 
-def _extract_json_array(text: str) -> list | str:
-    """Try to find a JSON array in free-form text."""
-    start = text.find("[")
-    if start == -1:
-        return text
-    depth = 0
-    for i in range(start, len(text)):
-        if text[i] == "[":
-            depth += 1
-        elif text[i] == "]":
-            depth -= 1
-            if depth == 0:
-                try:
-                    return json.loads(text[start:i + 1])
-                except json.JSONDecodeError:
-                    return text
+def _extract_findings_from_claude_payload(data: dict[str, Any]) -> list[dict] | None:
+    for key in ("structured_output", "result", "output", "response"):
+        if key not in data:
+            continue
+        findings = _extract_findings_from_value(data[key])
+        if findings is not None:
+            return findings
+    return None
+
+
+def _extract_findings_from_value(value: Any) -> list[dict] | None:
+    if isinstance(value, list) and _looks_like_findings_list(value):
+        return value
+
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except (json.JSONDecodeError, ValueError):
+            parsed = _extract_json_value(value)
+        if parsed is value:
+            return None
+        return _extract_findings_from_value(parsed)
+
+    if isinstance(value, dict):
+        for key in (
+            "findings",
+            "results",
+            "vulnerabilities",
+            "issues",
+            "data",
+            "response",
+            "output",
+            "structured_output",
+            "result",
+        ):
+            if key not in value:
+                continue
+            findings = _extract_findings_from_value(value[key])
+            if findings is not None:
+                return findings
+
+    return None
+
+
+def _looks_like_findings_list(value: list[Any]) -> bool:
+    if not value:
+        return True
+    expected_keys = {
+        "cwe_id",
+        "file",
+        "start_line",
+        "end_line",
+        "message",
+        "confidence",
+        "kind",
+        "location",
+    }
+    return all(isinstance(item, dict) and bool(expected_keys & item.keys()) for item in value)
+
+
+def _extract_json_value(text: str) -> Any:
+    """Try to find a JSON object or array in free-form text."""
+    decoder = json.JSONDecoder()
+    for index, char in enumerate(text):
+        if char not in "[{":
+            continue
+        try:
+            value, _ = decoder.raw_decode(text[index:])
+        except json.JSONDecodeError:
+            continue
+        findings = _extract_findings_from_value(value)
+        if findings is not None:
+            return value
     return text

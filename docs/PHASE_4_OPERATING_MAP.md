@@ -133,6 +133,13 @@ fix-semantics review because the patched sample appears to retain other raw SQL
 helper patterns. Keep this as prompt/localization and executor robustness
 evidence, not `sqli.yaml` evidence.
 
+Claude invocation parsing now accepts common nested or fenced findings
+envelopes in `result`/`structured_output`. Failed post-Claude invocations also
+write full stdout/stderr artifacts under `invocation_failures/` beside
+`invocation_progress.jsonl`, with each failed progress event linking its
+artifact. Use those artifacts to classify future failures before spending more
+Claude calls or changing agent YAML.
+
 Phase 4 closure does not require manually processing every benchmark
 vulnerability. It does require a reliable workflow, clear dataset
 inclusions/exclusions, prompt-budget guardrails, case-level failure payloads,
@@ -191,6 +198,8 @@ What exists:
   findings into schema-valid `phase4-autoresearch-failure-input/v1` payloads.
 - invocation progress telemetry: records live Claude call start/completion,
   failure, timeout, and stale-active state for controlled executor runs.
+- invocation failure artifacts: preserve full stdout/stderr for failed
+  post-Claude parses or non-zero exits next to the progress log.
 
 ## Current Readiness Picture
 
@@ -966,6 +975,6 @@ Even then, YAML mutation is not automatic. It is a reviewed engineering change.
     before live execution. Record capped runs as sampling evidence only, and do
     not compare their aggregate TP/FN counts against uncapped benchmark gates.
 11. For capped Exponent CMS, the sink-line anchoring rerun is complete. It
-    confirmed one localization improvement but exposed JSON-extraction and
-    patched-source interpretation issues, so do not mutate `sqli.yaml` from
-    this slice.
+    confirmed one localization improvement. JSON-extraction failures now
+    produce artifacts for review, but this slice still has patched-source
+    interpretation issues, so do not mutate `sqli.yaml` from it.
