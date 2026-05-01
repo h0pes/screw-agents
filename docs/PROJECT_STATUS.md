@@ -59,6 +59,14 @@ opinionated representative coverage. The first no-Claude priority-stratified
 planning probe selected 7 executable cases but estimated 90 prompts and about
 12.55M retry-budgeted prompt characters, so the next live run should be
 narrowed by agent/case rather than executed as a full priority slice.
+The refreshed no-Claude priority-stratified probe after SSTI `G5.11` selected
+7 executable cases across all four active agents and wrote
+`/tmp/screw-d02-expanded-refresh-priority-validation-v2`: 72 prompts,
+3,134,010 prompt characters, and 9,402,030 retry-budgeted prompt characters at
+`--max-retries 3`. Executor reports now include `Prompt Budget By Case`; the
+new Exponent CMS SQLi case alone costs 20 prompts and 1,109,399 prompt
+characters, so it should not be run live without explicit budget acceptance or
+narrower packaging.
 The first narrowed live priority run,
 `/tmp/screw-d02-priority-morefixes-thetis-run`, executed one MoreFixes SQLi
 case with `--max-retries 1`: 20 prompts, about 650k prompt chars, TP 1, FP 9,
@@ -707,6 +715,17 @@ prompt characters, and about 1,070,805 retry-budgeted estimated tokens at
 `--max-retries 3`; in execution mode the same budget would be blocked by the
 default `--max-prompt-chars 250000` limit unless the run is narrowed or the
 budget is explicitly accepted.
+The refreshed priority-stratified planning pass after SSTI `G5.11` wrote
+`/tmp/screw-d02-expanded-refresh-priority-controlled` and no-Claude executor
+validation at `/tmp/screw-d02-expanded-refresh-priority-validation-v2`.
+It selected 7 executable cases across XSS, CmdI, SQLi, and SSTI, but measured
+72 prompts, 3,134,010 prompt characters, and 9,402,030 retry-budgeted prompt
+characters at `--max-retries 3`. The executor report now groups prompt budget
+by case. That makes the next live decision explicit: do not run the full batch,
+and do not run the new Exponent CMS SQLi slice casually because it costs
+20 prompts and 1,109,399 prompt characters by itself. Use this report to choose
+a narrow, budget-accepted case-filtered run or improve packaging before live
+execution.
 
 **When continuing Phase 4:** Continue from `docs/PHASE_4_D02_PLAN.md`; keep Rust metric claims scoped to real-CVE SQLi/Cmdi/XSS and synthetic-only SSTI unless refresh finds a verified SSTI advisory.
 Use `docs/PHASE_4_OPERATING_MAP.md` as the high-level map before restoring

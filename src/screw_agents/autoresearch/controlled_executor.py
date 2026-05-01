@@ -116,6 +116,22 @@ class ControlledPromptBudget(BaseModel):
     max_retries: int
 
 
+class ControlledCasePromptBudget(BaseModel):
+    """Prompt budget preflight grouped by selected case."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    case_id: str
+    agent: str
+    dataset: str
+    prompt_count: int
+    total_prompt_chars: int
+    estimated_tokens: int
+    retry_budgeted_prompt_chars: int
+    retry_budgeted_estimated_tokens: int
+    max_retries: int
+
+
 class ControlledExecutorReport(BaseModel):
     """Validation/execution report for a controlled-run plan."""
 
@@ -133,6 +149,7 @@ class ControlledExecutorReport(BaseModel):
     result_counts: list[ControlledExecutorResultCounts] = Field(default_factory=list)
     prompt_estimates: list[ControlledPromptEstimate] = Field(default_factory=list)
     prompt_budget: ControlledPromptBudget | None = None
+    case_prompt_budgets: list[ControlledCasePromptBudget] = Field(default_factory=list)
 
 
 def build_controlled_executor_report(
@@ -280,6 +297,10 @@ def build_controlled_executor_report(
         max_prompt_chars=max_prompt_chars,
         max_retries=max_retries,
     )
+    case_prompt_budgets = _case_prompt_budgets(
+        prompt_estimates=prompt_estimates,
+        max_retries=max_retries,
+    )
     if max_prompt_chars > 0 and prompt_budget.retry_budgeted_prompt_chars > max_prompt_chars:
         _append_issue(
             issues,
@@ -332,6 +353,7 @@ def build_controlled_executor_report(
         result_counts=result_counts,
         prompt_estimates=prompt_estimates,
         prompt_budget=prompt_budget,
+        case_prompt_budgets=case_prompt_budgets,
     )
 
 
@@ -398,6 +420,26 @@ def render_controlled_executor_report_markdown(
             f"{_yes_no(case.include_related_context)} | "
             f"{case.cwe_filter or '-'} |"
         )
+
+    if report.case_prompt_budgets:
+        lines.extend(["", "## Prompt Budget By Case", ""])
+        lines.append(
+            "| Agent | Dataset | Case ID | Prompts | Prompt Chars | Est. Tokens | "
+            "Retry-Budgeted Chars | Retry-Budgeted Tokens |"
+        )
+        lines.append("|---|---|---|---:|---:|---:|---:|---:|")
+        for budget in report.case_prompt_budgets:
+            lines.append(
+                "| "
+                f"{budget.agent} | "
+                f"{budget.dataset} | "
+                f"{budget.case_id} | "
+                f"{budget.prompt_count} | "
+                f"{budget.total_prompt_chars} | "
+                f"{budget.estimated_tokens} | "
+                f"{budget.retry_budgeted_prompt_chars} | "
+                f"{budget.retry_budgeted_estimated_tokens} |"
+            )
 
     if report.prompt_estimates:
         lines.extend(["", "## Prompt Estimates", ""])
@@ -677,6 +719,38 @@ def _prompt_budget(
         retry_budgeted_estimated_tokens=estimated_tokens * max_retries,
         max_retries=max_retries,
     )
+
+
+def _case_prompt_budgets(
+    *,
+    prompt_estimates: list[ControlledPromptEstimate],
+    max_retries: int,
+) -> list[ControlledCasePromptBudget]:
+    grouped: dict[tuple[str, str, str], list[ControlledPromptEstimate]] = {}
+    for estimate in prompt_estimates:
+        grouped.setdefault(
+            (estimate.agent, estimate.dataset, estimate.case_id),
+            [],
+        ).append(estimate)
+
+    budgets: list[ControlledCasePromptBudget] = []
+    for (agent, dataset, case_id), estimates in sorted(grouped.items()):
+        total_prompt_chars = sum(estimate.prompt_chars for estimate in estimates)
+        estimated_tokens = sum(estimate.estimated_tokens for estimate in estimates)
+        budgets.append(
+            ControlledCasePromptBudget(
+                case_id=case_id,
+                agent=agent,
+                dataset=dataset,
+                prompt_count=len(estimates),
+                total_prompt_chars=total_prompt_chars,
+                estimated_tokens=estimated_tokens,
+                retry_budgeted_prompt_chars=total_prompt_chars * max_retries,
+                retry_budgeted_estimated_tokens=estimated_tokens * max_retries,
+                max_retries=max_retries,
+            )
+        )
+    return budgets
 
 
 def _estimated_tokens(prompt_chars: int) -> int:
