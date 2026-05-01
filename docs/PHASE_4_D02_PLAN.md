@@ -288,6 +288,14 @@ Only after Tasks 1-4 are resolved:
   Patched findings remain ambiguous because the patched sample appears to
   retain other raw SQL helper patterns, so this is not precision evidence and
   still does not justify a `sqli.yaml` mutation.
+- Controlled Claude invocation parsing now handles common nested or fenced
+  findings envelopes in `result`/`structured_output` instead of requiring a
+  shallow array shape. When a live invocation fails after Claude returns, the
+  invoker writes the full stdout/stderr to `invocation_failures/*.json` next
+  to `invocation_progress.jsonl` and links the artifact from the failed
+  progress event. Use those artifacts before deciding whether a future
+  structured-output failure is parser noise, prompt drift, or a genuine model
+  failure.
 - 2026-04-30 narrowed priority live run:
   `/tmp/screw-d02-priority-morefixes-thetis-run` executed one MoreFixes SQLi
   case (`morefixes-CVE-2015-2972-https_____github.com__sysphonic__thetis`) with
@@ -534,9 +542,10 @@ First controlled smoke execution, verified 2026-04-29:
   capped results as representative sampling evidence, not full-case benchmark
   metrics.
 - Do not mutate `sqli.yaml` from the capped Exponent CMS runs. Sink-line
-  anchoring fixed one concrete localization defect, but the latest rerun is
-  still dominated by structured-output failure and patched-source
-  fix-semantics ambiguity rather than reusable SQLi knowledge evidence.
+  anchoring fixed one concrete localization defect. Structured-output failures
+  now leave raw artifacts for review, but the latest live metrics remain
+  blocked by that failed invocation and patched-source fix-semantics ambiguity
+  rather than reusable SQLi knowledge evidence.
 
 Focused rerun example:
 

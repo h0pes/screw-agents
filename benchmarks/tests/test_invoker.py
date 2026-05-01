@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from benchmarks.runner.invoker import InvokerConfig, invoke_claude
@@ -40,6 +41,59 @@ class TestInvokeClaude:
             result = invoke_claude("Scan this code", InvokerConfig())
         assert result.success is True
         assert result.findings == []
+
+    def test_result_markdown_object_returns_parsed_findings(self):
+        stdout = json.dumps(
+            {
+                "result": (
+                    "```json\n"
+                    "{\"findings\":[{\"cwe_id\":\"CWE-89\",\"file\":\"db.py\","
+                    "\"start_line\":7,\"end_line\":7}]}\n"
+                    "```"
+                ),
+            }
+        )
+        with patch("subprocess.run", return_value=_mock_completed_process(stdout)):
+            result = invoke_claude("Scan this code", InvokerConfig())
+        assert result.success is True
+        assert result.findings[0]["cwe_id"] == "CWE-89"
+
+    def test_nested_structured_output_returns_parsed_findings(self):
+        stdout = json.dumps(
+            {
+                "result": "",
+                "structured_output": {
+                    "response": {
+                        "findings": [
+                            {
+                                "cwe_id": "CWE-78",
+                                "file": "shell.java",
+                                "start_line": 12,
+                                "end_line": 12,
+                            }
+                        ]
+                    }
+                },
+            }
+        )
+        with patch("subprocess.run", return_value=_mock_completed_process(stdout)):
+            result = invoke_claude("Scan this code", InvokerConfig())
+        assert result.success is True
+        assert result.findings[0]["cwe_id"] == "CWE-78"
+
+    def test_non_finding_list_is_not_accepted_as_findings(self):
+        stdout = json.dumps(
+            {
+                "result": "",
+                "structured_output": {
+                    "data": [{"token_count": 10}],
+                },
+            }
+        )
+        with patch("subprocess.run", return_value=_mock_completed_process(stdout)):
+            result = invoke_claude("Scan this code", InvokerConfig())
+        assert result.success is False
+        assert "findings array" in result.error
 
     def test_non_json_stdout_returns_failure(self):
         with patch("subprocess.run", return_value=_mock_completed_process("not json")):
@@ -93,6 +147,27 @@ class TestInvokeClaude:
         assert events[0]["case_id"] == "case-1"
         assert events[0]["prompt_chars"] == len("Scan this code")
         assert events[1]["finding_count"] == 0
+
+    def test_parse_failure_writes_artifact_next_to_progress_log(self, tmp_path):
+        progress_log = tmp_path / "invocation_progress.jsonl"
+        stdout = json.dumps({"result": "I could not produce JSON findings."})
+        with patch("subprocess.run", return_value=_mock_completed_process(stdout)):
+            result = invoke_claude(
+                "Scan this code",
+                InvokerConfig(progress_log_path=progress_log),
+                context={"case_id": "case-1", "variant": "patched"},
+            )
+
+        assert result.success is False
+        events = [
+            json.loads(line)
+            for line in progress_log.read_text(encoding="utf-8").splitlines()
+        ]
+        assert [event["status"] for event in events] == ["started", "failed"]
+        artifact_path = events[1]["failure_artifact"]
+        artifact = json.loads(Path(artifact_path).read_text(encoding="utf-8"))
+        assert artifact["context"]["case_id"] == "case-1"
+        assert artifact["stdout"] == stdout
 
     def test_progress_summary_marks_stale_started_invocation(self, tmp_path):
         progress_log = tmp_path / "invocation_progress.jsonl"

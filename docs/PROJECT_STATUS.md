@@ -101,6 +101,13 @@ still has 5 missed spans, including one pure miss from the failed vulnerable
 evidence because the patched sample appears to retain other raw SQL helper
 patterns, so keep `sqli.yaml` unchanged and treat the next engineering issue as
 structured-output robustness plus fix-semantics review.
+Structured-output robustness is now improved in the controlled Claude invoker:
+it accepts common nested or fenced findings envelopes in
+`result`/`structured_output`, and failed post-Claude parses or non-zero exits
+write full stdout/stderr artifacts under `invocation_failures/` beside
+`invocation_progress.jsonl`. Failed progress events link those artifacts, so
+future live-run failures can be classified before spending more Claude calls or
+changing agent YAML.
 The first narrowed live priority run,
 `/tmp/screw-d02-priority-morefixes-thetis-run`, executed one MoreFixes SQLi
 case with `--max-retries 1`: 20 prompts, about 650k prompt chars, TP 1, FP 9,
@@ -770,9 +777,11 @@ Exponent CMS validation at
 sampling probes; keep uncapped runs for final aggregate benchmark claims.
 After the capped Exponent CMS localization rerun, the practical issue is no
 longer the specific `activate_address` line anchor: that improved. The slice is
-now blocked as clean SQLi-quality evidence by one failed structured-output
-parse and by patched-source ambiguity, where the patched sample appears to
-retain other raw SQL helper patterns. Do not mutate `sqli.yaml` from this run.
+now blocked as clean SQLi-quality evidence by patched-source ambiguity, where
+the patched sample appears to retain other raw SQL helper patterns. Future
+structured-output failures should be reviewed from `invocation_failures/`
+artifacts before spending more Claude calls. Do not mutate `sqli.yaml` from
+this run.
 
 **When continuing Phase 4:** Continue from `docs/PHASE_4_D02_PLAN.md`; keep Rust metric claims scoped to real-CVE SQLi/Cmdi/XSS and synthetic-only SSTI unless refresh finds a verified SSTI advisory.
 Use `docs/PHASE_4_OPERATING_MAP.md` as the high-level map before restoring
