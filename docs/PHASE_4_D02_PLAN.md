@@ -55,6 +55,15 @@ Latest dry-run result from a fresh worktree after Task 3 gate correction:
   extractor support.
 - `G5.9` and `G5.10` are retired because they targeted SSTI/CWE-1336 on SQLi
   datasets (`go-sec-code-mutated`, `skf-labs-mutated`).
+- `G5.11` now covers SSTI through MoreFixes `CWE-1336`, with the current
+  executable seed case
+  `morefixes-CVE-2023-6709-https_____github.com__mlflow__mlflow`.
+- Focused SSTI/MoreFixes MLflow validation is accepted as the first real-CVE
+  SSTI executable slice: `/tmp/screw-d02-ssti-morefixes-mlflow-run`,
+  benchmark run `20260501-084946`, produced TP 1, FP 0, TN 2, FN 1, with one
+  vulnerable finding and zero patched findings. Failure-input generation at
+  `/tmp/screw-d02-ssti-morefixes-mlflow-failure-inputs` produced no concrete
+  payloads, so no `ssti.yaml` mutation is currently justified.
 
 ### Task 2 — Dataset Readiness And Extraction Closure
 
@@ -65,6 +74,9 @@ intentionally ignored.
 Resolve the plan's dataset readiness issues before any full run:
 - `morefixes` is exposed as `morefixes`; `G5.8` was updated from the stale
   `morefixes-extract` name.
+- MoreFixes also supplies the current active SSTI validation slice through
+  `G5.11` (`ssti` / `CWE-1336`), initially anchored on MLflow
+  `CVE-2023-6709`.
 - `morefixes` extraction now expects regenerated DB materialization with
   before/after code snapshots beside each case's `truth.sarif`.
 - `rust-d01-real-cves` extraction now reads local git clones using each case's
@@ -453,6 +465,15 @@ First controlled smoke execution, verified 2026-04-29:
   `/tmp/screw-d02-expanded-stratified-morefixes-fix-semantics-input.json`
   reports 2 ambiguous patched findings and 3 residual-risk/incomplete-fix
   patched findings.
+- SSTI real-CVE validation resumed through MoreFixes `G5.11`. The focused
+  MLflow `CVE-2023-6709` run at
+  `/tmp/screw-d02-ssti-morefixes-mlflow-run`, benchmark run
+  `20260501-084946`, completed both Claude invocations with no failures,
+  timeouts, or stale active calls. Metrics were TP 1, FP 0, TN 2, FN 1; the
+  agent reported the vulnerable Jinja2 `Environment(...).from_string(...).render`
+  sink and produced zero patched findings. The failure-input generator produced
+  no concrete payloads, so treat the residual FN as duplicate/strict truth-span
+  scoring noise unless a later broader SSTI run produces actionable examples.
 
 Focused rerun example:
 

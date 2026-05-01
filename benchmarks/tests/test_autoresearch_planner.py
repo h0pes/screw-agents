@@ -66,6 +66,12 @@ def test_build_run_plan_inventory_and_gate_audit(tmp_path: Path) -> None:
     assert g58.manifest_exists is False
     assert g58.extractor_supported is True
     assert g58.issue is None
+    g511 = next(gate for gate in plan.gate_audit if gate.gate_id == "G5.11")
+    assert g511.agent == "ssti"
+    assert g511.dataset == "morefixes"
+    assert g511.cwe_filter == "CWE-1336"
+    assert g511.manifest_exists is False
+    assert g511.extractor_supported is True
 
 
 def test_build_run_plan_marks_rust_scope_and_missing_generated_data(

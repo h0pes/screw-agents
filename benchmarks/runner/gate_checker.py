@@ -6,8 +6,8 @@ G7: Failure dump for any gate below threshold.
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 
 from benchmarks.runner.models import Finding, Language, MetricSet, Summary
 
@@ -32,6 +32,7 @@ G5_GATES: list[GateDefinition] = [
     GateDefinition("G5.6", "cmdi", "reality-check-java", "tpr", 0.50, "gte", "CWE-78"),
     GateDefinition("G5.7", "sqli", "reality-check-csharp", "tpr", 0.50, "gte", "CWE-89"),
     GateDefinition("G5.8", "sqli", "morefixes", "tpr", 0.50, "gte", "CWE-89"),
+    GateDefinition("G5.11", "ssti", "morefixes", "tpr", 0.50, "gte", "CWE-1336"),
 ]
 
 RETIRED_G5_GATES: dict[str, str] = {
