@@ -250,6 +250,17 @@ Only after Tasks 1-4 are resolved:
   1,109,399 prompt characters, and 3,328,197 retry-budgeted prompt characters
   at three retries, so do not run it live until its budget is explicitly
   accepted or the packaging is narrowed.
+- Controlled executor validation/execution now supports explicit
+  `--max-files-per-variant` packaging for expensive exploratory slices. The
+  default `0` preserves the extractor's normal cap. Use a non-zero value only
+  for reviewed, case-filtered sampling runs where prompt budget matters more
+  than full truth-file coverage. The first no-Claude cap-3 validation at
+  `/tmp/screw-d02-morefixes-packaging-priority-cap3-validation` reduced the
+  refreshed priority batch to 30 prompts and 4,494,636 retry-budgeted prompt
+  characters at `--max-retries 3`. Exponent CMS alone dropped to 6 prompts and
+  306,665 prompt characters with cap 3, and to 4 prompts and 247,637 prompt
+  characters with cap 2 at
+  `/tmp/screw-d02-morefixes-packaging-exponent-cap2-validation`.
 - 2026-04-30 narrowed priority live run:
   `/tmp/screw-d02-priority-morefixes-thetis-run` executed one MoreFixes SQLi
   case (`morefixes-CVE-2015-2972-https_____github.com__sysphonic__thetis`) with
@@ -491,6 +502,10 @@ First controlled smoke execution, verified 2026-04-29:
   large MoreFixes SQLi cases can dominate cost. Use the per-case prompt-budget
   table to pick narrow live runs; do not execute the full refreshed priority
   batch under the default budget.
+- For high-cost MoreFixes cases, prefer a case-filtered validation with an
+  explicit `--max-files-per-variant` cap before any live invocation. Treat
+  capped results as representative sampling evidence, not full-case benchmark
+  metrics.
 
 Focused rerun example:
 

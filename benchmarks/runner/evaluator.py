@@ -64,6 +64,7 @@ class EvalConfig:
     sample_max_per_agent: int = 5
     include_related_context: bool = False
     include_related_context_case_ids: set[str] = field(default_factory=set)
+    max_files_per_variant: int = 0
 
 
 def load_cases_from_manifest(manifest_path: Path) -> list[dict]:
@@ -287,6 +288,8 @@ class Evaluator:
                 or case.case_id in self.config.include_related_context_case_ids
             ),
         )
+        if self.config.max_files_per_variant > 0:
+            code_pieces = code_pieces[: self.config.max_files_per_variant]
         if not code_pieces:
             return []
 

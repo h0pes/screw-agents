@@ -67,6 +67,15 @@ The refreshed no-Claude priority-stratified probe after SSTI `G5.11` selected
 new Exponent CMS SQLi case alone costs 20 prompts and 1,109,399 prompt
 characters, so it should not be run live without explicit budget acceptance or
 narrower packaging.
+That packaging control now exists: controlled executor runs accept
+`--max-files-per-variant`, defaulting to `0` to preserve normal extractor
+behavior. No-Claude cap-3 validation at
+`/tmp/screw-d02-morefixes-packaging-priority-cap3-validation` reduced the
+refreshed priority batch to 30 prompts and 4,494,636 retry-budgeted prompt
+characters. Exponent CMS alone drops to 4 prompts and 247,637 prompt characters
+with cap 2 at `/tmp/screw-d02-morefixes-packaging-exponent-cap2-validation`,
+which fits the default one-retry prompt guardrail. Capped results are sampling
+evidence, not full-case gate metrics.
 The first narrowed live priority run,
 `/tmp/screw-d02-priority-morefixes-thetis-run`, executed one MoreFixes SQLi
 case with `--max-retries 1`: 20 prompts, about 650k prompt chars, TP 1, FP 9,
@@ -726,6 +735,14 @@ and do not run the new Exponent CMS SQLi slice casually because it costs
 20 prompts and 1,109,399 prompt characters by itself. Use this report to choose
 a narrow, budget-accepted case-filtered run or improve packaging before live
 execution.
+The first packaging improvement is implemented through
+`--max-files-per-variant`. With cap 3, the refreshed priority validation at
+`/tmp/screw-d02-morefixes-packaging-priority-cap3-validation` drops to
+30 prompts and 4,494,636 retry-budgeted prompt characters. With cap 2,
+Exponent CMS validation at
+`/tmp/screw-d02-morefixes-packaging-exponent-cap2-validation` drops to
+4 prompts and 247,637 prompt characters. Use capped runs only as explicit
+sampling probes; keep uncapped runs for final aggregate benchmark claims.
 
 **When continuing Phase 4:** Continue from `docs/PHASE_4_D02_PLAN.md`; keep Rust metric claims scoped to real-CVE SQLi/Cmdi/XSS and synthetic-only SSTI unless refresh finds a verified SSTI advisory.
 Use `docs/PHASE_4_OPERATING_MAP.md` as the high-level map before restoring

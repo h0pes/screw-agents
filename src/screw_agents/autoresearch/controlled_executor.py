@@ -41,6 +41,7 @@ class ControlledExecutorConfig(BaseModel):
     case_ids: list[str] = Field(default_factory=list)
     include_related_context: bool = False
     max_prompt_chars: int = Field(default=250_000, ge=0)
+    max_files_per_variant: int = Field(default=0, ge=0)
 
 
 class ControlledExecutorIssue(BaseModel):
@@ -165,6 +166,7 @@ def build_controlled_executor_report(
     case_ids: list[str] | None = None,
     include_related_context: bool = False,
     max_prompt_chars: int = 250_000,
+    max_files_per_variant: int = 0,
 ) -> ControlledExecutorReport:
     """Validate or execute a reviewed controlled-run plan."""
     agent_filter = _normalize_filter_values(agents)
@@ -184,6 +186,7 @@ def build_controlled_executor_report(
         case_ids=case_id_filter,
         include_related_context=include_related_context,
         max_prompt_chars=max_prompt_chars,
+        max_files_per_variant=max_files_per_variant,
     )
     issues: list[ControlledExecutorIssue] = []
     issue_keys: set[tuple[str, str]] = set()
@@ -269,6 +272,7 @@ def build_controlled_executor_report(
                 cwe_filter=selection.cwe_filter,
                 external_dir=external_dir,
                 include_related_context=case_include_related_context,
+                max_files_per_variant=max_files_per_variant,
                 issues=issues,
                 issue_keys=issue_keys,
             )
@@ -291,6 +295,7 @@ def build_controlled_executor_report(
         cases=resolved_cases,
         report_cases=report_cases,
         external_dir=external_dir,
+        max_files_per_variant=max_files_per_variant,
     )
     prompt_budget = _prompt_budget(
         prompt_estimates=prompt_estimates,
@@ -333,6 +338,7 @@ def build_controlled_executor_report(
             ),
             include_related_context=include_related_context,
             include_related_context_case_ids=related_context_case_ids,
+            max_files_per_variant=max_files_per_variant,
         )
         evaluator = Evaluator(eval_config)
         summary_models = _run_evaluation(resolved_cases, evaluator)
@@ -390,6 +396,8 @@ def render_controlled_executor_report_markdown(
         "- **Retry-budgeted estimated tokens:** "
         f"{report.prompt_budget.retry_budgeted_estimated_tokens if report.prompt_budget else 0}",
         f"- **Max prompt chars:** {report.config.max_prompt_chars or 'disabled'}",
+        "- **Max files per variant:** "
+        f"{report.config.max_files_per_variant or 'default extractor cap'}",
         "",
         "## Issues",
         "",
@@ -580,6 +588,7 @@ def _validate_case_extraction(
     cwe_filter: str | None,
     external_dir: Path,
     include_related_context: bool,
+    max_files_per_variant: int,
     issues: list[ControlledExecutorIssue],
     issue_keys: set[tuple[str, str]],
 ) -> ControlledExecutorCase | None:
@@ -590,12 +599,14 @@ def _validate_case_extraction(
             external_dir,
             include_related_context=include_related_context,
         )
+        vulnerable = _limit_extracted_code(vulnerable, max_files_per_variant)
         patched = extract_code_for_case(
             case,
             CodeVariant.PATCHED,
             external_dir,
             include_related_context=include_related_context,
         )
+        patched = _limit_extracted_code(patched, max_files_per_variant)
     except FileNotFoundError as exc:
         _append_issue(
             issues,
@@ -642,6 +653,7 @@ def _build_prompt_estimates(
     cases: list[BenchmarkCase],
     report_cases: list[ControlledExecutorCase],
     external_dir: Path,
+    max_files_per_variant: int,
 ) -> list[ControlledPromptEstimate]:
     from screw_agents.engine import ScanEngine
     from screw_agents.registry import AgentRegistry
@@ -664,6 +676,7 @@ def _build_prompt_estimates(
                 external_dir,
                 include_related_context=report_case.include_related_context,
             )
+            pieces = _limit_extracted_code(pieces, max_files_per_variant)
             for piece in pieces:
                 payload = engine.assemble_scan(
                     agent_name=report_case.agent,
@@ -719,6 +732,15 @@ def _prompt_budget(
         retry_budgeted_estimated_tokens=estimated_tokens * max_retries,
         max_retries=max_retries,
     )
+
+
+def _limit_extracted_code(
+    pieces: list[Any],
+    max_files_per_variant: int,
+) -> list[Any]:
+    if max_files_per_variant <= 0:
+        return pieces
+    return pieces[:max_files_per_variant]
 
 
 def _case_prompt_budgets(

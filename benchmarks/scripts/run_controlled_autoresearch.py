@@ -101,6 +101,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "is used. Set to 0 to disable this guardrail."
         ),
     )
+    parser.add_argument(
+        "--max-files-per-variant",
+        type=int,
+        default=0,
+        help=(
+            "Optional controlled-executor extraction cap per vulnerable/patched "
+            "variant. Defaults to 0, which uses the extractor's normal cap."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -125,6 +134,7 @@ def main(argv: list[str] | None = None) -> int:
         case_ids=args.case_id,
         include_related_context=args.include_related_context,
         max_prompt_chars=args.max_prompt_chars,
+        max_files_per_variant=args.max_files_per_variant,
     )
     json_path = output_dir / "controlled_executor_report.json"
     markdown_path = output_dir / "controlled_executor_report.md"
