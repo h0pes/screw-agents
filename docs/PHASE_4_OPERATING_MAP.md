@@ -140,6 +140,15 @@ write full stdout/stderr artifacts under `invocation_failures/` beside
 artifact. Use those artifacts to classify future failures before spending more
 Claude calls or changing agent YAML.
 
+Controlled Claude invocation now disables Claude Code tools with `--tools ""`.
+The focused Plexus related-context run at
+`/tmp/screw-d02-plexus-related-context-exec-run`, benchmark run
+`20260501-132018`, produced a concrete failure artifact where Claude attempted
+to call `Bash` during the vulnerable `Commandline.java` prompt and exhausted
+the one-turn benchmark invocation. Benchmark runs should return structured
+findings from the supplied prompt only; they should not spend turns on tool
+permission flow.
+
 Exponent CMS fix-semantics review, verified 2026-05-01:
 - Annotated payload:
   `/tmp/screw-d02-localization-exponent-cap2-fix-semantics-input.json`.
@@ -843,6 +852,18 @@ CmdI/Plexus case-level related-context packaging, verified 2026-04-30:
   `add_limit_offset!` finding. NHibernate stayed patched-clean at TP 2, FP 0,
   TN 25, FN 23; Zope stayed clean; AntiSamy remained the known test-file
   truth-span miss.
+- Focused 2026-05-01 Plexus validation:
+  `/tmp/screw-d02-plexus-related-context-validation` confirmed the current plan
+  still marks only Plexus for related context and estimated 6 prompts,
+  342,987 prompt chars, and 85,749 estimated tokens at one retry. Live
+  execution at `/tmp/screw-d02-plexus-related-context-exec-run`, benchmark run
+  `20260501-132018`, returned 3 vulnerable findings and 0 patched findings,
+  with TP 3, FP 0, TN 10, FN 7. It also recorded 1 failed vulnerable
+  invocation and 1 vulnerable timeout; the failed invocation artifact showed
+  Claude attempted a `Bash` tool call. Treat this as confirmation of
+  related-context patched cleanliness plus runtime evidence for tool-free
+  invocation, not as a cleaner benchmark-quality baseline than the 2026-04-30
+  stability rerun.
 - Cleaner-run failure payloads:
   `/tmp/screw-d02-plexus-related-context-nonossf-rerun-failure-inputs/cmdi_failure_input.json`,
   `/tmp/screw-d02-plexus-related-context-nonossf-rerun-failure-inputs/sqli_failure_input.json`,

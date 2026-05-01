@@ -108,6 +108,13 @@ write full stdout/stderr artifacts under `invocation_failures/` beside
 `invocation_progress.jsonl`. Failed progress events link those artifacts, so
 future live-run failures can be classified before spending more Claude calls or
 changing agent YAML.
+Controlled Claude invocations now also disable tools with `--tools ""`. The
+2026-05-01 focused Plexus related-context run at
+`/tmp/screw-d02-plexus-related-context-exec-run`, benchmark run
+`20260501-132018`, produced a failure artifact showing Claude attempted a
+`Bash` tool call during the vulnerable `Commandline.java` prompt and exhausted
+the one-turn benchmark invocation. Future benchmark calls should produce
+structured findings from prompt context only, without tool permission flow.
 Exponent CMS fix-semantics review is now recorded at
 `/tmp/screw-d02-localization-exponent-cap2-fix-semantics-input.json`. The
 schema-valid annotated payload covers all 8 patched findings from the capped
@@ -698,6 +705,14 @@ findings and 0 patched findings. Rails returned to the accepted v1.0.2 shape:
 TP 1, FP 0, TN 5, FN 4, with one vulnerable `add_limit_offset!` finding and no
 patched findings. Cleaner-run failure payloads are under
 `/tmp/screw-d02-plexus-related-context-nonossf-rerun-failure-inputs`.
+The 2026-05-01 focused Plexus validation at
+`/tmp/screw-d02-plexus-related-context-validation` confirmed current planning
+still marks only Plexus for related context. Live execution at
+`/tmp/screw-d02-plexus-related-context-exec-run`, benchmark run
+`20260501-132018`, produced 3 vulnerable findings and 0 patched findings with
+TP 3, FP 0, TN 10, FN 7, but also recorded 1 failed vulnerable invocation and
+1 vulnerable timeout. Use it as additional packaging/runtime evidence; keep
+the 2026-04-30 clean stability rerun as the cleaner benchmark-quality baseline.
 Review of the clean CmdI payload classified the five Plexus misses as
 truth-span/localization issues rather than YAML-training evidence:
 `Shell.java` misses are broad base/delegation spans, `Commandline.getCommandline()`

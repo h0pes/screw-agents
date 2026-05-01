@@ -79,6 +79,7 @@ def invoke_claude(
                 [  # noqa: S607
                     "claude", "-p",
                     "--output-format", "json",
+                    "--tools", "",
                     "--max-turns", str(config.max_turns),
                 ],
                 input=prompt,

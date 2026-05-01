@@ -35,6 +35,15 @@ class TestInvokeClaude:
         assert len(result.findings) == 1
         assert result.findings[0]["cwe_id"] == "CWE-79"
 
+    def test_invocation_disables_claude_tools(self):
+        stdout = json.dumps({"result": "", "structured_output": []})
+        with patch("subprocess.run", return_value=_mock_completed_process(stdout)) as run:
+            result = invoke_claude("Scan this code", InvokerConfig())
+
+        assert result.success is True
+        command = run.call_args.args[0]
+        assert command[command.index("--tools") + 1] == ""
+
     def test_empty_findings_returns_empty_list(self):
         stdout = json.dumps({"result": "", "structured_output": []})
         with patch("subprocess.run", return_value=_mock_completed_process(stdout)):

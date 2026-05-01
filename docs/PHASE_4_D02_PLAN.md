@@ -296,6 +296,13 @@ Only after Tasks 1-4 are resolved:
   progress event. Use those artifacts before deciding whether a future
   structured-output failure is parser noise, prompt drift, or a genuine model
   failure.
+- Controlled Claude invocations now disable Claude Code tools with
+  `--tools ""`. The Plexus related-context run at
+  `/tmp/screw-d02-plexus-related-context-exec-run`, benchmark run
+  `20260501-132018`, showed why: the vulnerable `Commandline.java` prompt
+  previously failed after Claude attempted a `Bash` tool call and exhausted
+  `--max-turns 1`. Benchmark calls should spend their single turn on producing
+  structured findings, not on tool permission flow.
 - Exponent CMS fix-semantics review is recorded in the annotated payload at
   `/tmp/screw-d02-localization-exponent-cap2-fix-semantics-input.json` and
   validates against `phase4-autoresearch-failure-input/v1`. Review used the
@@ -473,6 +480,17 @@ First controlled smoke execution, verified 2026-04-29:
   payloads are under
   `/tmp/screw-d02-plexus-related-context-nonossf-rerun-failure-inputs`; use
   those payloads, not the noisy previous mixed run, for any follow-on review.
+- Focused Plexus related-context validation on 2026-05-01 at
+  `/tmp/screw-d02-plexus-related-context-validation` confirmed the current
+  non-OSSF plan still marks only
+  `rc-java-plexus-utils-CVE-2017-1000487` for related context. The live run at
+  `/tmp/screw-d02-plexus-related-context-exec-run`, benchmark run
+  `20260501-132018`, used `--max-retries 1` and an explicit
+  `--max-prompt-chars 350000` budget. It produced 3 vulnerable findings and
+  0 patched findings, with metrics TP 3, FP 0, TN 10, FN 7. The run had
+  1 failed vulnerable invocation and 1 vulnerable timeout, so treat it as
+  additional packaging/runtime evidence, not a cleaner replacement for the
+  2026-04-30 stability rerun.
 - Review of the clean CmdI/Plexus payload found no current `cmdi.yaml`
   mutation target. The three clean-run vulnerable findings correctly localize
   the real Bourne-shell quoting defect in `BourneShell.java`, and patched
