@@ -261,6 +261,24 @@ Only after Tasks 1-4 are resolved:
   306,665 prompt characters with cap 3, and to 4 prompts and 247,637 prompt
   characters with cap 2 at
   `/tmp/screw-d02-morefixes-packaging-exponent-cap2-validation`.
+- 2026-05-01 narrowed cross-agent live validation:
+  `/tmp/screw-d02-cross-agent-noncmdi-cap3-run`, benchmark run
+  `20260501-175446`, used XSS AntiSamy/Zope, SQLi NHibernate, and SSTI MLflow
+  with cap 3 and one retry. It completed all 12 invocations with no failures,
+  timeouts, or stale calls. Metrics were XSS AntiSamy TP 0 / FP 0 / TN 1 /
+  FN 1, XSS Zope TP 1 / FP 0 / TN 1 / FN 0, SQLi NHibernate TP 0 / FP 0 /
+  TN 25 / FN 25, and SSTI MLflow TP 1 / FP 0 / TN 2 / FN 1. The NHibernate
+  result is packaging evidence, not SQLi YAML evidence: the initial
+  `--max-files-per-variant` implementation truncated to low-signal
+  test/support files before higher-signal production literal renderers.
+- Controlled file caps now rank extracted files before truncation, preferring
+  production-looking paths and higher matching truth-span counts while keeping
+  deterministic original-order tie breaks. Focused no-Claude validation at
+  `/tmp/screw-d02-nhibernate-ranked-cap3-validation-v3` now selects
+  `Dialect`, `AbstractCharType`, and `AbstractStringType` for NHibernate cap 3.
+  The updated cross-agent preflight at
+  `/tmp/screw-d02-cross-agent-ranked-noncmdi-cap3-validation` remains at 12
+  prompts and 663,520 prompt characters with no executor issues.
 - 2026-05-01 capped Exponent CMS live sampling run:
   `/tmp/screw-d02-morefixes-exponent-cap2-run`, benchmark run
   `20260501-091647`, used `--max-files-per-variant 2` and `--max-retries 1`.

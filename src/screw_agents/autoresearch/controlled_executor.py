@@ -14,7 +14,11 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from benchmarks.runner.code_extractor import CodeVariant, extract_code_for_case
+from benchmarks.runner.code_extractor import (
+    CodeVariant,
+    ExtractedCode,
+    extract_code_for_case,
+)
 from benchmarks.runner.evaluator import EvalConfig, Evaluator, build_prompt
 from benchmarks.runner.invoker import InvokerConfig
 from benchmarks.runner.models import BenchmarkCase, FindingKind, Language, Summary
@@ -605,14 +609,24 @@ def _validate_case_extraction(
             external_dir,
             include_related_context=include_related_context,
         )
-        vulnerable = _limit_extracted_code(vulnerable, max_files_per_variant)
+        vulnerable = _limit_extracted_code(
+            vulnerable,
+            max_files_per_variant,
+            case=case,
+            variant=CodeVariant.VULNERABLE,
+        )
         patched = extract_code_for_case(
             case,
             CodeVariant.PATCHED,
             external_dir,
             include_related_context=include_related_context,
         )
-        patched = _limit_extracted_code(patched, max_files_per_variant)
+        patched = _limit_extracted_code(
+            patched,
+            max_files_per_variant,
+            case=case,
+            variant=CodeVariant.PATCHED,
+        )
     except FileNotFoundError as exc:
         _append_issue(
             issues,
@@ -682,7 +696,12 @@ def _build_prompt_estimates(
                 external_dir,
                 include_related_context=report_case.include_related_context,
             )
-            pieces = _limit_extracted_code(pieces, max_files_per_variant)
+            pieces = _limit_extracted_code(
+                pieces,
+                max_files_per_variant,
+                case=case,
+                variant=variant,
+            )
             for piece in pieces:
                 payload = engine.assemble_scan(
                     agent_name=report_case.agent,
@@ -741,12 +760,57 @@ def _prompt_budget(
 
 
 def _limit_extracted_code(
-    pieces: list[Any],
+    pieces: list[ExtractedCode],
     max_files_per_variant: int,
-) -> list[Any]:
+    *,
+    case: BenchmarkCase,
+    variant: CodeVariant,
+) -> list[ExtractedCode]:
     if max_files_per_variant <= 0:
         return pieces
-    return pieces[:max_files_per_variant]
+    kind = FindingKind.FAIL if variant is CodeVariant.VULNERABLE else FindingKind.PASS
+    truth_counts: dict[str, int] = {}
+    for finding in case.ground_truth:
+        if finding.kind == kind:
+            truth_counts[finding.location.file] = (
+                truth_counts.get(finding.location.file, 0) + 1
+            )
+    ranked = sorted(
+        enumerate(pieces),
+        key=lambda item: _file_cap_rank(item[0], item[1], truth_counts),
+    )
+    return [piece for _, piece in ranked[:max_files_per_variant]]
+
+
+def _file_cap_rank(
+    original_index: int,
+    piece: ExtractedCode,
+    truth_counts: dict[str, int],
+) -> tuple[int, int, int]:
+    return (
+        _is_likely_test_path(piece.file_path),
+        -truth_counts.get(piece.file_path, 0),
+        original_index,
+    )
+
+
+def _is_likely_test_path(file_path: str) -> int:
+    normalized = file_path.replace("\\", "/").lower()
+    path_parts = [part for part in normalized.split("/") if part]
+    basename = path_parts[-1] if path_parts else normalized
+    if any(
+        part in {"test", "tests", "spec", "specs", "fixtures"}
+        or part.endswith((".test", ".tests", ".spec", ".specs"))
+        for part in path_parts
+    ):
+        return 1
+    if (
+        basename.startswith("test")
+        or "_test." in basename
+        or basename.endswith(("_test.py", "_test.go", "test.cs", "tests.cs"))
+    ):
+        return 1
+    return 0
 
 
 def _append_invocation_progress_issues(

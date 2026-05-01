@@ -75,7 +75,19 @@ refreshed priority batch to 30 prompts and 4,494,636 retry-budgeted prompt
 characters. Exponent CMS alone drops to 4 prompts and 247,637 prompt characters
 with cap 2 at `/tmp/screw-d02-morefixes-packaging-exponent-cap2-validation`,
 which fits the default one-retry prompt guardrail. Capped results are sampling
-evidence, not full-case gate metrics.
+evidence, not full-case gate metrics. A later 4-case cross-agent live run at
+`/tmp/screw-d02-cross-agent-noncmdi-cap3-run`, benchmark run
+`20260501-175446`, completed 12 of 12 invocations with no failures, timeouts,
+or stale calls, but exposed that the first implementation of
+`--max-files-per-variant` could front-load low-signal test/support files. The
+SQLi/NHibernate cap-3 slice selected test/support files and returned 0
+vulnerable findings, so treat that as packaging evidence rather than SQLi YAML
+evidence. The cap now ranks extracted files by production-path likelihood and
+matching truth-span count before truncating; no-Claude validation at
+`/tmp/screw-d02-nhibernate-ranked-cap3-validation-v3` selects NHibernate
+production files (`Dialect`, `AbstractCharType`, `AbstractStringType`), and
+`/tmp/screw-d02-cross-agent-ranked-noncmdi-cap3-validation` keeps the narrowed
+cross-agent slice at 12 prompts and about 663k prompt characters.
 The capped Exponent CMS live sampling run at
 `/tmp/screw-d02-morefixes-exponent-cap2-run`, benchmark run `20260501-091647`,
 returned 7 vulnerable findings and 0 patched findings, but both patched

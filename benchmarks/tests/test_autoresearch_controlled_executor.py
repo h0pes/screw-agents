@@ -7,12 +7,20 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
+from benchmarks.runner.code_extractor import CodeVariant, ExtractedCode
 from benchmarks.runner.invoker import InvokeResult
-from benchmarks.runner.models import CodeLocation, Finding, FindingKind
+from benchmarks.runner.models import (
+    BenchmarkCase,
+    CodeLocation,
+    Finding,
+    FindingKind,
+    Language,
+)
 from benchmarks.runner.sarif import write_bentoo_sarif
 from benchmarks.scripts.run_controlled_autoresearch import main as executor_main
 from screw_agents.autoresearch.controlled_executor import (
     _append_invocation_progress_issues,
+    _limit_extracted_code,
     build_controlled_executor_report,
     render_controlled_executor_report_markdown,
 )
@@ -493,6 +501,67 @@ def test_executor_max_files_per_variant_limits_validation_budget(
     assert report.case_prompt_budgets[0].prompt_count == 2
     rendered = render_controlled_executor_report_markdown(report)
     assert "**Max files per variant:** 1" in rendered
+
+
+def test_executor_file_cap_prefers_production_truth_files() -> None:
+    case = BenchmarkCase(
+        case_id="case-1",
+        project="example/project",
+        language=Language.CSHARP,
+        vulnerable_version="v1",
+        patched_version="v2",
+        source_dataset="reality-check-csharp",
+        ground_truth=[
+            Finding(
+                cwe_id="CWE-89",
+                kind=FindingKind.FAIL,
+                location=CodeLocation(
+                    file="src/App.Test/SqlBuilderFixture.cs",
+                    start_line=10,
+                    end_line=12,
+                ),
+            ),
+            Finding(
+                cwe_id="CWE-89",
+                kind=FindingKind.FAIL,
+                location=CodeLocation(
+                    file="src/App/SqlBuilder.cs",
+                    start_line=20,
+                    end_line=22,
+                ),
+            ),
+            Finding(
+                cwe_id="CWE-89",
+                kind=FindingKind.FAIL,
+                location=CodeLocation(
+                    file="src/App/SqlBuilder.cs",
+                    start_line=40,
+                    end_line=42,
+                ),
+            ),
+        ],
+    )
+    pieces = [
+        ExtractedCode(
+            file_path="src/App.Test/SqlBuilderFixture.cs",
+            content="test",
+            language="csharp",
+        ),
+        ExtractedCode(
+            file_path="src/App/SqlBuilder.cs",
+            content="prod",
+            language="csharp",
+        ),
+    ]
+
+    capped = _limit_extracted_code(
+        pieces,
+        1,
+        case=case,
+        variant=CodeVariant.VULNERABLE,
+    )
+
+    assert [piece.file_path for piece in capped] == ["src/App/SqlBuilder.cs"]
 
 
 def test_executor_max_files_per_variant_limits_execution_calls(
