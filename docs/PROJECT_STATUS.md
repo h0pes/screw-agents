@@ -87,6 +87,20 @@ review found a true localization defect: the agent described the
 `activate_address` sink at line 172 but returned lines 158-159. Benchmark
 prompts now require exact sink-expression line anchoring, and executor reports
 warn when invocation progress records failed or timed-out Claude calls.
+The capped Exponent CMS localization rerun at
+`/tmp/screw-d02-localization-exponent-cap2-run`, benchmark run
+`20260501-094144`, used the same cap-2, one-retry budget. It recorded
+3 completed Claude invocations and 1 JSON-extraction failure, and the executor
+report now warns on that failed invocation. Metrics were TP 1, FP 9, TN 405,
+FN 409, with 4 vulnerable findings and 8 patched findings. The useful signal is
+that `activate_address` now anchors on the actual `addressController.php` sink
+line 172. The remaining failure payload,
+`/tmp/screw-d02-localization-exponent-cap2-failure-inputs/sqli_failure_input.json`,
+still has 5 missed spans, including one pure miss from the failed vulnerable
+`administrationController.php` prompt. Patched findings are not clean precision
+evidence because the patched sample appears to retain other raw SQL helper
+patterns, so keep `sqli.yaml` unchanged and treat the next engineering issue as
+structured-output robustness plus fix-semantics review.
 The first narrowed live priority run,
 `/tmp/screw-d02-priority-morefixes-thetis-run`, executed one MoreFixes SQLi
 case with `--max-retries 1`: 20 prompts, about 650k prompt chars, TP 1, FP 9,
@@ -754,13 +768,11 @@ Exponent CMS validation at
 `/tmp/screw-d02-morefixes-packaging-exponent-cap2-validation` drops to
 4 prompts and 247,637 prompt characters. Use capped runs only as explicit
 sampling probes; keep uncapped runs for final aggregate benchmark claims.
-After the capped live Exponent CMS run, the practical issue is not a missing
-SQLi pattern in `sqli.yaml`: the agent found vulnerable SQLi behavior, but at
-least one finding was anchored to nearby lines instead of the sink call it
-described. The next capped Exponent rerun should use the new sink-line
-anchoring prompt and the no-Claude validation artifact
-`/tmp/screw-d02-localization-exponent-cap2-validation-v2`, which measures
-4 prompts and 249,461 prompt characters under `--max-files-per-variant 2`.
+After the capped Exponent CMS localization rerun, the practical issue is no
+longer the specific `activate_address` line anchor: that improved. The slice is
+now blocked as clean SQLi-quality evidence by one failed structured-output
+parse and by patched-source ambiguity, where the patched sample appears to
+retain other raw SQL helper patterns. Do not mutate `sqli.yaml` from this run.
 
 **When continuing Phase 4:** Continue from `docs/PHASE_4_D02_PLAN.md`; keep Rust metric claims scoped to real-CVE SQLi/Cmdi/XSS and synthetic-only SSTI unless refresh finds a verified SSTI advisory.
 Use `docs/PHASE_4_OPERATING_MAP.md` as the high-level map before restoring

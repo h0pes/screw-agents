@@ -273,6 +273,21 @@ Only after Tasks 1-4 are resolved:
   sink at line 172 but returned lines 158-159. The prompt now explicitly
   requires sink-expression line anchoring, and controlled executor reports warn
   when progress telemetry records failed or timed-out Claude calls.
+- 2026-05-01 capped Exponent CMS localization rerun after sink-line anchoring:
+  `/tmp/screw-d02-localization-exponent-cap2-run`, benchmark run
+  `20260501-094144`, used the same cap-2, one-retry budget. The run recorded
+  3 completed Claude invocations and 1 JSON-extraction failure, and the
+  controlled executor report now surfaces that failed invocation as a warning.
+  Metrics were TP 1, FP 9, TN 405, FN 409, with 4 vulnerable findings and
+  8 patched findings. The rerun confirmed the concrete localization improvement
+  for `addressController.php`: the `activate_address` finding now anchors on
+  line 172 instead of nearby setup lines. Its failure payload at
+  `/tmp/screw-d02-localization-exponent-cap2-failure-inputs/sqli_failure_input.json`
+  still shows 5 missed spans, including 4 nearby same-file misses and 1 pure
+  miss caused by the failed vulnerable `administrationController.php` prompt.
+  Patched findings remain ambiguous because the patched sample appears to
+  retain other raw SQL helper patterns, so this is not precision evidence and
+  still does not justify a `sqli.yaml` mutation.
 - 2026-04-30 narrowed priority live run:
   `/tmp/screw-d02-priority-morefixes-thetis-run` executed one MoreFixes SQLi
   case (`morefixes-CVE-2015-2972-https_____github.com__sysphonic__thetis`) with
@@ -518,10 +533,10 @@ First controlled smoke execution, verified 2026-04-29:
   explicit `--max-files-per-variant` cap before any live invocation. Treat
   capped results as representative sampling evidence, not full-case benchmark
   metrics.
-- Do not mutate `sqli.yaml` from the capped Exponent CMS run. The immediate
-  correction is prompt/reporting localization and invocation-failure visibility.
-  A future capped rerun should validate whether sink-line anchoring improves
-  exact-span scoring.
+- Do not mutate `sqli.yaml` from the capped Exponent CMS runs. Sink-line
+  anchoring fixed one concrete localization defect, but the latest rerun is
+  still dominated by structured-output failure and patched-source
+  fix-semantics ambiguity rather than reusable SQLi knowledge evidence.
 
 Focused rerun example:
 

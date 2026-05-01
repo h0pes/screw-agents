@@ -119,6 +119,20 @@ line 172 but returned lines 158-159. The prompt now requires findings to anchor
 on the exact vulnerable expression/call, and executor reports surface failed or
 timed-out invocation telemetry as warnings.
 
+The capped localization rerun after that prompt/reporting change,
+`/tmp/screw-d02-localization-exponent-cap2-run`, benchmark run
+`20260501-094144`, recorded 3 completed Claude invocations and 1 failed JSON
+extraction. It produced TP 1, FP 9, TN 405, FN 409, with 4 vulnerable findings
+and 8 patched findings. The important signal is qualitative: the prior
+`activate_address` localization defect moved to the actual
+`addressController.php` sink line 172. The remaining failure payload at
+`/tmp/screw-d02-localization-exponent-cap2-failure-inputs/sqli_failure_input.json`
+still reports 5 missed spans, including one pure miss from the failed vulnerable
+`administrationController.php` invocation. Patched findings require
+fix-semantics review because the patched sample appears to retain other raw SQL
+helper patterns. Keep this as prompt/localization and executor robustness
+evidence, not `sqli.yaml` evidence.
+
 Phase 4 closure does not require manually processing every benchmark
 vulnerability. It does require a reliable workflow, clear dataset
 inclusions/exclusions, prompt-budget guardrails, case-level failure payloads,
@@ -951,6 +965,7 @@ Even then, YAML mutation is not automatic. It is a reviewed engineering change.
 10. For high-cost MoreFixes cases, validate with `--max-files-per-variant`
     before live execution. Record capped runs as sampling evidence only, and do
     not compare their aggregate TP/FN counts against uncapped benchmark gates.
-11. For capped Exponent CMS, rerun only after accepting the 249,461-character
-    cap-2 budget under the new sink-line anchoring prompt. Use the run to test
-    localization improvement, not to mutate `sqli.yaml` directly.
+11. For capped Exponent CMS, the sink-line anchoring rerun is complete. It
+    confirmed one localization improvement but exposed JSON-extraction and
+    patched-source interpretation issues, so do not mutate `sqli.yaml` from
+    this slice.
