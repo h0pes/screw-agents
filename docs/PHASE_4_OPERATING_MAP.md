@@ -120,8 +120,9 @@ execution completed 2026-04-29.
 What exists:
 - dry-run planner: inventories manifests, gates, extractor support, and lower
   bound invocation cost;
-- gate correction: `G5.8` now targets `morefixes`; stale SSTI gates `G5.9` and
-  `G5.10` are retired;
+- gate correction: `G5.8` now targets SQLi on `morefixes`; stale SSTI gates
+  `G5.9` and `G5.10` are retired; `G5.11` resumes SSTI validation through the
+  executable MoreFixes MLflow `CVE-2023-6709` / `CWE-1336` case;
 - failure-input schema: future YAML changes must cite concrete missed findings
   or false positives;
 - controlled-run scaffold: writes a blocked smoke plan by default and refuses
@@ -134,6 +135,8 @@ What exists:
   for each selected case;
 - failure-input payload generator: turns controlled-run misses and patched
   findings into schema-valid `phase4-autoresearch-failure-input/v1` payloads.
+- invocation progress telemetry: records live Claude call start/completion,
+  failure, timeout, and stale-active state for controlled executor runs.
 
 ## Current Readiness Picture
 
@@ -158,7 +161,7 @@ Long-lived main checkout result as of 2026-04-28:
 | `reality-check-csharp` | Yes | Ready; 11 `truth.sarif` files materialized locally |
 | `reality-check-python` | Yes | Ready; 6 `truth.sarif` files materialized locally |
 | `reality-check-java` | Yes | Ready; 9 `truth.sarif` files materialized locally |
-| `morefixes` | Yes | Ready; 2,601 `truth.sarif` files and code snapshots materialized locally |
+| `morefixes` | Yes | Ready; 2,601 `truth.sarif` files and code snapshots materialized locally; covers SQLi `G5.8` and SSTI `G5.11` |
 | `crossvul` | No | Useful benchmark data, but not required by active G5 gates right now |
 | `go-sec-code-mutated` | No | Retained as SQLi data; no longer misused as SSTI gate evidence |
 | `skf-labs-mutated` | No | Retained as SQLi data; no longer misused as SSTI gate evidence |
@@ -894,6 +897,12 @@ Even then, YAML mutation is not automatic. It is a reviewed engineering change.
    YAML-training purposes. Plan an expanded stratified validation set over
    trustworthy executable cases before considering additional agent knowledge
    changes.
-8. Review the expanded stratified prompt budget before any live run. If a live
+8. Treat SSTI as resumed through MoreFixes `G5.11`. The focused MLflow
+   `CVE-2023-6709` run at `/tmp/screw-d02-ssti-morefixes-mlflow-run`,
+   benchmark run `20260501-084946`, is the current accepted real-CVE SSTI
+   slice: TP 1, FP 0, TN 2, FN 1; vulnerable findings 1; patched findings 0;
+   failure-input generation produced no concrete payloads. Do not mutate
+   `ssti.yaml` from this slice.
+9. Review the expanded stratified prompt budget before any live run. If a live
    run is approved, start with the three-case MoreFixes SQLi subset rather than
    the full seven-case expanded plan.

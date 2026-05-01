@@ -311,19 +311,22 @@ G6 (Rust disclaimer): **PASS**. G7: 4 failure dumps generated.
    - High FP rates on reality-check suggest the agents flag more locations than ground truth expects, which is partially a scoring artifact (unconsumed agent findings count as FP)
    - Some reality-check Java files timeout at 300s (very large source files)
 
-5. **go-sec-code and skf-labs contain CWE-89 (SQLi), not CWE-1336 (SSTI).** Gates G5.9 and G5.10 previously referenced ssti/go-sec-code and ssti/skf-labs. D-02 Task 3 retires those gates rather than relabelling SQLi evidence as SSTI coverage.
+5. **go-sec-code and skf-labs contain CWE-89 (SQLi), not CWE-1336 (SSTI).** Gates G5.9 and G5.10 previously referenced ssti/go-sec-code and ssti/skf-labs. D-02 Task 3 retires those gates rather than relabelling SQLi evidence as SSTI coverage. SSTI real-CVE validation resumes through `G5.11`, targeting MoreFixes `CWE-1336`; the current executable seed is MLflow `CVE-2023-6709`.
 
 ### Next steps for full run
 
 Before the full run, these items must be addressed:
 
-1. **Correct G5.9/G5.10 gate definitions** — DONE in D-02 Task 3: retired because go-sec-code and skf-labs are SQLi (CWE-89), not SSTI. Future SSTI gates require actual SSTI benchmark data.
+1. **Correct G5.9/G5.10 gate definitions** — DONE in D-02 Task 3: retired because go-sec-code and skf-labs are SQLi (CWE-89), not SSTI. `G5.11` now supplies an actual SSTI benchmark slice from MoreFixes MLflow `CVE-2023-6709`.
 2. **Add ossf-cve-benchmark to the evaluation** — requires code extraction from npm packages (not yet implemented).
 3. **Regenerate MoreFixes materialization** — D-02 now uses `morefixes`
    directly; requires Docker + Postgres to write `truth.sarif` plus code
    snapshots.
 4. **Consider increasing timeout** for large Java files, or pre-filtering files by size.
-5. **SSTI evaluation** — the SSTI agent (CWE-1336) has no real-CVE benchmark data. Current SSTI cases are CWE-94 (code injection), which is a parent CWE but a poor proxy for template injection.
+5. **SSTI evaluation** — DONE for the first resumed slice: MoreFixes `G5.11`
+   / MLflow `CVE-2023-6709` was run live and stayed patched-clean. No
+   concrete failure payload was generated, so no `ssti.yaml` change is
+   currently justified.
 
 ### How to run
 
@@ -681,6 +684,21 @@ the annotated payload
 `/tmp/screw-d02-expanded-stratified-morefixes-fix-semantics-input.json`
 reports 2 fix-semantics ambiguous patched findings and 3 residual-risk or
 incomplete-fix patched findings.
+SSTI real-CVE validation has resumed through MoreFixes `G5.11`. The focused
+MLflow `CVE-2023-6709` no-Claude validation at
+`/tmp/screw-d02-ssti-morefixes-mlflow-validation` measured 2 prompts, 59,445
+prompt characters, and about 14,862 estimated tokens before live execution.
+The live run at `/tmp/screw-d02-ssti-morefixes-mlflow-run`, benchmark run
+`20260501-084946`, completed both Claude invocations with no executor issues,
+failures, timeouts, or stale active calls. Metrics were TP 1, FP 0, TN 2,
+FN 1; finding counts were vulnerable 1 and patched 0. The vulnerable finding
+covered the MLflow Jinja2 `Environment(...).from_string(...).render` sink fed
+by the public card-tab template API, while the patched snapshot produced no
+findings. Failure-input generation at
+`/tmp/screw-d02-ssti-morefixes-mlflow-failure-inputs` produced no concrete
+payloads, so treat this as an accepted initial SSTI slice and leave
+`ssti.yaml` unchanged. The residual FN is likely duplicate/strict truth-span
+scoring noise unless a later broader SSTI run produces actionable examples.
 The next guardrail is also in place: controlled executor validation now builds
 the exact prompts without invoking Claude and reports prompt character/token
 estimates plus a retry-adjusted budget. The current five-slice non-OSSF plan

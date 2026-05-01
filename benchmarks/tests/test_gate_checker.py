@@ -1,5 +1,7 @@
 # benchmarks/tests/test_gate_checker.py
 """Tests for G5-G7 gate checking."""
+# ruff: noqa: S101
+
 from __future__ import annotations
 
 from benchmarks.runner.gate_checker import (
@@ -45,6 +47,7 @@ class TestCheckG5Gates:
             _make_summary("cmdi", "reality-check-java", tpr=0.55, fpr=0.10, cwe_id="CWE-78"),
             _make_summary("sqli", "reality-check-csharp", tpr=0.55, fpr=0.10, cwe_id="CWE-89"),
             _make_summary("sqli", "morefixes", tpr=0.55, fpr=0.10, cwe_id="CWE-89"),
+            _make_summary("ssti", "morefixes", tpr=0.55, fpr=0.10, cwe_id="CWE-1336"),
         ]
         results = check_g5_gates(summaries)
         assert all(r.passed for r in results)
@@ -57,6 +60,7 @@ class TestCheckG5Gates:
             "G5.6",
             "G5.7",
             "G5.8",
+            "G5.11",
         }
 
     def test_misleading_ssti_gates_are_retired(self):
