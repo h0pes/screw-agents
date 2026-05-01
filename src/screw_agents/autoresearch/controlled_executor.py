@@ -326,6 +326,7 @@ def build_controlled_executor_report(
     summaries: list[dict[str, Any]] = []
     result_counts: list[ControlledExecutorResultCounts] = []
     if execute and not any(issue.severity == "blocker" for issue in issues):
+        progress_log_path = output_dir / "invocation_progress.jsonl"
         eval_config = EvalConfig(
             mode="controlled-smoke",
             results_dir=output_dir / "benchmark-runs",
@@ -334,7 +335,7 @@ def build_controlled_executor_report(
                 throttle_delay=throttle_delay,
                 max_retries=max_retries,
                 timeout=timeout,
-                progress_log_path=output_dir / "invocation_progress.jsonl",
+                progress_log_path=progress_log_path,
             ),
             include_related_context=include_related_context,
             include_related_context_case_ids=related_context_case_ids,
@@ -346,6 +347,11 @@ def build_controlled_executor_report(
         benchmark_run_id = evaluator.run_id
         summaries = [_summary_to_dict(summary) for summary in summary_models]
         result_counts = _load_result_counts(report_cases, evaluator._cases_dir)
+        _append_invocation_progress_issues(
+            issues,
+            issue_keys,
+            progress_log_path=progress_log_path,
+        )
 
     return ControlledExecutorReport(
         generated_at=datetime.now(UTC).isoformat(timespec="seconds"),
@@ -741,6 +747,59 @@ def _limit_extracted_code(
     if max_files_per_variant <= 0:
         return pieces
     return pieces[:max_files_per_variant]
+
+
+def _append_invocation_progress_issues(
+    issues: list[ControlledExecutorIssue],
+    issue_keys: set[tuple[str, str]],
+    *,
+    progress_log_path: Path,
+) -> None:
+    if not progress_log_path.exists():
+        return
+    failed = 0
+    timeout = 0
+    for line in progress_log_path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            _append_issue(
+                issues,
+                issue_keys,
+                "warning",
+                "invocation_progress_unreadable",
+                f"Invocation progress log contains unreadable JSON: {progress_log_path}.",
+            )
+            continue
+        status = event.get("status")
+        if status == "failed":
+            failed += 1
+        elif status == "timeout":
+            timeout += 1
+    if failed:
+        _append_issue(
+            issues,
+            issue_keys,
+            "warning",
+            "claude_invocation_failures_detected",
+            (
+                f"Invocation progress recorded {failed} failed Claude "
+                f"call(s) in {progress_log_path}."
+            ),
+        )
+    if timeout:
+        _append_issue(
+            issues,
+            issue_keys,
+            "warning",
+            "claude_invocation_timeouts_detected",
+            (
+                f"Invocation progress recorded {timeout} timed-out Claude "
+                f"call(s) in {progress_log_path}."
+            ),
+        )
 
 
 def _case_prompt_budgets(

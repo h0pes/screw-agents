@@ -261,6 +261,18 @@ Only after Tasks 1-4 are resolved:
   306,665 prompt characters with cap 3, and to 4 prompts and 247,637 prompt
   characters with cap 2 at
   `/tmp/screw-d02-morefixes-packaging-exponent-cap2-validation`.
+- 2026-05-01 capped Exponent CMS live sampling run:
+  `/tmp/screw-d02-morefixes-exponent-cap2-run`, benchmark run
+  `20260501-091647`, used `--max-files-per-variant 2` and `--max-retries 1`.
+  It produced 7 vulnerable findings and 0 patched findings, but both patched
+  prompts failed JSON extraction in `invocation_progress.jsonl`, so the patched
+  clean result is not precision evidence. The failure payload at
+  `/tmp/screw-d02-morefixes-exponent-cap2-failure-inputs/sqli_failure_input.json`
+  shows 5 missed spans, all with nearby same-file findings. Review found at
+  least one real localization defect: the agent described the `activate_address`
+  sink at line 172 but returned lines 158-159. The prompt now explicitly
+  requires sink-expression line anchoring, and controlled executor reports warn
+  when progress telemetry records failed or timed-out Claude calls.
 - 2026-04-30 narrowed priority live run:
   `/tmp/screw-d02-priority-morefixes-thetis-run` executed one MoreFixes SQLi
   case (`morefixes-CVE-2015-2972-https_____github.com__sysphonic__thetis`) with
@@ -506,6 +518,10 @@ First controlled smoke execution, verified 2026-04-29:
   explicit `--max-files-per-variant` cap before any live invocation. Treat
   capped results as representative sampling evidence, not full-case benchmark
   metrics.
+- Do not mutate `sqli.yaml` from the capped Exponent CMS run. The immediate
+  correction is prompt/reporting localization and invocation-failure visibility.
+  A future capped rerun should validate whether sink-line anchoring improves
+  exact-span scoring.
 
 Focused rerun example:
 

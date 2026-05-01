@@ -105,6 +105,18 @@ class TestBuildPrompt:
         assert "document.innerHTML" in prompt
         assert "JSON" in prompt
 
+    def test_requires_exact_sink_line_anchoring(self):
+        prompt = build_prompt(
+            core_prompt="Detect SQL injection vulnerabilities.",
+            code="db.query(sql)",
+            file_path="dao.py",
+        )
+
+        assert "Line-location discipline" in prompt
+        assert "exact vulnerable expression/call" in prompt
+        assert "span must cover that named call/expression" in prompt
+        assert "function declaration" in prompt
+
     def test_includes_related_context_as_context_only(self):
         prompt = build_prompt(
             core_prompt="Detect command injection.",

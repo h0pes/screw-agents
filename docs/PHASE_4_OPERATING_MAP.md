@@ -108,6 +108,17 @@ characters. Exponent CMS alone fits the default one-retry guardrail with cap 2:
 `/tmp/screw-d02-morefixes-packaging-exponent-cap2-validation` measured 4
 prompts and 247,637 prompt characters.
 
+The first capped Exponent CMS live sampling run,
+`/tmp/screw-d02-morefixes-exponent-cap2-run`, benchmark run
+`20260501-091647`, produced 7 vulnerable findings and 0 patched findings, but
+the two patched Claude invocations failed JSON extraction. Treat the run as
+useful localization evidence, not precision evidence. Its failure payload shows
+nearby same-file findings for all 5 concrete misses; manual review found a real
+span anchoring defect where the agent described the `activate_address` sink on
+line 172 but returned lines 158-159. The prompt now requires findings to anchor
+on the exact vulnerable expression/call, and executor reports surface failed or
+timed-out invocation telemetry as warnings.
+
 Phase 4 closure does not require manually processing every benchmark
 vulnerability. It does require a reliable workflow, clear dataset
 inclusions/exclusions, prompt-budget guardrails, case-level failure payloads,
@@ -159,6 +170,9 @@ What exists:
 - explicit controlled packaging caps: `--max-files-per-variant` can narrow
   vulnerable/patched files per selected case for reviewed sampling runs without
   changing default extractor behavior;
+- sink-line anchoring prompt contract: benchmark prompts require returned
+  spans to cover the named sink/query/template/shell/framework call instead of
+  nearby function or block lines;
 - failure-input payload generator: turns controlled-run misses and patched
   findings into schema-valid `phase4-autoresearch-failure-input/v1` payloads.
 - invocation progress telemetry: records live Claude call start/completion,
@@ -937,3 +951,6 @@ Even then, YAML mutation is not automatic. It is a reviewed engineering change.
 10. For high-cost MoreFixes cases, validate with `--max-files-per-variant`
     before live execution. Record capped runs as sampling evidence only, and do
     not compare their aggregate TP/FN counts against uncapped benchmark gates.
+11. For capped Exponent CMS, rerun only after accepting the 249,461-character
+    cap-2 budget under the new sink-line anchoring prompt. Use the run to test
+    localization improvement, not to mutate `sqli.yaml` directly.
