@@ -21,7 +21,12 @@ from screw_agents.autoresearch.controlled_run import (
 )
 
 
-def _write_morefixes_fixture(root: Path, *, extra_case: bool = False) -> Path:
+def _write_morefixes_fixture(
+    root: Path,
+    *,
+    extra_case: bool = False,
+    multi_file_case: bool = False,
+) -> Path:
     external_dir = root / "external"
     manifests_dir = root / "manifests"
     case_id = "morefixes-CVE-2024-0001-example"
@@ -29,9 +34,7 @@ def _write_morefixes_fixture(root: Path, *, extra_case: bool = False) -> Path:
     case_dir = dataset_dir / case_id
     truth_path = case_dir / "truth.sarif"
     truth_path.parent.mkdir(parents=True, exist_ok=True)
-    write_bentoo_sarif(
-        truth_path,
-        [
+    findings = [
             Finding(
                 cwe_id="CWE-89",
                 kind=FindingKind.FAIL,
@@ -42,8 +45,31 @@ def _write_morefixes_fixture(root: Path, *, extra_case: bool = False) -> Path:
                 kind=FindingKind.PASS,
                 location=CodeLocation(file="src/db.php", start_line=1, end_line=4),
             ),
-        ],
-    )
+    ]
+    if multi_file_case:
+        findings.extend(
+            [
+                Finding(
+                    cwe_id="CWE-89",
+                    kind=FindingKind.FAIL,
+                    location=CodeLocation(
+                        file="src/orders.php",
+                        start_line=1,
+                        end_line=4,
+                    ),
+                ),
+                Finding(
+                    cwe_id="CWE-89",
+                    kind=FindingKind.PASS,
+                    location=CodeLocation(
+                        file="src/orders.php",
+                        start_line=1,
+                        end_line=4,
+                    ),
+                ),
+            ]
+        )
+    write_bentoo_sarif(truth_path, findings)
     vuln = case_dir / "code" / "vulnerable" / "src%2Fdb.php"
     patched = case_dir / "code" / "patched" / "src%2Fdb.php"
     vuln.parent.mkdir(parents=True, exist_ok=True)
@@ -62,6 +88,23 @@ def _write_morefixes_fixture(root: Path, *, extra_case: bool = False) -> Path:
         "}\n",
         encoding="utf-8",
     )
+    if multi_file_case:
+        orders_vuln = case_dir / "code" / "vulnerable" / "src%2Forders.php"
+        orders_patched = case_dir / "code" / "patched" / "src%2Forders.php"
+        orders_vuln.write_text(
+            "<?php\n"
+            "function orders($status) {\n"
+            "  return query('SELECT * FROM orders WHERE status=' . $status);\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        orders_patched.write_text(
+            "<?php\n"
+            "function orders($db, $status) {\n"
+            "  return prepared_query($db, 'SELECT * FROM orders WHERE status=?', [$status]);\n"
+            "}\n",
+            encoding="utf-8",
+        )
     manifest_cases = [
         {
             "case_id": case_id,
@@ -70,8 +113,8 @@ def _write_morefixes_fixture(root: Path, *, extra_case: bool = False) -> Path:
             "vulnerable_version": "pre-deadbeef",
             "patched_version": "deadbeef",
             "published_date": None,
-            "fail_count": 1,
-            "pass_count": 1,
+            "fail_count": 2 if multi_file_case else 1,
+            "pass_count": 2 if multi_file_case else 1,
         }
     ]
     if extra_case:
@@ -326,9 +369,14 @@ def _write_controlled_plan(
     *,
     execution_allowed: bool = True,
     extra_case: bool = False,
+    multi_file_case: bool = False,
     max_cases_per_dataset: int = 1,
 ) -> Path:
-    dry_run_path = _write_morefixes_fixture(root, extra_case=extra_case)
+    dry_run_path = _write_morefixes_fixture(
+        root,
+        extra_case=extra_case,
+        multi_file_case=multi_file_case,
+    )
     controlled_plan = build_controlled_execution_plan(
         dry_run_plan_path=dry_run_path,
         output_dir=root / "controlled",
@@ -422,6 +470,63 @@ def test_executor_case_id_filter_limits_reviewed_selection(tmp_path: Path) -> No
     assert [case.case_id for case in report.cases] == [
         "morefixes-CVE-2024-0002-example"
     ]
+
+
+def test_executor_max_files_per_variant_limits_validation_budget(
+    tmp_path: Path,
+) -> None:
+    controlled_plan_path = _write_controlled_plan(tmp_path, multi_file_case=True)
+
+    report = build_controlled_executor_report(
+        controlled_plan_path=controlled_plan_path,
+        output_dir=tmp_path / "out",
+        max_files_per_variant=1,
+    )
+
+    assert report.issues == []
+    assert report.config.max_files_per_variant == 1
+    assert report.cases[0].vulnerable_file_count == 1
+    assert report.cases[0].patched_file_count == 1
+    assert report.prompt_budget is not None
+    assert report.prompt_budget.prompt_count == 2
+    assert report.case_prompt_budgets[0].prompt_count == 2
+    rendered = render_controlled_executor_report_markdown(report)
+    assert "**Max files per variant:** 1" in rendered
+
+
+def test_executor_max_files_per_variant_limits_execution_calls(
+    tmp_path: Path,
+) -> None:
+    controlled_plan_path = _write_controlled_plan(tmp_path, multi_file_case=True)
+    calls = 0
+
+    def invoke(
+        prompt: str,
+        _config: object,
+        context: dict[str, object] | None = None,
+    ) -> InvokeResult:
+        nonlocal calls
+        assert prompt
+        assert context is not None
+        assert context["file"] == "src/db.php"
+        calls += 1
+        return InvokeResult(success=True, findings=[])
+
+    with patch("benchmarks.runner.evaluator.invoke_claude", side_effect=invoke):
+        report = build_controlled_executor_report(
+            controlled_plan_path=controlled_plan_path,
+            output_dir=tmp_path / "out",
+            execute=True,
+            allow_claude_invocation=True,
+            throttle_delay=0.0,
+            max_files_per_variant=1,
+        )
+
+    assert calls == 2
+    assert report.execution_performed is True
+    assert report.config.max_files_per_variant == 1
+    assert report.cases[0].vulnerable_file_count == 1
+    assert report.cases[0].patched_file_count == 1
 
 
 def test_executor_records_related_context_option(tmp_path: Path) -> None:
@@ -614,6 +719,7 @@ def test_executor_cli_writes_validation_report(tmp_path: Path) -> None:
     assert written["config"]["case_ids"] == ["morefixes-CVE-2024-0002-example"]
     assert written["config"]["include_related_context"] is True
     assert written["config"]["max_prompt_chars"] == 250000
+    assert written["config"]["max_files_per_variant"] == 0
     assert written["prompt_budget"]["prompt_count"] == 2
     assert written["case_prompt_budgets"][0]["case_id"] == (
         "morefixes-CVE-2024-0002-example"

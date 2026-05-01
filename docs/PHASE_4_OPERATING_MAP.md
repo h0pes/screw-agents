@@ -98,6 +98,16 @@ SQLi case is high-cost by itself (20 prompts, 1,109,399 prompt characters), so
 it should not be live-executed until that budget is accepted or packaging is
 narrowed.
 
+Controlled executor runs now have an explicit `--max-files-per-variant`
+packaging cap for reviewed high-cost slices. The default `0` keeps the normal
+extractor behavior. A non-zero cap must be treated as representative sampling,
+not full-case coverage. No-Claude validation with cap 3 at
+`/tmp/screw-d02-morefixes-packaging-priority-cap3-validation` reduced the
+refreshed priority batch to 30 prompts and 4,494,636 retry-budgeted prompt
+characters. Exponent CMS alone fits the default one-retry guardrail with cap 2:
+`/tmp/screw-d02-morefixes-packaging-exponent-cap2-validation` measured 4
+prompts and 247,637 prompt characters.
+
 Phase 4 closure does not require manually processing every benchmark
 vulnerability. It does require a reliable workflow, clear dataset
 inclusions/exclusions, prompt-budget guardrails, case-level failure payloads,
@@ -146,6 +156,9 @@ What exists:
 - per-case prompt-budget reporting: groups preflight prompt counts, characters,
   tokens, and retry-adjusted costs by selected case so expensive live slices
   are obvious before Claude invocation;
+- explicit controlled packaging caps: `--max-files-per-variant` can narrow
+  vulnerable/patched files per selected case for reviewed sampling runs without
+  changing default extractor behavior;
 - failure-input payload generator: turns controlled-run misses and patched
   findings into schema-valid `phase4-autoresearch-failure-input/v1` payloads.
 - invocation progress telemetry: records live Claude call start/completion,
@@ -921,3 +934,6 @@ Even then, YAML mutation is not automatic. It is a reviewed engineering change.
    full refreshed priority plan. Use the `Prompt Budget By Case` section in
    `/tmp/screw-d02-expanded-refresh-priority-validation-v2` to avoid spending a
    session on broad MoreFixes SQLi cases before their cost is accepted.
+10. For high-cost MoreFixes cases, validate with `--max-files-per-variant`
+    before live execution. Record capped runs as sampling evidence only, and do
+    not compare their aggregate TP/FN counts against uncapped benchmark gates.
