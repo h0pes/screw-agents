@@ -240,6 +240,16 @@ Only after Tasks 1-4 are resolved:
   executable cases and validated extraction, but estimated 90 prompts and about
   12.55M retry-budgeted prompt characters at `--max-retries 3`; do not execute
   the whole priority slice without narrowing filters or explicit budget review
+- 2026-05-01 refreshed priority-stratified no-Claude probe after SSTI `G5.11`:
+  `/tmp/screw-d02-expanded-refresh-priority-validation-v2` selected 7
+  executable cases across XSS, CmdI, SQLi, and SSTI. Validation measured
+  72 prompts, 3,134,010 prompt characters, and 9,402,030 retry-budgeted prompt
+  characters at `--max-retries 3`. The report now includes a
+  `Prompt Budget By Case` table so expensive slices are visible without ad hoc
+  `jq` post-processing. The new Exponent CMS SQLi case alone costs 20 prompts,
+  1,109,399 prompt characters, and 3,328,197 retry-budgeted prompt characters
+  at three retries, so do not run it live until its budget is explicitly
+  accepted or the packaging is narrowed.
 - 2026-04-30 narrowed priority live run:
   `/tmp/screw-d02-priority-morefixes-thetis-run` executed one MoreFixes SQLi
   case (`morefixes-CVE-2015-2972-https_____github.com__sysphonic__thetis`) with
@@ -474,6 +484,13 @@ First controlled smoke execution, verified 2026-04-29:
   sink and produced zero patched findings. The failure-input generator produced
   no concrete payloads, so treat the residual FN as duplicate/strict truth-span
   scoring noise unless a later broader SSTI run produces actionable examples.
+- The next refreshed priority batch is planned but not live-executed:
+  `/tmp/screw-d02-expanded-refresh-priority-controlled` and
+  `/tmp/screw-d02-expanded-refresh-priority-validation-v2`. It confirms the
+  first broader four-agent candidate set now includes SSTI, but also shows that
+  large MoreFixes SQLi cases can dominate cost. Use the per-case prompt-budget
+  table to pick narrow live runs; do not execute the full refreshed priority
+  batch under the default budget.
 
 Focused rerun example:
 

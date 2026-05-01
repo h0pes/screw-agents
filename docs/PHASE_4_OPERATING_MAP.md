@@ -88,6 +88,16 @@ prompt characters at `--max-retries 3`. Treat that as a planning signal: run
 narrower live validation slices first unless the larger prompt budget is
 explicitly approved.
 
+The refreshed no-Claude `priority-stratified` probe on 2026-05-01 after SSTI
+`G5.11` produced `/tmp/screw-d02-expanded-refresh-priority-validation-v2`. It
+selected seven executable cases across all four active agents, measured
+72 prompts, 3,134,010 prompt characters, and 9,402,030 retry-budgeted prompt
+characters at `--max-retries 3`. Executor reports now include a per-case
+prompt-budget table; use it to select narrow live runs. The new Exponent CMS
+SQLi case is high-cost by itself (20 prompts, 1,109,399 prompt characters), so
+it should not be live-executed until that budget is accepted or packaging is
+narrowed.
+
 Phase 4 closure does not require manually processing every benchmark
 vulnerability. It does require a reliable workflow, clear dataset
 inclusions/exclusions, prompt-budget guardrails, case-level failure payloads,
@@ -133,6 +143,9 @@ What exists:
 - controlled executor reporting: records overall benchmark metrics,
   vulnerable/patched finding counts, and pre-execution prompt-budget estimates
   for each selected case;
+- per-case prompt-budget reporting: groups preflight prompt counts, characters,
+  tokens, and retry-adjusted costs by selected case so expensive live slices
+  are obvious before Claude invocation;
 - failure-input payload generator: turns controlled-run misses and patched
   findings into schema-valid `phase4-autoresearch-failure-input/v1` payloads.
 - invocation progress telemetry: records live Claude call start/completion,
@@ -904,5 +917,7 @@ Even then, YAML mutation is not automatic. It is a reviewed engineering change.
    failure-input generation produced no concrete payloads. Do not mutate
    `ssti.yaml` from this slice.
 9. Review the expanded stratified prompt budget before any live run. If a live
-   run is approved, start with the three-case MoreFixes SQLi subset rather than
-   the full seven-case expanded plan.
+   run is approved, start with a narrow case-filtered slice rather than the
+   full refreshed priority plan. Use the `Prompt Budget By Case` section in
+   `/tmp/screw-d02-expanded-refresh-priority-validation-v2` to avoid spending a
+   session on broad MoreFixes SQLi cases before their cost is accepted.

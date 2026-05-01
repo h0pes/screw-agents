@@ -374,6 +374,15 @@ def test_executor_validation_resolves_selected_case_without_invocation(
     assert report.prompt_budget.retry_budgeted_prompt_chars == (
         report.prompt_budget.total_prompt_chars * report.config.max_retries
     )
+    assert len(report.case_prompt_budgets) == 1
+    assert report.case_prompt_budgets[0].case_id == "morefixes-CVE-2024-0001-example"
+    assert report.case_prompt_budgets[0].prompt_count == 2
+    assert report.case_prompt_budgets[0].total_prompt_chars == (
+        report.prompt_budget.total_prompt_chars
+    )
+    assert report.case_prompt_budgets[0].retry_budgeted_prompt_chars == (
+        report.case_prompt_budgets[0].total_prompt_chars * report.config.max_retries
+    )
     assert {estimate.variant for estimate in report.prompt_estimates} == {
         "vulnerable",
         "patched",
@@ -452,6 +461,7 @@ def test_executor_auto_marks_multifile_cases_for_related_context(
     )
     assert "| G5.6 | cmdi | reality-check-java |" in rendered
     assert "| 2 | 2 | yes | CWE-78 |" in rendered
+    assert "## Prompt Budget By Case" in rendered
     assert "## Prompt Estimates" in rendered
     assert any(estimate.context_file_count == 1 for estimate in report.prompt_estimates)
 
@@ -605,6 +615,10 @@ def test_executor_cli_writes_validation_report(tmp_path: Path) -> None:
     assert written["config"]["include_related_context"] is True
     assert written["config"]["max_prompt_chars"] == 250000
     assert written["prompt_budget"]["prompt_count"] == 2
+    assert written["case_prompt_budgets"][0]["case_id"] == (
+        "morefixes-CVE-2024-0002-example"
+    )
+    assert written["case_prompt_budgets"][0]["prompt_count"] == 2
     assert written["prompt_estimates"]
     assert written["cases"][0]["case_id"] == "morefixes-CVE-2024-0002-example"
     assert (output_dir / "controlled_executor_report.md").exists()
