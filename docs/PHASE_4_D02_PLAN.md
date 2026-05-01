@@ -303,6 +303,14 @@ Only after Tasks 1-4 are resolved:
   previously failed after Claude attempted a `Bash` tool call and exhausted
   `--max-turns 1`. Benchmark calls should spend their single turn on producing
   structured findings, not on tool permission flow.
+- The tool-disabled Plexus rerun at
+  `/tmp/screw-d02-plexus-tools-disabled-rerun`, benchmark run
+  `20260501-173750`, completed all 6 Claude invocations with no failures,
+  timeouts, stale active calls, or failure artifacts. This verifies the
+  `--tools ""` runtime fix. The run kept the patched side clean with
+  0 patched findings, but scored TP 2, FP 2, TN 10, FN 8 from 4 vulnerable
+  findings, so treat it as runtime validation and related-context
+  patched-clean evidence, not as a new `cmdi.yaml` training signal.
 - Exponent CMS fix-semantics review is recorded in the annotated payload at
   `/tmp/screw-d02-localization-exponent-cap2-fix-semantics-input.json` and
   validates against `phase4-autoresearch-failure-input/v1`. Review used the
@@ -491,6 +499,13 @@ First controlled smoke execution, verified 2026-04-29:
   1 failed vulnerable invocation and 1 vulnerable timeout, so treat it as
   additional packaging/runtime evidence, not a cleaner replacement for the
   2026-04-30 stability rerun.
+- Tool-disabled focused Plexus rerun
+  `/tmp/screw-d02-plexus-tools-disabled-rerun`, benchmark run
+  `20260501-173750`, removed that runtime noise: progress telemetry recorded
+  6 completed invocations, 0 failed, 0 timed out, and 0 stale. It kept
+  patched findings at 0. Metrics were TP 2, FP 2, TN 10, FN 8, with 4
+  vulnerable findings, so use this run to validate invocation behavior and
+  patched cleanliness, not to tune CmdI YAML from aggregate scoring.
 - Review of the clean CmdI/Plexus payload found no current `cmdi.yaml`
   mutation target. The three clean-run vulnerable findings correctly localize
   the real Bourne-shell quoting defect in `BourneShell.java`, and patched

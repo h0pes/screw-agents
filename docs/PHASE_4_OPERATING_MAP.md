@@ -149,6 +149,14 @@ the one-turn benchmark invocation. Benchmark runs should return structured
 findings from the supplied prompt only; they should not spend turns on tool
 permission flow.
 
+The follow-up tool-disabled Plexus rerun at
+`/tmp/screw-d02-plexus-tools-disabled-rerun`, benchmark run
+`20260501-173750`, completed all 6 invocations with 0 failures, 0 timeouts,
+and no stale active calls. It kept the patched side clean with 0 patched
+findings. Metrics were TP 2, FP 2, TN 10, FN 8 from 4 vulnerable findings, so
+use this run as runtime validation plus related-context patched-clean evidence,
+not as a fresh CmdI YAML-training signal.
+
 Exponent CMS fix-semantics review, verified 2026-05-01:
 - Annotated payload:
   `/tmp/screw-d02-localization-exponent-cap2-fix-semantics-input.json`.
@@ -864,6 +872,14 @@ CmdI/Plexus case-level related-context packaging, verified 2026-04-30:
   related-context patched cleanliness plus runtime evidence for tool-free
   invocation, not as a cleaner benchmark-quality baseline than the 2026-04-30
   stability rerun.
+- Tool-disabled Plexus rerun:
+  `/tmp/screw-d02-plexus-tools-disabled-rerun`, benchmark run
+  `20260501-173750`. No executor issues were reported. Invocation progress
+  recorded 6 completed calls, 0 failed, 0 timed out, and 0 stale. Patched
+  findings remained 0; vulnerable findings were 4, with TP 2, FP 2, TN 10,
+  FN 8. This validates the `--tools ""` invocation fix and preserves the
+  patched-clean related-context conclusion, while still leaving recall/scoring
+  as Plexus truth-span evidence rather than CmdI YAML evidence.
 - Cleaner-run failure payloads:
   `/tmp/screw-d02-plexus-related-context-nonossf-rerun-failure-inputs/cmdi_failure_input.json`,
   `/tmp/screw-d02-plexus-related-context-nonossf-rerun-failure-inputs/sqli_failure_input.json`,

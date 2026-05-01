@@ -115,6 +115,13 @@ Controlled Claude invocations now also disable tools with `--tools ""`. The
 `Bash` tool call during the vulnerable `Commandline.java` prompt and exhausted
 the one-turn benchmark invocation. Future benchmark calls should produce
 structured findings from prompt context only, without tool permission flow.
+The tool-disabled rerun at `/tmp/screw-d02-plexus-tools-disabled-rerun`,
+benchmark run `20260501-173750`, confirms the runtime fix: 6 completed
+invocations, 0 failed, 0 timed out, 0 stale, and no failure artifacts. Plexus
+remained patched-clean with 0 patched findings. Metrics were TP 2, FP 2,
+TN 10, FN 8 from 4 vulnerable findings, so treat this as invocation/runtime
+validation and related-context patched-clean evidence rather than CmdI YAML
+evidence.
 Exponent CMS fix-semantics review is now recorded at
 `/tmp/screw-d02-localization-exponent-cap2-fix-semantics-input.json`. The
 schema-valid annotated payload covers all 8 patched findings from the capped
@@ -713,6 +720,12 @@ still marks only Plexus for related context. Live execution at
 TP 3, FP 0, TN 10, FN 7, but also recorded 1 failed vulnerable invocation and
 1 vulnerable timeout. Use it as additional packaging/runtime evidence; keep
 the 2026-04-30 clean stability rerun as the cleaner benchmark-quality baseline.
+The tool-disabled rerun at `/tmp/screw-d02-plexus-tools-disabled-rerun`,
+benchmark run `20260501-173750`, removed that runtime noise entirely:
+6 completed invocations, no failures, no timeouts, no stale active calls, and
+no failure artifacts. It kept patched findings at 0, with TP 2, FP 2, TN 10,
+FN 8. Do not infer a CmdI YAML gap from the aggregate score; this remains
+Plexus truth-span/scoring evidence.
 Review of the clean CmdI payload classified the five Plexus misses as
 truth-span/localization issues rather than YAML-training evidence:
 `Shell.java` misses are broad base/delegation spans, `Commandline.getCommandline()`
