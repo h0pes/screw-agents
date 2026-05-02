@@ -402,6 +402,18 @@ Only after Tasks 1-4 are resolved:
   `/tmp/screw-d02-morefixes-exponent-7788-cap2-failure-inputs-cap-aware/sqli_failure_input.json`
   removes outside-cap `addressController.php` misses and leaves selected-file
   `ecomconfigController.php` misses plus selected patched findings.
+- OSSF target-source extraction now supports local target-project clones under
+  `benchmarks/external/ossf-cve-benchmark/repos/<owner>__<repo>` and reads the
+  exact `prePatch.commit` / `postPatch.commit` refs from OSSF metadata.
+  `benchmarks/scripts/materialize_ossf_targets.py` materializes selected target
+  repos. Verified proof cases:
+  `/tmp/screw-d02-ossf-fsgit-run`, benchmark `20260502-092046`, for
+  CmdI/fs-git, and `/tmp/screw-d02-ossf-htmljanitor-run`, benchmark
+  `20260502-092529`, for XSS/html-janitor. Both completed with no executor
+  issues. Fs-git found the vulnerable shell `exec` chain but produced patched
+  `CWE-88` argument-injection findings; html-janitor stayed patched-clean but
+  missed the vulnerable `innerHTML` sink. Treat these as new concrete failure
+  payloads, not immediate YAML-mutation evidence.
 - require explicit `--allow-claude-invocation` before a plan can become
   executable
 - require a second executor-level `--allow-claude-invocation` with `--execute`
@@ -666,6 +678,12 @@ First controlled smoke execution, verified 2026-04-29:
   agent for files it never saw. The latest Exponent runs remain blocked by
   failed/timed-out invocations and mixed patched-source fix-semantics outcomes
   rather than reusable SQLi knowledge evidence.
+- OSSF is no longer categorically blocked once target repos are materialized
+  locally. Use `materialize_ossf_targets.py --case-id <ossf-CVE-...>` for
+  narrow slices, validate first, then run live only within an explicit prompt
+  budget. Review `/tmp/screw-d02-ossf-fsgit-failure-inputs` and
+  `/tmp/screw-d02-ossf-htmljanitor-failure-inputs` before changing CmdI or XSS
+  YAML.
 
 Focused rerun example:
 

@@ -235,6 +235,77 @@ def tmp_ossf_metadata_repo_with_matching_source_path(tmp_path):
 
 
 @pytest.fixture
+def tmp_ossf_target_repo(tmp_path):
+    metadata_repo = tmp_path / "ossf-cve-benchmark" / "repo"
+    (metadata_repo / "CVEs").mkdir(parents=True)
+    (metadata_repo / "schemas").mkdir()
+    (metadata_repo / "CVEs" / "CVE-2024-0003.json").write_text(
+        json.dumps(
+            {
+                "CVE": "CVE-2024-0003",
+                "CWEs": ["CWE-079"],
+                "repository": "https://github.com/example/ossf-target.git",
+                "prePatch": {
+                    "commit": "VULN_REF",
+                    "weaknesses": [
+                        {"location": {"file": "src/index.js", "line": 2}}
+                    ],
+                },
+                "postPatch": {"commit": "PATCHED_REF"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    repo = tmp_path / "ossf-cve-benchmark" / "repos" / "example__ossf-target"
+    repo.mkdir(parents=True)
+    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.invalid"],
+        cwd=repo,
+        check=True,
+    )
+    subprocess.run(["git", "config", "user.name", "Test User"], cwd=repo, check=True)
+    src = repo / "src"
+    src.mkdir()
+    (src / "index.js").write_text("const value = input;\neval(value);\n")
+    subprocess.run(["git", "add", "src/index.js"], cwd=repo, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "vulnerable"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    vulnerable_ref = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+    ).strip()
+    (src / "index.js").write_text("const value = input;\nparse(value);\n")
+    subprocess.run(["git", "add", "src/index.js"], cwd=repo, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "patched"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    patched_ref = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+    ).strip()
+
+    metadata = json.loads(
+        (metadata_repo / "CVEs" / "CVE-2024-0003.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    metadata["prePatch"]["commit"] = vulnerable_ref
+    metadata["postPatch"]["commit"] = patched_ref
+    (metadata_repo / "CVEs" / "CVE-2024-0003.json").write_text(
+        json.dumps(metadata),
+        encoding="utf-8",
+    )
+    return tmp_path
+
+
+@pytest.fixture
 def morefixes_case():
     return BenchmarkCase(
         case_id="morefixes-CVE-2024-0001-example",
@@ -276,6 +347,30 @@ def ossf_case():
                 cwe_id="CWE-79",
                 kind=FindingKind.PASS,
                 location=CodeLocation(file="lib/index.js", start_line=39, end_line=39),
+            ),
+        ],
+        source_dataset="ossf-cve-benchmark",
+    )
+
+
+@pytest.fixture
+def ossf_target_case():
+    return BenchmarkCase(
+        case_id="ossf-CVE-2024-0003",
+        project="https://github.com/example/ossf-target.git",
+        language=Language.JAVASCRIPT,
+        vulnerable_version="pre-patch",
+        patched_version="post-patch",
+        ground_truth=[
+            Finding(
+                cwe_id="CWE-79",
+                kind=FindingKind.FAIL,
+                location=CodeLocation(file="src/index.js", start_line=2, end_line=2),
+            ),
+            Finding(
+                cwe_id="CWE-79",
+                kind=FindingKind.PASS,
+                location=CodeLocation(file="src/index.js", start_line=2, end_line=2),
             ),
         ],
         source_dataset="ossf-cve-benchmark",
@@ -503,6 +598,27 @@ class TestExtractCodeForCase:
         )
 
         assert vuln == []
+
+    def test_ossf_extracts_from_local_target_repo_refs(
+        self,
+        tmp_ossf_target_repo,
+        ossf_target_case,
+    ):
+        vuln = extract_code_for_case(
+            ossf_target_case,
+            CodeVariant.VULNERABLE,
+            tmp_ossf_target_repo,
+        )
+        patched = extract_code_for_case(
+            ossf_target_case,
+            CodeVariant.PATCHED,
+            tmp_ossf_target_repo,
+        )
+
+        assert [piece.file_path for piece in vuln] == ["src/index.js"]
+        assert "eval(value)" in vuln[0].content
+        assert [piece.file_path for piece in patched] == ["src/index.js"]
+        assert "parse(value)" in patched[0].content
 
     def test_rust_d01_extracts_from_local_git_refs(self, tmp_rust_d01, rust_d01_case):
         vuln = extract_code_for_case(rust_d01_case, CodeVariant.VULNERABLE, tmp_rust_d01)

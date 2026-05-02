@@ -74,8 +74,9 @@ class OssfCveBenchmarkIngest(IngestBase):
         cve_id = meta.get("CVE") or meta.get("cve") or meta.get("cveId") or json_file.stem
         project = meta.get("repository") or meta.get("project") or meta.get("repo") or "unknown"
 
-        # The OSSF format uses prePatch.weaknesses for vulnerable locations
         pre_patch = meta.get("prePatch") or {}
+        post_patch = meta.get("postPatch") or {}
+        # The OSSF format uses prePatch.weaknesses for vulnerable locations
         weaknesses = pre_patch.get("weaknesses") or []
         vulnerable_files = meta.get("vulnerable_files") or meta.get("vulnerableFiles") or []
         if not vulnerable_files and weaknesses:
@@ -117,10 +118,12 @@ class OssfCveBenchmarkIngest(IngestBase):
             case_id=f"ossf-{cve_id}",
             project=project,
             language=lang,
-            vulnerable_version=meta.get("vulnerable_version")
+            vulnerable_version=pre_patch.get("commit")
+                              or meta.get("vulnerable_version")
                               or meta.get("vulnerableVersion")
                               or "pre-patch",
-            patched_version=meta.get("patched_version")
+            patched_version=post_patch.get("commit")
+                           or meta.get("patched_version")
                            or meta.get("patchedVersion")
                            or "post-patch",
             ground_truth=ground_truth,
