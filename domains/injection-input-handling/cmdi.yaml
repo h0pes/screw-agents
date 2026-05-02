@@ -1,5 +1,5 @@
 # domains/injection-input-handling/cmdi.yaml
-# Command Injection Agent Definition — screw-agents v1.0.0
+# Command Injection Agent Definition — screw-agents v1.0.2
 # Generated from 4 research files covering Tiers 1-4 of KNOWLEDGE_SOURCES.md
 # Research date: 2026-04-06
 
@@ -7,8 +7,8 @@ meta:
   name: cmdi
   display_name: "Command Injection Reviewer"
   domain: injection-input-handling
-  version: "1.0.1"
-  last_updated: "2026-04-29"
+  version: "1.0.2"
+  last_updated: "2026-05-02"
   short_description: "OS command injection via unsanitized user input reaching shell execution, subprocess calls, or argument construction"
 
   cwes:
@@ -130,7 +130,10 @@ core_prompt: |
   git --upload-pack= executes commands, tar --checkpoint-action=exec= executes commands,
   ssh -oProxyCommand= executes commands, rsync -e executes via remote shell,
   sendmail -X writes to arbitrary paths. Defense: use -- to terminate option parsing, validate
-  argument format, allowlist values.
+  argument format, allowlist values. For non-shell argv calls, confirm the target tool actually
+  accepts the attacker-controlled value as an option at that argument position. Do not report
+  CWE-88 from the mere absence of `--` when the value is a ref/path operand after a fixed
+  subcommand or after a resolved tree-ish and no dangerous option is accepted there.
 
   ## Source Classification
 
@@ -231,7 +234,8 @@ core_prompt: |
   **True positive signals:** String interpolation/concatenation reaches a shell-invoking sink
   with attacker-controlled data; user input passed as executable path in any execution API;
   user input passed as argument to a tool with dangerous flags without -- terminator or
-  validation; format!() (Rust) building shell command string from web extractor values.
+  validation, where the dangerous flag is accepted at that exact argv position; format!()
+  (Rust) building shell command string from web extractor values.
 
   **False positive signals:** Array-based execution with shell=False and fixed command name
   (safe from metacharacters — but check for argument injection); hardcoded command strings with
@@ -242,7 +246,10 @@ core_prompt: |
   '\'' and all wrapper paths call it); Rust Command::new("fixed").arg("fixed") with no user
   input; build scripts (build.rs) using Command with compile-time values; commands in test
   fixtures with hardcoded values; validated input matching strict allowlist or regex (e.g.,
-  ^[a-zA-Z0-9.-]+$).
+  ^[a-zA-Z0-9.-]+$); Node.js `execFile("git", ["--git-dir=...", fixedSubcommand,
+  userRefOrPath])` style calls where the executable and subcommand are fixed, the shell is not
+  invoked, and the suspected value is only a ref/path operand with no concrete dangerous option
+  accepted at that position.
 
   ## Severity Assessment
 
@@ -391,6 +398,7 @@ detection_heuristics:
     - id: any-array-exec-arg-injection
       pattern: "subprocess.run([fixedCmd, variable]) with shell=False — safe from metacharacters, but check for argument injection on specific tools (git, curl, tar, rsync, ssh, sendmail)"
       languages: [python, java, javascript, typescript, go, ruby, c_sharp, rust]
+      note: "Require target-command semantics: identify the dangerous option and verify the user-controlled argument appears in an option-parsed position. A git ref/path operand after a fixed subcommand or resolved tree-ish is not enough by itself."
     - id: any-processbuilder-args
       pattern: "ProcessBuilder / exec.Command with user-controlled arguments — no shell, but tool-specific flag injection possible"
       languages: [java, go]
@@ -416,7 +424,7 @@ detection_heuristics:
 bypass_techniques:
   - name: "Argument Injection (CWE-88)"
     description: "Even with array-based execution and no shell, attackers inject flags that alter command behavior. No metacharacter chaining needed — the target program interprets injected flags."
-    detection_hint: "User-controlled input passed as argument to tools with dangerous flags. Check for curl -o, git --upload-pack, ssh -oProxyCommand, tar --checkpoint-action=exec, rsync -e, sendmail -X/-oQ."
+    detection_hint: "User-controlled input passed as argument to tools with dangerous flags. Check for curl -o, git --upload-pack, ssh -oProxyCommand, tar --checkpoint-action=exec, rsync -e, sendmail -X/-oQ. For git, separate shell command injection from argv semantics: execFile/spawn with a fixed git subcommand is not CWE-78, and CWE-88 needs a dangerous option accepted at the user-controlled argument position."
     defense: "Use -- to terminate option parsing. Validate argument format (^[a-zA-Z0-9._-]+$). Prefix user values with ./ to prevent flag interpretation. Allowlist permitted values."
     cves: ["CVE-2016-10033", "CVE-2024-4577", "CVE-2024-32002", "CVE-2025-21613"]
     dangerous_tools:
@@ -714,6 +722,16 @@ few_shot_examples:
             res.send(stdout);
         });
       explanation: "execFile does not invoke a shell. Arguments are passed directly. Safe from command injection."
+
+    - language: javascript
+      label: "Git execFile with fixed subcommand and operand"
+      code: |
+        const command = {
+          base: "git",
+          args: [`--git-dir=${repoPath}`, "ls-tree", "-r", "-z", "--full-name", resolvedRef, path],
+        };
+        child_process.execFile(command.base, command.args, callback);
+      explanation: "execFile does not invoke a shell, the executable and subcommand are fixed, and resolvedRef/path are operands for the fixed git operation. Do not report CWE-78. Only report CWE-88 if you can name a dangerous git option accepted at the user-controlled argument position; do not infer it from the absence of -- alone."
 
     - language: rust
       label: "Command::new with separate args (no shell)"

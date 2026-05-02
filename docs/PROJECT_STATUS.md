@@ -215,11 +215,21 @@ html-janitor miss as reusable XSS sanitizer-design evidence: custom JavaScript
 sanitizers that parse caller-controlled HTML with active-document
 `document.createElement(...).innerHTML` before allowlist cleanup are reportable,
 while inert-document/template parsing is the patched discriminator. `xss.yaml`
-is refined to v1.0.2 for that pattern. Keep `cmdi.yaml` unchanged for fs-git:
-the patched findings are `CWE-88` argument-injection reports after the patch
-moved from shell `exec` to `execFile`, and OSSF metadata includes both
-`CWE-078` and `CWE-088`, so this is a fix-semantics/residual-risk review case
-rather than clean overreporting evidence.
+is refined to v1.0.2 for that pattern. Fs-git CmdI review accepted a reusable
+argv precision refinement for `cmdi.yaml` v1.0.2: after a patch moves from
+shell `exec` to non-shell `execFile("git", argv)`, CWE-88 reports must identify
+a dangerous option accepted at the user-controlled argument position. A fixed
+git subcommand with a ref/path operand is not enough by itself. The original
+vulnerable shell `exec` chain remains reportable as CWE-78.
+Focused CmdI/fs-git v1.0.2 validation at
+`/tmp/screw-d02-ossf-fsgit-cmdi-v102-run`, benchmark `20260502-121340`,
+completed 2/2 invocations with no executor issues. It kept vulnerable
+detection strong with six CWE-78 shell-injection findings and reduced patched
+findings from three to zero. The failure-input generator wrote no payloads
+because there were no concrete misses or patched false positives. The evaluator
+still reports extra unmatched vulnerable findings against OSSF's single truth
+span, so treat the remaining FP count as scoring granularity rather than
+patched precision noise.
 Focused XSS/html-janitor v1.0.2 validation at
 `/tmp/screw-d02-ossf-htmljanitor-xss-v102-run`, benchmark `20260502-093734`,
 completed 2/2 invocations with no executor issues, one vulnerable finding, and
