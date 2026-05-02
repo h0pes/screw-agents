@@ -518,6 +518,18 @@ Only after Tasks 1-4 are resolved:
   large `eventController.php` prompts. Wave C: only after Wave A/B payloads are
   classified, consider the full 9-case cap-5 broader plan as a representative
   regression/sampling run, not full-corpus evidence.
+- Wave A Thetis SQLi execution at
+  `/tmp/screw-d02-broader-wave-a-thetis-cap3-run`, benchmark
+  `20260502-162848`, completed 6/6 Claude invocations with no executor issues.
+  It produced vulnerable findings 2 and patched findings 3, and generated
+  `/tmp/screw-d02-broader-wave-a-thetis-cap3-failure-inputs/sqli_failure_input.json`
+  with 3 patched false positives and 5 missed spans. Do not mutate
+  `sqli.yaml` from this run. The concrete issue is that selected files use
+  `SqlHelper.validate_token`, while cap-3 packaging omitted `sql_helper.rb`;
+  patched `sql_helper.rb` contains the token regex semantics that make the
+  patched findings materially different from the vulnerable side. Treat this
+  as a helper-context packaging problem before Wave B or full broader
+  validation.
 - require explicit `--allow-claude-invocation` before a plan can become
   executable
 - require a second executor-level `--allow-claude-invocation` with `--execute`
