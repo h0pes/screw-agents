@@ -279,6 +279,24 @@ Only after Tasks 1-4 are resolved:
   The updated cross-agent preflight at
   `/tmp/screw-d02-cross-agent-ranked-noncmdi-cap3-validation` remains at 12
   prompts and 663,520 prompt characters with no executor issues.
+- 2026-05-02 live ranked-cap follow-up:
+  `/tmp/screw-d02-cross-agent-ranked-noncmdi-cap3-run`, benchmark run
+  `20260502-071201`, completed 12 of 12 invocations with no executor issues
+  but still returned 0 NHibernate findings. Investigation found that the
+  evaluator's live execution path still applied `max_files_per_variant` as a
+  raw original-order slice, even though controlled validation and prompt
+  estimates used the ranked cap. The ranked cap is now shared from
+  `benchmarks.runner.code_extractor` and used by both controlled preflight and
+  evaluator execution.
+- Corrected focused NHibernate cap-5 execution at
+  `/tmp/screw-d02-nhibernate-shared-ranked-cap5-run`, benchmark run
+  `20260502-072639`, invoked the intended production files and completed all 10
+  Claude calls with no failures, timeouts, or stale calls. Metrics returned to
+  the accepted patched-clean shape: TP 2, FP 0, TN 25, FN 23, with vulnerable
+  findings on `AbstractCharType.ObjectToSQLString` and
+  `AbstractStringType.ObjectToSQLString`. Generated failure payload:
+  `/tmp/screw-d02-nhibernate-shared-ranked-cap5-failure-inputs/sqli_failure_input.json`.
+  Keep `sqli.yaml` unchanged.
 - 2026-05-01 capped Exponent CMS live sampling run:
   `/tmp/screw-d02-morefixes-exponent-cap2-run`, benchmark run
   `20260501-091647`, used `--max-files-per-variant 2` and `--max-retries 1`.

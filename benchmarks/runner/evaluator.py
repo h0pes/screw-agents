@@ -19,6 +19,7 @@ from benchmarks.runner.code_extractor import (
     CodeVariant,
     ExtractedCode,
     extract_code_for_case,
+    limit_extracted_code_for_variant,
 )
 from benchmarks.runner.cwe import Cwe1400Hierarchy, load_hierarchy
 from benchmarks.runner.invoker import InvokerConfig, invoke_claude
@@ -298,7 +299,12 @@ class Evaluator:
             ),
         )
         if self.config.max_files_per_variant > 0:
-            code_pieces = code_pieces[: self.config.max_files_per_variant]
+            code_pieces = limit_extracted_code_for_variant(
+                code_pieces,
+                self.config.max_files_per_variant,
+                case=case,
+                variant=variant,
+            )
         if not code_pieces:
             return []
 

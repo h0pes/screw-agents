@@ -158,6 +158,83 @@ class TestParseFindingsResponse:
 
 
 class TestEvaluatorRelatedContext:
+    def test_max_files_per_variant_uses_ranked_cap_for_execution(self, tmp_path):
+        case = BenchmarkCase(
+            case_id="ranked-cap",
+            project="p",
+            language=Language.CSHARP,
+            vulnerable_version="v1",
+            patched_version="v2",
+            ground_truth=[
+                Finding(
+                    cwe_id="CWE-89",
+                    kind=FindingKind.FAIL,
+                    location=CodeLocation(
+                        file="src/App.Test/SqlBuilderFixture.cs",
+                        start_line=1,
+                        end_line=1,
+                    ),
+                ),
+                Finding(
+                    cwe_id="CWE-89",
+                    kind=FindingKind.FAIL,
+                    location=CodeLocation(
+                        file="src/App/SqlBuilder.cs",
+                        start_line=1,
+                        end_line=1,
+                    ),
+                ),
+            ],
+            source_dataset="reality-check-csharp",
+        )
+
+        def extract(*_args, include_related_context=False):
+            assert include_related_context is False
+            return [
+                ExtractedCode(
+                    file_path="src/App.Test/SqlBuilderFixture.cs",
+                    content="test",
+                    language="csharp",
+                ),
+                ExtractedCode(
+                    file_path="src/App/SqlBuilder.cs",
+                    content="prod",
+                    language="csharp",
+                ),
+            ]
+
+        invoked_files = []
+
+        def invoke(
+            prompt: str,
+            _config: object,
+            context: dict[str, object] | None = None,
+        ) -> InvokeResult:
+            assert prompt
+            assert context is not None
+            invoked_files.append(context["file"])
+            return InvokeResult(success=True, findings=[])
+
+        engine = MagicMock()
+        engine.assemble_scan.return_value = {
+            "core_prompt": "Detect SQL injection.",
+            "code": "prod",
+        }
+        evaluator = Evaluator(
+            EvalConfig(
+                results_dir=tmp_path,
+                max_files_per_variant=1,
+            )
+        )
+
+        with (
+            patch("benchmarks.runner.evaluator.extract_code_for_case", side_effect=extract),
+            patch("benchmarks.runner.evaluator.invoke_claude", side_effect=invoke),
+        ):
+            evaluator._scan_variant(case, "sqli", CodeVariant.VULNERABLE, engine)
+
+        assert invoked_files == ["src/App/SqlBuilder.cs"]
+
     def test_related_context_can_be_enabled_for_one_case(self, tmp_path):
         case = BenchmarkCase(
             case_id="needs-context",

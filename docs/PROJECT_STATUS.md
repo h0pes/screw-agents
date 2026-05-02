@@ -88,6 +88,20 @@ matching truth-span count before truncating; no-Claude validation at
 production files (`Dialect`, `AbstractCharType`, `AbstractStringType`), and
 `/tmp/screw-d02-cross-agent-ranked-noncmdi-cap3-validation` keeps the narrowed
 cross-agent slice at 12 prompts and about 663k prompt characters.
+Follow-up live execution on main at
+`/tmp/screw-d02-cross-agent-ranked-noncmdi-cap3-run`, benchmark run
+`20260502-071201`, completed 12 of 12 invocations with no failures, but
+NHibernate still returned 0 findings. Investigation found a second cap path:
+the evaluator still sliced extracted files in original order during live
+execution. The cap ranking is now shared by validation, prompt estimates, and
+actual evaluator execution. Corrected focused NHibernate cap-5 execution at
+`/tmp/screw-d02-nhibernate-shared-ranked-cap5-run`, benchmark run
+`20260502-072639`, completed 10 of 10 invocations with no failures and restored
+the accepted behavior: TP 2, FP 0, TN 25, FN 23, with vulnerable findings on
+`AbstractCharType.ObjectToSQLString` and `AbstractStringType.ObjectToSQLString`.
+The generated payload at
+`/tmp/screw-d02-nhibernate-shared-ranked-cap5-failure-inputs/sqli_failure_input.json`
+keeps `sqli.yaml` mutation disabled.
 The capped Exponent CMS live sampling run at
 `/tmp/screw-d02-morefixes-exponent-cap2-run`, benchmark run `20260501-091647`,
 returned 7 vulnerable findings and 0 patched findings, but both patched

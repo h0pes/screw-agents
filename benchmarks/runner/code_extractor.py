@@ -9,7 +9,7 @@ import json
 import logging
 import subprocess
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from urllib.parse import quote
 
@@ -18,7 +18,7 @@ from benchmarks.runner.models import BenchmarkCase, FindingKind
 logger = logging.getLogger(__name__)
 
 
-class CodeVariant(str, Enum):
+class CodeVariant(StrEnum):
     VULNERABLE = "vulnerable"
     PATCHED = "patched"
 
@@ -70,6 +70,61 @@ def extract_code_for_case(
     else:
         logger.warning("Unsupported dataset for code extraction: %s", ds)
         return []
+
+
+def limit_extracted_code_for_variant(
+    pieces: list[ExtractedCode],
+    max_files_per_variant: int,
+    *,
+    case: BenchmarkCase,
+    variant: CodeVariant,
+) -> list[ExtractedCode]:
+    """Rank extracted files before applying an explicit per-variant cap."""
+    if max_files_per_variant <= 0:
+        return pieces
+    kind = FindingKind.FAIL if variant is CodeVariant.VULNERABLE else FindingKind.PASS
+    truth_counts: dict[str, int] = {}
+    for finding in case.ground_truth:
+        if finding.kind == kind:
+            truth_counts[finding.location.file] = (
+                truth_counts.get(finding.location.file, 0) + 1
+            )
+    ranked = sorted(
+        enumerate(pieces),
+        key=lambda item: _file_cap_rank(item[0], item[1], truth_counts),
+    )
+    return [piece for _, piece in ranked[:max_files_per_variant]]
+
+
+def _file_cap_rank(
+    original_index: int,
+    piece: ExtractedCode,
+    truth_counts: dict[str, int],
+) -> tuple[int, int, int]:
+    return (
+        _is_likely_test_path(piece.file_path),
+        -truth_counts.get(piece.file_path, 0),
+        original_index,
+    )
+
+
+def _is_likely_test_path(file_path: str) -> int:
+    normalized = file_path.replace("\\", "/").lower()
+    path_parts = [part for part in normalized.split("/") if part]
+    basename = path_parts[-1] if path_parts else normalized
+    if any(
+        part in {"test", "tests", "spec", "specs", "fixtures"}
+        or part.endswith((".test", ".tests", ".spec", ".specs"))
+        for part in path_parts
+    ):
+        return 1
+    if (
+        basename.startswith("test")
+        or "_test." in basename
+        or basename.endswith(("_test.py", "_test.go", "test.cs", "tests.cs"))
+    ):
+        return 1
+    return 0
 
 
 def _extract_reality_check(
