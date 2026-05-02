@@ -210,8 +210,25 @@ Live html-janitor run `/tmp/screw-d02-ossf-htmljanitor-run`, benchmark
 `20260502-092529`, completed 2/2 invocations with zero patched findings but
 missed the vulnerable `innerHTML` parsing sink. Generated payloads are in
 `/tmp/screw-d02-ossf-fsgit-failure-inputs` and
-`/tmp/screw-d02-ossf-htmljanitor-failure-inputs`; keep both `cmdi.yaml` and
-`xss.yaml` unchanged until those examples are reviewed.
+`/tmp/screw-d02-ossf-htmljanitor-failure-inputs`. Review accepted the
+html-janitor miss as reusable XSS sanitizer-design evidence: custom JavaScript
+sanitizers that parse caller-controlled HTML with active-document
+`document.createElement(...).innerHTML` before allowlist cleanup are reportable,
+while inert-document/template parsing is the patched discriminator. `xss.yaml`
+is refined to v1.0.2 for that pattern. Keep `cmdi.yaml` unchanged for fs-git:
+the patched findings are `CWE-88` argument-injection reports after the patch
+moved from shell `exec` to `execFile`, and OSSF metadata includes both
+`CWE-078` and `CWE-088`, so this is a fix-semantics/residual-risk review case
+rather than clean overreporting evidence.
+Focused XSS/html-janitor v1.0.2 validation at
+`/tmp/screw-d02-ossf-htmljanitor-xss-v102-run`, benchmark `20260502-093734`,
+completed 2/2 invocations with no executor issues, one vulnerable finding, and
+zero patched findings. The reported finding correctly identifies the
+active-document `innerHTML` parse at `src/html-janitor.js:44`. Metrics still
+show TP 0 / FN 1 because OSSF truth anchors the CVE on the preceding
+`document.createElement('div')` line 43; the generated payload at
+`/tmp/screw-d02-ossf-htmljanitor-xss-v102-failure-inputs/xss_failure_input.json`
+classifies this as a nearby same-file finding, not a pure miss.
 
 **When starting Phase 4:** D-02 threshold optimization runs as part of the autoresearch loop. The benchmark pipeline is validated (PR #3).
 
