@@ -528,8 +528,23 @@ Only after Tasks 1-4 are resolved:
   `SqlHelper.validate_token`, while cap-3 packaging omitted `sql_helper.rb`;
   patched `sql_helper.rb` contains the token regex semantics that make the
   patched findings materially different from the vulnerable side. Treat this
-  as a helper-context packaging problem before Wave B or full broader
-  validation.
+  as a helper-context packaging problem rather than clean validation evidence.
+- Helper-context packaging is now implemented in the controlled executor path
+  and enabled by default. It attaches directly referenced, security-relevant
+  local helper files as bounded context only; findings remain restricted to the
+  primary file. Executor prompt estimates now list context file names. The
+  Thetis cap-3 helper-context preflight at
+  `/tmp/screw-d02-broader-wave-a-thetis-cap3-helper-sqli-v103-preflight`
+  measured 6 prompts, 239,906 prompt characters, and no executor issues. Live
+  validation at `/tmp/screw-d02-broader-wave-a-thetis-cap3-helper-sqli-v103-run`,
+  benchmark `20260502-213010`, completed 6/6 Claude invocations and produced
+  vulnerable findings 1, patched findings 0. `sqli.yaml` v1.0.3 is accepted
+  for this focused slice: strict helper-visible value sanitizers suppress
+  defense-in-depth reports, while strict single-token structural validation is
+  not reported as CWE-89 unless SQL grammar control remains. Rails regression
+  at `/tmp/screw-d02-sqli-rails-v103-regression-run`, benchmark
+  `20260502-213723`, preserved the accepted LIMIT/OFFSET behavior with
+  vulnerable findings 1 and patched findings 0.
 - require explicit `--allow-claude-invocation` before a plan can become
   executable
 - require a second executor-level `--allow-claude-invocation` with `--execute`

@@ -47,7 +47,14 @@ def xss_case():
     )
 
 
-def _mock_extract(case, variant, ext_dir, include_related_context=False):
+def _mock_extract(
+    case,
+    variant,
+    ext_dir,
+    include_related_context=False,
+    include_helper_context=False,
+):
+    assert include_helper_context is False
     if variant == CodeVariant.VULNERABLE:
         return [ExtractedCode(
             file_path="view.py",
@@ -122,9 +129,22 @@ class TestIntegrationPipeline:
         evaluator = Evaluator(config)
         calls = []
 
-        def mock_extract(case, variant, ext_dir, include_related_context=False):
+        def mock_extract(
+            case,
+            variant,
+            ext_dir,
+            include_related_context=False,
+            include_helper_context=False,
+        ):
             calls.append(include_related_context)
-            return _mock_extract(case, variant, ext_dir, include_related_context)
+            assert include_helper_context is False
+            return _mock_extract(
+                case,
+                variant,
+                ext_dir,
+                include_related_context,
+                include_helper_context,
+            )
 
         with patch("benchmarks.runner.evaluator.extract_code_for_case", side_effect=mock_extract), \
              patch("benchmarks.runner.evaluator.invoke_claude", side_effect=_mock_invoke_patched):

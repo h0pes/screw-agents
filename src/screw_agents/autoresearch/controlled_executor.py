@@ -44,6 +44,7 @@ class ControlledExecutorConfig(BaseModel):
     agents: list[str] = Field(default_factory=list)
     case_ids: list[str] = Field(default_factory=list)
     include_related_context: bool = False
+    include_helper_context: bool = True
     max_prompt_chars: int = Field(default=250_000, ge=0)
     max_files_per_variant: int = Field(default=0, ge=0)
 
@@ -104,6 +105,7 @@ class ControlledPromptEstimate(BaseModel):
     estimated_tokens: int
     primary_code_chars: int
     context_file_count: int
+    context_files: list[str] = Field(default_factory=list)
     context_chars: int
 
 
@@ -169,6 +171,7 @@ def build_controlled_executor_report(
     agents: list[str] | None = None,
     case_ids: list[str] | None = None,
     include_related_context: bool = False,
+    include_helper_context: bool = True,
     max_prompt_chars: int = 250_000,
     max_files_per_variant: int = 0,
 ) -> ControlledExecutorReport:
@@ -189,6 +192,7 @@ def build_controlled_executor_report(
         agents=agent_filter,
         case_ids=case_id_filter,
         include_related_context=include_related_context,
+        include_helper_context=include_helper_context,
         max_prompt_chars=max_prompt_chars,
         max_files_per_variant=max_files_per_variant,
     )
@@ -276,6 +280,7 @@ def build_controlled_executor_report(
                 cwe_filter=selection.cwe_filter,
                 external_dir=external_dir,
                 include_related_context=case_include_related_context,
+                include_helper_context=include_helper_context,
                 max_files_per_variant=max_files_per_variant,
                 issues=issues,
                 issue_keys=issue_keys,
@@ -300,6 +305,7 @@ def build_controlled_executor_report(
         report_cases=report_cases,
         external_dir=external_dir,
         max_files_per_variant=max_files_per_variant,
+        include_helper_context=include_helper_context,
     )
     prompt_budget = _prompt_budget(
         prompt_estimates=prompt_estimates,
@@ -343,6 +349,7 @@ def build_controlled_executor_report(
             ),
             include_related_context=include_related_context,
             include_related_context_case_ids=related_context_case_ids,
+            include_helper_context=include_helper_context,
             max_files_per_variant=max_files_per_variant,
         )
         evaluator = Evaluator(eval_config)
@@ -393,6 +400,7 @@ def render_controlled_executor_report_markdown(
         f"- **Agent filter:** {_format_filter(report.config.agents)}",
         f"- **Case ID filter:** {_format_filter(report.config.case_ids)}",
         f"- **Related context:** {_yes_no(report.config.include_related_context)}",
+        f"- **Helper context:** {_yes_no(report.config.include_helper_context)}",
         f"- **Related context cases:** {_format_filter(related_context_cases)}",
         "- **Invocation progress log:** "
         f"{Path(report.config.output_dir) / 'invocation_progress.jsonl'}",
@@ -463,9 +471,9 @@ def render_controlled_executor_report_markdown(
         lines.extend(["", "## Prompt Estimates", ""])
         lines.append(
             "| Agent | Dataset | Case ID | Variant | File | Prompt Chars | "
-            "Est. Tokens | Context Files | Context Chars |"
+            "Est. Tokens | Context Files | Context Names | Context Chars |"
         )
-        lines.append("|---|---|---|---|---|---:|---:|---:|---:|")
+        lines.append("|---|---|---|---|---|---:|---:|---:|---|---:|")
         for estimate in report.prompt_estimates:
             lines.append(
                 "| "
@@ -477,6 +485,7 @@ def render_controlled_executor_report_markdown(
                 f"{estimate.prompt_chars} | "
                 f"{estimate.estimated_tokens} | "
                 f"{estimate.context_file_count} | "
+                f"{_format_filter(estimate.context_files)} | "
                 f"{estimate.context_chars} |"
             )
 
@@ -598,6 +607,7 @@ def _validate_case_extraction(
     cwe_filter: str | None,
     external_dir: Path,
     include_related_context: bool,
+    include_helper_context: bool,
     max_files_per_variant: int,
     issues: list[ControlledExecutorIssue],
     issue_keys: set[tuple[str, str]],
@@ -608,6 +618,7 @@ def _validate_case_extraction(
             CodeVariant.VULNERABLE,
             external_dir,
             include_related_context=include_related_context,
+            include_helper_context=include_helper_context,
         )
         vulnerable = limit_extracted_code_for_variant(
             vulnerable,
@@ -620,6 +631,7 @@ def _validate_case_extraction(
             CodeVariant.PATCHED,
             external_dir,
             include_related_context=include_related_context,
+            include_helper_context=include_helper_context,
         )
         patched = limit_extracted_code_for_variant(
             patched,
@@ -674,6 +686,7 @@ def _build_prompt_estimates(
     report_cases: list[ControlledExecutorCase],
     external_dir: Path,
     max_files_per_variant: int,
+    include_helper_context: bool,
 ) -> list[ControlledPromptEstimate]:
     from screw_agents.engine import ScanEngine
     from screw_agents.registry import AgentRegistry
@@ -695,6 +708,7 @@ def _build_prompt_estimates(
                 variant,
                 external_dir,
                 include_related_context=report_case.include_related_context,
+                include_helper_context=include_helper_context,
             )
             pieces = limit_extracted_code_for_variant(
                 pieces,
@@ -734,6 +748,9 @@ def _build_prompt_estimates(
                         estimated_tokens=_estimated_tokens(len(prompt)),
                         primary_code_chars=len(piece.content),
                         context_file_count=len(piece.context_files),
+                        context_files=[
+                            context.file_path for context in piece.context_files
+                        ],
                         context_chars=context_chars,
                     )
                 )

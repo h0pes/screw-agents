@@ -1,5 +1,5 @@
 # domains/injection-input-handling/sqli.yaml
-# SQL Injection Agent Definition — screw-agents v1.0.2
+# SQL Injection Agent Definition — screw-agents v1.0.3
 # Generated from 16 research files covering Tiers 1-4 of KNOWLEDGE_SOURCES.md
 # Research date: 2026-04-05
 
@@ -7,8 +7,8 @@ meta:
   name: sqli
   display_name: "SQL Injection Reviewer"
   domain: injection-input-handling
-  version: "1.0.2"
-  last_updated: "2026-04-29"
+  version: "1.0.3"
+  last_updated: "2026-05-02"
   short_description: "SQL injection via unsafe string concatenation, interpolation, or ORM raw query misuse reaching database query execution paths"
 
   cwes:
@@ -110,6 +110,13 @@ core_prompt: |
   logic? Assess impact by exploitation class (see below). Verify no upstream mitigation invalidates
   the finding. Before reporting, restate your precise vulnerability claim — if you cannot articulate
   it coherently, it is likely a false positive.
+
+  If helper context proves that every attacker-controlled value is validated before the SQL
+  sink by a strict allowlist that rejects quotes, comments, statement separators, parentheses,
+  operators, and embedded whitespace, do not report the value-position string interpolation as
+  SQLi merely because bind parameters would be cleaner. You may mention bind parameters as
+  hardening only when another reportable SQLi remains, but do not emit a CWE-89 finding for a
+  defense-in-depth rewrite.
 
   ## SQL Injection Exploitation Classes
 
@@ -259,6 +266,14 @@ core_prompt: |
   validation is vulnerable. Real CVEs: CVE-2024-49203, CVE-2024-35181/82, CVE-2024-37843,
   CVE-2021-35042.
 
+  Structural context precision: a character-class allowlist is not as strong as a semantic
+  allowlist of known columns or directions, but it may still eliminate SQL grammar injection
+  when it constrains the value to one token and rejects quotes, comments, separators,
+  parentheses, operators, and whitespace. In that case, do not report CWE-89 solely because
+  the attacker can choose a syntactically valid identifier or invalid token. Report only if the
+  remaining token can become SQL syntax/expression text, multiple tokens, comments, stacked
+  statements, function calls, arithmetic, or a concrete blind/error-based SQLi primitive.
+
   ## TP vs FP Criteria
 
   **True positive signals:** String interpolation/concatenation reaches SQL execution with
@@ -272,7 +287,10 @@ core_prompt: |
   code with hardcoded values; migration SQL with no runtime input; FromSqlInterpolated in
   EF Core (safe despite interpolation syntax); fmt.Sprintf with %d/%f only (integer/float,
   not %s); Rails/ActiveRecord lock-clause or fixture helper internals with no visible
-  attacker-controlled caller flow.
+  attacker-controlled caller flow; value-position interpolation preceded by a strict allowlist
+  sanitizer visible in helper context; ORDER BY/GROUP BY identifier construction constrained
+  to a single safe token with no SQL metacharacters or whitespace, absent a concrete SQLi
+  primitive.
 
   ## Severity Assessment
 
