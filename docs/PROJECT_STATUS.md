@@ -269,6 +269,20 @@ template strings are compile-time constants and no external caller, plugin, or
 config path can supply the template; `SandboxedEnvironment` is the patched
 discriminator unless there is a concrete sandbox bypass, unsafe globals,
 filters, tests, or a known vulnerable Jinja2 version.
+The post-v1.0.1 accepted-slice consolidation at
+`/tmp/screw-d02-ssti-v101-accepted-consolidation-cap5-run`, benchmark
+`20260502-152554`, reran the same eight accepted OSSF/non-OSSF cases with
+`--max-files-per-variant 5` and an explicit 1.5M prompt-character budget. It
+completed all 30 Claude invocations with no failed, timed-out, or stale calls
+and kept every patched variant clean with zero patched findings. SSTI/MLflow
+now holds in mixed consolidation at TP 1 / FP 0 / TN 2 / FN 1, vulnerable
+findings 1 and patched findings 0; failure-input generation produced only
+`cmdi`, `sqli`, and `xss` payloads, with no SSTI payload. Remaining concrete
+payload diagnostics are still vulnerable-side only: CmdI/Plexus has 5 missed
+truth spans, all with related findings and 3 related-file credit candidates;
+SQLi has 5 pure missed spans on capped NHibernate/Rails evidence; XSS has the
+known html-janitor adjacent-line truth-anchor mismatch plus the AntiSamy
+test-file truth span.
 
 **When starting Phase 4:** D-02 threshold optimization runs as part of the autoresearch loop. The benchmark pipeline is validated (PR #3).
 

@@ -349,6 +349,21 @@ OSSF target-source unlock, verified 2026-05-02:
   path can supply the template; `SandboxedEnvironment` is the patched
   discriminator unless there is a concrete sandbox bypass, unsafe globals,
   filters, tests, or a known vulnerable Jinja2 version.
+- Post-v1.0.1 accepted-slice consolidation:
+  `/tmp/screw-d02-ssti-v101-accepted-consolidation-cap5-run`, benchmark
+  `20260502-152554`, reran the same eight accepted OSSF/non-OSSF cases with
+  `--max-files-per-variant 5`, 30 prompts, 1,361,375 prompt characters, and an
+  explicit `--max-prompt-chars 1500000` budget. The live run completed all 30
+  Claude invocations with 0 failed, 0 timed out, and 0 stale calls. Every
+  patched variant stayed clean with zero patched findings. SSTI/MLflow now
+  holds in mixed consolidation at TP 1 / FP 0 / TN 2 / FN 1, vulnerable
+  findings 1 and patched findings 0; failure-input generation produced no SSTI
+  payload. The generated payloads at
+  `/tmp/screw-d02-ssti-v101-accepted-consolidation-cap5-failure-inputs` are
+  limited to CmdI, SQLi, and XSS vulnerable-side misses: Plexus has 5 missed
+  spans but all have related findings and 3 have related-file credit
+  candidates, SQLi has 5 pure missed capped/truth-span examples, and XSS has
+  the known html-janitor adjacent-line miss plus the AntiSamy test-file span.
 
 Phase 4 closure does not require manually processing every benchmark
 vulnerability. It does require a reliable workflow, clear dataset
