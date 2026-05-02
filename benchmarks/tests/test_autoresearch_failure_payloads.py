@@ -9,7 +9,13 @@ from unittest.mock import patch
 
 from benchmarks.runner.cwe import load_hierarchy
 from benchmarks.runner.invoker import InvokeResult
-from benchmarks.runner.models import CodeLocation, Finding, FindingKind
+from benchmarks.runner.models import (
+    BenchmarkCase,
+    CodeLocation,
+    Finding,
+    FindingKind,
+    Language,
+)
 from benchmarks.scripts.generate_autoresearch_failure_inputs import main as cli_main
 from benchmarks.tests.test_autoresearch_controlled_executor import (
     _write_controlled_plan,
@@ -20,8 +26,10 @@ from screw_agents.autoresearch.controlled_executor import (
 )
 from screw_agents.autoresearch.failure_input import FailureAnalysisInput
 from screw_agents.autoresearch.failure_payloads import (
+    ControlledCaseContext,
     _evidence_quality_flags,
     _miss_diagnostics_summary,
+    _missed_examples,
     _related_agent_findings,
     build_failure_payloads_from_controlled_report,
 )
@@ -190,6 +198,52 @@ def test_missed_payload_includes_related_vulnerable_findings(tmp_path: Path) -> 
     assert payload.diagnostics.exact_span_false_negatives == 1
     assert payload.diagnostics.related_file_credit_candidates == 0
     assert payload.diagnostics.false_negatives_after_related_file_credit == 1
+
+
+def test_missed_payloads_ignore_truth_outside_evaluated_files(tmp_path: Path) -> None:
+    case = BenchmarkCase(
+        case_id="cap-aware",
+        project="p",
+        language=Language.PHP,
+        vulnerable_version="v1",
+        patched_version="v2",
+        source_dataset="morefixes",
+        ground_truth=[
+            Finding(
+                cwe_id="CWE-89",
+                kind=FindingKind.FAIL,
+                location=CodeLocation(file="included.php", start_line=10, end_line=10),
+                message="included",
+            ),
+            Finding(
+                cwe_id="CWE-89",
+                kind=FindingKind.FAIL,
+                location=CodeLocation(file="excluded.php", start_line=20, end_line=20),
+                message="excluded",
+            ),
+        ],
+    )
+    context = ControlledCaseContext(
+        agent_name="sqli",
+        manifest_path=tmp_path / "manifest.json",
+        truth_path=tmp_path / "truth.sarif",
+        raw_case={},
+        case=case,
+        include_related_context=False,
+        vulnerable_files=frozenset({"included.php", "excluded.php"}),
+        patched_files=frozenset({"included.php"}),
+    )
+
+    examples = _missed_examples(
+        context=context,
+        agent_name="sqli",
+        vulnerable_findings=[],
+        max_count=5,
+        include_code_excerpt=False,
+        external_dir=tmp_path,
+    )
+
+    assert [example.file for example in examples] == ["included.php"]
 
 
 def test_related_agent_findings_include_same_case_related_files() -> None:

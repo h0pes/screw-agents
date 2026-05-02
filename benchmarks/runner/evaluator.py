@@ -68,6 +68,13 @@ class EvalConfig:
     max_files_per_variant: int = 0
 
 
+@dataclass(frozen=True)
+class EvaluatedCase:
+    case: BenchmarkCase
+    vulnerable_files: frozenset[str]
+    patched_files: frozenset[str]
+
+
 def load_cases_from_manifest(manifest_path: Path) -> list[dict]:
     """Load raw case dicts from a manifest JSON file."""
     data = json.loads(manifest_path.read_text())
@@ -241,17 +248,21 @@ class Evaluator:
         engine: ScanEngine,
         hierarchy: Cwe1400Hierarchy,
     ) -> Summary:
+        scored_cases: list[BenchmarkCase] = []
         vuln_runs = []
         patched_runs = []
 
         for case in cases:
-            vuln_run, patched_run = self._evaluate_case(case, agent_name, engine)
+            evaluated_case, vuln_run, patched_run = self._evaluate_case(
+                case, agent_name, engine
+            )
+            scored_cases.append(_scope_case_to_evaluated_files(evaluated_case))
             vuln_runs.append(vuln_run)
             patched_runs.append(patched_run)
             time.sleep(self.config.invoker_config.throttle_delay)
 
         return compute_metrics(
-            cases=cases, runs_vulnerable=vuln_runs, runs_patched=patched_runs,
+            cases=scored_cases, runs_vulnerable=vuln_runs, runs_patched=patched_runs,
             hierarchy=hierarchy, agent_name=agent_name, dataset=dataset,
         )
 
@@ -260,35 +271,52 @@ class Evaluator:
         case: BenchmarkCase,
         agent_name: str,
         engine: ScanEngine,
-    ) -> tuple[AgentRun, AgentRun]:
+    ) -> tuple[EvaluatedCase, AgentRun, AgentRun]:
         vuln_result_path = self._cases_dir / f"{case.case_id}_vuln.json"
         patched_result_path = self._cases_dir / f"{case.case_id}_patched.json"
+        vuln_pieces = self._code_pieces_for_variant(case, CodeVariant.VULNERABLE)
+        patched_pieces = self._code_pieces_for_variant(case, CodeVariant.PATCHED)
 
         if vuln_result_path.exists():
             vuln_findings = self._load_cached_findings(vuln_result_path)
         else:
-            vuln_findings = self._scan_variant(case, agent_name, CodeVariant.VULNERABLE, engine)
+            vuln_findings = self._scan_variant(
+                case,
+                agent_name,
+                CodeVariant.VULNERABLE,
+                engine,
+                code_pieces=vuln_pieces,
+            )
             self._save_findings(vuln_result_path, vuln_findings)
 
         if patched_result_path.exists():
             patched_findings = self._load_cached_findings(patched_result_path)
         else:
-            patched_findings = self._scan_variant(case, agent_name, CodeVariant.PATCHED, engine)
+            patched_findings = self._scan_variant(
+                case,
+                agent_name,
+                CodeVariant.PATCHED,
+                engine,
+                code_pieces=patched_pieces,
+            )
             self._save_findings(patched_result_path, patched_findings)
 
+        evaluated_case = EvaluatedCase(
+            case=case,
+            vulnerable_files=frozenset(piece.file_path for piece in vuln_pieces),
+            patched_files=frozenset(piece.file_path for piece in patched_pieces),
+        )
         vuln_run = AgentRun(case_id=case.case_id, agent_name=agent_name,
                             findings=vuln_findings, runtime_seconds=0.0)
         patched_run = AgentRun(case_id=case.case_id, agent_name=agent_name,
                                findings=patched_findings, runtime_seconds=0.0)
-        return vuln_run, patched_run
+        return evaluated_case, vuln_run, patched_run
 
-    def _scan_variant(
+    def _code_pieces_for_variant(
         self,
         case: BenchmarkCase,
-        agent_name: str,
         variant: CodeVariant,
-        engine: ScanEngine,
-    ) -> list[Finding]:
+    ) -> list[ExtractedCode]:
         code_pieces = extract_code_for_case(
             case,
             variant,
@@ -305,6 +333,18 @@ class Evaluator:
                 case=case,
                 variant=variant,
             )
+        return code_pieces
+
+    def _scan_variant(
+        self,
+        case: BenchmarkCase,
+        agent_name: str,
+        variant: CodeVariant,
+        engine: ScanEngine,
+        code_pieces: list[ExtractedCode] | None = None,
+    ) -> list[Finding]:
+        if code_pieces is None:
+            code_pieces = self._code_pieces_for_variant(case, variant)
         if not code_pieces:
             return []
 
@@ -386,3 +426,31 @@ class Evaluator:
                 agent_name=item.get("agent_name"),
             ))
         return findings
+
+
+def _scope_case_to_evaluated_files(evaluated_case: EvaluatedCase) -> BenchmarkCase:
+    """Keep only truth spans whose files were actually evaluated."""
+    case = evaluated_case.case
+    paired_fail_files = evaluated_case.vulnerable_files & evaluated_case.patched_files
+    scoped_truth = [
+        truth
+        for truth in case.ground_truth
+        if (
+            truth.kind == FindingKind.FAIL
+            and truth.location.file in paired_fail_files
+        )
+        or (
+            truth.kind == FindingKind.PASS
+            and truth.location.file in evaluated_case.patched_files
+        )
+    ]
+    return BenchmarkCase(
+        case_id=case.case_id,
+        project=case.project,
+        language=case.language,
+        vulnerable_version=case.vulnerable_version,
+        patched_version=case.patched_version,
+        ground_truth=scoped_truth,
+        published_date=case.published_date,
+        source_dataset=case.source_dataset,
+    )

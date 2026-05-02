@@ -1,6 +1,6 @@
 # Project Status — screw-agents
 
-> Last updated: 2026-04-30
+> Last updated: 2026-05-02
 
 ## Deferred Obligations
 
@@ -176,6 +176,24 @@ case with `--max-retries 1`: 20 prompts, about 650k prompt chars, TP 1, FP 9,
 TN 542, FN 546, vulnerable findings 6, patched findings 5. This is evidence
 for failure-payload review and prompt/progress tooling, not immediate
 `sqli.yaml` mutation.
+The next priority-stratified probe is recorded at
+`/tmp/screw-d02-next-priority-controlled`. Full cap-3 validation at
+`/tmp/screw-d02-next-priority-cap3-validation` selected 8 executable cases but
+measured 36 prompts and about 515k estimated tokens, so it should not be run as
+a whole by default. The narrowed Exponent CMS CVE-2016-7788 cap-2 live run at
+`/tmp/screw-d02-morefixes-exponent-7788-cap2-run`, benchmark run
+`20260502-081148`, completed 3 of 4 Claude invocations and timed out on the
+vulnerable `eventController.php` prompt. The run is therefore not clean SQLi
+evidence: it produced patched findings and one timeout on a large selected
+file. It also exposed a benchmark-machinery issue: capped runs were being
+scored against truth spans from files that were never sent to Claude. The
+evaluator now scopes metrics to files actually evaluated by both vulnerable
+and patched variants, and failure-input generation now suppresses misses
+outside that evaluated file set. The regenerated cap-aware payload at
+`/tmp/screw-d02-morefixes-exponent-7788-cap2-failure-inputs-cap-aware/sqli_failure_input.json`
+removes outside-cap `addressController.php` misses and leaves only selected
+`ecomconfigController.php` misses plus selected patched findings. Keep
+`sqli.yaml` unchanged.
 
 **When starting Phase 4:** D-02 threshold optimization runs as part of the autoresearch loop. The benchmark pipeline is validated (PR #3).
 

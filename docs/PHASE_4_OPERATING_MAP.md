@@ -1,6 +1,6 @@
 # Phase 4 Operating Map - Autoresearch
 
-> Last updated: 2026-04-29
+> Last updated: 2026-05-02
 
 Phase 4 is the controlled benchmark-and-improvement loop. Its goal is not to
 blindly run expensive benchmarks or automatically rewrite agent YAML. Its goal
@@ -230,6 +230,30 @@ Exponent CMS fix-semantics review, verified 2026-05-01:
 - Decision: keep `sqli.yaml` unchanged. The Exponent slice is useful evidence
   that fix quality and scoring labels are mixed in MoreFixes, but it is not
   clean precision-training evidence.
+
+Next priority-stratified probe, verified 2026-05-02:
+- Plan/control artifacts:
+  `/tmp/screw-d02-next-broader-plan` and
+  `/tmp/screw-d02-next-priority-controlled`.
+- Full cap-3 no-Claude validation:
+  `/tmp/screw-d02-next-priority-cap3-validation`, 8 cases, 36 prompts, and
+  about 515k estimated tokens. Do not execute the whole batch without explicit
+  budget acceptance.
+- Narrowed Exponent CMS CVE-2016-7788 cap-2 live run:
+  `/tmp/screw-d02-morefixes-exponent-7788-cap2-run`, benchmark run
+  `20260502-081148`. It completed 3 of 4 Claude invocations and timed out on
+  vulnerable `eventController.php`; patched `eventController.php` completed
+  and returned findings. This asymmetry makes aggregate metrics unusable as
+  SQLi-quality evidence.
+- The run exposed a scoring/reporting flaw for capped executions: the scorer
+  and failure-payload generator still considered truth spans from files that
+  were not sent to Claude. Metrics now scope capped cases to the files actually
+  evaluated in both vulnerable and patched variants, and generated missed
+  examples exclude outside-cap truth. The regenerated cap-aware payload at
+  `/tmp/screw-d02-morefixes-exponent-7788-cap2-failure-inputs-cap-aware/sqli_failure_input.json`
+  removes outside-cap `addressController.php` misses. Remaining examples are
+  selected-file `ecomconfigController.php` misses plus selected patched
+  findings, so keep `sqli.yaml` unchanged.
 
 Phase 4 closure does not require manually processing every benchmark
 vulnerability. It does require a reliable workflow, clear dataset
@@ -1083,10 +1107,13 @@ Even then, YAML mutation is not automatic. It is a reviewed engineering change.
    `/tmp/screw-d02-expanded-refresh-priority-validation-v2` to avoid spending a
    session on broad MoreFixes SQLi cases before their cost is accepted.
 10. For high-cost MoreFixes cases, validate with `--max-files-per-variant`
-    before live execution. Record capped runs as sampling evidence only, and do
-    not compare their aggregate TP/FN counts against uncapped benchmark gates.
+    before live execution. Record capped runs as sampling evidence only. Capped
+    scoring now excludes outside-cap truth, but capped TP/FN counts still must
+    not be compared against uncapped benchmark gates.
 11. For capped Exponent CMS, the sink-line anchoring rerun is complete. It
     confirmed one localization improvement. JSON-extraction failures now
     produce artifacts for review. The patched-source review classified the
     slice as mixed residual-risk, ambiguity, and speculative findings, so do
     not mutate `sqli.yaml` from it.
+12. After the cap-aware scoring fix is merged, rerun a narrow no-Claude or
+    cached validation before any new live Exponent-style MoreFixes sample.
