@@ -1,5 +1,5 @@
 # domains/injection-input-handling/ssti.yaml
-# Server-Side Template Injection Agent Definition — screw-agents v1.0.0
+# Server-Side Template Injection Agent Definition — screw-agents v1.0.1
 # Generated from 4 research files covering Tiers 1-4 of KNOWLEDGE_SOURCES.md, plus Rust cross-cutting research
 # Research date: 2026-04-06
 
@@ -7,8 +7,8 @@ meta:
   name: ssti
   display_name: "Server-Side Template Injection Reviewer"
   domain: injection-input-handling
-  version: "1.0.0"
-  last_updated: "2026-04-06"
+  version: "1.0.1"
+  last_updated: "2026-05-02"
   short_description: "Server-side template injection via user input reaching template engine rendering without sandboxing or autoescape"
 
   cwes:
@@ -202,14 +202,21 @@ core_prompt: |
   data); string interpolation/concatenation reaches a template render function with attacker-controlled
   data; CMS/admin interface allows editing template content; AI/ML pipeline passes user prompts
   through template rendering; render_template_string / from_string / renderString / render_str /
-  one_off / createTemplate / Parse(var) with user-derived argument.
+  one_off / createTemplate / Parse(var) with user-derived argument; public or plugin-facing APIs
+  that accept template strings, store them in fields/attributes (for example `self.template`), and
+  later render those fields with non-sandboxed Jinja2
+  `Environment(...).from_string(...).render(...)`.
 
   **False positive signals:** Template loaded from filesystem with user data only in context
   (render_template("file.html", data=var)); compile-time templates (Askama); logic-less engines
   (Mustache) with data-only binding; SandboxedEnvironment with user data in context only;
   auto-escaped output preventing XSS (does NOT prevent SSTI — check template source);
   test/fixture code with hardcoded template strings; Tera tera.render("file.html", &ctx) where
-  template name is a string literal.
+  template name is a string literal; private helpers where all reachable template-string values
+  are compile-time constants and no external caller/plugin/config path can supply the template;
+  `jinja2.sandbox.SandboxedEnvironment(...).from_string(user_template)` unless there is a concrete
+  sandbox bypass, unsafe globals/filters/tests exposed to the template, or a known vulnerable
+  Jinja2 version.
 
   ## Severity Assessment
 
@@ -256,6 +263,12 @@ detection_heuristics:
       pattern: "Environment().from_string(var).render() where var is user-controlled"
       languages: [python]
       example: "env.from_string(user_input).render(data=data)"
+    - id: py-jinja2-public-template-field
+      pattern: "Public API stores caller-provided template string in a field and later renders it with non-sandboxed Jinja2 Environment.from_string().render()"
+      languages: [python]
+      example: "self.template = html_template; Environment(loader=BaseLoader()).from_string(self.template).render(ctx)"
+      cves: ["CVE-2023-6709"]
+      note: "Report even if local in-file callers are hardcoded when the constructor/add_* API is public or plugin-facing and accepts arbitrary template content. Do not report the same field pattern after it is rendered with SandboxedEnvironment unless there is a concrete sandbox bypass, unsafe globals/filters, or vulnerable Jinja2 version."
     - id: py-mako-template-var
       pattern: "Mako Template(var).render() where var is user-controlled"
       languages: [python]
@@ -578,6 +591,23 @@ few_shot_examples:
             return result
       explanation: "User input is the ENTIRE template source passed to from_string(). Attack: template={{cycler.__init__.__globals__.os.popen('id').read()}}. Fix: Use SandboxedEnvironment() at minimum; prefer env.get_template('file.html')."
 
+    - language: python
+      label: "Public API stores template field then renders with Jinja2"
+      code: |
+        class CardTab:
+            def __init__(self, name, html_template):
+                self.name = name
+                self.template = html_template
+
+            def to_html(self):
+                env = jinja2.Environment(loader=jinja2.BaseLoader())
+                return env.from_string(self.template).render(**self.context)
+
+        class BaseCard:
+            def add_tab(self, name, html_template):
+                self.tabs.append(CardTab(name, html_template))
+      explanation: "The public add_tab/html_template API lets callers supply template source, stores it in self.template, and later renders it with a non-sandboxed Jinja2 Environment. Even if local examples pass constants, plugin/config/API callers can make html_template attacker-controlled. Fix: load trusted templates from files or use SandboxedEnvironment for intentionally user-authored templates."
+
     - language: java
       label: "FreeMarker with user-controlled template string"
       code: |
@@ -683,6 +713,19 @@ few_shot_examples:
             return render_template("greeting.html", name=name)
         # greeting.html: <h1>Hello {{ name }}!</h1>
       explanation: "User controls the value of 'name' but NOT the template structure. Template is loaded from a file — user input is data, not source. Safe."
+
+    - language: python
+      label: "Sandboxed Jinja2 for caller-authored templates"
+      code: |
+        class CardTab:
+            def __init__(self, name, html_template):
+                self.name = name
+                self.template = html_template
+
+            def to_html(self):
+                env = jinja2.sandbox.SandboxedEnvironment(loader=jinja2.BaseLoader())
+                return env.from_string(self.template).render(**self.context)
+      explanation: "SandboxedEnvironment is the intended mitigation when caller-authored templates are a supported feature. Do not report this pattern unless the code exposes dangerous globals, filters, or tests; uses a vulnerable sandbox version; or contains a concrete sandbox bypass."
 
     - language: java
       label: "FreeMarker template from classpath"
