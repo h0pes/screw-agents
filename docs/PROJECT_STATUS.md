@@ -283,6 +283,21 @@ truth spans, all with related findings and 3 related-file credit candidates;
 SQLi has 5 pure missed spans on capped NHibernate/Rails evidence; XSS has the
 known html-janitor adjacent-line truth-anchor mismatch plus the AntiSamy
 test-file truth span.
+No-Claude SQLi payload review of
+`/tmp/screw-d02-ssti-v101-accepted-consolidation-cap5-failure-inputs/sqli_failure_input.json`
+classified those five SQLi misses as non-actionable for `sqli.yaml` v1.0.2.
+The two Rails misses are `adapter_test.rb` truth spans, one with an empty source
+excerpt, while the production Rails `add_limit_offset!` LIMIT/OFFSET issue was
+already detected and all patched Rails findings stayed at zero. The three
+NHibernate misses are capped production spans but do not reveal a new reusable
+agent principle: `Dialect.ToBooleanValueString()` emits only server-controlled
+boolean literals (`1`/`0`), `ByteType.cs` is a typed `DbCommand` parameter
+assignment span despite the truth logical location naming `ObjectToSQLString`,
+and `CharBooleanType.ObjectToSQLString()` is a sibling literal-renderer miss
+under the already accepted C# ORM literal guidance that found
+`AbstractCharType` and `AbstractStringType`. Keep `sqli.yaml` unchanged unless
+broader future sampling shows repeated missed unsafe literal renderers without
+reviving patched false positives.
 
 **When starting Phase 4:** D-02 threshold optimization runs as part of the autoresearch loop. The benchmark pipeline is validated (PR #3).
 
