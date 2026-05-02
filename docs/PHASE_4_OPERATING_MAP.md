@@ -364,6 +364,21 @@ OSSF target-source unlock, verified 2026-05-02:
   spans but all have related findings and 3 have related-file credit
   candidates, SQLi has 5 pure missed capped/truth-span examples, and XSS has
   the known html-janitor adjacent-line miss plus the AntiSamy test-file span.
+- SQLi pure-miss triage after the same consolidation reviewed
+  `/tmp/screw-d02-ssti-v101-accepted-consolidation-cap5-failure-inputs/sqli_failure_input.json`
+  without another Claude run. Conclusion: keep `sqli.yaml` v1.0.2 unchanged.
+  The two Rails misses are `adapter_test.rb` truth spans, one with a missing
+  source excerpt; the agent already found the vulnerable production
+  `add_limit_offset!` LIMIT/OFFSET interpolation and kept patched Rails clean.
+  The three NHibernate misses are not clean new YAML evidence:
+  `Dialect.ToBooleanValueString()` returns fixed boolean SQL literals (`1` or
+  `0`), `ByteType.cs` points at a typed `DbCommand` parameter assignment even
+  though the SARIF logical name says `ObjectToSQLString`, and
+  `CharBooleanType.ObjectToSQLString()` is a sibling of the already detected
+  C# ORM literal-renderer pattern (`AbstractCharType` and
+  `AbstractStringType`). Treat this as capped/scoring/truth-span noise plus a
+  remaining sibling recall miss, not as justification to broaden SQLi guidance
+  before larger sampling.
 
 Phase 4 closure does not require manually processing every benchmark
 vulnerability. It does require a reliable workflow, clear dataset

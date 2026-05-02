@@ -477,6 +477,17 @@ Only after Tasks 1-4 are resolved:
   vulnerable findings 1 and patched findings 0; no SSTI failure-input payload
   was generated. Remaining generated payloads are CmdI/SQLi/XSS vulnerable-side
   diagnostics only, not new patched false-positive evidence.
+- No-Claude SQLi review of the generated payload at
+  `/tmp/screw-d02-ssti-v101-accepted-consolidation-cap5-failure-inputs/sqli_failure_input.json`
+  closed the five pure misses as non-actionable for immediate YAML mutation.
+  Rails' two remaining misses are `adapter_test.rb` truth spans, one with a
+  missing excerpt, while the production `add_limit_offset!` LIMIT/OFFSET issue
+  was detected and patched Rails stayed clean. NHibernate's three misses are
+  mixed evidence: a fixed boolean literal helper, a typed parameter assignment
+  span mislabeled by SARIF as `ObjectToSQLString`, and one sibling
+  `CharBooleanType.ObjectToSQLString()` renderer under already-covered C# ORM
+  literal guidance. Keep `sqli.yaml` v1.0.2 unchanged unless broader sampling
+  shows a repeated unsafe literal-renderer miss without patched regressions.
 - require explicit `--allow-claude-invocation` before a plan can become
   executable
 - require a second executor-level `--allow-claude-invocation` with `--execute`
