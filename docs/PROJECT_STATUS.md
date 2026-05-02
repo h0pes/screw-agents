@@ -328,6 +328,22 @@ acceptance; cap 2 still measures 4 prompts and 317,317 prompt characters at
 large `eventController.php` prompts similar to earlier timeout-prone Exponent
 work. Wave C is the full 9-case cap-5 broader validation only after Wave A/B
 payloads are classified.
+Wave A Thetis execution ran at
+`/tmp/screw-d02-broader-wave-a-thetis-cap3-run`, benchmark `20260502-162848`.
+It completed all 6 Claude invocations with no failed, timed-out, or stale
+calls, but it is not accepted as clean validation evidence: vulnerable findings
+2, patched findings 3, and the generated payload at
+`/tmp/screw-d02-broader-wave-a-thetis-cap3-failure-inputs/sqli_failure_input.json`
+contains 3 patched false-positive findings plus 5 missed truth spans. Manual
+triage classifies this as packaging/context evidence, not a `sqli.yaml`
+mutation trigger. The patch adds `SqlHelper.validate_token` calls and
+tightens `sql_helper.rb` to an anchored token regex that rejects quotes,
+whitespace, comments, operators, and parentheses; cap-3 prompts selected
+`desktop_controller.rb`, `address.rb`, and `addressbook_controller.rb` but did
+not include `sql_helper.rb`, so the agent had to speculate about validator
+semantics. Do not run Wave B or the full broader plan until helper-context
+packaging for selected files is addressed or explicitly accepted as a known
+limitation.
 
 **When starting Phase 4:** D-02 threshold optimization runs as part of the autoresearch loop. The benchmark pipeline is validated (PR #3).
 

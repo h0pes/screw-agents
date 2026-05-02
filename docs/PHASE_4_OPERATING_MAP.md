@@ -417,6 +417,23 @@ OSSF target-source unlock, verified 2026-05-02:
   cap-5 broader plan only after Wave A/B failure payloads are reviewed and any
   needed machinery or scoring updates are made. Capped runs remain sampling
   evidence only and must not be presented as full-case benchmark claims.
+- Wave A Thetis SQLi execution:
+  `/tmp/screw-d02-broader-wave-a-thetis-cap3-run`, benchmark
+  `20260502-162848`, ran the Thetis case with `--max-files-per-variant 3`.
+  The executor completed all 6 Claude invocations with 0 failed, 0 timed out,
+  and 0 stale calls. Result quality is not clean enough for acceptance:
+  vulnerable findings 2, patched findings 3; failure payload
+  `/tmp/screw-d02-broader-wave-a-thetis-cap3-failure-inputs/sqli_failure_input.json`
+  reports `false_positive_findings: 3`, `total_missed: 5`, `pure_misses: 2`.
+  Manual triage points to evidence packaging rather than agent knowledge. The
+  patched selected files call `SqlHelper.validate_token`, and patched
+  `sql_helper.rb` implements an anchored token regex accepting only
+  alphanumeric/underscore/dot/@/hyphen-style token characters plus spaces,
+  rejecting quotes, comment syntax, operators, and parentheses. Cap-3 packaging
+  did not include `sql_helper.rb`, so the agent reported conditional findings
+  that explicitly depended on the unseen helper semantics. Treat this as a
+  helper-context packaging gap for broader validation. Do not proceed to Wave B
+  until that gap is resolved or explicitly accepted as a run limitation.
 
 Phase 4 closure does not require manually processing every benchmark
 vulnerability. It does require a reliable workflow, clear dataset
