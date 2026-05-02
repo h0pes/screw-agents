@@ -316,6 +316,22 @@ OSSF target-source unlock, verified 2026-05-02:
   The generated payload at
   `/tmp/screw-d02-ossf-htmljanitor-xss-v102-failure-inputs/xss_failure_input.json`
   classifies this as a nearby same-file finding, not a pure miss.
+- Cap-5 OSSF plus accepted-slice consolidation:
+  `/tmp/screw-d02-ossf-accepted-consolidation-cap5-run`, benchmark
+  `20260502-122350`, merged the reviewed OSSF fs-git/html-janitor cases with
+  the accepted Zope, Plexus, NHibernate, Rails, AntiSamy, and MLflow slices.
+  Preflight at `/tmp/screw-d02-ossf-accepted-consolidation-cap5-preflight`
+  measured 30 prompts, 1,358,695 prompt characters, and about 339,688 estimated
+  tokens with `--max-files-per-variant 5`. The live run completed all 30
+  Claude invocations with 0 failed, 0 timed out, and 0 stale calls. All eight
+  patched variants had zero findings. Failure payloads at
+  `/tmp/screw-d02-ossf-accepted-consolidation-cap5-failure-inputs` are
+  vulnerable-side only: html-janitor remains an adjacent-line truth-anchor
+  mismatch, Plexus misses have same-case related findings, AntiSamy/Rails
+  include test/truth-span artifacts, NHibernate stays patched-clean with low
+  capped recall, and MLflow missed again in mixed consolidation despite earlier
+  focused success. Treat SSTI/MLflow variance as the next review item, not an
+  automatic `ssti.yaml` mutation.
 
 Phase 4 closure does not require manually processing every benchmark
 vulnerability. It does require a reliable workflow, clear dataset

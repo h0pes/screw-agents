@@ -440,6 +440,18 @@ Only after Tasks 1-4 are resolved:
   OSSF truth anchors the CVE on adjacent `document.createElement('div')` line
   43, so metrics still report TP 0 / FN 1 even though the failure payload
   classifies the result as a nearby same-file finding rather than a pure miss.
+- Cap-5 accepted-slice consolidation with OSSF:
+  `/tmp/screw-d02-ossf-accepted-consolidation-cap5-run`, benchmark
+  `20260502-122350`, completed 30/30 Claude invocations with no failed,
+  timed-out, or stale calls. The reviewed OSSF fs-git/html-janitor cases were
+  run with accepted Zope, Plexus, NHibernate, Rails, AntiSamy, and MLflow
+  slices. All patched variants were clean with zero patched findings. Failure
+  payloads at
+  `/tmp/screw-d02-ossf-accepted-consolidation-cap5-failure-inputs` contain only
+  vulnerable-side misses: known html-janitor adjacent-line scoring,
+  related-finding Plexus spans, AntiSamy/Rails test/truth-span artifacts,
+  patched-clean capped NHibernate misses, and a repeated mixed-run SSTI/MLflow
+  miss. Review SSTI variance next before considering any `ssti.yaml` change.
 - require explicit `--allow-claude-invocation` before a plan can become
   executable
 - require a second executor-level `--allow-claude-invocation` with `--execute`
