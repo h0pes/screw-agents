@@ -467,6 +467,16 @@ Only after Tasks 1-4 are resolved:
   strings as safe, and treat `SandboxedEnvironment` as the patched
   discriminator unless there is a concrete sandbox bypass, unsafe globals,
   filters, tests, or a known vulnerable Jinja2 version.
+- Post-v1.0.1 accepted-slice consolidation at
+  `/tmp/screw-d02-ssti-v101-accepted-consolidation-cap5-run`, benchmark
+  `20260502-152554`, reran the same eight accepted OSSF/non-OSSF cases with
+  `--max-files-per-variant 5` and an explicit `--max-prompt-chars 1500000`
+  budget. It completed 30/30 Claude invocations with no failed, timed-out, or
+  stale calls. All patched variants stayed clean with zero patched findings.
+  SSTI/MLflow now holds in mixed consolidation at TP 1 / FP 0 / TN 2 / FN 1,
+  vulnerable findings 1 and patched findings 0; no SSTI failure-input payload
+  was generated. Remaining generated payloads are CmdI/SQLi/XSS vulnerable-side
+  diagnostics only, not new patched false-positive evidence.
 - require explicit `--allow-claude-invocation` before a plan can become
   executable
 - require a second executor-level `--allow-claude-invocation` with `--execute`
