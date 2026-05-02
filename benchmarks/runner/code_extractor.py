@@ -11,7 +11,7 @@ import subprocess
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 from benchmarks.runner.models import BenchmarkCase, FindingKind
 
@@ -313,17 +313,67 @@ def _extract_ossf(
     case: BenchmarkCase, variant: CodeVariant, ext_dir: Path,
 ) -> list[ExtractedCode]:
     """Extract from OSSF CVE benchmark."""
-    repo_dir = ext_dir / "ossf-cve-benchmark" / "repo"
-    if not repo_dir.exists():
-        raise FileNotFoundError(f"OSSF repo not found: {repo_dir}")
-    if _is_ossf_metadata_repo(repo_dir):
+    dataset_dir = ext_dir / "ossf-cve-benchmark"
+    metadata_repo_dir = dataset_dir / "repo"
+    target_repo_dir = _ossf_target_repo_dir(case, dataset_dir)
+    if target_repo_dir is not None:
+        return _extract_ossf_from_target_repo(
+            case=case,
+            variant=variant,
+            ext_dir=ext_dir,
+            repo_dir=target_repo_dir,
+        )
+    if not metadata_repo_dir.exists():
+        raise FileNotFoundError(f"OSSF repo not found: {metadata_repo_dir}")
+    if _is_ossf_metadata_repo(metadata_repo_dir):
         logger.debug(
             "OSSF target source snapshots are not materialized for %s; "
             "refusing to read from the benchmark metadata repository.",
             case.case_id,
         )
         return []
+    return _extract_ossf_from_worktree(case, variant, metadata_repo_dir)
 
+
+def _extract_ossf_from_target_repo(
+    *,
+    case: BenchmarkCase,
+    variant: CodeVariant,
+    ext_dir: Path,
+    repo_dir: Path,
+) -> list[ExtractedCode]:
+    ref = _ossf_ref_for_variant(case, variant, ext_dir)
+    if ref is None:
+        logger.warning("OSSF commit metadata not found for %s", case.case_id)
+        return []
+    kind = FindingKind.FAIL if variant == CodeVariant.VULNERABLE else FindingKind.PASS
+    results: list[ExtractedCode] = []
+    for rel_file in sorted({f.location.file for f in case.ground_truth if f.kind == kind}):
+        content = _git_show_file(repo_dir, ref, rel_file)
+        if content is None:
+            continue
+        if not _covers_truth_lines(content, case, kind, rel_file):
+            logger.warning(
+                "OSSF git file does not cover truth line range: %s:%s",
+                ref,
+                rel_file,
+            )
+            continue
+        results.append(
+            ExtractedCode(
+                file_path=rel_file,
+                content=content,
+                language=case.language.value,
+            )
+        )
+    return results
+
+
+def _extract_ossf_from_worktree(
+    case: BenchmarkCase,
+    variant: CodeVariant,
+    repo_dir: Path,
+) -> list[ExtractedCode]:
     kind = FindingKind.FAIL if variant == CodeVariant.VULNERABLE else FindingKind.PASS
     truth_files = {f.location.file for f in case.ground_truth if f.kind == kind}
     truth_by_file = {
@@ -346,10 +396,7 @@ def _extract_ossf(
                 continue
         content = file_path.read_text(errors="replace")
         line_count = len(content.splitlines())
-        if not any(
-            finding.location.end_line <= line_count
-            for finding in truth_by_file[rel_file]
-        ):
+        if not _truth_findings_cover_line_count(truth_by_file[rel_file], line_count):
             logger.warning(
                 "OSSF extracted file does not cover truth line range: "
                 "%s resolved to %s with %d line(s)",
@@ -366,6 +413,28 @@ def _extract_ossf(
     return results
 
 
+def _covers_truth_lines(
+    content: str,
+    case: BenchmarkCase,
+    kind: FindingKind,
+    rel_file: str,
+) -> bool:
+    line_count = len(content.splitlines())
+    truth_findings = [
+        finding
+        for finding in case.ground_truth
+        if finding.kind == kind and finding.location.file == rel_file
+    ]
+    return _truth_findings_cover_line_count(truth_findings, line_count)
+
+
+def _truth_findings_cover_line_count(
+    truth_findings: list,
+    line_count: int,
+) -> bool:
+    return any(finding.location.end_line <= line_count for finding in truth_findings)
+
+
 def _is_ossf_metadata_repo(repo_dir: Path) -> bool:
     """Return True when repo_dir is the ossf-cve-benchmark metadata clone.
 
@@ -375,6 +444,50 @@ def _is_ossf_metadata_repo(repo_dir: Path) -> bool:
     so extraction must fail closed until target snapshots are materialized.
     """
     return (repo_dir / "CVEs").is_dir() and (repo_dir / "schemas").is_dir()
+
+
+def _ossf_target_repo_dir(case: BenchmarkCase, dataset_dir: Path) -> Path | None:
+    repo_slug = _ossf_repo_slug(case.project)
+    candidates = [
+        dataset_dir / case.case_id / "repo",
+        dataset_dir / "repos" / repo_slug,
+    ]
+    return next((candidate for candidate in candidates if candidate.is_dir()), None)
+
+
+def _ossf_repo_slug(repository: str) -> str:
+    parsed = urlparse(repository)
+    path = parsed.path if parsed.scheme else repository
+    return path.strip("/").removesuffix(".git").replace("/", "__")
+
+
+def _ossf_ref_for_variant(
+    case: BenchmarkCase,
+    variant: CodeVariant,
+    ext_dir: Path,
+) -> str | None:
+    version = (
+        case.vulnerable_version
+        if variant == CodeVariant.VULNERABLE
+        else case.patched_version
+    )
+    if version not in {"pre-patch", "post-patch"}:
+        return version
+    metadata = _ossf_case_metadata(case, ext_dir)
+    if metadata is None:
+        return None
+    patch_key = "prePatch" if variant == CodeVariant.VULNERABLE else "postPatch"
+    patch_data = metadata.get(patch_key) or {}
+    commit = patch_data.get("commit")
+    return str(commit) if commit else None
+
+
+def _ossf_case_metadata(case: BenchmarkCase, ext_dir: Path) -> dict | None:
+    cve_id = case.case_id.removeprefix("ossf-")
+    metadata_path = ext_dir / "ossf-cve-benchmark" / "repo" / "CVEs" / f"{cve_id}.json"
+    if not metadata_path.exists():
+        return None
+    return json.loads(metadata_path.read_text(encoding="utf-8"))
 
 
 def _extract_morefixes(
@@ -489,7 +602,7 @@ def _git_show_file(repo_dir: Path, ref: str, rel_file: str) -> str | None:
     )
     if result.returncode != 0:
         logger.warning(
-            "Rust D-01 file not found at %s:%s: %s",
+            "Git file not found at %s:%s: %s",
             ref,
             rel_file,
             result.stderr.strip(),

@@ -255,6 +255,41 @@ Next priority-stratified probe, verified 2026-05-02:
   selected-file `ecomconfigController.php` misses plus selected patched
   findings, so keep `sqli.yaml` unchanged.
 
+OSSF target-source unlock, verified 2026-05-02:
+- OSSF metadata is no longer the only local source option. The extractor now
+  reads target-project clones from
+  `benchmarks/external/ossf-cve-benchmark/repos/<owner>__<repo>` or a
+  case-local `repo`, using `prePatch.commit` for vulnerable code and
+  `postPatch.commit` for patched code. It still refuses to treat the benchmark
+  metadata repository itself as target source.
+- `benchmarks/scripts/materialize_ossf_targets.py` materializes selected OSSF
+  target repos into ignored local benchmark storage. First materialized cases:
+  `ossf-CVE-2017-16087` (`vvakame/fs-git`, CmdI) and `ossf-CVE-2017-0931`
+  (`guardian/html-janitor`, XSS).
+- Refreshed controlled plan:
+  `/tmp/screw-d02-ossf-target-controlled-v2`; both OSSF G5.1 and G5.5 select
+  executable cases and the plan reports no issues.
+- No-Claude validations:
+  `/tmp/screw-d02-ossf-fsgit-validation` measured 2 prompts, 48,399 chars,
+  about 12,100 estimated tokens; `/tmp/screw-d02-ossf-htmljanitor-validation`
+  measured 2 prompts, 72,057 chars, about 18,015 estimated tokens.
+- Live CmdI/fs-git run:
+  `/tmp/screw-d02-ossf-fsgit-run`, benchmark `20260502-092046`, completed both
+  invocations with no executor issues. It found the vulnerable shell `exec`
+  chain (TP 1, FN 0) but produced three patched `CWE-88` argument-injection
+  findings after the patch moved from `exec` to `execFile`; payload:
+  `/tmp/screw-d02-ossf-fsgit-failure-inputs/cmdi_failure_input.json`.
+- Live XSS/html-janitor run:
+  `/tmp/screw-d02-ossf-htmljanitor-run`, benchmark `20260502-092529`,
+  completed both invocations with no executor issues. It produced no patched
+  findings, but missed the vulnerable `sandbox.innerHTML = html` parsing sink;
+  payload:
+  `/tmp/screw-d02-ossf-htmljanitor-failure-inputs/xss_failure_input.json`.
+- Decision: this is a benchmark-source unlock plus two new concrete failure
+  payloads. Do not mutate `cmdi.yaml` or `xss.yaml` until the patched
+  argument-injection reports and html-janitor DOM parsing miss are reviewed as
+  reusable domain evidence.
+
 Phase 4 closure does not require manually processing every benchmark
 vulnerability. It does require a reliable workflow, clear dataset
 inclusions/exclusions, prompt-budget guardrails, case-level failure payloads,
@@ -1117,3 +1152,7 @@ Even then, YAML mutation is not automatic. It is a reviewed engineering change.
     not mutate `sqli.yaml` from it.
 12. After the cap-aware scoring fix is merged, rerun a narrow no-Claude or
     cached validation before any new live Exponent-style MoreFixes sample.
+13. For OSSF, materialize target repos case-by-case with
+    `materialize_ossf_targets.py`, then run no-Claude validation before live
+    execution. Start from the two now-executable proof cases and review their
+    generated failure payloads before any YAML mutation.

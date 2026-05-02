@@ -194,6 +194,24 @@ outside that evaluated file set. The regenerated cap-aware payload at
 removes outside-cap `addressController.php` misses and leaves only selected
 `ecomconfigController.php` misses plus selected patched findings. Keep
 `sqli.yaml` unchanged.
+OSSF target-source materialization is now unblocked for local target clones.
+The extractor can read OSSF target repositories from
+`benchmarks/external/ossf-cve-benchmark/repos/<owner>__<repo>` using the
+`prePatch.commit` and `postPatch.commit` refs from the benchmark metadata, and
+`benchmarks/scripts/materialize_ossf_targets.py` can clone selected target
+repos into that ignored location. Two proof slices were materialized and run:
+`ossf-CVE-2017-16087` (`fs-git`, CmdI) and `ossf-CVE-2017-0931`
+(`html-janitor`, XSS). The refreshed controlled plan at
+`/tmp/screw-d02-ossf-target-controlled-v2` selects both OSSF gates with no
+issues. Live fs-git run `/tmp/screw-d02-ossf-fsgit-run`, benchmark
+`20260502-092046`, completed 2/2 invocations, found the vulnerable shell
+`exec` chain, and produced three patched `CWE-88` argument-injection findings.
+Live html-janitor run `/tmp/screw-d02-ossf-htmljanitor-run`, benchmark
+`20260502-092529`, completed 2/2 invocations with zero patched findings but
+missed the vulnerable `innerHTML` parsing sink. Generated payloads are in
+`/tmp/screw-d02-ossf-fsgit-failure-inputs` and
+`/tmp/screw-d02-ossf-htmljanitor-failure-inputs`; keep both `cmdi.yaml` and
+`xss.yaml` unchanged until those examples are reviewed.
 
 **When starting Phase 4:** D-02 threshold optimization runs as part of the autoresearch loop. The benchmark pipeline is validated (PR #3).
 
