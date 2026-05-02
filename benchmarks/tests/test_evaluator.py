@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from benchmarks.runner.code_extractor import CodeVariant, ExtractedCode
+from benchmarks.runner.cwe import load_hierarchy
 from benchmarks.runner.evaluator import (
     EvalConfig,
     Evaluator,
@@ -226,6 +227,7 @@ class TestEvaluatorRelatedContext:
                 max_files_per_variant=1,
             )
         )
+        evaluator._cases_dir.mkdir(parents=True)
 
         with (
             patch("benchmarks.runner.evaluator.extract_code_for_case", side_effect=extract),
@@ -234,6 +236,125 @@ class TestEvaluatorRelatedContext:
             evaluator._scan_variant(case, "sqli", CodeVariant.VULNERABLE, engine)
 
         assert invoked_files == ["src/App/SqlBuilder.cs"]
+
+    def test_max_files_per_variant_scopes_metrics_to_evaluated_files(self, tmp_path):
+        case = BenchmarkCase(
+            case_id="scored-cap",
+            project="p",
+            language=Language.CSHARP,
+            vulnerable_version="v1",
+            patched_version="v2",
+            ground_truth=[
+                Finding(
+                    cwe_id="CWE-89",
+                    kind=FindingKind.FAIL,
+                    location=CodeLocation(
+                        file="src/App/SqlBuilder.cs",
+                        start_line=10,
+                        end_line=10,
+                    ),
+                ),
+                Finding(
+                    cwe_id="CWE-89",
+                    kind=FindingKind.FAIL,
+                    location=CodeLocation(
+                        file="src/App/OtherQuery.cs",
+                        start_line=20,
+                        end_line=20,
+                    ),
+                ),
+                Finding(
+                    cwe_id="CWE-89",
+                    kind=FindingKind.PASS,
+                    location=CodeLocation(
+                        file="src/App/SqlBuilder.cs",
+                        start_line=10,
+                        end_line=10,
+                    ),
+                ),
+                Finding(
+                    cwe_id="CWE-89",
+                    kind=FindingKind.PASS,
+                    location=CodeLocation(
+                        file="src/App/OtherQuery.cs",
+                        start_line=20,
+                        end_line=20,
+                    ),
+                ),
+            ],
+            source_dataset="reality-check-csharp",
+        )
+
+        def extract(*_args, include_related_context=False):
+            assert include_related_context is False
+            return [
+                ExtractedCode(
+                    file_path="src/App/SqlBuilder.cs",
+                    content="query",
+                    language="csharp",
+                ),
+                ExtractedCode(
+                    file_path="src/App/OtherQuery.cs",
+                    content="other",
+                    language="csharp",
+                ),
+            ]
+
+        def invoke(
+            _prompt: str,
+            _config: object,
+            context: dict[str, object] | None = None,
+        ) -> InvokeResult:
+            assert context is not None
+            if context["variant"] == "vulnerable":
+                return InvokeResult(
+                    success=True,
+                    findings=[
+                        {
+                            "cwe_id": "CWE-89",
+                            "file": "ignored-by-normalizer.cs",
+                            "start_line": 10,
+                            "end_line": 10,
+                            "confidence": 0.9,
+                            "message": "SQLi",
+                        }
+                    ],
+                )
+            return InvokeResult(success=True, findings=[])
+
+        engine = MagicMock()
+        engine.assemble_scan.return_value = {
+            "core_prompt": "Detect SQL injection.",
+            "code": "query",
+        }
+        evaluator = Evaluator(
+            EvalConfig(
+                results_dir=tmp_path,
+                max_files_per_variant=1,
+            )
+        )
+        evaluator._cases_dir.mkdir(parents=True)
+
+        with (
+            patch("benchmarks.runner.evaluator.extract_code_for_case", side_effect=extract),
+            patch("benchmarks.runner.evaluator.invoke_claude", side_effect=invoke),
+        ):
+            summary = evaluator._evaluate_group(
+                "sqli",
+                "reality-check-csharp",
+                [case],
+                engine,
+                load_hierarchy(),
+            )
+
+        metric = next(
+            metric
+            for metric in summary.metrics
+            if metric.cwe_id is None and metric.language is None
+        )
+        assert metric.true_positives == 1
+        assert metric.false_negatives == 0
+        assert metric.true_negatives == 1
 
     def test_related_context_can_be_enabled_for_one_case(self, tmp_path):
         case = BenchmarkCase(

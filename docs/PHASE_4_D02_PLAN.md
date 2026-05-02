@@ -384,6 +384,24 @@ Only after Tasks 1-4 are resolved:
   `--max-retries 1`; result was TP 1, FP 9, TN 542, FN 546, vulnerable
   findings 6, patched findings 5; use the resulting payload for evidence
   review before considering any SQLi knowledge change
+- 2026-05-02 next priority-stratified probe:
+  `/tmp/screw-d02-next-priority-controlled` selected 8 executable cases after
+  refreshing the broader plan. Full cap-3 validation at
+  `/tmp/screw-d02-next-priority-cap3-validation` measured 36 prompts and about
+  515k estimated tokens, so the whole batch remains too large for casual live
+  execution. The narrowed Exponent CMS CVE-2016-7788 cap-2 live run at
+  `/tmp/screw-d02-morefixes-exponent-7788-cap2-run`, benchmark run
+  `20260502-081148`, completed 3 of 4 Claude invocations and timed out on
+  vulnerable `eventController.php`. It also returned patched findings. Treat
+  this as packaging/runtime/scoring evidence, not SQLi YAML evidence.
+- Capped scoring is now file-scope aware. When `--max-files-per-variant` limits
+  execution, evaluator metrics are computed only over truth files actually
+  evaluated by the relevant vulnerable/patched variants, and failure-input
+  missed examples exclude outside-cap truth spans. The regenerated Exponent
+  CVE-2016-7788 payload at
+  `/tmp/screw-d02-morefixes-exponent-7788-cap2-failure-inputs-cap-aware/sqli_failure_input.json`
+  removes outside-cap `addressController.php` misses and leaves selected-file
+  `ecomconfigController.php` misses plus selected patched findings.
 - require explicit `--allow-claude-invocation` before a plan can become
   executable
 - require a second executor-level `--allow-claude-invocation` with `--execute`
@@ -640,12 +658,14 @@ First controlled smoke execution, verified 2026-04-29:
 - For high-cost MoreFixes cases, prefer a case-filtered validation with an
   explicit `--max-files-per-variant` cap before any live invocation. Treat
   capped results as representative sampling evidence, not full-case benchmark
-  metrics.
+  metrics. Capped scoring is now internally file-scope consistent, but it is
+  still not equivalent to uncapped gate coverage.
 - Do not mutate `sqli.yaml` from the capped Exponent CMS runs. Sink-line
   anchoring fixed one concrete localization defect. Structured-output failures
-  now leave raw artifacts for review, but the latest live metrics remain
-  blocked by that failed invocation and mixed patched-source fix-semantics
-  outcomes rather than reusable SQLi knowledge evidence.
+  now leave raw artifacts for review, and cap-aware scoring avoids charging the
+  agent for files it never saw. The latest Exponent runs remain blocked by
+  failed/timed-out invocations and mixed patched-source fix-semantics outcomes
+  rather than reusable SQLi knowledge evidence.
 
 Focused rerun example:
 

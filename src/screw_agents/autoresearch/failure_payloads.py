@@ -99,6 +99,8 @@ def build_failure_payloads_from_controlled_report(
             raw_case=raw_case,
             case=case,
             include_related_context=report_case.include_related_context,
+            vulnerable_files=frozenset(report_case.vulnerable_files),
+            patched_files=frozenset(report_case.patched_files),
         )
 
     grouped: dict[str, AgentPayloadParts] = defaultdict(AgentPayloadParts)
@@ -254,6 +256,8 @@ class ControlledCaseContext:
         raw_case: dict[str, Any],
         case: BenchmarkCase,
         include_related_context: bool,
+        vulnerable_files: frozenset[str],
+        patched_files: frozenset[str],
     ) -> None:
         self.agent_name = agent_name
         self.manifest_path = manifest_path
@@ -261,6 +265,8 @@ class ControlledCaseContext:
         self.raw_case = raw_case
         self.case = case
         self.include_related_context = include_related_context
+        self.vulnerable_files = vulnerable_files
+        self.patched_files = patched_files
 
 
 class AgentPayloadParts:
@@ -387,7 +393,8 @@ def _missed_examples(
         return []
     hierarchy = load_hierarchy()
     examples: list[FailureExample] = []
-    for truth in _truths(context.case, FindingKind.FAIL):
+    paired_fail_files = context.vulnerable_files & context.patched_files
+    for truth in _truths(context.case, FindingKind.FAIL, files=paired_fail_files):
         if _has_matching_finding(truth, vulnerable_findings, hierarchy):
             continue
         code_excerpt = (
@@ -488,8 +495,17 @@ def _false_positive_examples(
     return examples
 
 
-def _truths(case: BenchmarkCase, kind: FindingKind) -> list[Finding]:
-    return [truth for truth in case.ground_truth if truth.kind == kind]
+def _truths(
+    case: BenchmarkCase,
+    kind: FindingKind,
+    *,
+    files: frozenset[str] | None = None,
+) -> list[Finding]:
+    return [
+        truth
+        for truth in case.ground_truth
+        if truth.kind == kind and (files is None or truth.location.file in files)
+    ]
 
 
 def _has_matching_finding(
