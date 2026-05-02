@@ -498,6 +498,26 @@ Only after Tasks 1-4 are resolved:
   remaining unmatched spans are broad helper/bridge locations around the same
   chain, so keep `cmdi.yaml` v1.0.2 unchanged and treat the residual as
   localization/scoring granularity before broader validation.
+- Broader representative validation planning is refreshed on current `main`
+  after the accepted SQLi/CmdI payload triages. Dry-run and controlled-plan
+  artifacts are `/tmp/screw-d02-broader-representative-plan-v2` and
+  `/tmp/screw-d02-broader-priority-controlled-v2`. The priority-stratified plan
+  selects 9 executable cases across XSS, CmdI, SQLi, and SSTI. Full cap-5
+  executor preflight at `/tmp/screw-d02-broader-priority-cap5-preflight-v2`
+  measures 46 prompts, 2,275,045 prompt characters, and about 568,780 estimated
+  tokens; it should not be the first live run.
+- Execute broader validation in waves. Wave A: run only
+  `morefixes-CVE-2015-2972-https_____github.com__sysphonic__thetis` with
+  `--max-files-per-variant 3`; preflight
+  `/tmp/screw-d02-broader-priority-thetis-cap3-preflight-v2` is 6 prompts,
+  211,938 prompt characters, and fits the default prompt guard. Wave B: run
+  `morefixes-CVE-2016-7781-https_____github.com__exponentcms__exponent-cms`
+  only after explicit budget acceptance; cap-2 preflight
+  `/tmp/screw-d02-broader-priority-exponent7781-cap2-preflight-v2` is 4
+  prompts and 317,317 prompt characters, above the default guard, and includes
+  large `eventController.php` prompts. Wave C: only after Wave A/B payloads are
+  classified, consider the full 9-case cap-5 broader plan as a representative
+  regression/sampling run, not full-corpus evidence.
 - require explicit `--allow-claude-invocation` before a plan can become
   executable
 - require a second executor-level `--allow-claude-invocation` with `--execute`

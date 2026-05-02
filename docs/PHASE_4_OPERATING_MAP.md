@@ -392,6 +392,31 @@ OSSF target-source unlock, verified 2026-05-02:
   whole-class `Shell`, `getRawCommandLine`, `getShellCommandLine`,
   `getCommandline`, and `verifyShellState`. Treat them as related-file and
   localization/scoring granularity, not as a new CmdI agent-knowledge gap.
+- Refreshed broader representative validation plan:
+  after closing the SQLi and CmdI payload triages, current-main no-Claude
+  planning wrote `/tmp/screw-d02-broader-representative-plan-v2` and
+  `/tmp/screw-d02-broader-priority-controlled-v2`. The priority-stratified
+  controlled plan uses `--max-cases-per-dataset 2 --max-cases-per-agent 6` and
+  selects 9 executable cases: the accepted OSSF/non-OSSF regression cases plus
+  two new MoreFixes SQLi frontier cases,
+  `morefixes-CVE-2015-2972-https_____github.com__sysphonic__thetis` and
+  `morefixes-CVE-2016-7781-https_____github.com__exponentcms__exponent-cms`.
+  Full cap-5 preflight at
+  `/tmp/screw-d02-broader-priority-cap5-preflight-v2` measures 46 prompts,
+  2,275,045 prompt characters, and about 568,780 estimated tokens, so treat it
+  as the target broader plan, not the first live command.
+- Staged execution plan for broader validation:
+  Wave A should run Thetis only with cap 3. Preflight
+  `/tmp/screw-d02-broader-priority-thetis-cap3-preflight-v2` has 6 prompts,
+  211,938 prompt characters, about 52,987 estimated tokens, and no executor
+  issues under the default 250k prompt guard. Wave B should run Exponent CMS
+  CVE-2016-7781 only after explicit budget acceptance; even cap 2 at
+  `/tmp/screw-d02-broader-priority-exponent7781-cap2-preflight-v2` is 4
+  prompts and 317,317 prompt characters, above the default guard, and includes
+  large `eventController.php` prompts. Wave C should rerun the full 9-case
+  cap-5 broader plan only after Wave A/B failure payloads are reviewed and any
+  needed machinery or scoring updates are made. Capped runs remain sampling
+  evidence only and must not be presented as full-case benchmark claims.
 
 Phase 4 closure does not require manually processing every benchmark
 vulnerability. It does require a reliable workflow, clear dataset
