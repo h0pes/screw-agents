@@ -298,6 +298,18 @@ under the already accepted C# ORM literal guidance that found
 `AbstractCharType` and `AbstractStringType`. Keep `sqli.yaml` unchanged unless
 broader future sampling shows repeated missed unsafe literal renderers without
 reviving patched false positives.
+No-Claude CmdI/Plexus payload review of
+`/tmp/screw-d02-ssti-v101-accepted-consolidation-cap5-failure-inputs/cmdi_failure_input.json`
+classified the five Plexus misses as non-actionable for `cmdi.yaml` v1.0.2.
+Diagnostics show zero pure misses, zero false-positive findings, all five
+misses with related findings, and three related-file credit candidates. The
+agent already reports the root unsafe shell-wrapper chain in
+`BourneShell.unifyQuotes`, `BourneShell.getExecutionPreamble`, and the
+`Runtime.exec` sinks in `Commandline.java`, while patched Plexus has zero
+findings. The remaining unmatched truth spans are broad helper/bridge regions
+(`Shell`, `getRawCommandLine`, `getShellCommandLine`, `getCommandline`, and
+`verifyShellState`) around the same chain, so treat them as localization and
+truth-span granularity rather than a new CmdI knowledge gap.
 
 **When starting Phase 4:** D-02 threshold optimization runs as part of the autoresearch loop. The benchmark pipeline is validated (PR #3).
 

@@ -488,6 +488,16 @@ Only after Tasks 1-4 are resolved:
   `CharBooleanType.ObjectToSQLString()` renderer under already-covered C# ORM
   literal guidance. Keep `sqli.yaml` v1.0.2 unchanged unless broader sampling
   shows a repeated unsafe literal-renderer miss without patched regressions.
+- No-Claude CmdI review of the generated payload at
+  `/tmp/screw-d02-ssti-v101-accepted-consolidation-cap5-failure-inputs/cmdi_failure_input.json`
+  closed the five Plexus misses as non-actionable for immediate YAML mutation.
+  The payload has no pure misses and no false-positive findings; all five
+  missed truth spans have related findings, with three related-file credit
+  candidates. The agent already found the root BourneShell quoting/preamble and
+  `Runtime.exec` shell-wrapper sinks, while patched Plexus stayed clean. The
+  remaining unmatched spans are broad helper/bridge locations around the same
+  chain, so keep `cmdi.yaml` v1.0.2 unchanged and treat the residual as
+  localization/scoring granularity before broader validation.
 - require explicit `--allow-claude-invocation` before a plan can become
   executable
 - require a second executor-level `--allow-claude-invocation` with `--execute`
