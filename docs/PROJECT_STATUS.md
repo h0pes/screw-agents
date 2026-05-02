@@ -239,6 +239,20 @@ show TP 0 / FN 1 because OSSF truth anchors the CVE on the preceding
 `document.createElement('div')` line 43; the generated payload at
 `/tmp/screw-d02-ossf-htmljanitor-xss-v102-failure-inputs/xss_failure_input.json`
 classifies this as a nearby same-file finding, not a pure miss.
+The cap-5 accepted-slice consolidation with OSSF is recorded at
+`/tmp/screw-d02-ossf-accepted-consolidation-cap5-run`, benchmark
+`20260502-122350`. It merged the reviewed OSSF fs-git/html-janitor cases with
+the accepted Zope, Plexus, NHibernate, Rails, AntiSamy, and MLflow slices. The
+run completed all 30 Claude invocations with no failed, timed-out, or stale
+calls, used 1,358,695 prompt characters, and kept every patched side clean with
+zero patched findings across all eight cases. Generated payloads are in
+`/tmp/screw-d02-ossf-accepted-consolidation-cap5-failure-inputs`. Remaining
+misses are vulnerable-side only: html-janitor is the known adjacent-line truth
+anchor mismatch, Plexus misses have related findings and related-file credit,
+AntiSamy/Rails include test/truth-span artifacts, NHibernate remains
+patched-clean with low capped recall, and MLflow missed again in mixed
+consolidation despite earlier focused success, so SSTI variance remains the
+next review item before any `ssti.yaml` mutation.
 
 **When starting Phase 4:** D-02 threshold optimization runs as part of the autoresearch loop. The benchmark pipeline is validated (PR #3).
 
