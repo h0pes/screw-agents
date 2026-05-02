@@ -1,5 +1,5 @@
 # domains/injection-input-handling/xss.yaml
-# Cross-Site Scripting Agent Definition — screw-agents v1.0.1
+# Cross-Site Scripting Agent Definition — screw-agents v1.0.2
 # Generated from 4 research files covering Tiers 1-4 of KNOWLEDGE_SOURCES.md
 # Research date: 2026-04-06
 
@@ -7,8 +7,8 @@ meta:
   name: xss
   display_name: "Cross-Site Scripting Reviewer"
   domain: injection-input-handling
-  version: "1.0.1"
-  last_updated: "2026-04-29"
+  version: "1.0.2"
+  last_updated: "2026-05-02"
   short_description: "Cross-site scripting via unsanitized user input reflected into HTML, JavaScript, or other browser-executed contexts"
 
   cwes:
@@ -290,7 +290,11 @@ core_prompt: |
   `insertAdjacentHTML()`, `eval()`, `new Function()`, `setTimeout/setInterval(string)`,
   `dangerouslySetInnerHTML`, `v-html`, `bypassSecurityTrustHtml()`, `{{{ }}}` triple braces,
   `<%- %>` (EJS), `!= var` (Pug), `res.send()/res.write()`, jQuery `.html()/.append()/.prepend()`,
-  `$(htmlString)` constructor, `.attr("onclick", ...)`.
+  `$(htmlString)` constructor, `.attr("onclick", ...)`. Custom HTML sanitizers are also sinks
+  when they parse attacker-controlled HTML by assigning it to `innerHTML` on an element created in
+  the active document before allowlist traversal or cleanup. Prefer inert parsing via
+  `document.implementation.createHTMLDocument()`, `<template>.content`, or a proven sanitizer
+  library before returning HTML to a live DOM sink.
 
   **Go:** `fmt.Fprintf(w, ...)`, `io.WriteString(w, ...)`, `w.Write([]byte(...))`,
   `template.HTML/JS/CSS/URL/HTMLAttr/JSStr/Srcset()` type casts, `text/template` usage.
@@ -339,7 +343,8 @@ core_prompt: |
   context (HTML-escaped value inside `<script>` block); user-controlled URL in href/src without
   scheme validation (javascript: URI); DOM source flowing to DOM sink without sanitization;
   unquoted HTML attribute with template variable; non-HTML template extension with user input
-  in Flask/Askama/Tera.
+  in Flask/Askama/Tera; custom JavaScript sanitizer or cleaner accepts caller-controlled HTML and
+  first parses it with active-document `document.createElement(...).innerHTML` before sanitization.
 
   **False positive signals:** Framework auto-escaping active with no bypass applied (React JSX
   `{var}`, Angular `{{ var }}`, Vue `{{ var }}`, Django `{{ var }}`, Rails `<%= var %>`,
@@ -347,7 +352,9 @@ core_prompt: |
   server-controlled data (env vars, config, settings, enums); innerHTML assignment with
   DOMPurify.sanitize(); URL in href validated for http/https scheme; test/fixture code with
   hardcoded values; JSON response with application/json Content-Type (not text/html);
-  textContent/createTextNode/insertAdjacentText used instead of innerHTML.
+  textContent/createTextNode/insertAdjacentText used instead of innerHTML; custom sanitizer parses
+  into an inert document or `<template>` before allowlist traversal and does not move attacker
+  nodes into the active document until after sanitization.
 
   ## Severity Assessment
 
@@ -453,6 +460,12 @@ detection_heuristics:
       pattern: "innerHTML/outerHTML assignment with user-controlled data"
       languages: [javascript, typescript]
       example: "element.innerHTML = userInput"
+    - id: js-custom-sanitizer-active-document-innerhtml
+      pattern: "Custom sanitizer/parser assigns user-controlled HTML to active-document innerHTML before sanitization"
+      languages: [javascript, typescript]
+      example: "const sandbox = document.createElement('div'); sandbox.innerHTML = html; sanitize(sandbox);"
+      cves: ["CVE-2017-0931"]
+      note: "Report when a sanitizer-like function accepts caller-controlled HTML and first parses it in the active document. Inert-document or template parsing is the discriminator, not the package name."
     - id: js-document-write
       pattern: "document.write() or document.writeln() with user input"
       languages: [javascript, typescript]
@@ -853,6 +866,17 @@ few_shot_examples:
         document.getElementById('preview').innerHTML = content;
       explanation: "URL fragment (never sent to server) flows directly to innerHTML. Exploit: page.html#<img src=x onerror=alert(document.cookie)>. Fix: Use textContent, or sanitize with DOMPurify.sanitize(content)."
 
+    - language: javascript
+      label: "Custom sanitizer parses attacker HTML in active document"
+      code: |
+        HTMLJanitor.prototype.clean = function (html) {
+          var sandbox = document.createElement('div');
+          sandbox.innerHTML = html;
+          this._sanitize(sandbox);
+          return sandbox.innerHTML;
+        };
+      explanation: "The cleaner accepts caller-controlled HTML and parses it with active-document innerHTML before sanitization. This exposes browser parser and mutation behavior during sanitizer traversal. Fix: parse in an inert document or template, or use a proven sanitizer such as DOMPurify before returning HTML."
+
     - language: java
       label: "Servlet direct response with request parameter"
       code: |
@@ -1047,6 +1071,18 @@ few_shot_examples:
         import DOMPurify from 'dompurify';
         element.innerHTML = DOMPurify.sanitize(userContent);
       explanation: "DOMPurify sanitizes HTML using an allowlist. Safe for rendering user-authored HTML (comments, rich text)."
+
+    - language: javascript
+      label: "Custom sanitizer parses in inert document"
+      code: |
+        HTMLJanitor.prototype.clean = function (html) {
+          const sandbox = document.implementation.createHTMLDocument();
+          const root = sandbox.createElement('div');
+          root.innerHTML = html;
+          this._sanitize(sandbox, root);
+          return root.innerHTML;
+        };
+      explanation: "The parser state is isolated from the active document before allowlist traversal. This is the patched discriminator for custom sanitizer code; still review the sanitizer policy itself for unsafe tags, attributes, and URL schemes."
 
     - language: java
       label: "JSTL c:out with escapeXml"

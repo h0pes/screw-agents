@@ -413,7 +413,21 @@ Only after Tasks 1-4 are resolved:
   issues. Fs-git found the vulnerable shell `exec` chain but produced patched
   `CWE-88` argument-injection findings; html-janitor stayed patched-clean but
   missed the vulnerable `innerHTML` sink. Treat these as new concrete failure
-  payloads, not immediate YAML-mutation evidence.
+  payloads, not aggregate YAML-mutation evidence. Manual review accepted the
+  html-janitor example as reusable XSS sanitizer-design evidence and refined
+  `xss.yaml` to v1.0.2: custom JavaScript sanitizers that parse
+  caller-controlled HTML with active-document `innerHTML` before cleanup are
+  reportable, while inert-document/template parsing is the patched
+  discriminator. The fs-git patched `CWE-88` reports remain fix-semantics /
+  residual-risk review evidence, so `cmdi.yaml` stays unchanged.
+- Focused v1.0.2 XSS/html-janitor validation:
+  `/tmp/screw-d02-ossf-htmljanitor-xss-v102-run`, benchmark
+  `20260502-093734`, completed 2/2 invocations with no executor issues. It
+  produced one vulnerable finding and zero patched findings. The finding
+  anchors the active-document `innerHTML` parse on `src/html-janitor.js:44`;
+  OSSF truth anchors the CVE on adjacent `document.createElement('div')` line
+  43, so metrics still report TP 0 / FN 1 even though the failure payload
+  classifies the result as a nearby same-file finding rather than a pure miss.
 - require explicit `--allow-claude-invocation` before a plan can become
   executable
 - require a second executor-level `--allow-claude-invocation` with `--execute`

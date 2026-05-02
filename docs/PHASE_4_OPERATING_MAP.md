@@ -286,9 +286,25 @@ OSSF target-source unlock, verified 2026-05-02:
   payload:
   `/tmp/screw-d02-ossf-htmljanitor-failure-inputs/xss_failure_input.json`.
 - Decision: this is a benchmark-source unlock plus two new concrete failure
-  payloads. Do not mutate `cmdi.yaml` or `xss.yaml` until the patched
-  argument-injection reports and html-janitor DOM parsing miss are reviewed as
-  reusable domain evidence.
+  payloads. Manual review accepted the html-janitor DOM parsing miss as
+  reusable XSS sanitizer-design evidence and refined `xss.yaml` to v1.0.2:
+  custom JavaScript sanitizers that parse caller-controlled HTML with
+  active-document `innerHTML` before allowlist cleanup are reportable, while
+  inert-document/template parsing is the patched discriminator. The fs-git
+  patched findings remain a CmdI fix-semantics/residual-risk question because
+  they are `CWE-88` argument-injection reports after the patch changed shell
+  `exec` to `execFile`, and the OSSF metadata includes both `CWE-078` and
+  `CWE-088`; keep `cmdi.yaml` unchanged.
+- Focused validation of `xss.yaml` v1.0.2:
+  `/tmp/screw-d02-ossf-htmljanitor-xss-v102-run`, benchmark
+  `20260502-093734`, completed both Claude invocations with no executor
+  issues. It produced one vulnerable finding and zero patched findings. The
+  agent correctly anchors the dangerous active-document `innerHTML` assignment
+  at `src/html-janitor.js:44`; OSSF truth anchors the CVE on adjacent
+  `document.createElement('div')` line 43, so metrics still show TP 0 / FN 1.
+  The generated payload at
+  `/tmp/screw-d02-ossf-htmljanitor-xss-v102-failure-inputs/xss_failure_input.json`
+  classifies this as a nearby same-file finding, not a pure miss.
 
 Phase 4 closure does not require manually processing every benchmark
 vulnerability. It does require a reliable workflow, clear dataset
