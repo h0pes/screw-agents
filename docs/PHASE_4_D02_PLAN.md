@@ -297,6 +297,19 @@ Only after Tasks 1-4 are resolved:
   `AbstractStringType.ObjectToSQLString`. Generated failure payload:
   `/tmp/screw-d02-nhibernate-shared-ranked-cap5-failure-inputs/sqli_failure_input.json`.
   Keep `sqli.yaml` unchanged.
+- Repaired shared-cap cross-agent execution at
+  `/tmp/screw-d02-cross-agent-shared-ranked-cap3-run`, benchmark run
+  `20260502-074349`, completed all 12 invocations with no failures, timeouts,
+  or stale calls. It restored SQLi/NHibernate to TP 2 / FP 0 / TN 25 / FN 23,
+  kept XSS/Zope clean at TP 1 / FP 0 / TN 1 / FN 0, kept all patched finding
+  counts at zero, and left AntiSamy as the known test-span miss. SSTI/MLflow
+  missed in the mixed run, generating
+  `/tmp/screw-d02-cross-agent-shared-ranked-cap3-failure-inputs/ssti_failure_input.json`,
+  but the focused repeat at `/tmp/screw-d02-ssti-mlflow-repeat-run`, benchmark
+  run `20260502-075355`, immediately restored TP 1 / FP 0 / TN 2 / FN 1 with
+  the expected Jinja2 `from_string(...).render` finding and zero patched
+  findings. Keep `ssti.yaml` unchanged unless broader SSTI sampling shows
+  stable concrete misses.
 - 2026-05-01 capped Exponent CMS live sampling run:
   `/tmp/screw-d02-morefixes-exponent-cap2-run`, benchmark run
   `20260501-091647`, used `--max-files-per-variant 2` and `--max-retries 1`.

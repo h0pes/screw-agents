@@ -102,6 +102,17 @@ the accepted behavior: TP 2, FP 0, TN 25, FN 23, with vulnerable findings on
 The generated payload at
 `/tmp/screw-d02-nhibernate-shared-ranked-cap5-failure-inputs/sqli_failure_input.json`
 keeps `sqli.yaml` mutation disabled.
+The repaired shared-cap cross-agent live run at
+`/tmp/screw-d02-cross-agent-shared-ranked-cap3-run`, benchmark run
+`20260502-074349`, completed all 12 invocations with no failures, timeouts, or
+stale calls. It kept XSS/Zope clean, restored SQLi/NHibernate to TP 2 / FP 0 /
+TN 25 / FN 23, and kept all patched finding counts at zero. SSTI/MLflow missed
+in that mixed run, but a focused repeat at `/tmp/screw-d02-ssti-mlflow-repeat-run`,
+benchmark run `20260502-075355`, immediately restored the accepted SSTI shape
+(TP 1, FP 0, TN 2, FN 1) with a finding on the Jinja2
+`Environment(...).from_string(...).render` sink and zero patched findings.
+Treat the mixed SSTI miss as live-run variance for now; keep `ssti.yaml`
+unchanged unless broader SSTI sampling produces stable concrete misses.
 The capped Exponent CMS live sampling run at
 `/tmp/screw-d02-morefixes-exponent-cap2-run`, benchmark run `20260501-091647`,
 returned 7 vulnerable findings and 0 patched findings, but both patched

@@ -140,6 +140,21 @@ on `AbstractCharType.ObjectToSQLString` and
 `AbstractStringType.ObjectToSQLString`. Keep this as executor-packaging
 validation, not new SQLi YAML evidence.
 
+The repaired shared-cap cross-agent live run,
+`/tmp/screw-d02-cross-agent-shared-ranked-cap3-run`, benchmark run
+`20260502-074349`, completed all 12 invocations with 0 failures, 0 timeouts,
+and 0 stale calls. Metrics were: XSS AntiSamy TP 0 / FP 0 / TN 1 / FN 1; XSS
+Zope TP 1 / FP 0 / TN 1 / FN 0; SQLi NHibernate TP 2 / FP 0 / TN 25 / FN 23;
+SSTI MLflow TP 0 / FP 0 / TN 2 / FN 2. Finding counts were patched-clean for
+all four cases. The generated payloads are in
+`/tmp/screw-d02-cross-agent-shared-ranked-cap3-failure-inputs`. Because SSTI
+MLflow had previously been accepted, a focused repeat was run at
+`/tmp/screw-d02-ssti-mlflow-repeat-run`, benchmark run `20260502-075355`; it
+completed both invocations cleanly and restored TP 1 / FP 0 / TN 2 / FN 1 with
+the expected Jinja2 `from_string(...).render` finding and zero patched
+findings. Treat the mixed SSTI miss as variance unless larger SSTI sampling
+shows stable misses.
+
 The first capped Exponent CMS live sampling run,
 `/tmp/screw-d02-morefixes-exponent-cap2-run`, benchmark run
 `20260501-091647`, produced 7 vulnerable findings and 0 patched findings, but
