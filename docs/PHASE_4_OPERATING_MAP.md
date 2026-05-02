@@ -379,6 +379,19 @@ OSSF target-source unlock, verified 2026-05-02:
   `AbstractStringType`). Treat this as capped/scoring/truth-span noise plus a
   remaining sibling recall miss, not as justification to broaden SQLi guidance
   before larger sampling.
+- CmdI/Plexus miss triage after the same consolidation reviewed
+  `/tmp/screw-d02-ssti-v101-accepted-consolidation-cap5-failure-inputs/cmdi_failure_input.json`
+  without another Claude run. Conclusion: keep `cmdi.yaml` v1.0.2 unchanged.
+  The payload has `pure_misses: 0`, `false_positive_findings: 0`,
+  `missed_with_related_findings: 5`, and
+  `related_file_credit_candidates: 3`. The vulnerable run already reported the
+  root shell-wrapper problem in `BourneShell.unifyQuotes`,
+  `BourneShell.getExecutionPreamble`, and the `Runtime.exec` sinks in
+  `Commandline.java`; patched Plexus remained empty. The remaining unmatched
+  truth spans are broad bridge/helper spans around the same chain, including
+  whole-class `Shell`, `getRawCommandLine`, `getShellCommandLine`,
+  `getCommandline`, and `verifyShellState`. Treat them as related-file and
+  localization/scoring granularity, not as a new CmdI agent-knowledge gap.
 
 Phase 4 closure does not require manually processing every benchmark
 vulnerability. It does require a reliable workflow, clear dataset
