@@ -328,22 +328,34 @@ acceptance; cap 2 still measures 4 prompts and 317,317 prompt characters at
 large `eventController.php` prompts similar to earlier timeout-prone Exponent
 work. Wave C is the full 9-case cap-5 broader validation only after Wave A/B
 payloads are classified.
-Wave A Thetis execution ran at
+Wave A Thetis execution first ran at
 `/tmp/screw-d02-broader-wave-a-thetis-cap3-run`, benchmark `20260502-162848`.
 It completed all 6 Claude invocations with no failed, timed-out, or stale
-calls, but it is not accepted as clean validation evidence: vulnerable findings
-2, patched findings 3, and the generated payload at
+calls, but it was not accepted as clean validation evidence: vulnerable
+findings 2, patched findings 3, and the generated payload at
 `/tmp/screw-d02-broader-wave-a-thetis-cap3-failure-inputs/sqli_failure_input.json`
-contains 3 patched false-positive findings plus 5 missed truth spans. Manual
-triage classifies this as packaging/context evidence, not a `sqli.yaml`
-mutation trigger. The patch adds `SqlHelper.validate_token` calls and
-tightens `sql_helper.rb` to an anchored token regex that rejects quotes,
-whitespace, comments, operators, and parentheses; cap-3 prompts selected
+contained 3 patched false-positive findings plus 5 missed truth spans. Manual
+triage classified this as packaging/context evidence: cap-3 prompts selected
 `desktop_controller.rb`, `address.rb`, and `addressbook_controller.rb` but did
-not include `sql_helper.rb`, so the agent had to speculate about validator
-semantics. Do not run Wave B or the full broader plan until helper-context
-packaging for selected files is addressed or explicitly accepted as a known
-limitation.
+not include `sql_helper.rb`, so the agent had to speculate about
+`SqlHelper.validate_token` semantics.
+
+Helper-context packaging is now implemented for controlled executor runs and
+is enabled by default. It attaches directly referenced, security-relevant local
+helper files as bounded, non-reportable prompt context and the executor report
+now lists context file names. The Thetis cap-3 helper-context preflight at
+`/tmp/screw-d02-broader-wave-a-thetis-cap3-helper-sqli-v103-preflight` measured
+6 prompts, 239,906 prompt characters, and no executor issues. Focused live
+validation at `/tmp/screw-d02-broader-wave-a-thetis-cap3-helper-sqli-v103-run`,
+benchmark `20260502-213010`, completed all 6 invocations cleanly and produced
+vulnerable findings 1, patched findings 0. The accepted SQLi precision update
+is `sqli.yaml` v1.0.3: strict helper-visible value sanitizers suppress
+defense-in-depth reports, and strict single-token structural validation is not
+reported as CWE-89 unless SQL grammar control remains. Rails regression at
+`/tmp/screw-d02-sqli-rails-v103-regression-run`, benchmark `20260502-213723`,
+preserved the accepted LIMIT/OFFSET signal with vulnerable findings 1 and
+patched findings 0. Wave B can proceed only as the next staged broader run,
+not as full-corpus evidence.
 
 **When starting Phase 4:** D-02 threshold optimization runs as part of the autoresearch loop. The benchmark pipeline is validated (PR #3).
 

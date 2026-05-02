@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import subprocess
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -39,6 +40,37 @@ _RC_LANG_DIRS = {
 }
 
 _MAX_FILES_PER_CASE = 10  # cap to avoid excessive Claude calls for large cases
+_MAX_HELPER_CONTEXT_FILES_PER_PRIMARY = 3
+_MAX_HELPER_CONTEXT_CHARS_PER_FILE = 40_000
+_HELPER_REFERENCE_PATTERN = re.compile(
+    r"\b([A-Z][A-Za-z0-9_]*(?:Helper|Validator|Sanitizer|Sanitiser|Escaper|"
+    r"Encoder|Decoder|Filter|Cleaner|Guard|Policy))\s*(?:\.|::)\s*([a-zA-Z_]\w*)?"
+)
+_HELPER_SECURITY_TOKENS = (
+    "auth",
+    "allow",
+    "clean",
+    "command",
+    "condition",
+    "escape",
+    "filter",
+    "html",
+    "path",
+    "permit",
+    "policy",
+    "quote",
+    "render",
+    "safe",
+    "sanitize",
+    "sanitise",
+    "scope",
+    "shell",
+    "sql",
+    "template",
+    "token",
+    "url",
+    "validate",
+)
 
 
 def extract_code_for_case(
@@ -46,6 +78,7 @@ def extract_code_for_case(
     variant: CodeVariant,
     benchmarks_external_dir: Path,
     include_related_context: bool = False,
+    include_helper_context: bool = False,
 ) -> list[ExtractedCode]:
     """Extract source code for a benchmark case."""
     ds = case.source_dataset
@@ -56,13 +89,19 @@ def extract_code_for_case(
             variant,
             benchmarks_external_dir,
             include_related_context=include_related_context,
+            include_helper_context=include_helper_context,
         )
     elif ds == "crossvul":
         return _extract_crossvul(case, variant, benchmarks_external_dir)
     elif ds in ("go-sec-code-mutated", "skf-labs-mutated"):
         return _extract_monolithic(case, variant, benchmarks_external_dir)
     elif ds == "morefixes":
-        return _extract_morefixes(case, variant, benchmarks_external_dir)
+        return _extract_morefixes(
+            case,
+            variant,
+            benchmarks_external_dir,
+            include_helper_context=include_helper_context,
+        )
     elif ds == "ossf-cve-benchmark":
         return _extract_ossf(case, variant, benchmarks_external_dir)
     elif ds == "rust-d01-real-cves":
@@ -133,6 +172,7 @@ def _extract_reality_check(
     ext_dir: Path,
     *,
     include_related_context: bool = False,
+    include_helper_context: bool = False,
 ) -> list[ExtractedCode]:
     lang_subdir = _RC_LANG_DIRS[case.source_dataset]
     repo_dir = ext_dir / case.source_dataset / "repo"
@@ -185,6 +225,12 @@ def _extract_reality_check(
             break
     if include_related_context:
         _attach_related_context(results, loaded_by_rel_path)
+    if include_helper_context:
+        _attach_helper_context(
+            results,
+            root_dir=projects_dir,
+            language=case.language.value,
+        )
     return results
 
 
@@ -256,6 +302,118 @@ def _attach_related_context(
             for rel_file, context in sorted(loaded_by_rel_path.items())
             if rel_file != piece.file_path
         ]
+
+
+def _attach_helper_context(
+    results: list[ExtractedCode],
+    *,
+    root_dir: Path,
+    language: str,
+) -> None:
+    """Attach directly referenced helper files as bounded context only."""
+    if not results or not root_dir.exists():
+        return
+
+    for piece in results:
+        existing_context = {
+            context.file_path for context in piece.context_files
+        } | {
+            Path(context.file_path).name for context in piece.context_files
+        }
+        helper_files: list[ExtractedCode] = []
+        for helper_path in _find_helper_context_paths(
+            content=piece.content,
+            root_dir=root_dir,
+            language=language,
+        ):
+            helper_rel_path = _helper_context_file_path(helper_path, root_dir)
+            if (
+                helper_rel_path == piece.file_path
+                or helper_path.name == Path(piece.file_path).name
+                or helper_rel_path in existing_context
+                or helper_path.name in existing_context
+            ):
+                continue
+            content = helper_path.read_text(errors="replace")
+            if len(content) > _MAX_HELPER_CONTEXT_CHARS_PER_FILE:
+                logger.info(
+                    "Skipping helper context file over %d chars: %s",
+                    _MAX_HELPER_CONTEXT_CHARS_PER_FILE,
+                    helper_path,
+                )
+                continue
+            helper_files.append(
+                ExtractedCode(
+                    file_path=helper_rel_path,
+                    content=content,
+                    language=language,
+                )
+            )
+            existing_context.add(helper_rel_path)
+            existing_context.add(helper_path.name)
+            if len(helper_files) >= _MAX_HELPER_CONTEXT_FILES_PER_PRIMARY:
+                break
+        piece.context_files.extend(helper_files)
+
+
+def _find_helper_context_paths(
+    *,
+    content: str,
+    root_dir: Path,
+    language: str,
+) -> list[Path]:
+    candidate_names = _helper_context_candidate_names(content, language=language)
+    if not candidate_names:
+        return []
+    matches: list[Path] = []
+    for candidate_name in candidate_names:
+        candidate = root_dir / candidate_name
+        if candidate.is_file():
+            matches.append(candidate)
+            continue
+        matches.extend(sorted(root_dir.rglob(candidate_name)))
+    return _dedupe_paths(matches)
+
+
+def _helper_context_candidate_names(content: str, *, language: str) -> list[str]:
+    if language != "ruby":
+        return []
+    names = []
+    for constant, method in _HELPER_REFERENCE_PATTERN.findall(content):
+        if not _helper_reference_is_security_relevant(constant, method):
+            continue
+        names.append(f"{_camel_to_snake(constant)}.rb")
+    return list(dict.fromkeys(names))
+
+
+def _helper_reference_is_security_relevant(receiver: str, method: str) -> bool:
+    normalized = f"{receiver}_{method}".lower()
+    return any(token in normalized for token in _HELPER_SECURITY_TOKENS)
+
+
+def _camel_to_snake(value: str) -> str:
+    value = re.sub(r"(.)([A-Z][a-z]+)", r"\1_\2", value)
+    value = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", value)
+    return value.lower()
+
+
+def _helper_context_file_path(helper_path: Path, root_dir: Path) -> str:
+    try:
+        return helper_path.relative_to(root_dir).as_posix()
+    except ValueError:
+        return helper_path.name
+
+
+def _dedupe_paths(paths: list[Path]) -> list[Path]:
+    deduped: list[Path] = []
+    seen: set[Path] = set()
+    for path in paths:
+        resolved = path.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        deduped.append(path)
+    return deduped
 
 
 def _extract_monolithic(
@@ -494,6 +652,8 @@ def _extract_morefixes(
     case: BenchmarkCase,
     variant: CodeVariant,
     ext_dir: Path,
+    *,
+    include_helper_context: bool = False,
 ) -> list[ExtractedCode]:
     """Extract MoreFixes code snapshots materialized beside truth.sarif."""
     case_dir = ext_dir / "morefixes" / case.case_id
@@ -530,6 +690,12 @@ def _extract_morefixes(
                 case.case_id,
             )
             break
+    if include_helper_context:
+        _attach_helper_context(
+            results,
+            root_dir=snapshot_dir,
+            language=case.language.value,
+        )
     return results
 
 

@@ -65,6 +65,7 @@ class EvalConfig:
     sample_max_per_agent: int = 5
     include_related_context: bool = False
     include_related_context_case_ids: set[str] = field(default_factory=set)
+    include_helper_context: bool = False
     max_files_per_variant: int = 0
 
 
@@ -325,6 +326,7 @@ class Evaluator:
                 self.config.include_related_context
                 or case.case_id in self.config.include_related_context_case_ids
             ),
+            include_helper_context=self.config.include_helper_context,
         )
         if self.config.max_files_per_variant > 0:
             code_pieces = limit_extracted_code_for_variant(

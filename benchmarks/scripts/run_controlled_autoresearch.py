@@ -93,6 +93,22 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--include-helper-context",
+        dest="include_helper_context",
+        action="store_true",
+        default=True,
+        help=(
+            "Include directly referenced local helper files as bounded, "
+            "non-reportable prompt context. Enabled by default."
+        ),
+    )
+    parser.add_argument(
+        "--no-helper-context",
+        dest="include_helper_context",
+        action="store_false",
+        help="Disable directly referenced local helper-file context packaging.",
+    )
+    parser.add_argument(
         "--max-prompt-chars",
         type=int,
         default=250_000,
@@ -133,6 +149,7 @@ def main(argv: list[str] | None = None) -> int:
         agents=args.agent,
         case_ids=args.case_id,
         include_related_context=args.include_related_context,
+        include_helper_context=args.include_helper_context,
         max_prompt_chars=args.max_prompt_chars,
         max_files_per_variant=args.max_files_per_variant,
     )

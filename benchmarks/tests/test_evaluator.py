@@ -189,8 +189,13 @@ class TestEvaluatorRelatedContext:
             source_dataset="reality-check-csharp",
         )
 
-        def extract(*_args, include_related_context=False):
+        def extract(
+            *_args,
+            include_related_context=False,
+            include_helper_context=False,
+        ):
             assert include_related_context is False
+            assert include_helper_context is False
             return [
                 ExtractedCode(
                     file_path="src/App.Test/SqlBuilderFixture.cs",
@@ -285,8 +290,13 @@ class TestEvaluatorRelatedContext:
             source_dataset="reality-check-csharp",
         )
 
-        def extract(*_args, include_related_context=False):
+        def extract(
+            *_args,
+            include_related_context=False,
+            include_helper_context=False,
+        ):
             assert include_related_context is False
+            assert include_helper_context is False
             return [
                 ExtractedCode(
                     file_path="src/App/SqlBuilder.cs",
@@ -374,8 +384,13 @@ class TestEvaluatorRelatedContext:
         )
         include_values = []
 
-        def extract(*_args, include_related_context=False):
+        def extract(
+            *_args,
+            include_related_context=False,
+            include_helper_context=False,
+        ):
             include_values.append(include_related_context)
+            assert include_helper_context is False
             return [
                 ExtractedCode(
                     file_path="Shell.java",

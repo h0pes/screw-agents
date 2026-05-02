@@ -432,8 +432,25 @@ OSSF target-source unlock, verified 2026-05-02:
   rejecting quotes, comment syntax, operators, and parentheses. Cap-3 packaging
   did not include `sql_helper.rb`, so the agent reported conditional findings
   that explicitly depended on the unseen helper semantics. Treat this as a
-  helper-context packaging gap for broader validation. Do not proceed to Wave B
-  until that gap is resolved or explicitly accepted as a run limitation.
+  helper-context packaging gap for broader validation.
+- Helper-context packaging is resolved for controlled executor runs. The
+  executor now includes directly referenced, security-relevant local helper
+  files as bounded, non-reportable context and reports the context file names.
+  The Thetis cap-3 helper-context preflight
+  `/tmp/screw-d02-broader-wave-a-thetis-cap3-helper-sqli-v103-preflight`
+  measured 6 prompts and 239,906 prompt characters with no executor issues.
+  Live validation at
+  `/tmp/screw-d02-broader-wave-a-thetis-cap3-helper-sqli-v103-run`, benchmark
+  `20260502-213010`, completed 6/6 invocations with vulnerable findings 1 and
+  patched findings 0. The accepted SQLi v1.0.3 precision update suppresses
+  value-position defense-in-depth findings when helper-visible strict
+  sanitizers reject SQL metacharacters, and treats strict single-token
+  structural validation as non-reportable unless SQL grammar control remains.
+  Rails regression at `/tmp/screw-d02-sqli-rails-v103-regression-run`,
+  benchmark `20260502-213723`, preserved the accepted LIMIT/OFFSET finding with
+  vulnerable findings 1 and patched findings 0. Wave B is now the next staged
+  broader-validation step; it remains sampling evidence, not full-corpus
+  closure.
 
 Phase 4 closure does not require manually processing every benchmark
 vulnerability. It does require a reliable workflow, clear dataset
