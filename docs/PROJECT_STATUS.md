@@ -310,6 +310,24 @@ findings. The remaining unmatched truth spans are broad helper/bridge regions
 (`Shell`, `getRawCommandLine`, `getShellCommandLine`, `getCommandline`, and
 `verifyShellState`) around the same chain, so treat them as localization and
 truth-span granularity rather than a new CmdI knowledge gap.
+Broader representative validation planning is refreshed after the accepted
+payload triages. Current no-Claude artifacts are
+`/tmp/screw-d02-broader-representative-plan-v2`,
+`/tmp/screw-d02-broader-priority-controlled-v2`, and
+`/tmp/screw-d02-broader-priority-cap5-preflight-v2`. The refreshed
+priority-stratified plan selects 9 executable cases across all four active
+agents. Full cap-5 preflight is 46 prompts, 2,275,045 prompt characters, and
+about 568,780 estimated tokens, so do not run it as the first live step.
+Use staged execution instead: Wave A is the new MoreFixes Thetis SQLi case
+only, cap 3, at
+`/tmp/screw-d02-broader-priority-thetis-cap3-preflight-v2` with 6 prompts,
+211,938 prompt characters, and no executor issues under the default 250k
+prompt guard. Wave B is Exponent CMS CVE-2016-7781 only after explicit budget
+acceptance; cap 2 still measures 4 prompts and 317,317 prompt characters at
+`/tmp/screw-d02-broader-priority-exponent7781-cap2-preflight-v2`, and includes
+large `eventController.php` prompts similar to earlier timeout-prone Exponent
+work. Wave C is the full 9-case cap-5 broader validation only after Wave A/B
+payloads are classified.
 
 **When starting Phase 4:** D-02 threshold optimization runs as part of the autoresearch loop. The benchmark pipeline is validated (PR #3).
 
