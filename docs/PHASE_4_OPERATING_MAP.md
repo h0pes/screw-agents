@@ -332,6 +332,23 @@ OSSF target-source unlock, verified 2026-05-02:
   capped recall, and MLflow missed again in mixed consolidation despite earlier
   focused success. Treat SSTI/MLflow variance as the next review item, not an
   automatic `ssti.yaml` mutation.
+- SSTI/MLflow variance review:
+  accepted `ssti.yaml` v1.0.1 as a narrow reusable refinement for public or
+  plugin-facing APIs that accept template strings, store them in fields such as
+  `self.template`, and later render them with non-sandboxed Jinja2
+  `from_string(...).render(...)`. Local hardcoded examples do not make that
+  pattern safe when the API is externally extensible. The initial focused trial
+  at `/tmp/screw-d02-ssti-mlflow-public-template-v101-run`, benchmark
+  `20260502-130038`, was rejected because it still reported the patched
+  `SandboxedEnvironment` sink. The tightened rerun at
+  `/tmp/screw-d02-ssti-mlflow-public-template-v101b-run`, benchmark
+  `20260502-130521`, is accepted with TP 1 / FP 0 / TN 2 / FN 1, vulnerable
+  findings 1, patched findings 0, and no generated failure-input payloads. The
+  safe discriminator is a private/internal helper where all reachable template
+  strings are compile-time constants and no external caller, plugin, or config
+  path can supply the template; `SandboxedEnvironment` is the patched
+  discriminator unless there is a concrete sandbox bypass, unsafe globals,
+  filters, tests, or a known vulnerable Jinja2 version.
 
 Phase 4 closure does not require manually processing every benchmark
 vulnerability. It does require a reliable workflow, clear dataset

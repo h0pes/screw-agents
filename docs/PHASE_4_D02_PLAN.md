@@ -452,6 +452,21 @@ Only after Tasks 1-4 are resolved:
   related-finding Plexus spans, AntiSamy/Rails test/truth-span artifacts,
   patched-clean capped NHibernate misses, and a repeated mixed-run SSTI/MLflow
   miss. Review SSTI variance next before considering any `ssti.yaml` change.
+- SSTI/MLflow variance review accepted `ssti.yaml` v1.0.1: public or
+  plugin-facing APIs that accept template strings, store them in fields such as
+  `self.template`, and later render them with non-sandboxed Jinja2
+  `from_string(...).render(...)` are reportable even when visible in-file
+  callers are hardcoded. The first focused trial at
+  `/tmp/screw-d02-ssti-mlflow-public-template-v101-run`, benchmark
+  `20260502-130038`, was rejected because it over-reported the patched
+  `SandboxedEnvironment` path. The tightened rerun at
+  `/tmp/screw-d02-ssti-mlflow-public-template-v101b-run`, benchmark
+  `20260502-130521`, is accepted with TP 1 / FP 0 / TN 2 / FN 1, vulnerable
+  findings 1, patched findings 0, and no generated failure-input payloads.
+  Treat private/internal helpers with only compile-time constant template
+  strings as safe, and treat `SandboxedEnvironment` as the patched
+  discriminator unless there is a concrete sandbox bypass, unsafe globals,
+  filters, tests, or a known vulnerable Jinja2 version.
 - require explicit `--allow-claude-invocation` before a plan can become
   executable
 - require a second executor-level `--allow-claude-invocation` with `--execute`

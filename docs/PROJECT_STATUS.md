@@ -253,6 +253,22 @@ AntiSamy/Rails include test/truth-span artifacts, NHibernate remains
 patched-clean with low capped recall, and MLflow missed again in mixed
 consolidation despite earlier focused success, so SSTI variance remains the
 next review item before any `ssti.yaml` mutation.
+SSTI/MLflow variance review accepted a narrow reusable `ssti.yaml` v1.0.1
+refinement: a public or plugin-facing API that accepts template strings, stores
+them in fields such as `self.template`, and later renders them with
+non-sandboxed Jinja2 `from_string(...).render(...)` is reportable even when
+visible in-file callers are hardcoded. The first focused trial at
+`/tmp/screw-d02-ssti-mlflow-public-template-v101-run`, benchmark
+`20260502-130038`, was rejected because it reported the patched
+`SandboxedEnvironment` path. The tightened rerun at
+`/tmp/screw-d02-ssti-mlflow-public-template-v101b-run`, benchmark
+`20260502-130521`, is accepted: TP 1 / FP 0 / TN 2 / FN 1, vulnerable findings
+1, patched findings 0, and no generated failure-input payloads. The
+false-positive discriminator is a private/internal helper where all reachable
+template strings are compile-time constants and no external caller, plugin, or
+config path can supply the template; `SandboxedEnvironment` is the patched
+discriminator unless there is a concrete sandbox bypass, unsafe globals,
+filters, tests, or a known vulnerable Jinja2 version.
 
 **When starting Phase 4:** D-02 threshold optimization runs as part of the autoresearch loop. The benchmark pipeline is validated (PR #3).
 
