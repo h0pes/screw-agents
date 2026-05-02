@@ -124,6 +124,22 @@ updated cross-agent preflight at
 `/tmp/screw-d02-cross-agent-ranked-noncmdi-cap3-validation` remains within the
 one-retry budget at 12 prompts and 663,520 prompt characters.
 
+The first live run after ranked cap validation,
+`/tmp/screw-d02-cross-agent-ranked-noncmdi-cap3-run`, benchmark run
+`20260502-071201`, completed all 12 invocations cleanly but still produced 0
+NHibernate findings. That result exposed an implementation split: the
+controlled executor's validation and prompt estimates used the ranked cap, but
+the evaluator's live execution path still sliced extracted files in original
+order. The ranked cap is now shared in the extractor layer and used by both
+preflight and live evaluator execution. Corrected focused NHibernate cap-5
+execution at `/tmp/screw-d02-nhibernate-shared-ranked-cap5-run`, benchmark run
+`20260502-072639`, invoked the intended production files, completed 10 of 10
+Claude calls with no failures/timeouts/stale calls, and restored the accepted
+patched-clean recall shape: TP 2, FP 0, TN 25, FN 23, with vulnerable findings
+on `AbstractCharType.ObjectToSQLString` and
+`AbstractStringType.ObjectToSQLString`. Keep this as executor-packaging
+validation, not new SQLi YAML evidence.
+
 The first capped Exponent CMS live sampling run,
 `/tmp/screw-d02-morefixes-exponent-cap2-run`, benchmark run
 `20260501-091647`, produced 7 vulnerable findings and 0 patched findings, but

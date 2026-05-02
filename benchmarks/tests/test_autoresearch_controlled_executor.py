@@ -7,7 +7,11 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-from benchmarks.runner.code_extractor import CodeVariant, ExtractedCode
+from benchmarks.runner.code_extractor import (
+    CodeVariant,
+    ExtractedCode,
+    limit_extracted_code_for_variant,
+)
 from benchmarks.runner.invoker import InvokeResult
 from benchmarks.runner.models import (
     BenchmarkCase,
@@ -20,7 +24,6 @@ from benchmarks.runner.sarif import write_bentoo_sarif
 from benchmarks.scripts.run_controlled_autoresearch import main as executor_main
 from screw_agents.autoresearch.controlled_executor import (
     _append_invocation_progress_issues,
-    _limit_extracted_code,
     build_controlled_executor_report,
     render_controlled_executor_report_markdown,
 )
@@ -554,7 +557,7 @@ def test_executor_file_cap_prefers_production_truth_files() -> None:
         ),
     ]
 
-    capped = _limit_extracted_code(
+    capped = limit_extracted_code_for_variant(
         pieces,
         1,
         case=case,

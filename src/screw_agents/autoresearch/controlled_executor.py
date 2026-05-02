@@ -16,8 +16,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from benchmarks.runner.code_extractor import (
     CodeVariant,
-    ExtractedCode,
     extract_code_for_case,
+    limit_extracted_code_for_variant,
 )
 from benchmarks.runner.evaluator import EvalConfig, Evaluator, build_prompt
 from benchmarks.runner.invoker import InvokerConfig
@@ -609,7 +609,7 @@ def _validate_case_extraction(
             external_dir,
             include_related_context=include_related_context,
         )
-        vulnerable = _limit_extracted_code(
+        vulnerable = limit_extracted_code_for_variant(
             vulnerable,
             max_files_per_variant,
             case=case,
@@ -621,7 +621,7 @@ def _validate_case_extraction(
             external_dir,
             include_related_context=include_related_context,
         )
-        patched = _limit_extracted_code(
+        patched = limit_extracted_code_for_variant(
             patched,
             max_files_per_variant,
             case=case,
@@ -696,7 +696,7 @@ def _build_prompt_estimates(
                 external_dir,
                 include_related_context=report_case.include_related_context,
             )
-            pieces = _limit_extracted_code(
+            pieces = limit_extracted_code_for_variant(
                 pieces,
                 max_files_per_variant,
                 case=case,
@@ -757,60 +757,6 @@ def _prompt_budget(
         retry_budgeted_estimated_tokens=estimated_tokens * max_retries,
         max_retries=max_retries,
     )
-
-
-def _limit_extracted_code(
-    pieces: list[ExtractedCode],
-    max_files_per_variant: int,
-    *,
-    case: BenchmarkCase,
-    variant: CodeVariant,
-) -> list[ExtractedCode]:
-    if max_files_per_variant <= 0:
-        return pieces
-    kind = FindingKind.FAIL if variant is CodeVariant.VULNERABLE else FindingKind.PASS
-    truth_counts: dict[str, int] = {}
-    for finding in case.ground_truth:
-        if finding.kind == kind:
-            truth_counts[finding.location.file] = (
-                truth_counts.get(finding.location.file, 0) + 1
-            )
-    ranked = sorted(
-        enumerate(pieces),
-        key=lambda item: _file_cap_rank(item[0], item[1], truth_counts),
-    )
-    return [piece for _, piece in ranked[:max_files_per_variant]]
-
-
-def _file_cap_rank(
-    original_index: int,
-    piece: ExtractedCode,
-    truth_counts: dict[str, int],
-) -> tuple[int, int, int]:
-    return (
-        _is_likely_test_path(piece.file_path),
-        -truth_counts.get(piece.file_path, 0),
-        original_index,
-    )
-
-
-def _is_likely_test_path(file_path: str) -> int:
-    normalized = file_path.replace("\\", "/").lower()
-    path_parts = [part for part in normalized.split("/") if part]
-    basename = path_parts[-1] if path_parts else normalized
-    if any(
-        part in {"test", "tests", "spec", "specs", "fixtures"}
-        or part.endswith((".test", ".tests", ".spec", ".specs"))
-        for part in path_parts
-    ):
-        return 1
-    if (
-        basename.startswith("test")
-        or "_test." in basename
-        or basename.endswith(("_test.py", "_test.go", "test.cs", "tests.cs"))
-    ):
-        return 1
-    return 0
 
 
 def _append_invocation_progress_issues(
