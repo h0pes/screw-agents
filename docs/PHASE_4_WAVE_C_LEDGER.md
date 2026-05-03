@@ -91,10 +91,16 @@ Only possible future domain-review item:
 
 ## Next Actions
 
-1. Add or document a controlled-executor guardrail that discourages Claude from
-   attempting LSP/tool calls during one-turn benchmark invocations. This is the
-   next implementation task after the ledger; verify with a focused NHibernate
-   `Dialect.cs` rerun before any new broad validation.
+1. Controlled-executor tool-use guardrail is implemented and validated. PR #88
+   added prompt instructions forbidding LSP/language-server/workspace/filesystem
+   tool use during one-turn benchmark invocations. Focused NHibernate validation
+   at `/tmp/screw-d02-nhibernate-dialect-tool-guard-run`, benchmark
+   `20260503-105134`, completed all 10 prompts with no executor issues. The
+   previously failed vulnerable `Dialect.cs` prompt completed in about 62s with
+   zero findings instead of attempting LSP; patched findings stayed at 0. The
+   generated payload at
+   `/tmp/screw-d02-nhibernate-dialect-tool-guard-failure-inputs/sqli_failure_input.json`
+   now contains only 3 vulnerable misses and no patched findings.
 2. If Phase 4 needs cleaner SQLi metrics, create a reviewed Wave C SQLi payload
    with evidence flags:
    - Thetis patched examples:

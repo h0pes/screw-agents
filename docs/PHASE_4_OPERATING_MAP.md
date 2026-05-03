@@ -505,6 +505,12 @@ OSSF target-source unlock, verified 2026-05-02:
   preserved accepted signals, exposed no broad YAML regression, and narrowed the
   next concrete work to executor tool-use guardrails plus optional reviewed SQLi
   payload annotation.
+- The executor tool-use guardrail from PR #88 is validated. Focused NHibernate
+  rerun `/tmp/screw-d02-nhibernate-dialect-tool-guard-run`, benchmark
+  `20260503-105134`, completed all 10 prompts with no executor issues. The
+  Wave C failed vulnerable `Dialect.cs` prompt completed without LSP/tool-use
+  failure; patched findings remained 0. This closes the Wave C runtime-failure
+  thread unless it recurs in a later representative run.
 
 Phase 4 closure does not require manually processing every benchmark
 vulnerability. It does require a reliable workflow, clear dataset

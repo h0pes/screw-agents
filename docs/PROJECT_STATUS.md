@@ -1106,6 +1106,15 @@ residual raw-fragment risk or Exponent line-anchor/fix-semantics noise, and the
 NHibernate `Dialect.cs` miss is primarily an executor LSP/max-turn failure. The
 next concrete work is an executor tool-use guardrail or an annotated SQLi
 payload review, not another broad benchmark run.
+The executor tool-use guardrail was validated after PR #88 with focused
+NHibernate run `/tmp/screw-d02-nhibernate-dialect-tool-guard-run`, benchmark
+`20260503-105134`. The run completed all 10 prompts with no executor issues;
+the previously failed vulnerable `Dialect.cs` prompt completed without LSP/tool
+use or max-turn failure, vulnerable findings were 2, and patched findings were
+0. The generated payload at
+`/tmp/screw-d02-nhibernate-dialect-tool-guard-failure-inputs/sqli_failure_input.json`
+contains only 3 vulnerable misses and no patched findings. Treat the Wave C
+NHibernate runtime failure as mitigated unless it recurs.
 
 **When continuing Phase 4:** Continue from `docs/PHASE_4_D02_PLAN.md`; keep Rust metric claims scoped to real-CVE SQLi/Cmdi/XSS and synthetic-only SSTI unless refresh finds a verified SSTI advisory.
 Use `docs/PHASE_4_OPERATING_MAP.md` as the high-level map before restoring
