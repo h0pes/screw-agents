@@ -1239,6 +1239,21 @@ This creates a **three-way feedback loop**: benchmark metrics + challenger disag
 - **Connect challenger disagreement signals to autoresearch loop (§11.3)**
 - **Prepare extensibility for additional providers (Gemini, etc.) — config-only addition**
 
+### Phase 5.5: Web Application Integration Pilot
+- Integrate `screw-agents` as the security-review engine for the application
+  security orchestration/correlation web application.
+- Support the existing four accepted agents first (`sqli`, `cmdi`, `ssti`,
+  `xss`) so orchestration, storage, triage, and correlation can be exercised
+  before broad agent expansion.
+- Define target submission and execution shape: repository path, uploaded
+  snapshot, git diff, pull request ref, or queued background job.
+- Return structured JSON/SARIF/Markdown findings for ingestion into the web
+  application's correlation model.
+- Map web-app triage decisions to screw-agents learning/exclusion artifacts
+  where appropriate.
+- Preserve source-code privacy and cost controls, especially once Phase 5
+  challenger providers are enabled.
+
 ### Phase 6: Agent Expansion & Ecosystem
 - Research and build additional CWE-1400 agents in small, reviewed batches,
   not as a full-catalog big bang.
@@ -1254,22 +1269,7 @@ This creates a **three-way feedback loop**: benchmark metrics + challenger disag
 - Knowledge refresh process for existing agents
 - **CI/CD integration with validated-only script execution**
 
-### Phase 7A: Web Application Integration
-- Integrate `screw-agents` as the security-review engine for the application
-  security orchestration/correlation web application.
-- Support the existing four accepted agents first (`sqli`, `cmdi`, `ssti`,
-  `xss`) so orchestration, storage, triage, and correlation can be exercised
-  before broad agent expansion.
-- Define target submission and execution shape: repository path, uploaded
-  snapshot, git diff, pull request ref, or queued background job.
-- Return structured JSON/SARIF/Markdown findings for ingestion into the web
-  application's correlation model.
-- Map web-app triage decisions to screw-agents learning/exclusion artifacts
-  where appropriate.
-- Preserve source-code privacy and cost controls, especially once Phase 5
-  challenger providers are enabled.
-
-### Phase 7B: screw.nvim Integration
+### Phase 7: screw.nvim Integration
 - Add `:Screw scan` commands (calls MCP server)
 - Implement review-before-import workflow:
   - Temp report generation and display
