@@ -862,6 +862,18 @@ First controlled smoke execution, verified 2026-04-29:
   and Exponent CMS remains fix-semantics plus line-anchor drift. Do not start a
   new broad run until the executor tool-use guardrail or reviewed SQLi payload
   classification is complete.
+- The executor tool-use guardrail was validated with a focused NHibernate run:
+  `/tmp/screw-d02-nhibernate-dialect-tool-guard-run`, benchmark
+  `20260503-105134`. The run used current main after PR #88, cap 5, one retry,
+  a 600k prompt-character guard, and 10 prompts / 475,873 prompt characters.
+  It completed with no executor issues. The previously failed vulnerable
+  `Dialect.cs` invocation completed in about 62 seconds with zero findings
+  instead of attempting LSP or hitting max turns. Overall counts were vulnerable
+  findings 2 and patched findings 0. Failure payload generation wrote
+  `/tmp/screw-d02-nhibernate-dialect-tool-guard-failure-inputs/sqli_failure_input.json`
+  with 3 vulnerable misses and no patched findings. Treat the Wave C
+  `Dialect.cs` issue as mitigated executor/tool-use noise, not a SQLi YAML
+  blocker.
 - OSSF is no longer categorically blocked once target repos are materialized
   locally. Use `materialize_ossf_targets.py --case-id <ossf-CVE-...>` for
   narrow slices, validate first, then run live only within an explicit prompt
