@@ -1062,6 +1062,16 @@ Failure payloads now support a reviewed `line_anchor_drift` evidence flag and
 findings can be separated from fix-semantics ambiguity or residual-risk
 evidence when the finding message names a real nearby sink but the returned
 span is not the sink line.
+Wave B payload review is recorded in
+`/tmp/screw-d02-broader-wave-b-exponent7781-cap2-reviewed-fix-semantics-input.json`.
+The annotated payload validates as `phase4-autoresearch-failure-input/v1` and
+classifies the 5 patched examples as 3 `line_anchor_drift` findings
+(`eventController.php:561`, `:575`, `:686`) and 2 likely
+`residual_risk_or_incomplete_fix` findings (`ecomconfigController.php:64`,
+`:122`). The selected vulnerable misses remain broad/duplicated truth spans
+with nearby same-file findings, not pure misses. Keep `sqli.yaml` unchanged;
+the next step is a no-Claude Wave C preflight refresh on current main before
+any broader live execution.
 
 **When continuing Phase 4:** Continue from `docs/PHASE_4_D02_PLAN.md`; keep Rust metric claims scoped to real-CVE SQLi/Cmdi/XSS and synthetic-only SSTI unless refresh finds a verified SSTI advisory.
 Use `docs/PHASE_4_OPERATING_MAP.md` as the high-level map before restoring
