@@ -874,6 +874,11 @@ First controlled smoke execution, verified 2026-04-29:
   with 3 vulnerable misses and no patched findings. Treat the Wave C
   `Dialect.cs` issue as mitigated executor/tool-use noise, not a SQLi YAML
   blocker.
+- Phase 4 closure readiness is now tracked in
+  `docs/PHASE_4_CLOSURE_READINESS.md`. The checklist records which D-02
+  obligations are met, which slices are accepted as calibration evidence, which
+  failures are known dataset/scoring/runtime noise, and why another broad
+  Wave C-style run is not the next step by default.
 - OSSF is no longer categorically blocked once target repos are materialized
   locally. Use `materialize_ossf_targets.py --case-id <ossf-CVE-...>` for
   narrow slices, validate first, then run live only within an explicit prompt
