@@ -824,6 +824,13 @@ First controlled smoke execution, verified 2026-04-29:
   real nearby sink but the returned span is a comment, function header, or
   unrelated statement, and keep that classification separate from patched
   fix-semantics ambiguity or residual risk.
+- Wave B payload review is recorded in
+  `/tmp/screw-d02-broader-wave-b-exponent7781-cap2-reviewed-fix-semantics-input.json`.
+  It classifies the patched examples as 3 line-anchor drift findings and 2
+  likely residual-risk/incomplete-fix findings. The selected vulnerable misses
+  are broad or duplicated truth spans with nearby same-file evidence, so no
+  SQLi YAML mutation is justified. Run a no-Claude Wave C preflight refresh
+  before any broader live execution.
 - OSSF is no longer categorically blocked once target repos are materialized
   locally. Use `materialize_ossf_targets.py --case-id <ossf-CVE-...>` for
   narrow slices, validate first, then run live only within an explicit prompt

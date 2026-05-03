@@ -470,6 +470,14 @@ OSSF target-source unlock, verified 2026-05-02:
   where a finding's message identifies a real nearby sink but the returned span
   lands on a comment, function header, or unrelated statement. Keep it separate
   from `fix_semantics_ambiguous` and `residual_risk_or_incomplete_fix`.
+- Wave B payload review is recorded at
+  `/tmp/screw-d02-broader-wave-b-exponent7781-cap2-reviewed-fix-semantics-input.json`.
+  The 5 patched examples are now classified as 3 line-anchor drift examples in
+  `eventController.php` and 2 likely residual-risk/incomplete-fix examples in
+  `ecomconfigController.php`. The selected vulnerable misses are broad,
+  duplicated truth spans with nearby same-file findings, not pure misses. Keep
+  `sqli.yaml` unchanged. The next broader-validation step is a no-Claude Wave C
+  preflight refresh on current main before any live 9-case execution.
 
 Phase 4 closure does not require manually processing every benchmark
 vulnerability. It does require a reliable workflow, clear dataset
