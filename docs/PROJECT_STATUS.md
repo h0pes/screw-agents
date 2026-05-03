@@ -501,7 +501,7 @@ PR #5 (2026-04-12): E2E defect fixes — `write_scan_results` MCP tool (`results
   yet researched. Phase 6 will add them in small reviewed batches rather than
   all at once.
 - Rust benchmark corpus is partially built: initial real-CVE Rust cases cover SQLi, CmdI, and XSS; Rust SSTI remains synthetic-only unless a verified real advisory appears during refresh.
-- Web application integration (Phase 7A) and screw.nvim integration (Phase 7B)
+- Web application integration (Phase 5.5) and screw.nvim integration (Phase 7)
   are not yet implemented.
 
 ### Known Limitations (from Phase 2 E2E testing)
@@ -776,9 +776,9 @@ Structured as a dependency graph with three parallel tracks converging at smoke 
 | Phase 3c | Sandbox hardening sweep (seccomp filter + thread-safety + dedup) | **Deferred** — see `docs/DEFERRED_BACKLOG.md` §"Phase 3c (sandbox hardening follow-ups)" |
 | Phase 4 | Autoresearch & Self-Improvement | **Complete** — D-01 merged; D-02 calibration workflow, guardrails, failure payloads, accepted inclusions/exclusions, Wave C representative validation, focused runtime validation, and final signoff are recorded |
 | Phase 5 | Multi-LLM Challenger System | Pending — must ship all three modes: Claude primary/Codex challenger, Codex primary/Claude challenger, and parallel independent review with reconciliation |
+| Phase 5.5 | Web application integration pilot | Pending — first external product integration target after Phase 5; start with the existing four accepted agents and wire orchestration/correlation/triage before broad agent expansion |
 | Phase 6 | Agent Expansion & Ecosystem | Pending — add CWE-1400 agents in small reviewed batches using Phase 4 calibration infrastructure, not a full-catalog big bang |
-| Phase 7A | Web application integration | Pending — first external product integration target; start with the existing four accepted agents and wire orchestration/correlation/triage before broad agent expansion |
-| Phase 7B | screw.nvim Integration (scan commands, review-before-import, exclusions) | Pending — editor-native workflow after or alongside web-app integration |
+| Phase 7 | screw.nvim Integration (scan commands, review-before-import, exclusions) | Pending — editor-native workflow after the web-app integration pilot unless product priority changes |
 
 ---
 
@@ -797,17 +797,18 @@ concrete failure-input payloads can be generated from controlled run output.
    Codex primary/Claude challenger, and parallel independent review with
    reconciliation. Preserve opt-in cost/privacy controls and provider-agnostic
    interfaces for future LLMs.
-2. **Phase 7A — web application integration.** Treat the AppSec
+2. **Phase 5.5 — web application integration pilot.** Treat the AppSec
    orchestration/correlation web app as the first external product integration
-   target. Start with the current four accepted agents so scan submission,
-   background execution, result ingestion, triage, learning/exclusions, and
-   correlation can be validated before adding more vulnerability domains.
+   target immediately after Phase 5. Start with the current four accepted
+   agents so scan submission, background execution, result ingestion, triage,
+   learning/exclusions, and correlation can be validated before adding more
+   vulnerability domains.
 3. **Phase 6 — small-batch agent expansion.** Add new CWE-1400 agents in
    narrow, high-value batches. Reuse Phase 4's calibration workflow rather than
    repeating a full Phase 4 for every agent.
-4. **Phase 7B — screw.nvim integration.** Keep editor-native workflows on the
-   roadmap, but sequence them after or alongside web-app integration depending
-   on product priority.
+4. **Phase 7 — screw.nvim integration.** Keep editor-native workflows on the
+   roadmap, but sequence them after the web-app integration pilot unless
+   product priority changes.
 5. **Hardening and deferred backlog.** Before production-like deployment,
    revisit Phase 3c sandbox hardening and any `phase-7-scoped` concurrency or
    server lifecycle items in `docs/DEFERRED_BACKLOG.md`.

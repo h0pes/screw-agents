@@ -142,9 +142,9 @@ Entries already in `## Shipped` / `## Shipped (PR #6)` do NOT carry this tag —
 Future phases should still consult this backlog deliberately:
 - Phase 5 should review provider/cost/privacy related items before challenger
   execution is exposed.
-- Phase 7A/7B should review `phase-7-scoped` concurrency, server lifecycle,
-  registry compaction, and sandbox thread-safety items before persistent web
-  app or editor integration is treated as production-like.
+- Phase 5.5 and Phase 7 should review `phase-7-scoped` concurrency, server
+  lifecycle, registry compaction, and sandbox thread-safety items before
+  persistent web app or editor integration is treated as production-like.
 - Phase 3c sandbox hardening remains non-blocking for local single-user use,
   but should be reconsidered before multi-tenant, CI, or web-service
   deployment.
@@ -705,9 +705,10 @@ Scope: ~30 LOC engine logic + 5-8 tests. The `code_snippet` field already exists
 **Why deferred:** Several cosmetic gaps in shipped Task 9 docs identified post-merge:
 - `screw-scan.md` LOC stated `~559` (actual 569; +10 from fix-ups)
 - PRD line count `~1,470` (actual 1,512)
-- AGENT_CATALOG line 12 mentions "Phase 6/7 future"; roadmap now splits
-  Phase 7 into web application integration (7A) and screw.nvim integration
-  (7B), so any future catalog cleanup should keep expansion scoped to Phase 6
+- AGENT_CATALOG line 12 mentions "Phase 6/7 future"; roadmap now places the
+  web application integration pilot at Phase 5.5, agent expansion at Phase 6,
+  and screw.nvim at Phase 7, so any future catalog cleanup should keep
+  expansion scoped to Phase 6
 - ADR-T-SCAN-REFACTOR breaks ADR-001..016 sequential numbering (named per Marco-approved EQ3)
 - CONTRIBUTING.md:24 compressed grammar omits `--thoroughness`/`--format`
 - PRD.md:390 stale path `.claude/skills/screw-review/` (actual `plugins/screw/skills/screw-review/`)
