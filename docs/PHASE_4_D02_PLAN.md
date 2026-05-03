@@ -1,6 +1,6 @@
 # Phase 4 D-02 — Autoresearch And Gate Optimization Plan
 
-> Status: closure-ready pending final Phase 4 signoff. Dry-run, gate-audit,
+> Status: complete; final Phase 4 signoff recorded. Dry-run, gate-audit,
 > failure-input, readiness checklist, controlled-run scaffold, controlled smoke
 > execution, failure-input payload generation, Wave C representative
 > validation, and focused runtime validation are complete. Active G5 dataset

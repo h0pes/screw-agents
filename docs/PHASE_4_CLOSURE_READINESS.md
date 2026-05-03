@@ -1,6 +1,6 @@
 # Phase 4 Closure Readiness
 
-> Status: closure-ready pending final Phase 4 signoff.
+> Status: complete; final Phase 4 signoff recorded.
 > Last updated: 2026-05-03.
 
 Phase 4 D-02 is a calibration loop, not an obligation to manually tune every
@@ -56,9 +56,9 @@ classification:
   they can be treated as prompt false positives.
 - Rust SSTI: synthetic-only until a verified real advisory is found.
 
-## Remaining Closure Path
+## Closure Record
 
-Phase 4 can move toward closure without another broad live benchmark run.
+Phase 4 is closed without another broad live benchmark run.
 
 1. Skip the optional machine-readable Wave C SQLi annotated payload for final
    closure. The Wave C ledger already records the Thetis/Exponent
