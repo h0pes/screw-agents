@@ -497,9 +497,12 @@ PR #5 (2026-04-12): E2E defect fixes — `write_scan_results` MCP tool (`results
 ### What's NOT Done
 
 - **Gates G5-G7: full benchmark run** — deferred to Phase 4 autoresearch; pipeline validated via sample run (2026-04-11)
-- Remaining 14 agents (CWE-1400 domains 2-18) not yet researched (Phase 6)
+- Remaining CWE-1400 agents beyond `sqli`, `cmdi`, `ssti`, and `xss` are not
+  yet researched. Phase 6 will add them in small reviewed batches rather than
+  all at once.
 - Rust benchmark corpus is partially built: initial real-CVE Rust cases cover SQLi, CmdI, and XSS; Rust SSTI remains synthetic-only unless a verified real advisory appears during refresh.
-- screw.nvim integration (Phase 7)
+- Web application integration (Phase 7A) and screw.nvim integration (Phase 7B)
+  are not yet implemented.
 
 ### Known Limitations (from Phase 2 E2E testing)
 
@@ -772,9 +775,10 @@ Structured as a dependency graph with three parallel tracks converging at smoke 
 | Phase 3b | Adaptive Analysis & Learning Refinement | **Complete** — PR #4 (#10) 2026-04-18, PR #5 (#11) 2026-04-20, PR #6 (#12) 2026-04-23, Phase 3b-C2 2026-04-24, BACKLOG-PR6-22 (#14) 2026-04-24, T19-M D7 (#15) 2026-04-24, T-SCAN-REFACTOR final 2026-04-25 |
 | Phase 3c | Sandbox hardening sweep (seccomp filter + thread-safety + dedup) | **Deferred** — see `docs/DEFERRED_BACKLOG.md` §"Phase 3c (sandbox hardening follow-ups)" |
 | Phase 4 | Autoresearch & Self-Improvement | **Complete** — D-01 merged; D-02 calibration workflow, guardrails, failure payloads, accepted inclusions/exclusions, Wave C representative validation, focused runtime validation, and final signoff are recorded |
-| Phase 5 | Multi-LLM Challenger System | Pending |
-| Phase 6 | Agent Expansion & Ecosystem | Pending |
-| Phase 7 | screw.nvim Integration (scan commands, review-before-import, exclusions) | Pending |
+| Phase 5 | Multi-LLM Challenger System | Pending — must ship all three modes: Claude primary/Codex challenger, Codex primary/Claude challenger, and parallel independent review with reconciliation |
+| Phase 6 | Agent Expansion & Ecosystem | Pending — add CWE-1400 agents in small reviewed batches using Phase 4 calibration infrastructure, not a full-catalog big bang |
+| Phase 7A | Web application integration | Pending — first external product integration target; start with the existing four accepted agents and wire orchestration/correlation/triage before broad agent expansion |
+| Phase 7B | screw.nvim Integration (scan commands, review-before-import, exclusions) | Pending — editor-native workflow after or alongside web-app integration |
 
 ---
 
@@ -785,6 +789,28 @@ planning scaffold is merged in PR #18, active G5 dataset readiness is clean in
 the long-lived main checkout after core dataset and MoreFixes materialization,
 controlled smoke/focused/broader representative validation has completed, and
 concrete failure-input payloads can be generated from controlled run output.
+
+## Next Roadmap Priorities
+
+1. **Phase 5 — Multi-LLM challenger.** Implement Codex as the first challenger
+   provider and ship all three required modes: Claude primary/Codex challenger,
+   Codex primary/Claude challenger, and parallel independent review with
+   reconciliation. Preserve opt-in cost/privacy controls and provider-agnostic
+   interfaces for future LLMs.
+2. **Phase 7A — web application integration.** Treat the AppSec
+   orchestration/correlation web app as the first external product integration
+   target. Start with the current four accepted agents so scan submission,
+   background execution, result ingestion, triage, learning/exclusions, and
+   correlation can be validated before adding more vulnerability domains.
+3. **Phase 6 — small-batch agent expansion.** Add new CWE-1400 agents in
+   narrow, high-value batches. Reuse Phase 4's calibration workflow rather than
+   repeating a full Phase 4 for every agent.
+4. **Phase 7B — screw.nvim integration.** Keep editor-native workflows on the
+   roadmap, but sequence them after or alongside web-app integration depending
+   on product priority.
+5. **Hardening and deferred backlog.** Before production-like deployment,
+   revisit Phase 3c sandbox hardening and any `phase-7-scoped` concurrency or
+   server lifecycle items in `docs/DEFERRED_BACKLOG.md`.
 
 ### D-01 — Rust benchmark corpus from GitHub Advisory Database + synthetic SSTI
 **Status:** MERGED in PR #17
