@@ -1,6 +1,6 @@
 # Project Status — screw-agents
 
-> Last updated: 2026-05-02
+> Last updated: 2026-05-03
 
 ## Deferred Obligations
 
@@ -1039,6 +1039,24 @@ second-order findings, and weak speculative patched reports in the same capped
 case. Future structured-output failures should be reviewed from
 `invocation_failures/` artifacts before spending more Claude calls. Do not
 mutate `sqli.yaml` from this run.
+Wave B then sampled the next Exponent CMS SQLi case,
+`morefixes-CVE-2016-7781-https_____github.com__exponentcms__exponent-cms`,
+with cap 2 and an explicit 350k prompt-character budget:
+`/tmp/screw-d02-broader-wave-b-exponent7781-cap2-run`, benchmark run
+`20260503-061926`. All four Claude invocations completed with no executor
+issues, failures, timeouts, or stale calls. Prompt budget was 4 prompts and
+322,761 prompt characters. The run produced 8 vulnerable findings and 8
+patched findings, with aggregate capped metrics TP 0, FP 14, TN 87, FN 94.
+The generated payload at
+`/tmp/screw-d02-broader-wave-b-exponent7781-cap2-failure-inputs/sqli_failure_input.json`
+contains 5 selected-file misses and 5 selected patched findings. Diagnostics
+show 0 pure misses, 3 misses with nearby same-file findings, and 2 with
+same-file-only findings. Manual triage should treat this as Wave B calibration
+evidence for Exponent fix semantics, truth-span granularity, and line-anchor
+localization: the patched snapshot still contains raw SQL patterns similar to
+the vulnerable side, and several reported line anchors describe real nearby
+sinks but land on comments or unrelated statements. Do not mutate `sqli.yaml`
+from this run.
 
 **When continuing Phase 4:** Continue from `docs/PHASE_4_D02_PLAN.md`; keep Rust metric claims scoped to real-CVE SQLi/Cmdi/XSS and synthetic-only SSTI unless refresh finds a verified SSTI advisory.
 Use `docs/PHASE_4_OPERATING_MAP.md` as the high-level map before restoring

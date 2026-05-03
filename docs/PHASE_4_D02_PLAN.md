@@ -809,6 +809,15 @@ First controlled smoke execution, verified 2026-04-29:
   agent for files it never saw. The latest Exponent runs remain blocked by
   failed/timed-out invocations and mixed patched-source fix-semantics outcomes
   rather than reusable SQLi knowledge evidence.
+- Wave B Exponent CMS `CVE-2016-7781` cap-2 sampling completed at
+  `/tmp/screw-d02-broader-wave-b-exponent7781-cap2-run`, benchmark
+  `20260503-061926`, with all 4 Claude calls completed and no executor issues.
+  It required an explicit 350k prompt-character budget and a 600-second timeout
+  for the large `eventController.php` prompts. The run is calibration evidence
+  only: it produced vulnerable and patched findings, broad selected-file
+  misses, nearby same-file detections, and line-anchor drift. Review
+  `/tmp/screw-d02-broader-wave-b-exponent7781-cap2-failure-inputs/sqli_failure_input.json`
+  before Wave C, and do not mutate `sqli.yaml` from this result.
 - OSSF is no longer categorically blocked once target repos are materialized
   locally. Use `materialize_ossf_targets.py --case-id <ossf-CVE-...>` for
   narrow slices, validate first, then run live only within an explicit prompt
