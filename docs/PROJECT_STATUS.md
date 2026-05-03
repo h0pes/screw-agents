@@ -1099,6 +1099,13 @@ the known AntiSamy test-file miss. SSTI produced no failure payload. Do not
 mutate YAML from raw Wave C metrics; first classify the SQLi patched findings
 for Exponent/Thetis fix semantics, residual risk, and line-anchor drift, and
 review the NHibernate executor failure separately.
+The Wave C decision ledger in `docs/PHASE_4_WAVE_C_LEDGER.md` is now the
+continuation anchor. It shows Wave C was not a broad regression: accepted
+XSS/CmdI/SSTI signals mostly held, SQLi patched findings are explainable as
+residual raw-fragment risk or Exponent line-anchor/fix-semantics noise, and the
+NHibernate `Dialect.cs` miss is primarily an executor LSP/max-turn failure. The
+next concrete work is an executor tool-use guardrail or an annotated SQLi
+payload review, not another broad benchmark run.
 
 **When continuing Phase 4:** Continue from `docs/PHASE_4_D02_PLAN.md`; keep Rust metric claims scoped to real-CVE SQLi/Cmdi/XSS and synthetic-only SSTI unless refresh finds a verified SSTI advisory.
 Use `docs/PHASE_4_OPERATING_MAP.md` as the high-level map before restoring

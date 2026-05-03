@@ -853,6 +853,15 @@ First controlled smoke execution, verified 2026-04-29:
   payload. Do not mutate `sqli.yaml`, `cmdi.yaml`, `xss.yaml`, or `ssti.yaml`
   from raw Wave C metrics. Review SQLi patched findings for residual
   risk/incomplete fix, line-anchor drift, and prompt overbreadth first.
+- Wave C decision ledger is recorded in `docs/PHASE_4_WAVE_C_LEDGER.md`. It
+  classifies the run as broader calibration evidence, not a regression batch:
+  accepted XSS/Zope/html-janitor, CmdI patched-clean, and SSTI MLflow signals
+  held; AntiSamy remains a test-file truth-span limitation; CmdI Plexus remains
+  related-file/scoring granularity; NHibernate `Dialect.cs` is an executor
+  LSP/max-turn failure; Thetis patched findings are residual/raw-fragment risks;
+  and Exponent CMS remains fix-semantics plus line-anchor drift. Do not start a
+  new broad run until the executor tool-use guardrail or reviewed SQLi payload
+  classification is complete.
 - OSSF is no longer categorically blocked once target repos are materialized
   locally. Use `materialize_ossf_targets.py --case-id <ossf-CVE-...>` for
   narrow slices, validate first, then run live only within an explicit prompt
