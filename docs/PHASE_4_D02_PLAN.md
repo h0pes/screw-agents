@@ -831,6 +831,11 @@ First controlled smoke execution, verified 2026-04-29:
   are broad or duplicated truth spans with nearby same-file evidence, so no
   SQLi YAML mutation is justified. Run a no-Claude Wave C preflight refresh
   before any broader live execution.
+- Wave C no-Claude cap-5 preflight is refreshed at
+  `/tmp/screw-d02-broader-wave-c-cap5-preflight-current`: 9 cases, 46 prompts,
+  2,341,159 retry-budgeted prompt characters, and one
+  `prompt_budget_exceeded` warning against the default 250k guard. Do not run
+  live Wave C until that budget is explicitly accepted or the run is narrowed.
 - OSSF is no longer categorically blocked once target repos are materialized
   locally. Use `materialize_ossf_targets.py --case-id <ossf-CVE-...>` for
   narrow slices, validate first, then run live only within an explicit prompt
