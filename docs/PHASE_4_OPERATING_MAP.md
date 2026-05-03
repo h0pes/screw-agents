@@ -500,6 +500,11 @@ OSSF target-source unlock, verified 2026-05-02:
   payload. Next work is payload review, especially SQLi patched findings on
   Exponent/Thetis and the NHibernate executor failure. Do not mutate YAML from
   the raw aggregate Wave C metrics.
+- Wave C decision ledger is tracked at `docs/PHASE_4_WAVE_C_LEDGER.md`. Use it
+  as the current source of truth for Phase 4 continuation: Wave C mostly
+  preserved accepted signals, exposed no broad YAML regression, and narrowed the
+  next concrete work to executor tool-use guardrails plus optional reviewed SQLi
+  payload annotation.
 
 Phase 4 closure does not require manually processing every benchmark
 vulnerability. It does require a reliable workflow, clear dataset
