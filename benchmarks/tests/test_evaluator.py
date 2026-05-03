@@ -118,6 +118,22 @@ class TestBuildPrompt:
         assert "span must cover that named call/expression" in prompt
         assert "function declaration" in prompt
 
+    def test_forbids_tool_use_during_controlled_invocations(self):
+        prompt = build_prompt(
+            core_prompt="Detect SQL injection vulnerabilities.",
+            code="db.query(sql)",
+            file_path="dao.py",
+        )
+
+        assert "Use only the source text included in this prompt" in prompt
+        assert "Do not call or request LSP" in prompt
+        assert "language-server" in prompt
+        assert "workspace" in prompt
+        assert "filesystem" in prompt
+        assert "search" in prompt
+        assert "web" in prompt
+        assert "shell" in prompt
+
     def test_includes_related_context_as_context_only(self):
         prompt = build_prompt(
             core_prompt="Detect command injection.",

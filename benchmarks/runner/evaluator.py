@@ -147,6 +147,11 @@ files, when present, are context only: use them to understand call chains,
 overrides, sanitizers, wrappers, and patched behavior, but return findings only
 for the primary file `{file_path}`.
 
+Use only the source text included in this prompt. Do not call or request LSP,
+language-server, workspace, filesystem, search, web, shell, or other tools. If
+additional project context would be useful but is not included above, proceed
+with the provided code and state nothing outside the JSON result.
+
 Return your findings as a JSON array. Each finding must have exactly these fields:
 - "cwe_id": string (e.g., "CWE-79")
 - "file": string (the primary file path given above)
