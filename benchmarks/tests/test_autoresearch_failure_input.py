@@ -198,3 +198,13 @@ def test_example_line_order_is_validated() -> None:
 
     with pytest.raises(ValidationError, match="start_line"):
         FailureExample.model_validate(data)
+
+
+def test_failure_example_accepts_line_anchor_drift_flag() -> None:
+    example = _missed_example().model_copy(
+        update={"evidence_quality_flags": ["line_anchor_drift"]}
+    )
+
+    restored = FailureExample.model_validate(example.model_dump())
+
+    assert restored.evidence_quality_flags == ["line_anchor_drift"]

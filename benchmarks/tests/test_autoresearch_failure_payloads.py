@@ -107,6 +107,7 @@ def test_build_failure_payloads_from_controlled_report(tmp_path: Path) -> None:
     assert payload.diagnostics.false_positive_findings == 1
     assert payload.diagnostics.false_positive_fix_semantics_ambiguous == 0
     assert payload.diagnostics.false_positive_residual_risk_or_incomplete_fix == 0
+    assert payload.diagnostics.false_positive_line_anchor_drift == 0
     assert payload.missed_findings[0].source_variant == "vulnerable"
     assert payload.false_positive_findings[0].source_variant == "patched"
     assert payload.missed_findings[0].code_excerpt is not None
@@ -546,6 +547,23 @@ def test_diagnostics_count_fix_semantics_false_positive_flags() -> None:
                             "residual_risk_or_incomplete_fix"
                         ],
                     },
+                    {
+                        "kind": "false_positive",
+                        "dataset_name": "morefixes",
+                        "case_id": "case",
+                        "source_variant": "patched",
+                        "agent_name": "sqli",
+                        "cwe_id": "CWE-89",
+                        "file": "controller.php",
+                        "start_line": 90,
+                        "end_line": 90,
+                        "expected_behavior": "Return the exact sink line.",
+                        "observed_behavior": (
+                            "Agent described a nearby sink but returned a "
+                            "comment or unrelated statement line."
+                        ),
+                        "evidence_quality_flags": ["line_anchor_drift"],
+                    },
                 ],
                 "guardrails": {
                     "reason": "test",
@@ -560,6 +578,7 @@ def test_diagnostics_count_fix_semantics_false_positive_flags() -> None:
         false_positive_findings=false_positive_findings,
     )
 
-    assert diagnostics.false_positive_findings == 2
+    assert diagnostics.false_positive_findings == 3
     assert diagnostics.false_positive_fix_semantics_ambiguous == 1
     assert diagnostics.false_positive_residual_risk_or_incomplete_fix == 1
+    assert diagnostics.false_positive_line_anchor_drift == 1

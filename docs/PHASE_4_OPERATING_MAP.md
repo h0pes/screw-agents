@@ -465,6 +465,11 @@ OSSF target-source unlock, verified 2026-05-02:
   same-file detections, patched-source raw SQL patterns, and line-anchor drift
   where messages describe adjacent sinks but returned spans land on comments or
   unrelated code. It is not clean SQLi YAML mutation evidence.
+- Failure payload schema now has a reviewed `line_anchor_drift` evidence flag
+  plus `false_positive_line_anchor_drift` diagnostics. Use it for examples
+  where a finding's message identifies a real nearby sink but the returned span
+  lands on a comment, function header, or unrelated statement. Keep it separate
+  from `fix_semantics_ambiguous` and `residual_risk_or_incomplete_fix`.
 
 Phase 4 closure does not require manually processing every benchmark
 vulnerability. It does require a reliable workflow, clear dataset
@@ -1262,10 +1267,11 @@ Expanded MoreFixes SQLi fix-semantics review, verified 2026-04-30:
   correct next action is to mark these two cases as needing benchmark
   fix-semantics review before they can be used as precision-training evidence.
 - Failure payload schema now supports those review outcomes directly through
-  `evidence_quality_flags`: `fix_semantics_ambiguous` and
-  `residual_risk_or_incomplete_fix`. Diagnostics also count
-  `false_positive_fix_semantics_ambiguous` and
-  `false_positive_residual_risk_or_incomplete_fix`.
+  `evidence_quality_flags`: `fix_semantics_ambiguous`,
+  `residual_risk_or_incomplete_fix`, and `line_anchor_drift`. Diagnostics also
+  count `false_positive_fix_semantics_ambiguous`,
+  `false_positive_residual_risk_or_incomplete_fix`, and
+  `false_positive_line_anchor_drift`.
 - Annotated payload:
   `/tmp/screw-d02-expanded-stratified-morefixes-fix-semantics-input.json`.
   It classifies the 2 `titlelink` patched findings as fix-semantics ambiguous

@@ -1057,6 +1057,11 @@ localization: the patched snapshot still contains raw SQL patterns similar to
 the vulnerable side, and several reported line anchors describe real nearby
 sinks but land on comments or unrelated statements. Do not mutate `sqli.yaml`
 from this run.
+Failure payloads now support a reviewed `line_anchor_drift` evidence flag and
+`false_positive_line_anchor_drift` diagnostic count so Wave B-style patched
+findings can be separated from fix-semantics ambiguity or residual-risk
+evidence when the finding message names a real nearby sink but the returned
+span is not the sink line.
 
 **When continuing Phase 4:** Continue from `docs/PHASE_4_D02_PLAN.md`; keep Rust metric claims scoped to real-CVE SQLi/Cmdi/XSS and synthetic-only SSTI unless refresh finds a verified SSTI advisory.
 Use `docs/PHASE_4_OPERATING_MAP.md` as the high-level map before restoring
