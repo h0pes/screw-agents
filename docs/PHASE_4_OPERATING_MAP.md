@@ -478,6 +478,14 @@ OSSF target-source unlock, verified 2026-05-02:
   duplicated truth spans with nearby same-file findings, not pure misses. Keep
   `sqli.yaml` unchanged. The next broader-validation step is a no-Claude Wave C
   preflight refresh on current main before any live 9-case execution.
+- Current-main Wave C cap-5 preflight is recorded at
+  `/tmp/screw-d02-broader-wave-c-cap5-preflight-current`. It performed no
+  Claude invocation, selected 9 cases, assembled 46 prompts, and measured
+  2,341,159 retry-budgeted prompt characters at one retry. The largest case
+  budgets are Exponent CMS SQLi (683,425), NHibernate SQLi (472,853), Thetis
+  SQLi (397,491), and Plexus CmdI with related context (348,207). Live Wave C
+  requires explicit budget acceptance or narrower filters; the default 250k
+  prompt guard correctly blocks it.
 
 Phase 4 closure does not require manually processing every benchmark
 vulnerability. It does require a reliable workflow, clear dataset

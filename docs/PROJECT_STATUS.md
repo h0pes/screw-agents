@@ -1072,6 +1072,15 @@ classifies the 5 patched examples as 3 `line_anchor_drift` findings
 with nearby same-file findings, not pure misses. Keep `sqli.yaml` unchanged;
 the next step is a no-Claude Wave C preflight refresh on current main before
 any broader live execution.
+Wave C no-Claude cap-5 preflight refreshed on current main at
+`/tmp/screw-d02-broader-wave-c-cap5-preflight-current`. It selected 9 actual
+cases from the broader priority plan and assembled 46 prompts with helper
+context enabled. The one-retry prompt budget is 2,341,159 characters
+(about 585,307 estimated tokens), so live Wave C remains blocked by the default
+250k guard. Largest cost drivers are Exponent CMS SQLi (683,425 chars),
+NHibernate SQLi (472,853), Thetis SQLi (397,491), and Plexus CmdI related
+context (348,207). Do not run live Wave C without explicit budget acceptance
+or a narrower execution plan.
 
 **When continuing Phase 4:** Continue from `docs/PHASE_4_D02_PLAN.md`; keep Rust metric claims scoped to real-CVE SQLi/Cmdi/XSS and synthetic-only SSTI unless refresh finds a verified SSTI advisory.
 Use `docs/PHASE_4_OPERATING_MAP.md` as the high-level map before restoring
