@@ -9,14 +9,15 @@ Items explicitly deferred from earlier phases that must be completed in later ph
 | # | Item | Deferred from | Owning phase | Tracking ADR | Status |
 |---|---|---|---|---|---|
 | D-01 | Rust benchmark corpus from GitHub Advisory Database + synthetic SSTI fixtures | Phase 0.5 | **Phase 4 (step 4.0)** — hard gate, Phase 4 cannot close without it | ADR-014 | **MERGED** — PR #17, real-CVE corpus + synthetic SSTI inventory |
-| D-02 | Gates G5-G7: detection rate validation against real-CVE benchmarks | Phase 1 (Task 20) | **Phase 4** — full run deferred to autoresearch loop | — | **IN PROGRESS** — PR #18 merged dry-run planning, gate correction, failure-input schema, and controlled-run scaffold; dataset readiness checklist active on `phase4-d02-readiness` |
+| D-02 | Gates G5-G7: detection rate validation against real-CVE benchmarks | Phase 1 (Task 20) | **Phase 4** — full run deferred to autoresearch loop | — | **CLOSURE-READY** — calibration workflow, dataset/source inclusions, prompt-budget guardrails, failure payloads, Wave C representative validation, and focused runtime validation are recorded; final Phase 4 signoff remains |
 | D-03 (pointer) | Broader deferred backlog (114 active entries post-T24) | Across all phases | Various — see DEFERRED_BACKLOG §"Phase-4 Readiness Triage" | — | **TRIAGED** — see `docs/DEFERRED_BACKLOG.md` for `blocker` / `nice-to-have` / `phase-7-scoped` / `retire` tags |
 
-**When returning to Phase 4:** D-01 is merged. Continue D-02 from
-`docs/PHASE_4_D02_PLAN.md` and use `docs/PHASE_4_OPERATING_MAP.md` for the
-full safe-planning/materialization/paid-execution sequence; do not run
-expensive benchmarks until the dry-run plan's dataset and gate-definition
-issues are addressed. The controlled executor supports focused reruns with
+**When returning to Phase 4:** D-01 is merged. D-02 is closure-ready pending
+final Phase 4 signoff. Continue from `docs/PHASE_4_CLOSURE_READINESS.md`,
+`docs/PHASE_4_D02_PLAN.md`, and `docs/PHASE_4_OPERATING_MAP.md`; do not start
+another broad benchmark run unless a concrete new hypothesis cannot be answered
+from the existing Wave C and focused validation artifacts. The controlled
+executor supports focused reruns with
 repeatable `--agent` and `--case-id` filters, so concrete failure-payload
 examples can be revalidated without repeating the full smoke set. It also
 supports related-file prompt context for multi-file benchmark cases. Focused
@@ -361,9 +362,9 @@ not as full-corpus evidence.
 
 ---
 
-## Current Phase: Phase 4 D-02 — autoresearch planning scaffold in progress
+## Current Phase: Phase 4 D-02 — closure-ready pending final signoff
 
-Architecture and product design is **complete** (PRD v0.4.3). Phases 0 / 0.5 / 1 / 1.7 / 2 all **complete**. **Phase 3a** is **complete** — PR #6-#9 series merged 2026-04-16/17. **Phase 3b (Adaptive Analysis & Learning Refinement)** is in progress:
+Architecture and product design is **complete** (PRD v0.4.3). Phases 0 / 0.5 / 1 / 1.7 / 2 all **complete**. **Phase 3a** is **complete** — PR #6-#9 series merged 2026-04-16/17. **Phase 3b (Adaptive Analysis & Learning Refinement)** is complete:
 - **PR #4 (#10)** merged 2026-04-18 — adaptive-script executor pipeline + Layer 1 lint + Layer 5 sandbox + MCP tool.
 - **PR #5 (#11)** merged 2026-04-20 — adaptive workflow (D1+D2 gap detection, trust-path signing, cleanup). Surfaced C1 + I1-I6.
 - **PR #6 (#12)** merged 2026-04-23 (squash `fa2f42a`) — C1 staging architecture + I1-I6 polish. Test count 771 → 942 (+171). **C1 ENGINE-LAYER CLOSURE VERIFIED** via T21 E2E exit gate (`tests/test_adaptive_workflow_staged.py`); Step 11 sha256 + Step 12 read-and-compare both pass on bwrap sandbox.
@@ -770,7 +771,7 @@ Structured as a dependency graph with three parallel tracks converging at smoke 
 | Phase 3a | Prompt infrastructure (trust, learning aggregation, plugin-namespace, core-prompt dedup) | **Complete** (PR #6-#9 series, merged 2026-04-16/17) |
 | Phase 3b | Adaptive Analysis & Learning Refinement | **Complete** — PR #4 (#10) 2026-04-18, PR #5 (#11) 2026-04-20, PR #6 (#12) 2026-04-23, Phase 3b-C2 2026-04-24, BACKLOG-PR6-22 (#14) 2026-04-24, T19-M D7 (#15) 2026-04-24, T-SCAN-REFACTOR final 2026-04-25 |
 | Phase 3c | Sandbox hardening sweep (seccomp filter + thread-safety + dedup) | **Deferred** — see `docs/DEFERRED_BACKLOG.md` §"Phase 3c (sandbox hardening follow-ups)" |
-| Phase 4 | Autoresearch & Self-Improvement | **In progress** — D-01 merged, D-02 controlled smoke, focused refinements, and SQLi/Rails v1.0.2 consolidation accepted; CmdI/Plexus related-context consolidation next |
+| Phase 4 | Autoresearch & Self-Improvement | **Closure-ready pending final signoff** — D-01 merged; D-02 calibration workflow, guardrails, failure payloads, accepted inclusions/exclusions, Wave C representative validation, and focused runtime validation are recorded |
 | Phase 5 | Multi-LLM Challenger System | Pending |
 | Phase 6 | Agent Expansion & Ecosystem | Pending |
 | Phase 7 | screw.nvim Integration (scan commands, review-before-import, exclusions) | Pending |
@@ -797,11 +798,14 @@ from the controlled run output.
 `benchmarks/data/rust-d01-synthetic-ssti.json`.
 **Current scope:** live refresh currently yields 53 Rust advisory candidates; initial tracked corpus includes 4 real-CVE cases for SQLi/Cmdi/XSS plus labelled synthetic SSTI fixtures.
 
-### D-02 — Detection-rate validation thresholds (SAMPLE COMPLETE)
-**Status:** Pipeline validated (PR #3, 2026-04-11); dry-run planning,
+### D-02 — Detection-rate validation thresholds (CLOSURE-READY)
+**Status:** Closure-ready pending final Phase 4 signoff. Pipeline validated
+(PR #3, 2026-04-11); dry-run planning,
 gate correction, failure-input schema, and controlled-run scaffold merged in
 PR #18; active dataset readiness materialization and controlled smoke execution
-are complete.
+are complete; Wave C representative validation and focused runtime validation
+are recorded in `docs/PHASE_4_WAVE_C_LEDGER.md` and
+`docs/PHASE_4_CLOSURE_READINESS.md`.
 **Why gating:** Not a hard blocker to STARTING Phase 4 — autoresearch IS the threshold-tuning loop. But the benchmark run feeds D-01's corpus. Sequenced inside Phase 4, not before.
 
 **Current D-02 closure:** `G5.8` now targets `morefixes` rather than stale
@@ -1119,8 +1123,8 @@ NHibernate runtime failure as mitigated unless it recurs.
 Phase 4 closure readiness is tracked in
 `docs/PHASE_4_CLOSURE_READINESS.md`. It records the current D-02 closure
 criteria, accepted calibration inclusions, known exclusions/noise, and the
-remaining optional SQLi payload annotation decision. Another broad Wave C-style
-run is not the default next step.
+decision to skip the optional SQLi payload annotation for final closure.
+Another broad Wave C-style run is not the default next step.
 
 **When continuing Phase 4:** Continue from `docs/PHASE_4_D02_PLAN.md`; keep Rust metric claims scoped to real-CVE SQLi/Cmdi/XSS and synthetic-only SSTI unless refresh finds a verified SSTI advisory.
 Use `docs/PHASE_4_OPERATING_MAP.md` as the high-level map before restoring

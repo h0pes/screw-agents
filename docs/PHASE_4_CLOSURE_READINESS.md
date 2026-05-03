@@ -1,7 +1,6 @@
 # Phase 4 Closure Readiness
 
-> Status: closure checklist drafted from Wave A/B/C and focused validation
-> evidence.
+> Status: closure-ready pending final Phase 4 signoff.
 > Last updated: 2026-05-03.
 
 Phase 4 D-02 is a calibration loop, not an obligation to manually tune every
@@ -26,7 +25,7 @@ decision.
 | Accepted agent slices are preserved | Met for current accepted set | SQLi Rails/NHibernate/Thetis focused signals, CmdI fs-git/Plexus patched-clean signals, XSS html-janitor/Zope signals, and SSTI MLflow signal are recorded. | Preserve these as regression probes for future representative runs. |
 | Broader representative validation completed | Met | Wave C cap-5 run covered 9 cases across XSS, CmdI, SQLi, and SSTI under explicit budget; `docs/PHASE_4_WAVE_C_LEDGER.md` classifies the result. | Do not repeat broad Wave C-style validation until a concrete new hypothesis exists. |
 | Wave C runtime failure is addressed | Met | PR #88 added prompt-level tool-use prohibition; focused NHibernate rerun completed 10/10 prompts with no executor issues and 0 patched findings. | Watch for recurrence only. |
-| Wave C SQLi patched findings are interpreted | Mostly met | The Wave C ledger classifies sampled Thetis patched findings as residual raw-fragment risk and sampled Exponent findings as line-anchor drift. | Optional: create one annotated SQLi payload if cleaner machine-readable evidence is needed before final closure. |
+| Wave C SQLi patched findings are interpreted | Met | The Wave C ledger classifies sampled Thetis patched findings as residual raw-fragment risk and sampled Exponent findings as line-anchor drift. The optional machine-readable SQLi annotation is intentionally skipped for closure because the Markdown ledger is sufficient for the current decision. | Revisit only if future automation needs these classifications outside the ledger. |
 | Domain YAML mutation decision is explicit | Met | Wave C and focused reruns do not justify immediate changes to `sqli.yaml`, `cmdi.yaml`, `xss.yaml`, or `ssti.yaml`. | Only revisit YAML after a reviewed payload exposes reusable domain-level knowledge. |
 
 ## Accepted Inclusions
@@ -61,11 +60,10 @@ classification:
 
 Phase 4 can move toward closure without another broad live benchmark run.
 
-1. Optionally produce a reviewed, machine-readable Wave C SQLi annotated payload
-   if final closure needs the Thetis/Exponent classifications outside Markdown.
-2. Update the D-02 status from open-ended calibration to closure-ready once the
-   optional SQLi payload decision is made.
-3. Preserve Wave C and the accepted focused reruns as the regression baseline
+1. Skip the optional machine-readable Wave C SQLi annotated payload for final
+   closure. The Wave C ledger already records the Thetis/Exponent
+   classifications in enough detail for the current closure decision.
+2. Preserve Wave C and the accepted focused reruns as the regression baseline
    for the next phase.
 
 Do not start Wave C again, Wave D, or a full executable corpus run unless there

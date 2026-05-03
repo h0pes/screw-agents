@@ -1,19 +1,22 @@
 # Phase 4 D-02 — Autoresearch And Gate Optimization Plan
 
-> Status: dry-run, gate-audit, failure-input, readiness checklist,
-> controlled-run scaffold, controlled smoke execution, and failure-input
-> payload generation are complete. Active G5 dataset readiness is clean in the
-> long-lived main checkout after local materialization.
+> Status: closure-ready pending final Phase 4 signoff. Dry-run, gate-audit,
+> failure-input, readiness checklist, controlled-run scaffold, controlled smoke
+> execution, failure-input payload generation, Wave C representative
+> validation, and focused runtime validation are complete. Active G5 dataset
+> readiness is clean in the long-lived main checkout after local
+> materialization.
 > Scope: plan and audit expensive benchmark/autoresearch runs before invoking
 > Claude or mutating agent YAML.
 
 ## Goal
 
 D-02 takes the validated Phase 1.7 benchmark pipeline and turns it into a
-controlled Phase 4 autoresearch workflow. The first milestone is not a full
-benchmark run. It is a dry-run planning layer that makes cost, missing data,
-gate-definition drift, and YAML-mutation guardrails explicit before any
-long-running or paid work starts.
+controlled Phase 4 autoresearch workflow. Its closure state is now documented:
+the workflow can separate agent-knowledge gaps from source/materialization,
+context-packaging, scoring/truth-span, prompt, and runtime issues. Further
+broad live runs are not the default next step unless a concrete new hypothesis
+cannot be answered from the existing artifacts.
 
 For the whole Phase 4 picture, including which commands are safe planning,
 which commands materialize ignored local data, and which steps can spend Claude
