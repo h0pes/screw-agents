@@ -104,6 +104,7 @@ class FailureExample(BaseModel):
             "test_file_path",
             "fix_semantics_ambiguous",
             "residual_risk_or_incomplete_fix",
+            "line_anchor_drift",
         ]
     ] = []
 
@@ -143,6 +144,7 @@ class MissDiagnosticsSummary(BaseModel):
     false_positive_findings: int = Field(ge=0)
     false_positive_fix_semantics_ambiguous: int = Field(default=0, ge=0)
     false_positive_residual_risk_or_incomplete_fix: int = Field(default=0, ge=0)
+    false_positive_line_anchor_drift: int = Field(default=0, ge=0)
     missed_with_missing_code_excerpt: int = Field(default=0, ge=0)
     missed_in_test_file_paths: int = Field(default=0, ge=0)
 

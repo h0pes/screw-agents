@@ -818,6 +818,12 @@ First controlled smoke execution, verified 2026-04-29:
   misses, nearby same-file detections, and line-anchor drift. Review
   `/tmp/screw-d02-broader-wave-b-exponent7781-cap2-failure-inputs/sqli_failure_input.json`
   before Wave C, and do not mutate `sqli.yaml` from this result.
+- Failure payloads can now mark reviewed line-localization examples with
+  `line_anchor_drift`; diagnostics count them as
+  `false_positive_line_anchor_drift`. Use this when the agent's message names a
+  real nearby sink but the returned span is a comment, function header, or
+  unrelated statement, and keep that classification separate from patched
+  fix-semantics ambiguity or residual risk.
 - OSSF is no longer categorically blocked once target repos are materialized
   locally. Use `materialize_ossf_targets.py --case-id <ossf-CVE-...>` for
   narrow slices, validate first, then run live only within an explicit prompt

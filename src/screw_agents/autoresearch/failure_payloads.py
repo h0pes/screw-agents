@@ -202,6 +202,7 @@ def _miss_diagnostics_summary(
     test_file_paths = 0
     fix_semantics_ambiguous = 0
     residual_risk_or_incomplete_fix = 0
+    line_anchor_drift = 0
     for example in missed_findings:
         relationships = {
             finding.relationship for finding in example.related_agent_findings
@@ -225,6 +226,8 @@ def _miss_diagnostics_summary(
             fix_semantics_ambiguous += 1
         if "residual_risk_or_incomplete_fix" in flags:
             residual_risk_or_incomplete_fix += 1
+        if "line_anchor_drift" in flags:
+            line_anchor_drift += 1
     return MissDiagnosticsSummary(
         total_missed=len(missed_findings),
         missed_with_related_findings=nearby + same_file_only + related_file,
@@ -239,6 +242,7 @@ def _miss_diagnostics_summary(
         false_positive_findings=len(false_positive_findings),
         false_positive_fix_semantics_ambiguous=fix_semantics_ambiguous,
         false_positive_residual_risk_or_incomplete_fix=residual_risk_or_incomplete_fix,
+        false_positive_line_anchor_drift=line_anchor_drift,
         missed_with_missing_code_excerpt=missing_code_excerpt,
         missed_in_test_file_paths=test_file_paths,
     )
