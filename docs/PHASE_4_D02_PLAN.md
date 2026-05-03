@@ -836,6 +836,23 @@ First controlled smoke execution, verified 2026-04-29:
   2,341,159 retry-budgeted prompt characters, and one
   `prompt_budget_exceeded` warning against the default 250k guard. Do not run
   live Wave C until that budget is explicitly accepted or the run is narrowed.
+- Wave C live cap-5 run completed after explicit budget acceptance at
+  `/tmp/screw-d02-broader-wave-c-cap5-run`, benchmark `20260503-075922`. The
+  accepted budget was sufficient for all 46 prompts: 2,341,159 prompt
+  characters, about 585,307 estimated tokens, under a 2.5M prompt-character
+  guard. The run recorded one Claude failure on vulnerable NHibernate
+  `Dialect.cs`; the failure artifact shows an attempted `LSP.workspaceSymbol`
+  call and `error_max_turns`, so classify it as executor/tool-permission
+  evidence. Raw finding counts were: XSS html-janitor 1 vulnerable / 0 patched,
+  XSS AntiSamy 0/0, XSS Zope 1/0, CmdI fs-git 5/0, CmdI Plexus 7/0, SQLi
+  NHibernate 2/0, SQLi Thetis 5/2, SQLi Exponent CMS 25/25, and SSTI MLflow
+  1/0. Failure payloads were generated at
+  `/tmp/screw-d02-broader-wave-c-cap5-failure-inputs`: SQLi has 5 patched
+  findings and 5 selected misses; CmdI has 5 selected misses and no patched
+  findings; XSS has the known AntiSamy test-file miss; SSTI generated no
+  payload. Do not mutate `sqli.yaml`, `cmdi.yaml`, `xss.yaml`, or `ssti.yaml`
+  from raw Wave C metrics. Review SQLi patched findings for residual
+  risk/incomplete fix, line-anchor drift, and prompt overbreadth first.
 - OSSF is no longer categorically blocked once target repos are materialized
   locally. Use `materialize_ossf_targets.py --case-id <ossf-CVE-...>` for
   narrow slices, validate first, then run live only within an explicit prompt

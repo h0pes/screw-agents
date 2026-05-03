@@ -486,6 +486,20 @@ OSSF target-source unlock, verified 2026-05-02:
   SQLi (397,491), and Plexus CmdI with related context (348,207). Live Wave C
   requires explicit budget acceptance or narrower filters; the default 250k
   prompt guard correctly blocks it.
+- Wave C live cap-5 broader validation ran after explicit budget acceptance at
+  `/tmp/screw-d02-broader-wave-c-cap5-run`, benchmark `20260503-075922`. It
+  executed the same 46 prompts under a 2.5M prompt-character guard and recorded
+  2,341,159 prompt chars. One Claude invocation failed on vulnerable
+  NHibernate `Dialect.cs` because Claude attempted `LSP.workspaceSymbol` and
+  hit `error_max_turns`; keep this as executor/tool-permission evidence, not a
+  domain-rule result. Finding counts by case were: XSS html-janitor 1/0, XSS
+  AntiSamy 0/0, XSS Zope 1/0, CmdI fs-git 5/0, CmdI Plexus 7/0, SQLi
+  NHibernate 2/0, SQLi Thetis 5/2, SQLi Exponent CMS 25/25, and SSTI MLflow
+  1/0. Generated failure-input payloads are under
+  `/tmp/screw-d02-broader-wave-c-cap5-failure-inputs`; SSTI produced no
+  payload. Next work is payload review, especially SQLi patched findings on
+  Exponent/Thetis and the NHibernate executor failure. Do not mutate YAML from
+  the raw aggregate Wave C metrics.
 
 Phase 4 closure does not require manually processing every benchmark
 vulnerability. It does require a reliable workflow, clear dataset
