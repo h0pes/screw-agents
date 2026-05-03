@@ -519,6 +519,10 @@ and at least one broader representative validation that shows the accepted
 rules and infrastructure changes do not introduce obvious precision
 regressions.
 
+The current closure checklist is tracked in
+`docs/PHASE_4_CLOSURE_READINESS.md`. Use that document with the Wave C decision
+ledger before planning any further broad benchmark execution.
+
 ## What Is Already Done
 
 ### D-01 — Rust Corpus

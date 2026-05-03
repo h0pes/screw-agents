@@ -1116,6 +1116,12 @@ use or max-turn failure, vulnerable findings were 2, and patched findings were
 contains only 3 vulnerable misses and no patched findings. Treat the Wave C
 NHibernate runtime failure as mitigated unless it recurs.
 
+Phase 4 closure readiness is tracked in
+`docs/PHASE_4_CLOSURE_READINESS.md`. It records the current D-02 closure
+criteria, accepted calibration inclusions, known exclusions/noise, and the
+remaining optional SQLi payload annotation decision. Another broad Wave C-style
+run is not the default next step.
+
 **When continuing Phase 4:** Continue from `docs/PHASE_4_D02_PLAN.md`; keep Rust metric claims scoped to real-CVE SQLi/Cmdi/XSS and synthetic-only SSTI unless refresh finds a verified SSTI advisory.
 Use `docs/PHASE_4_OPERATING_MAP.md` as the high-level map before restoring
 ignored external datasets or allowing Claude benchmark execution.

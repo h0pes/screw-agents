@@ -107,5 +107,6 @@ Only possible future domain-review item:
      `residual_risk_or_incomplete_fix`
    - Exponent sampled patched examples:
      `line_anchor_drift`
-3. Do not run another broad Wave C-style validation until one of those two
-   concrete actions is complete.
+3. Use `docs/PHASE_4_CLOSURE_READINESS.md` as the current closure checklist.
+   Do not run another broad Wave C-style validation unless a concrete new
+   hypothesis cannot be answered from the existing artifacts.
