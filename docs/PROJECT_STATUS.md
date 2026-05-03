@@ -1081,6 +1081,24 @@ context enabled. The one-retry prompt budget is 2,341,159 characters
 NHibernate SQLi (472,853), Thetis SQLi (397,491), and Plexus CmdI related
 context (348,207). Do not run live Wave C without explicit budget acceptance
 or a narrower execution plan.
+Wave C live cap-5 execution was then run after explicit budget acceptance:
+`/tmp/screw-d02-broader-wave-c-cap5-run`, benchmark `20260503-075922`.
+The run executed all 46 prompts under a 2.5M prompt-character guard
+(2,341,159 prompt chars, about 585,307 estimated tokens). It completed with
+one Claude invocation failure: vulnerable NHibernate `Dialect.cs` attempted an
+`LSP.workspaceSymbol` tool call and stopped with `error_max_turns`, recorded at
+`/tmp/screw-d02-broader-wave-c-cap5-run/invocation_failures/c63f6f5e334b4095a1c7faee4e4389e0-attempt-1.json`.
+Treat that as executor/tool-permission evidence, not SQLi rule evidence.
+Finding counts were: XSS html-janitor 1/0, XSS AntiSamy 0/0, XSS Zope 1/0,
+CmdI fs-git 5/0, CmdI Plexus 7/0, SQLi NHibernate 2/0, SQLi Thetis 5/2,
+SQLi Exponent CMS 25/25, and SSTI MLflow 1/0. Failure-input payloads are at
+`/tmp/screw-d02-broader-wave-c-cap5-failure-inputs`: `sqli_failure_input.json`
+has 5 patched findings and 5 selected misses, `cmdi_failure_input.json` has
+5 selected misses with no patched findings, and `xss_failure_input.json` has
+the known AntiSamy test-file miss. SSTI produced no failure payload. Do not
+mutate YAML from raw Wave C metrics; first classify the SQLi patched findings
+for Exponent/Thetis fix semantics, residual risk, and line-anchor drift, and
+review the NHibernate executor failure separately.
 
 **When continuing Phase 4:** Continue from `docs/PHASE_4_D02_PLAN.md`; keep Rust metric claims scoped to real-CVE SQLi/Cmdi/XSS and synthetic-only SSTI unless refresh finds a verified SSTI advisory.
 Use `docs/PHASE_4_OPERATING_MAP.md` as the high-level map before restoring
