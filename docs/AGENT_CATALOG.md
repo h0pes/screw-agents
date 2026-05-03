@@ -331,6 +331,12 @@
 **Subagent .md file count:** post-T-SCAN-REFACTOR (2026-04-25), the subagent count is fixed at **3** (`screw-scan.md` universal + `screw-script-reviewer.md` + `screw-learning-analyst.md`) regardless of how many agents are added. Adding a new agent is a YAML-only change — no new subagent .md file is created. See `docs/AGENT_AUTHORING.md` "Adding a new agent (post-T-SCAN-REFACTOR)" for the workflow.
 
 > **Clarification on "Phase 2" overloading:** The PRD uses "Phase 2" in two contexts: (a) Phase 2 of the *implementation plan* = Claude Code Integration (subagents, skills, filesystem output) for the existing 4 agents; (b) "Phase 2 agents" in §9 = the next 8 agent YAMLs to be researched. The YAML research for expansion agents happens in Phase 6 (Agent Expansion). Phase 2 of the implementation plan built Claude Code integration; T-SCAN-REFACTOR (2026-04-25) collapsed all per-vuln subagents into a single universal `screw-scan.md`, so future agents need only their YAML.
+>
+> **Phase 6 expansion rule:** add agents in small, reviewed batches and reuse
+> the Phase 4 calibration workflow. A new agent should not require recreating
+> Phase 4; it should require careful knowledge acquisition, YAML authoring,
+> schema/unit tests, focused smoke scans, targeted benchmark slices when
+> available, and failure-payload review only for reusable evidence.
 
 ---
 

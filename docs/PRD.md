@@ -1229,7 +1229,10 @@ This creates a **three-way feedback loop**: benchmark metrics + challenger disag
 - **Define provider-agnostic challenger interface (structured input/output contract)**
 - **Implement OpenAI Codex adapter (first provider)**
 - **Challenger prompt design with anti-anchoring measures**
-- **Three challenge flow modes: primary+challenger, reverse, parallel independent**
+- **Three challenge flow modes are required scope, not optional polish:**
+  - Claude primary, Codex challenger
+  - Codex primary, Claude challenger, using the same YAML agent knowledge
+  - Claude and Codex parallel independent review with reconciliation
 - **Finding reconciliation logic (agreed/disputed/unique classification)**
 - **Enriched output: dual-perspective findings in markdown reports and JSON**
 - **Cost controls: opt-in configuration, disclaimers, severity-gated triggers**
@@ -1237,14 +1240,36 @@ This creates a **three-way feedback loop**: benchmark metrics + challenger disag
 - **Prepare extensibility for additional providers (Gemini, etc.) — config-only addition**
 
 ### Phase 6: Agent Expansion & Ecosystem
-- Research and build Phase 2 agents (access control, crypto, path traversal, etc.)
-- Validation against diverse vulnerable codebases
+- Research and build additional CWE-1400 agents in small, reviewed batches,
+  not as a full-catalog big bang.
+- Start from high-value expansion candidates where Phase 4 infrastructure can
+  be reused immediately, such as path traversal, SSRF, broken access control,
+  hardcoded secrets, weak crypto, and sensitive data exposure.
+- Validation against diverse vulnerable codebases using the Phase 4
+  calibration workflow: schema/unit tests, focused smoke scans, narrow
+  benchmark slices where available, failure payload classification, and human
+  review before YAML changes.
 - Community contribution workflow for new agents
 - Performance optimization (parallel scanning, caching)
 - Knowledge refresh process for existing agents
 - **CI/CD integration with validated-only script execution**
 
-### Phase 7: screw.nvim Integration
+### Phase 7A: Web Application Integration
+- Integrate `screw-agents` as the security-review engine for the application
+  security orchestration/correlation web application.
+- Support the existing four accepted agents first (`sqli`, `cmdi`, `ssti`,
+  `xss`) so orchestration, storage, triage, and correlation can be exercised
+  before broad agent expansion.
+- Define target submission and execution shape: repository path, uploaded
+  snapshot, git diff, pull request ref, or queued background job.
+- Return structured JSON/SARIF/Markdown findings for ingestion into the web
+  application's correlation model.
+- Map web-app triage decisions to screw-agents learning/exclusion artifacts
+  where appropriate.
+- Preserve source-code privacy and cost controls, especially once Phase 5
+  challenger providers are enabled.
+
+### Phase 7B: screw.nvim Integration
 - Add `:Screw scan` commands (calls MCP server)
 - Implement review-before-import workflow:
   - Temp report generation and display
@@ -1254,6 +1279,15 @@ This creates a **three-way feedback loop**: benchmark metrics + challenger disag
 - SARIF bridge for findings import/export
 - **Integrate exclusions with screw.nvim's `not_vulnerable` state — auto-populate exclusions from existing notes**
 - **screw.nvim `:Screw scan --adaptive` flag support** (leverages Phase 3 adaptive scripts)
+
+### Cross-Cutting Hardening And Backlog
+- Keep Phase 3c sandbox hardening visible before production-like deployment:
+  seccomp/BPF defense-in-depth for Linux sandboxing, fork/thread-safety
+  cleanup, and host-side sandbox helper deduplication.
+- Review `docs/DEFERRED_BACKLOG.md` before each major phase. Treat
+  `phase-7-scoped` concurrency/server items as part of web-app or Neovim
+  integration planning if those integrations introduce persistent service,
+  background worker, or multi-request execution patterns.
 
 ---
 
