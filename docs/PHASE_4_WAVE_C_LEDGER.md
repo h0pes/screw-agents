@@ -92,7 +92,9 @@ Only possible future domain-review item:
 ## Next Actions
 
 1. Add or document a controlled-executor guardrail that discourages Claude from
-   attempting LSP/tool calls during one-turn benchmark invocations.
+   attempting LSP/tool calls during one-turn benchmark invocations. This is the
+   next implementation task after the ledger; verify with a focused NHibernate
+   `Dialect.cs` rerun before any new broad validation.
 2. If Phase 4 needs cleaner SQLi metrics, create a reviewed Wave C SQLi payload
    with evidence flags:
    - Thetis patched examples:
