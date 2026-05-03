@@ -1,6 +1,6 @@
 # Phase 4 Operating Map - Autoresearch
 
-> Last updated: 2026-05-02
+> Last updated: 2026-05-03
 
 Phase 4 is the controlled benchmark-and-improvement loop. Its goal is not to
 blindly run expensive benchmarks or automatically rewrite agent YAML. Its goal
@@ -451,6 +451,20 @@ OSSF target-source unlock, verified 2026-05-02:
   vulnerable findings 1 and patched findings 0. Wave B is now the next staged
   broader-validation step; it remains sampling evidence, not full-corpus
   closure.
+- Wave B Exponent CMS `CVE-2016-7781` cap-2 sampling ran live at
+  `/tmp/screw-d02-broader-wave-b-exponent7781-cap2-run`, benchmark run
+  `20260503-061926`, after explicit acceptance of a 350k prompt-character
+  budget. It used one retry, a 600-second per-call timeout, helper context on,
+  and `ANTHROPIC_API_KEY` unset. All 4 invocations completed cleanly; prompt
+  budget was 322,761 characters. Results were 8 vulnerable findings and 8
+  patched findings, with capped aggregate metrics TP 0, FP 14, TN 87, FN 94.
+  The payload at
+  `/tmp/screw-d02-broader-wave-b-exponent7781-cap2-failure-inputs/sqli_failure_input.json`
+  reports 5 selected-file misses and 5 patched findings, with 0 pure misses.
+  Treat this as calibration evidence: the case mixes broad truth spans, nearby
+  same-file detections, patched-source raw SQL patterns, and line-anchor drift
+  where messages describe adjacent sinks but returned spans land on comments or
+  unrelated code. It is not clean SQLi YAML mutation evidence.
 
 Phase 4 closure does not require manually processing every benchmark
 vulnerability. It does require a reliable workflow, clear dataset
