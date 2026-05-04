@@ -76,10 +76,12 @@ Implemented today:
   output, and API-key stripping for subscription-backed CLI use.
 - Public `provider-scan` package CLI and `run_provider_scan` MCP tool for
   fixture and opt-in CLI provider-neutral primary scan execution.
+- Fixture-mode manual validation for `provider-scan` and `run_provider_scan`
+  using a temporary `/tmp` end-user project.
 
 Not yet implemented:
 
-- Manual round-trip validation for provider-neutral first-pass scanner
+- Live/manual round-trip validation for Codex and Claude CLI primary scan
   execution.
 - API/local primary scanner transports for Gemini, local models, or future
   assistants.
@@ -435,6 +437,7 @@ The current full-suite baseline after Phase 4 signoff is:
 | [COMMAND_REFERENCE.md](docs/COMMAND_REFERENCE.md) | CLI, Claude plugin, MCP, and benchmark command reference |
 | [PHASE_5_PLAN.md](docs/PHASE_5_PLAN.md) | Multi-LLM challenger plan, provider/transport architecture, required modes |
 | [PHASE_5_PRIMARY_SCANNER_PLAN.md](docs/PHASE_5_PRIMARY_SCANNER_PLAN.md) | Required Phase 5 plan for provider-neutral primary scanning beyond Claude Code |
+| [PHASE_5_MANUAL_VALIDATION.md](docs/PHASE_5_MANUAL_VALIDATION.md) | Manual round-trip validation evidence for Phase 5 provider surfaces |
 | [AGENT_CATALOG.md](docs/AGENT_CATALOG.md) | Planned CWE-1400 agent inventory |
 | [AGENT_AUTHORING.md](docs/AGENT_AUTHORING.md) | How to write new agent YAML |
 | [DECISIONS.md](docs/DECISIONS.md) | Architecture decision records |
