@@ -8,8 +8,9 @@
 > factory wiring from config is implemented; the first fixture-only
 > user-facing dry-run execution surface is implemented; opt-in live CLI
 > execution through configured CLI transports is implemented; MCP tools now
-> expose both execution surfaces to clients. Provider-neutral primary scanning
-> from YAML agent knowledge is still pending; see
+> expose both execution surfaces to clients. Provider-neutral primary scan
+> contracts and fixture validation are implemented; live primary scanning from
+> YAML agent knowledge is still pending; see
 > `docs/PHASE_5_PRIMARY_SCANNER_PLAN.md`.
 > Last updated: 2026-05-04.
 
@@ -21,8 +22,10 @@ provider runners are replaceable execution adapters.
 Important status distinction: current Phase 5 challenger work can review and
 reconcile supplied findings, and Claude Code remains the implemented primary
 scanner UX through `/screw:scan`. Codex, Gemini, and local models do not yet
-have an equivalent provider-neutral first-pass scan runner. Phase 5 is not
-closure-ready until that primary scanner path exists and is manually validated.
+have an equivalent live provider-neutral first-pass scan runner, although the
+backend input/result contract and fixture runner now exist in
+`src/screw_agents/primary_scan/`. Phase 5 is not closure-ready until live
+primary scanner paths exist and are manually validated.
 
 ## Goals
 
@@ -87,6 +90,11 @@ Phase 5 execution paths. Benchmark and live executor commands must continue to
 avoid accidental API usage. In particular, Claude Code benchmark/executor paths
 must keep `ANTHROPIC_API_KEY` unset unless the user explicitly chooses an API
 transport.
+
+If the corresponding local assistant CLI is not installed, that provider cannot
+use the subscription-backed CLI transport on that machine. The user must choose
+an explicitly enabled API transport, local endpoint, or future compatible
+transport adapter for that provider.
 
 ### Explicit Consent
 
