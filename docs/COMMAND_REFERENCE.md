@@ -269,11 +269,17 @@ Use `scan_agents` instead.
 | Tool | Purpose | Key inputs |
 |---|---|---|
 | `accumulate_findings` | Append findings to a scan session | `project_root`, `findings_chunk`, `session_id?` |
-| `finalize_scan_results` | Render reports and clean scan staging | `project_root`, `session_id`, `agent_names`, `formats?`, `scan_metadata?` |
+| `finalize_scan_results` | Render reports, optionally attach challenger review, and clean scan staging | `project_root`, `session_id`, `agent_names`, `formats?`, `scan_metadata?`, `challenger_mode?`, `challenger_execution?` |
 | `format_output` | Format supplied findings without writing project reports | `findings`, `format`, `scan_metadata?` |
 | `record_exclusion` | Record a false-positive exclusion | `project_root`, `exclusion` |
 | `check_exclusions` | Read project exclusions | `project_root`, `agent?` |
 | `aggregate_learning` | Build learning reports from exclusions | `project_root`, `report_type?` |
+
+`finalize_scan_results` leaves challenger execution disabled unless both
+`challenger_mode` and `challenger_execution` are provided. `challenger_execution`
+accepts `dry_run` for fixture transports or `cli` for opt-in live CLI transports.
+When enabled, the challenger reviews finalized active findings after merge and
+exclusion filtering, before JSON/Markdown/SARIF reports are written.
 
 When `scan_metadata.challenger_results` is provided, JSON, Markdown, and SARIF
 outputs include the challenger run envelope and finding-level reconciliation

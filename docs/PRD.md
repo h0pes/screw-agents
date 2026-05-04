@@ -1137,6 +1137,8 @@ base finding schema. JSON keeps the legacy bare finding array when no
 challenger data exists, and emits a `{findings, challenger_results}` envelope
 only for challenger-enriched output. SARIF stores run-level challenger metadata
 and finding-level reconciliation in `properties`; CSV remains finding-only.
+`finalize_scan_results` can attach this metadata directly when a configured
+challenger mode and execution surface are explicitly requested.
 
 Example conceptual payload:
 

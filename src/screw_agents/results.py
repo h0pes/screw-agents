@@ -11,6 +11,7 @@ implements the rendering + file I/O half of the protocol while
 from __future__ import annotations
 
 from collections import OrderedDict
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -21,6 +22,8 @@ from screw_agents.models import Finding, MergedSource
 
 if TYPE_CHECKING:
     from screw_agents.registry import AgentRegistry
+
+ChallengerResultsProvider = Callable[[list[Finding]], list[dict[str, Any]]]
 
 
 # Phase 3b T19: severity rank for primary-finding selection within a merge
@@ -124,6 +127,7 @@ def render_and_write(
     scan_metadata: dict[str, Any] | None = None,
     formats: list[str] | None = None,
     agent_registry: AgentRegistry | None = None,
+    challenger_results_provider: ChallengerResultsProvider | None = None,
 ) -> dict[str, Any]:
     """Render findings to disk under ``.screw/findings/`` and apply
     server-side exclusion matching.
@@ -143,6 +147,10 @@ def render_and_write(
             Accepted values: ``"json"``, ``"markdown"``, ``"sarif"``, ``"csv"``.
         agent_registry: Optional registry threaded to ``format_findings`` for
             SARIF output (provides ``agent.meta.short_description`` per rule).
+        challenger_results_provider: Optional callback invoked with active,
+            merged, exclusion-filtered findings before formatting. Its returned
+            challenger results are attached to ``scan_metadata`` for
+            JSON/Markdown/SARIF output.
 
     Returns:
         Dict with keys:
@@ -283,12 +291,27 @@ def render_and_write(
     else:
         prefix = "scan"
 
+    # Build summary inputs before formatting so explicit challenger execution
+    # can review the finalized active findings and still be rendered into
+    # JSON/Markdown/SARIF in the same report write.
+    active_findings = [f for f in findings if not f.triage.excluded]
+
     # Build metadata
     now = datetime.now(UTC)
     ts = now.strftime("%Y-%m-%dT%H-%M-%S")
     meta = dict(scan_metadata or {})
     meta.setdefault("agents", agent_names)
     meta.setdefault("timestamp", now.strftime("%Y-%m-%dT%H:%M:%SZ"))
+    if challenger_results_provider is not None:
+        challenger_results = challenger_results_provider(active_findings)
+        if challenger_results:
+            existing = meta.get("challenger_results")
+            if isinstance(existing, list):
+                meta["challenger_results"] = [*existing, *challenger_results]
+            elif isinstance(existing, dict):
+                meta["challenger_results"] = [existing, *challenger_results]
+            else:
+                meta["challenger_results"] = challenger_results
 
     # Format and write
     files_written: dict[str, str] = {}
@@ -327,7 +350,6 @@ def render_and_write(
         files_written["csv"] = str(csv_path)
 
     # Build summary
-    active_findings = [f for f in findings if not f.triage.excluded]
     by_severity: dict[str, int] = {}
     for f in active_findings:
         sev = f.classification.severity

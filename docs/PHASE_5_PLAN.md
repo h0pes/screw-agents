@@ -349,8 +349,14 @@ details in run properties and finding-level reconciliation in result
 properties. Markdown adds a compact challenger review section. CSV remains
 finding-only.
 
-- Wire normal scan finalization to attach challenger results when a configured
-  challenger mode is explicitly enabled.
+`finalize_scan_results` can now run and attach a configured challenger mode
+when `challenger_mode` and `challenger_execution` are explicitly supplied.
+Execution stays disabled by default. The challenger receives finalized active
+findings after merge and exclusion filtering, then the returned
+`ChallengerRunResult` is rendered into JSON, Markdown, and SARIF outputs.
+
+- Add Claude plugin command UX for requesting challenger review from
+  `/screw:scan` while preserving explicit opt-in cost/privacy controls.
 - Add API/local execution only after the CLI/MCP execution surfaces, output
   shape, and consent guardrails are stable.
 - Update `README.md`, `docs/COMMAND_REFERENCE.md`, and architecture/status docs

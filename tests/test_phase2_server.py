@@ -179,6 +179,17 @@ class TestNewToolsRegistered:
         # Legacy tool is gone
         assert "write_scan_results" not in names
 
+    def test_finalize_scan_results_tool_exposes_challenger_options(self, domains_dir):
+        _, engine = create_server(domains_dir)
+        tools = engine.list_tool_definitions()
+        tool = next(t for t in tools if t["name"] == "finalize_scan_results")
+        props = tool["input_schema"]["properties"]
+
+        assert "challenger_mode" in props
+        assert props["challenger_execution"]["enum"] == ["dry_run", "cli", None]
+        assert "challenger_target" in props
+        assert "challenger_timeout_seconds" in props
+
     def test_scan_tools_have_project_root(self, domains_dir):
         _, engine = create_server(domains_dir)
         tools = engine.list_tool_definitions()

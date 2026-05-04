@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 import pytest
+import yaml
 
 from screw_agents.engine import ScanEngine
 
@@ -35,6 +36,69 @@ def _make_finding(fid: str, file: str = "src/a.py", line: int = 10,
         "remediation": {"recommendation": "use parameterized queries"},
         "triage": {"status": "open"},
     }
+
+
+def _write_fixture_challenger_config(project_root: Path) -> None:
+    screw_dir = project_root / ".screw"
+    screw_dir.mkdir(exist_ok=True)
+    (screw_dir / "config.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "version": 1,
+                "challenger": {
+                    "enabled": True,
+                    "consent": {
+                        "cost_acknowledged": True,
+                        "privacy_acknowledged": True,
+                        "source_sharing_allowed": True,
+                    },
+                    "providers": {
+                        "claude": {
+                            "assistant": "claude",
+                            "transports": {
+                                "fixture": {
+                                    "kind": "fixture",
+                                    "enabled": True,
+                                    "sends_source_externally": False,
+                                }
+                            },
+                            "default_transport": "fixture",
+                        },
+                        "codex": {
+                            "assistant": "codex",
+                            "transports": {
+                                "fixture": {
+                                    "kind": "fixture",
+                                    "enabled": True,
+                                    "sends_source_externally": False,
+                                }
+                            },
+                            "default_transport": "fixture",
+                        },
+                    },
+                    "modes": {
+                        "fixture_review": {
+                            "enabled": True,
+                            "participants": [
+                                {
+                                    "provider": "claude",
+                                    "transport": "fixture",
+                                    "role": "primary",
+                                },
+                                {
+                                    "provider": "codex",
+                                    "transport": "fixture",
+                                    "role": "challenger",
+                                },
+                            ],
+                        }
+                    },
+                },
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
 
 
 def test_accumulate_findings_creates_session_on_first_call(tmp_path: Path):
@@ -199,6 +263,67 @@ def test_finalize_scan_results_idempotent_on_second_call(tmp_path: Path):
     assert not (staging_dir / "findings.json").exists()
     # result.json sidecar is present
     assert (staging_dir / "result.json").exists()
+
+
+def test_finalize_scan_results_attaches_fixture_challenger_results(
+    tmp_path: Path,
+) -> None:
+    _write_fixture_challenger_config(tmp_path)
+    engine = ScanEngine.from_defaults()
+
+    acc = engine.accumulate_findings(
+        project_root=tmp_path,
+        findings_chunk=[_make_finding("sqli-001")],
+        session_id=None,
+    )
+    sid = acc["session_id"]
+
+    result = engine.finalize_scan_results(
+        project_root=tmp_path,
+        session_id=sid,
+        agent_names=["sqli"],
+        scan_metadata={
+            "target": {"type": "file", "path": "src/a.py"},
+            "timestamp": "2026-04-17T00:00:00Z",
+        },
+        formats=["json", "markdown", "sarif"],
+        challenger_mode="fixture_review",
+        challenger_execution="dry_run",
+        challenger_prompt="Review finalized findings.",
+    )
+
+    findings_json = json.loads(Path(result["files_written"]["json"]).read_text())
+    challenger_result = findings_json["challenger_results"][0]
+    assert challenger_result["run_id"] == f"{sid}-challenger"
+    assert challenger_result["mode"] == "fixture_review"
+    assert challenger_result["reconciliations"][0]["finding_ids"] == ["sqli-001"]
+
+    markdown = Path(result["files_written"]["markdown"]).read_text()
+    assert "## Challenger review" in markdown
+
+    sarif = json.loads(Path(result["files_written"]["sarif"]).read_text())
+    assert sarif["runs"][0]["properties"]["challengerResults"][0]["mode"] == (
+        "fixture_review"
+    )
+
+
+def test_finalize_scan_results_requires_complete_challenger_options(
+    tmp_path: Path,
+) -> None:
+    engine = ScanEngine.from_defaults()
+    acc = engine.accumulate_findings(
+        project_root=tmp_path,
+        findings_chunk=[_make_finding("sqli-001")],
+        session_id=None,
+    )
+
+    with pytest.raises(ValueError, match="provided together"):
+        engine.finalize_scan_results(
+            project_root=tmp_path,
+            session_id=acc["session_id"],
+            agent_names=["sqli"],
+            challenger_mode="fixture_review",
+        )
 
 
 def test_accumulate_after_finalize_raises(tmp_path: Path):
