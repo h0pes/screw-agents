@@ -66,7 +66,7 @@ def format_findings(
     """
     meta = scan_metadata or {}
     if format == "json":
-        return _format_json(findings)
+        return _format_json(findings, meta)
     if format == "sarif":
         return _format_sarif(findings, meta, agent_registry=agent_registry)
     if format == "markdown":
@@ -154,9 +154,18 @@ def format_csv(findings: list[Finding], scan_metadata: dict[str, Any] | None = N
 # ---------------------------------------------------------------------------
 
 
-def _format_json(findings: list[Finding]) -> str:
+def _format_json(findings: list[Finding], metadata: dict[str, Any]) -> str:
     """Serialize findings as a JSON array using Pydantic model_dump."""
     data = [f.model_dump() for f in findings]
+    challenger_results = _challenger_results(metadata)
+    if challenger_results:
+        return json.dumps(
+            {
+                "findings": data,
+                "challenger_results": challenger_results,
+            },
+            indent=2,
+        )
     return json.dumps(data, indent=2)
 
 
@@ -172,7 +181,15 @@ def _format_sarif(
 ) -> str:
     """Produce a SARIF 2.1.0 document from findings."""
     rules = _sarif_rules(findings, agent_registry=agent_registry)
-    results = [_sarif_result(f) for f in findings]
+    challenger_results = _challenger_results(metadata)
+    challenger_by_finding = _challenger_reconciliations_by_finding(challenger_results)
+    results = [
+        _sarif_result(
+            f,
+            challenger_reconciliation=challenger_by_finding.get(f.id),
+        )
+        for f in findings
+    ]
 
     doc: dict[str, Any] = {
         "$schema": _SARIF_SCHEMA,
@@ -190,6 +207,10 @@ def _format_sarif(
             }
         ],
     }
+    if challenger_results:
+        doc["runs"][0]["properties"] = {
+            "challengerResults": challenger_results,
+        }
     return json.dumps(doc, indent=2)
 
 
@@ -224,7 +245,11 @@ def _sarif_rules(
     return list(seen.values())
 
 
-def _sarif_result(finding: Finding) -> dict[str, Any]:
+def _sarif_result(
+    finding: Finding,
+    *,
+    challenger_reconciliation: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Convert a single Finding to a SARIF result object."""
     level = _SEVERITY_TO_SARIF_LEVEL.get(finding.classification.severity, "warning")
 
@@ -249,11 +274,13 @@ def _sarif_result(finding: Finding) -> dict[str, Any]:
     # bag see multi-source attribution; consumers that don't still see the
     # primary's `agent` via ruleId + tool driver metadata.
     if finding.merged_from_sources:
-        result["properties"] = {
-            "mergedFromSources": [
-                s.model_dump() for s in finding.merged_from_sources
-            ],
-        }
+        result.setdefault("properties", {})["mergedFromSources"] = [
+            s.model_dump() for s in finding.merged_from_sources
+        ]
+    if challenger_reconciliation is not None:
+        result.setdefault("properties", {})["challengerReconciliation"] = (
+            challenger_reconciliation
+        )
 
     if loc.data_flow is not None:
         df = loc.data_flow
@@ -269,6 +296,39 @@ def _sarif_result(finding: Finding) -> dict[str, Any]:
         ]
 
     return result
+
+
+def _challenger_results(metadata: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return normalized challenger results from scan metadata."""
+    raw = metadata.get("challenger_results")
+    if raw is None:
+        return []
+    if isinstance(raw, dict):
+        return [raw]
+    if isinstance(raw, list):
+        return [item for item in raw if isinstance(item, dict)]
+    return []
+
+
+def _challenger_reconciliations_by_finding(
+    challenger_results: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Index challenger reconciliation summaries by finding id."""
+    indexed: dict[str, dict[str, Any]] = {}
+    for result in challenger_results:
+        reconciliations = result.get("reconciliations", [])
+        if not isinstance(reconciliations, list):
+            continue
+        for reconciliation in reconciliations:
+            if not isinstance(reconciliation, dict):
+                continue
+            finding_ids = reconciliation.get("finding_ids", [])
+            if not isinstance(finding_ids, list):
+                continue
+            for finding_id in finding_ids:
+                if isinstance(finding_id, str):
+                    indexed[finding_id] = reconciliation
+    return indexed
 
 
 # ---------------------------------------------------------------------------
@@ -357,6 +417,8 @@ def _format_markdown(
     if trust_status is not None:
         lines.extend(_render_trust_section_markdown(trust_status))
 
+    lines.extend(_render_challenger_section_markdown(metadata))
+
     # --- Summary ---
     lines.append("## Summary")
     lines.append("")
@@ -404,6 +466,49 @@ def _format_markdown(
         _append_finding_detail(lines, f)
 
     return "\n".join(lines)
+
+
+def _render_challenger_section_markdown(metadata: dict[str, Any]) -> list[str]:
+    """Render compact challenger consensus/dispute summaries."""
+    challenger_results = _challenger_results(metadata)
+    if not challenger_results:
+        return []
+
+    lines: list[str] = ["## Challenger review", ""]
+    for result in challenger_results:
+        mode = result.get("mode", "unknown")
+        run_id = result.get("run_id", "unknown")
+        reconciliations = result.get("reconciliations", [])
+        status_counts = Counter(
+            item.get("status", "unknown")
+            for item in reconciliations
+            if isinstance(item, dict)
+        )
+        summary = ", ".join(
+            f"{status}: {count}" for status, count in sorted(status_counts.items())
+        )
+        lines.append(f"- `{mode}` run `{run_id}`")
+        if summary:
+            lines.append(f"  - Consensus: {summary}")
+        for reconciliation in reconciliations:
+            if not isinstance(reconciliation, dict):
+                continue
+            if reconciliation.get("status") not in {"disputed", "unsupported"}:
+                continue
+            finding_ids = ", ".join(
+                item
+                for item in reconciliation.get("finding_ids", [])
+                if isinstance(item, str)
+            )
+            rationale = reconciliation.get("rationale", "")
+            lines.append(
+                f"  - Attention: {reconciliation.get('status')} "
+                f"for `{finding_ids}`"
+            )
+            if rationale:
+                lines.append(f"    - {rationale}")
+    lines.append("")
+    return lines
 
 
 def _append_finding_detail(lines: list[str], f: Finding) -> None:

@@ -1152,6 +1152,57 @@ class TestRenderAndWriteMerge:
         assert len(findings_json) == 1
         assert findings_json[0]["merged_from_sources"] is None
 
+    def test_render_and_write_preserves_challenger_metadata(self, tmp_path):
+        finding = _make_finding_dict(
+            finding_id="f1",
+            agent="sqli",
+            file="src/a.py",
+            line_start=10,
+            cwe="CWE-89",
+            severity="high",
+            description="Only finding",
+        )
+        challenger_result = {
+            "run_id": "run-001",
+            "mode": "cli_mode",
+            "assessments": [],
+            "reconciliations": [
+                {
+                    "finding_ids": ["f1"],
+                    "status": "agreed",
+                    "primary_provider": "claude",
+                    "participant_providers": ["claude", "codex"],
+                    "agreed_severity": "high",
+                    "confidence": "high",
+                    "rationale": "All assessments from codex agreed.",
+                }
+            ],
+            "provider_metadata": {},
+            "guardrails": {"allowed": True},
+        }
+
+        result = render_and_write(
+            project_root=tmp_path,
+            findings_raw=[finding],
+            agent_names=["sqli"],
+            scan_metadata={"challenger_results": [challenger_result]},
+            formats=["json", "markdown", "sarif"],
+        )
+
+        json_content = json.loads(Path(result["files_written"]["json"]).read_text())
+        assert json_content["findings"][0]["id"] == "f1"
+        assert json_content["challenger_results"][0]["run_id"] == "run-001"
+
+        md_content = Path(result["files_written"]["markdown"]).read_text()
+        assert "## Challenger review" in md_content
+        assert "agreed: 1" in md_content
+
+        sarif = json.loads(Path(result["files_written"]["sarif"]).read_text())
+        sarif_run = sarif["runs"][0]
+        assert sarif_run["properties"]["challengerResults"][0]["mode"] == "cli_mode"
+        challenger = sarif_run["results"][0]["properties"]["challengerReconciliation"]
+        assert challenger["status"] == "agreed"
+
 
 def test_render_and_write_default_formats_includes_csv(tmp_path: Path) -> None:
     """write_scan_results with formats=None must write a .csv file alongside

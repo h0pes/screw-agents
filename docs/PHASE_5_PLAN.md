@@ -341,10 +341,16 @@ live CLI execution primitives to MCP clients. They use structured arguments
 instead of CLI JSON strings and return the same `ChallengerRunResult` JSON
 envelope.
 
-- Enrich JSON and Markdown output with provider perspectives and consensus
-  state without breaking existing finding consumers.
-- Preserve SARIF compatibility by keeping provider-specific challenger details
-  in properties when exported.
+JSON, Markdown, and SARIF report formatting now preserves supplied
+`ChallengerRunResult` metadata. JSON keeps the legacy bare finding array when
+no challenger results are present, and emits a `{findings, challenger_results}`
+object only when challenger metadata is supplied. SARIF stores challenger run
+details in run properties and finding-level reconciliation in result
+properties. Markdown adds a compact challenger review section. CSV remains
+finding-only.
+
+- Wire normal scan finalization to attach challenger results when a configured
+  challenger mode is explicitly enabled.
 - Add API/local execution only after the CLI/MCP execution surfaces, output
   shape, and consent guardrails are stable.
 - Update `README.md`, `docs/COMMAND_REFERENCE.md`, and architecture/status docs
