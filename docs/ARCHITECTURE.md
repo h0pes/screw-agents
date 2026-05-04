@@ -270,7 +270,7 @@ See `docs/PRD.md` §9 for the full taxonomy mapping and `docs/DECISIONS.md` ADR-
 | Phase 2 | Per-vuln | Claude Code Integration (subagents, skills, FP learning) | **Complete** |
 | Phase 3 | **One-time** | Adaptive Analysis & Learning | **Complete** (Phase 3a + Phase 3b + Phase 3b-C2) |
 | Phase 4 | **One-time** | Autoresearch & Self-Improvement | **Complete** |
-| Phase 5 | **One-time** | Multi-LLM Challenger + Provider-Neutral Primary Scanning | In progress — challenger/reconciliation/report surfaces, primary scan contracts, fixture validation, scan input assembly, and backend CLI primary scanner runner plumbing are implemented, but public provider-neutral first-pass scanner execution is pending; see `docs/PHASE_5_PLAN.md` and `docs/PHASE_5_PRIMARY_SCANNER_PLAN.md` |
+| Phase 5 | **One-time** | Multi-LLM Challenger + Provider-Neutral Primary Scanning | In progress — challenger/reconciliation/report surfaces, primary scan contracts, fixture validation, scan input assembly, backend CLI primary scanner runner plumbing, package CLI, and MCP surface are implemented, but manual provider-neutral primary scan validation is pending; see `docs/PHASE_5_PLAN.md` and `docs/PHASE_5_PRIMARY_SCANNER_PLAN.md` |
 | Phase 5.5 | **One-time** | Web application integration pilot | Pending |
 | Phase 6 | Mixed | Small-batch agent expansion | Pending |
 | Phase 7 | **One-time** | screw.nvim Integration | Pending |

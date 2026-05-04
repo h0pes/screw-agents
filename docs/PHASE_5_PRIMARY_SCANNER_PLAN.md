@@ -4,9 +4,10 @@
 > and the provider-neutral primary scan contract, fixture runner, and scan
 > input assembly from YAML agent knowledge are implemented. Primary scanner
 > CLI runner plumbing is implemented for configured Claude/Codex/generic CLI
-> transports, but MCP/CLI exposure and manual round-trip validation are still
-> pending. Phase 5 is not closure-ready until this gap is closed or explicitly
-> re-scoped.
+> transports, and the `provider-scan` package CLI plus `run_provider_scan` MCP
+> tool expose fixture and opt-in CLI primary scan execution. Manual round-trip
+> validation is still pending. Phase 5 is not closure-ready until this gap is
+> closed or explicitly re-scoped.
 
 ## Why This Exists
 
@@ -29,8 +30,9 @@ JSON. The backend contract for such runners now exists in
 packages selected YAML agent prompts, resolved source chunks, target metadata,
 and the shared `Finding` output schema without invoking a provider. The
 `CliPrimaryScanRunner` can invoke a configured CLI transport shell-free and
-validate JSON output back into `Finding` objects, but it is not yet exposed as
-a package CLI or MCP tool.
+validate JSON output back into `Finding` objects. `screw-agents provider-scan`
+and MCP `run_provider_scan` expose that backend for fixture and opt-in CLI
+execution; API/local transports remain pending.
 
 The current Phase 5 challenger package supports provider-neutral participant
 roles and reconciliation, but those "primary" roles operate inside the
@@ -50,8 +52,9 @@ context.
 | Fixture primary scan runner and output validation | Implemented |
 | Provider-neutral scan input assembly from YAML agent knowledge | Implemented |
 | Generic/Claude/Codex CLI primary scan runner plumbing | Implemented |
+| `provider-scan` package CLI and `run_provider_scan` MCP tool | Implemented |
 | Codex primary review participant over supplied findings | Implemented at challenger-orchestrator level |
-| Codex as first-pass scanner from YAML agent knowledge | Backend CLI runner implemented; public surface and manual validation pending |
+| Codex as first-pass scanner from YAML agent knowledge | Public CLI/MCP path implemented; manual validation pending |
 | Gemini/local as first-pass scanner from YAML agent knowledge | Pending adapter |
 | Parallel independent first-pass scans with reconciliation | Pending |
 | Manual round-trip validation of all Phase 5 modes | Pending |
@@ -186,8 +189,11 @@ provider produced or disputed each finding.
 
 ### P5-P4 - MCP/CLI Surface
 
-- Status: pending.
-- Expose provider primary scanning through MCP and package CLI.
+- Status: implemented.
+- Added `screw-agents provider-scan`.
+- Added MCP tool `run_provider_scan`.
+- Public surface supports fixture execution and opt-in configured CLI
+  transports. API/local transports are still rejected until adapters exist.
 - Keep `/screw:scan` as the Claude Code frontend, but make the backend surface
   usable by other assistants and future web-app workers.
 

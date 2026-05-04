@@ -74,11 +74,13 @@ Implemented today:
 - Backend generic/Claude/Codex CLI primary scanner runner plumbing with
   shell-free invocation, structured stdin payloads, validated `Finding` JSON
   output, and API-key stripping for subscription-backed CLI use.
+- Public `provider-scan` package CLI and `run_provider_scan` MCP tool for
+  fixture and opt-in CLI provider-neutral primary scan execution.
 
 Not yet implemented:
 
-- Public MCP/package CLI surface for provider-neutral first-pass scanner
-  execution and manual round-trip validation.
+- Manual round-trip validation for provider-neutral first-pass scanner
+  execution.
 - API/local primary scanner transports for Gemini, local models, or future
   assistants.
 - API/local challenger transports in `/screw:scan`.
@@ -197,6 +199,7 @@ Main CLI commands:
 | `screw-agents serve` | Run the MCP server with stdio or HTTP transport |
 | `screw-agents challenger-dry-run` | Run a configured fixture-only Phase 5 challenger mode and print JSON |
 | `screw-agents challenger-run` | Run a configured opt-in CLI-backed Phase 5 challenger mode and print JSON |
+| `screw-agents provider-scan` | Run a provider-neutral primary scan through fixture or opt-in CLI execution and print JSON |
 | `screw-agents init-trust` | Register a local reviewer key for project trust |
 | `screw-agents migrate-exclusions` | Sign legacy false-positive exclusions |
 | `screw-agents validate-exclusion` | Re-sign a quarantined exclusion after review |
@@ -374,10 +377,10 @@ Upcoming:
     `challenger_execution` are explicitly provided.
   - `/screw:scan` exposes the same explicit attachment path through
     `--challenger <mode> --challenger-execution dry_run|cli`.
-  - Provider-neutral scan input assembly and backend CLI primary scanner
-    runner plumbing are implemented; public provider-neutral first-pass scanner
-    execution is still pending, so Codex/Gemini/local models cannot yet act as
-    full primary scanners through an exposed backend runner.
+  - Provider-neutral scan input assembly, backend CLI primary scanner runner
+    plumbing, `provider-scan`, and MCP `run_provider_scan` are implemented;
+    manual round-trip validation is still pending before treating Codex/Claude
+    CLI primary scanning as accepted Phase 5 behavior.
   - Provider-neutral adapters so Gemini, local LLMs, or future assistants can
     be added without changing agent YAML.
   - Transport choice per provider: subscription-backed CLI/local execution or

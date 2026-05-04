@@ -2917,6 +2917,17 @@ class ScanEngine:
                 include_timeout=True,
             ),
         })
+        tools.append({
+            "name": "run_provider_scan",
+            "description": (
+                "Run a provider-neutral first-pass scan through fixture or "
+                "opt-in CLI execution and return a validated PrimaryScanResult. "
+                "The tool assembles YAML agent knowledge and resolved source "
+                "context before invoking the selected provider transport. API "
+                "and local transports are rejected until adapters exist."
+            ),
+            "input_schema": _provider_scan_schema(),
+        })
 
         # Phase 2: format_output
         tools.append({
@@ -3886,5 +3897,70 @@ def _challenger_execution_schema(
             "target",
             "prompt",
             "findings",
+        ],
+    }
+
+
+def _provider_scan_schema() -> dict[str, Any]:
+    """JSON Schema for Phase 5 provider-neutral primary scan execution."""
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "project_root": {
+                "type": "string",
+                "description": "Absolute path to the project root containing .screw/config.yaml.",
+            },
+            "provider": {
+                "type": "string",
+                "description": "Configured provider name, e.g. claude, codex, fixture.",
+            },
+            "transport": {
+                "type": "string",
+                "description": "Configured transport name for the provider.",
+            },
+            "execution": {
+                "type": "string",
+                "enum": ["fixture", "cli"],
+                "description": "Execution surface. API/local transports are not exposed yet.",
+            },
+            "run_id": {
+                "type": "string",
+                "description": "Run identifier recorded in the structured result.",
+            },
+            "session_id": {
+                "type": "string",
+                "description": "Scan/session identifier recorded in input metadata.",
+            },
+            "agents": {
+                "type": "array",
+                "items": {"type": "string"},
+                "minItems": 1,
+                "uniqueItems": True,
+                "description": "Registered agent names to use for primary scanning.",
+            },
+            "target": _target_schema(),
+            "thoroughness": _thoroughness_schema(),
+            "timeout_seconds": {
+                "type": "integer",
+                "minimum": 1,
+                "default": 120,
+                "description": "Per-provider CLI timeout in seconds.",
+            },
+            "fixture_findings": {
+                "type": ["array", "null"],
+                "items": {"type": "object"},
+                "description": "Optional fixture findings returned during fixture execution.",
+            },
+        },
+        "required": [
+            "project_root",
+            "provider",
+            "transport",
+            "execution",
+            "run_id",
+            "session_id",
+            "agents",
+            "target",
         ],
     }
