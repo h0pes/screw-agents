@@ -173,6 +173,7 @@ Main CLI commands:
 |---|---|
 | `screw-agents serve` | Run the MCP server with stdio or HTTP transport |
 | `screw-agents challenger-dry-run` | Run a configured fixture-only Phase 5 challenger mode and print JSON |
+| `screw-agents challenger-run` | Run a configured opt-in CLI-backed Phase 5 challenger mode and print JSON |
 | `screw-agents init-trust` | Register a local reviewer key for project trust |
 | `screw-agents migrate-exclusions` | Sign legacy false-positive exclusions |
 | `screw-agents validate-exclusion` | Re-sign a quarantined exclusion after review |
@@ -337,6 +338,9 @@ Upcoming:
   - Config-driven runner factory wiring is implemented.
   - A fixture-only `challenger-dry-run` CLI execution surface is implemented
     for validating configured modes without live provider calls.
+  - An opt-in `challenger-run` CLI execution surface is implemented for
+    configured CLI transports; API and local transports remain rejected until
+    adapters exist.
   - Provider-neutral adapters so Gemini, local LLMs, or future assistants can
     be added without changing agent YAML.
   - Transport choice per provider: subscription-backed CLI/local execution or
@@ -370,7 +374,7 @@ uv run ruff check .
 The current full-suite baseline after Phase 4 signoff is:
 
 ```text
-1160 passed, 9 skipped
+1167 passed, 9 skipped
 ```
 
 ## Documentation Map

@@ -405,9 +405,11 @@ is tracked in `docs/PHASE_4_CLOSURE_READINESS.md`.
   Fixture-backed required-mode orchestration is in
   `src/screw_agents/challenger/orchestrator.py`; config-driven runner factory
   wiring is in `src/screw_agents/challenger/runner_factory.py`. Fixture-only
-  dry-run execution is in `src/screw_agents/challenger/execution.py` and is
-  exposed through `screw-agents challenger-dry-run`; live provider execution,
-  MCP challenger tools, and output integration are still pending.
+  dry-run execution and opt-in live CLI execution are in
+  `src/screw_agents/challenger/execution.py` and are exposed through
+  `screw-agents challenger-dry-run` and `screw-agents challenger-run`; API/local
+  provider execution, MCP challenger tools, and output integration are still
+  pending.
 - `docs/` structure in place (PRD, DECISIONS, CONTRIBUTING, KNOWLEDGE_SOURCES, AGENT_AUTHORING)
 
 **Phase 0 — Knowledge Research Sprint (complete for all 4 Phase 1 agents):**
@@ -785,7 +787,7 @@ Structured as a dependency graph with three parallel tracks converging at smoke 
 | Phase 3b | Adaptive Analysis & Learning Refinement | **Complete** — PR #4 (#10) 2026-04-18, PR #5 (#11) 2026-04-20, PR #6 (#12) 2026-04-23, Phase 3b-C2 2026-04-24, BACKLOG-PR6-22 (#14) 2026-04-24, T19-M D7 (#15) 2026-04-24, T-SCAN-REFACTOR final 2026-04-25 |
 | Phase 3c | Sandbox hardening sweep (seccomp filter + thread-safety + dedup) | **Deferred** — see `docs/DEFERRED_BACKLOG.md` §"Phase 3c (sandbox hardening follow-ups)" |
 | Phase 4 | Autoresearch & Self-Improvement | **Complete** — D-01 merged; D-02 calibration workflow, guardrails, failure payloads, accepted inclusions/exclusions, Wave C representative validation, focused runtime validation, and final signoff are recorded |
-| Phase 5 | Multi-LLM Challenger System | In progress — P5-1 challenger config/model contracts merged in PR #97; P5-2 provider-neutral reconciliation engine is implemented; P5-3 provider runner interface, fixture runner, generic CLI runner, and Claude/Codex CLI API-key isolation are implemented; P5-4 required-mode orchestration and config-driven runner factory wiring are implemented for Claude primary/Codex challenger, Codex primary/Claude challenger, and parallel independent review; first fixture-only dry-run CLI execution surface is implemented; provider and transport choices must remain configurable |
+| Phase 5 | Multi-LLM Challenger System | In progress — P5-1 challenger config/model contracts merged in PR #97; P5-2 provider-neutral reconciliation engine is implemented; P5-3 provider runner interface, fixture runner, generic CLI runner, and Claude/Codex CLI API-key isolation are implemented; P5-4 required-mode orchestration and config-driven runner factory wiring are implemented for Claude primary/Codex challenger, Codex primary/Claude challenger, and parallel independent review; fixture-only dry-run and opt-in live CLI execution surfaces are implemented; provider and transport choices must remain configurable |
 | Phase 5.5 | Web application integration pilot | Pending — first external product integration target after Phase 5; start with the existing four accepted agents and wire orchestration/correlation/triage before broad agent expansion |
 | Phase 6 | Agent Expansion & Ecosystem | Pending — add CWE-1400 agents in small reviewed batches using Phase 4 calibration infrastructure, not a full-catalog big bang |
 | Phase 7 | screw.nvim Integration (scan commands, review-before-import, exclusions) | Pending — editor-native workflow after the web-app integration pilot unless product priority changes |
@@ -802,10 +804,10 @@ concrete failure-input payloads can be generated from controlled run output.
 
 ## Next Roadmap Priorities
 
-1. **Phase 5 — Multi-LLM challenger.** Extend the new fixture-only dry-run CLI
-   surface toward live opt-in execution and MCP integration for configured
-   challenger modes, using the runner factory to attach Claude/Codex CLI
-   runners to the required-mode orchestrator.
+1. **Phase 5 — Multi-LLM challenger.** Extend the new dry-run and live CLI
+   execution surfaces toward MCP integration for configured challenger modes,
+   using the runner factory to attach Claude/Codex CLI runners to the
+   required-mode orchestrator.
    Preserve opt-in cost/privacy controls and provider-agnostic interfaces for
    future LLMs. Provider configuration must allow future
    assistants such as Gemini or local LLMs, and each provider should support

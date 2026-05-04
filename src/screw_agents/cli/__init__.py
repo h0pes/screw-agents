@@ -5,6 +5,8 @@ Unified dispatcher for user-facing CLI commands. Subcommands:
 - ``screw-agents serve`` — run the MCP server (stdio or HTTP transport)
 - ``screw-agents challenger-dry-run`` — run a fixture-only challenger mode and
   print JSON
+- ``screw-agents challenger-run`` — run an opt-in CLI-backed challenger mode and
+  print JSON
 - ``screw-agents init-trust`` — register the local SSH key as a trusted reviewer
 - ``screw-agents migrate-exclusions`` — bulk-sign legacy unsigned exclusions
 - ``screw-agents validate-exclusion <id>`` — sign a single quarantined exclusion
@@ -112,6 +114,50 @@ def build_parser() -> argparse.ArgumentParser:
         help="Session identifier recorded in output",
     )
 
+    # --- challenger-run ---
+    run_p = subparsers.add_parser(
+        "challenger-run",
+        help="Run an opt-in CLI-backed Phase 5 challenger mode and print JSON",
+    )
+    run_p.add_argument("mode", help="Configured challenger mode name")
+    run_p.add_argument(
+        "--project-root",
+        type=Path,
+        default=Path("."),
+        help="Project root directory (default: current working directory)",
+    )
+    run_p.add_argument(
+        "--finding-json",
+        required=True,
+        help="Finding object JSON used as run input",
+    )
+    run_p.add_argument(
+        "--prompt",
+        default="Phase 5 challenger CLI run.",
+        help="Prompt text passed to CLI runners",
+    )
+    run_p.add_argument(
+        "--target-path",
+        default=".",
+        help="Target path recorded in run metadata (default: .)",
+    )
+    run_p.add_argument(
+        "--run-id",
+        default="run-001",
+        help="Run identifier recorded in output",
+    )
+    run_p.add_argument(
+        "--session-id",
+        default="run-session",
+        help="Session identifier recorded in output",
+    )
+    run_p.add_argument(
+        "--timeout-seconds",
+        type=int,
+        default=120,
+        help="Per-provider CLI timeout in seconds (default: 120)",
+    )
+
     # --- init-trust ---
     init_p = subparsers.add_parser(
         "init-trust",
@@ -206,6 +252,22 @@ def main(argv: list[str] | None = None) -> int:
             run_id=args.run_id,
             session_id=args.session_id,
             target_path=args.target_path,
+        )
+
+    if args.command == "challenger-run":
+        from screw_agents.cli.challenger_run import run_challenger_run_cli
+
+        return _run_json_command(
+            "challenger-run",
+            run_challenger_run_cli,
+            project_root=project_root,
+            mode_name=args.mode,
+            finding_json=args.finding_json,
+            prompt=args.prompt,
+            run_id=args.run_id,
+            session_id=args.session_id,
+            target_path=args.target_path,
+            timeout_seconds=args.timeout_seconds,
         )
 
     if args.command == "init-trust":
