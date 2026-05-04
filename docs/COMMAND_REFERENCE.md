@@ -68,6 +68,42 @@ uv run screw-agents challenger-dry-run claude_primary_codex_challenger \
   --finding-json '{"id":"sqli-001","agent":"sqli","location":{"file":"src/app.py","line_start":42},"classification":{"cwe":"CWE-89","severity":"high"}}'
 ```
 
+### `screw-agents challenger-run`
+
+Run one configured Phase 5 challenger mode through live CLI transports and
+print the structured result JSON. This command is opt-in and only supports
+enabled `cli` transports. Fixture modes must use `challenger-dry-run`; API and
+local transports are rejected until their adapters are implemented.
+
+Configured Claude and Codex CLI runners remove `ANTHROPIC_API_KEY` and
+`OPENAI_API_KEY`, respectively, before invocation so subscription-backed CLI
+use does not accidentally switch to API-key billing.
+
+```bash
+uv run screw-agents challenger-run MODE --finding-json FINDING_JSON [--project-root PATH] [--prompt TEXT] [--target-path PATH] [--run-id ID] [--session-id ID] [--timeout-seconds N]
+```
+
+Options:
+
+| Argument/Option | Required | Default | Description |
+|---|---|---:|---|
+| `MODE` | yes | n/a | Configured challenger mode name |
+| `--finding-json` | yes | n/a | Finding object JSON used as run input |
+| `--project-root` | no | `.` | Project root containing `.screw/config.yaml` |
+| `--prompt` | no | `Phase 5 challenger CLI run.` | Prompt text passed to CLI runners |
+| `--target-path` | no | `.` | Target path recorded in run metadata |
+| `--run-id` | no | `run-001` | Run identifier recorded in output |
+| `--session-id` | no | `run-session` | Session identifier recorded in output |
+| `--timeout-seconds` | no | `120` | Per-provider CLI timeout in seconds |
+
+Example:
+
+```bash
+uv run screw-agents challenger-run claude_primary_codex_challenger \
+  --finding-json '{"id":"sqli-001","agent":"sqli","location":{"file":"src/app.py","line_start":42},"classification":{"cwe":"CWE-89","severity":"high"}}' \
+  --prompt "Review this finding and return challenger assessment JSON."
+```
+
 ### `screw-agents init-trust`
 
 Register the local SSH key as a trusted reviewer for a project.
