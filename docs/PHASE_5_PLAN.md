@@ -1,6 +1,6 @@
 # Phase 5 Plan - Multi-LLM Challenger System
 
-> Status: planning.
+> Status: in progress. P5-1 challenger config/model contracts are merged.
 > Last updated: 2026-05-04.
 
 Phase 5 adds multi-LLM secure-code-review execution without making Claude,
@@ -201,6 +201,8 @@ permission.
 
 ### P5-1 - Challenger Models
 
+Status: merged in PR #97.
+
 - Add Pydantic models under `src/screw_agents/challenger/`.
 - Define structured inputs and outputs for:
   - primary analysis runs;
@@ -212,6 +214,13 @@ permission.
 - Keep models serializable for JSON reports and future web-app ingestion.
 - Keep `docs/PHASE_5_PLAN.md` and any affected durable docs aligned with the
   implemented model names and config schema.
+- Current implementation:
+  - `src/screw_agents/challenger/models.py` defines provider, transport,
+    consent, mode, run input, assessment, reconciliation, and result contracts.
+  - `src/screw_agents/models.py` exposes optional
+    `ScrewConfig.challenger`.
+  - `tests/test_challenger_models.py` validates API-billing, source-sharing,
+    CLI/subscription-backed, and project-config guardrails.
 
 ### P5-2 - Reconciliation Engine
 

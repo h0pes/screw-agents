@@ -269,7 +269,7 @@ See `docs/PRD.md` §9 for the full taxonomy mapping and `docs/DECISIONS.md` ADR-
 | Phase 2 | Per-vuln | Claude Code Integration (subagents, skills, FP learning) | **Complete** |
 | Phase 3 | **One-time** | Adaptive Analysis & Learning | **Complete** (Phase 3a + Phase 3b + Phase 3b-C2) |
 | Phase 4 | **One-time** | Autoresearch & Self-Improvement | **Complete** |
-| Phase 5 | **One-time** | Multi-LLM Challenger | Planning — see `docs/PHASE_5_PLAN.md` |
+| Phase 5 | **One-time** | Multi-LLM Challenger | In progress — config/model contracts merged; see `docs/PHASE_5_PLAN.md` |
 | Phase 5.5 | **One-time** | Web application integration pilot | Pending |
 | Phase 6 | Mixed | Small-batch agent expansion | Pending |
 | Phase 7 | **One-time** | screw.nvim Integration | Pending |
