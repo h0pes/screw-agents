@@ -7,7 +7,8 @@
 > plumbing plus Claude/Codex CLI API-key isolation are implemented; runner
 > factory wiring from config is implemented; the first fixture-only
 > user-facing dry-run execution surface is implemented; opt-in live CLI
-> execution through configured CLI transports is implemented.
+> execution through configured CLI transports is implemented; MCP tools now
+> expose both execution surfaces to clients.
 > Last updated: 2026-05-04.
 
 Phase 5 adds multi-LLM secure-code-review execution without making Claude,
@@ -335,12 +336,17 @@ the selected mode to use enabled `cli` transports, preserves Claude/Codex
 API-key isolation for subscription-backed use, and rejects fixture, API, and
 local transports from the live CLI path.
 
+MCP tools `challenger_dry_run` and `challenger_run` expose the same dry-run and
+live CLI execution primitives to MCP clients. They use structured arguments
+instead of CLI JSON strings and return the same `ChallengerRunResult` JSON
+envelope.
+
 - Enrich JSON and Markdown output with provider perspectives and consensus
   state without breaking existing finding consumers.
 - Preserve SARIF compatibility by keeping provider-specific challenger details
   in properties when exported.
-- Add API/local execution and MCP tools only after the CLI execution surface,
-  output shape, and consent guardrails are stable.
+- Add API/local execution only after the CLI/MCP execution surfaces, output
+  shape, and consent guardrails are stable.
 - Update `README.md`, `docs/COMMAND_REFERENCE.md`, and architecture/status docs
   in the same PR when new MCP tools, CLI options, plugin commands, or output
   fields become user-facing.

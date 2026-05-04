@@ -217,6 +217,7 @@ important stable surfaces are:
 - discovery: `list_domains`, `list_agents`;
 - scan assembly: `scan_agents`, `scan_domain`, `get_agent_prompt`;
 - output: `accumulate_findings`, `finalize_scan_results`, `format_output`;
+- challenger execution: `challenger_dry_run`, `challenger_run`;
 - learning: `record_exclusion`, `check_exclusions`, `aggregate_learning`;
 - adaptive analysis: staging, promotion, execution, cleanup, and trust tools.
 
@@ -341,6 +342,8 @@ Upcoming:
   - An opt-in `challenger-run` CLI execution surface is implemented for
     configured CLI transports; API and local transports remain rejected until
     adapters exist.
+  - MCP tools `challenger_dry_run` and `challenger_run` expose the same
+    execution primitives for clients, CI, and the Phase 5.5 web app path.
   - Provider-neutral adapters so Gemini, local LLMs, or future assistants can
     be added without changing agent YAML.
   - Transport choice per provider: subscription-backed CLI/local execution or
@@ -374,7 +377,7 @@ uv run ruff check .
 The current full-suite baseline after Phase 4 signoff is:
 
 ```text
-1167 passed, 9 skipped
+1172 passed, 9 skipped
 ```
 
 ## Documentation Map

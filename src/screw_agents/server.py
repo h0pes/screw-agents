@@ -257,6 +257,39 @@ def _dispatch_tool(
             formats=args.get("formats"),
         )
 
+    # --- Phase 5: challenger execution tools ---
+
+    if name == "challenger_dry_run":
+        from screw_agents.challenger.execution import run_challenger_dry_run
+
+        result = run_challenger_dry_run(
+            project_root=Path(args["project_root"]),
+            mode_name=args["mode"],
+            run_id=args["run_id"],
+            session_id=args["session_id"],
+            agents=args["agents"],
+            target=args["target"],
+            prompt=args["prompt"],
+            findings=args["findings"],
+        )
+        return result.model_dump(mode="json")
+
+    if name == "challenger_run":
+        from screw_agents.challenger.execution import run_challenger_cli
+
+        result = run_challenger_cli(
+            project_root=Path(args["project_root"]),
+            mode_name=args["mode"],
+            run_id=args["run_id"],
+            session_id=args["session_id"],
+            agents=args["agents"],
+            target=args["target"],
+            prompt=args["prompt"],
+            findings=args["findings"],
+            timeout_seconds=args.get("timeout_seconds", 120),
+        )
+        return result.model_dump(mode="json")
+
     # --- Phase 3b T16: adaptive coverage-gap E2E ---
 
     if name == "record_context_required_match":

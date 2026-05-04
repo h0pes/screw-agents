@@ -2635,6 +2635,34 @@ class ScanEngine:
             },
         })
 
+        # Phase 5: challenger execution surfaces for MCP clients.
+        tools.append({
+            "name": "challenger_dry_run",
+            "description": (
+                "Run one configured Phase 5 challenger mode with fixture "
+                "transports only and return structured JSON. This validates "
+                "mode wiring and output shape without invoking live providers. "
+                "CLI, API, and local transports are rejected."
+            ),
+            "input_schema": _challenger_execution_schema(
+                description_prefix="Dry-run",
+                include_timeout=False,
+            ),
+        })
+        tools.append({
+            "name": "challenger_run",
+            "description": (
+                "Run one configured Phase 5 challenger mode through opt-in "
+                "CLI transports and return structured JSON. Fixture, API, and "
+                "local transports are rejected. Claude/Codex CLI runners keep "
+                "API-key variables unset for subscription-backed execution."
+            ),
+            "input_schema": _challenger_execution_schema(
+                description_prefix="Live CLI run",
+                include_timeout=True,
+            ),
+        })
+
         # Phase 2: format_output
         tools.append({
             "name": "format_output",
@@ -3500,4 +3528,72 @@ def _thoroughness_schema() -> dict[str, Any]:
             "'deep' also includes context-required heuristics."
         ),
         "default": "standard",
+    }
+
+
+def _challenger_execution_schema(
+    *,
+    description_prefix: str,
+    include_timeout: bool,
+) -> dict[str, Any]:
+    """JSON Schema for Phase 5 challenger execution tool inputs."""
+    properties: dict[str, Any] = {
+        "project_root": {
+            "type": "string",
+            "description": "Absolute path to the project root containing .screw/config.yaml.",
+        },
+        "mode": {
+            "type": "string",
+            "description": f"{description_prefix} challenger mode name from config.",
+        },
+        "run_id": {
+            "type": "string",
+            "description": "Run identifier recorded in the structured result.",
+        },
+        "session_id": {
+            "type": "string",
+            "description": "Scan/session identifier recorded in execution input metadata.",
+        },
+        "agents": {
+            "type": "array",
+            "items": {"type": "string"},
+            "minItems": 1,
+            "description": "Agent names represented by this challenger run.",
+        },
+        "target": {
+            "type": "object",
+            "description": "Target metadata associated with the run input.",
+        },
+        "prompt": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Provider prompt text passed to each configured runner.",
+        },
+        "findings": {
+            "type": "array",
+            "items": {"type": "object"},
+            "description": "Finding dictionaries to reconcile against provider assessments.",
+        },
+    }
+    if include_timeout:
+        properties["timeout_seconds"] = {
+            "type": "integer",
+            "minimum": 1,
+            "default": 120,
+            "description": "Per-provider CLI timeout in seconds.",
+        }
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": properties,
+        "required": [
+            "project_root",
+            "mode",
+            "run_id",
+            "session_id",
+            "agents",
+            "target",
+            "prompt",
+            "findings",
+        ],
     }
