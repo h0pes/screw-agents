@@ -361,6 +361,28 @@ class ClaudeCliProviderRunner(CliProviderRunner):
         )
 
 
+class CodexCliProviderRunner(CliProviderRunner):
+    """Codex CLI runner that avoids OpenAI API-key billing by default."""
+
+    def __init__(
+        self,
+        *,
+        participant: ChallengerParticipant,
+        transport: ChallengerTransportConfig,
+        command_runner: CliCommandRunner | None = None,
+        timeout_seconds: int = 120,
+        env: Mapping[str, str] | None = None,
+    ) -> None:
+        super().__init__(
+            participant=participant,
+            transport=transport,
+            command_runner=command_runner,
+            timeout_seconds=timeout_seconds,
+            env=env,
+            unset_env_vars=("OPENAI_API_KEY",),
+        )
+
+
 def _subprocess_command_runner(invocation: CliInvocation) -> CliCommandResult:
     # Provider commands come from explicit challenger transport config and run
     # as argv without a shell.

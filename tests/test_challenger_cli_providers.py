@@ -13,6 +13,7 @@ from screw_agents.challenger import (
     CliCommandResult,
     CliInvocation,
     CliProviderRunner,
+    CodexCliProviderRunner,
 )
 
 
@@ -128,6 +129,28 @@ def test_claude_cli_runner_unsets_anthropic_api_key() -> None:
     runner.run(_run_input(participant))
 
     assert "ANTHROPIC_API_KEY" not in runner_backend.invocations[0].env
+    assert runner_backend.invocations[0].env["PATH"] == "/usr/bin"
+
+
+def test_codex_cli_runner_unsets_openai_api_key() -> None:
+    participant = _participant(provider="codex")
+    runner_backend = RecordingCommandRunner(
+        CliCommandResult(returncode=0, stdout=json.dumps({"assessments": []}))
+    )
+    runner = CodexCliProviderRunner(
+        participant=participant,
+        transport=_transport(command="codex exec --json"),
+        command_runner=runner_backend,
+        env={
+            "OPENAI_API_KEY": "must-not-leak",
+            "PATH": "/usr/bin",
+        },
+    )
+
+    runner.run(_run_input(participant))
+
+    assert runner_backend.invocations[0].argv == ["codex", "exec", "--json"]
+    assert "OPENAI_API_KEY" not in runner_backend.invocations[0].env
     assert runner_backend.invocations[0].env["PATH"] == "/usr/bin"
 
 
