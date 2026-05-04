@@ -1477,7 +1477,7 @@ screw-agents/
 │   └── challenger/
 │       ├── models.py                # Provider-neutral config/result contracts
 │       ├── orchestrator.py          # Required-mode control flow
-│       ├── providers.py             # Provider runner interface + fixture runner
+│       ├── providers.py             # Provider runners: fixture + CLI
 │       ├── codex_adapter.py         # Future OpenAI Codex implementation
 │       └── reconciliation.py        # Provider-neutral finding reconciliation
 │

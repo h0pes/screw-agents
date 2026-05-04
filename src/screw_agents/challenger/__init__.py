@@ -18,6 +18,10 @@ from screw_agents.challenger.orchestrator import (
     run_challenger_mode,
 )
 from screw_agents.challenger.providers import (
+    ClaudeCliProviderRunner,
+    CliCommandResult,
+    CliInvocation,
+    CliProviderRunner,
     FixtureProviderRunner,
     ProviderGuardrailReport,
     ProviderRunner,
@@ -41,6 +45,10 @@ __all__ = [
     "ChallengerRunInput",
     "ChallengerRunResult",
     "ChallengerTransportConfig",
+    "ClaudeCliProviderRunner",
+    "CliCommandResult",
+    "CliInvocation",
+    "CliProviderRunner",
     "FixtureProviderRunner",
     "ProviderGuardrailReport",
     "ProviderRunner",
