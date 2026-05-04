@@ -258,6 +258,11 @@ def _dispatch_tool(
             agent_names=args["agent_names"],
             scan_metadata=args.get("scan_metadata"),
             formats=args.get("formats"),
+            challenger_mode=args.get("challenger_mode"),
+            challenger_execution=args.get("challenger_execution"),
+            challenger_prompt=args.get("challenger_prompt"),
+            challenger_target=args.get("challenger_target"),
+            challenger_timeout_seconds=args.get("challenger_timeout_seconds", 120),
         )
 
     # --- Phase 5: challenger execution tools ---

@@ -49,6 +49,27 @@ logger = logging.getLogger(__name__)
 _DEFAULT_DOMAINS_DIR = Path(__file__).resolve().parent.parent.parent / "domains"
 
 
+def _challenger_target_from_metadata(
+    scan_metadata: dict[str, Any] | None,
+    *,
+    session_id: str,
+) -> dict[str, Any]:
+    """Derive a structured challenger target from scan metadata."""
+    if scan_metadata is not None:
+        target = scan_metadata.get("target")
+        if isinstance(target, dict):
+            return target
+        if isinstance(target, str) and target:
+            return {
+                "type": "scan_target",
+                "value": target,
+            }
+    return {
+        "type": "scan_session",
+        "session_id": session_id,
+    }
+
+
 def _agent_supported_languages(agent: AgentDefinition) -> set[str]:
     """Union of `languages` declarations across all HeuristicEntry items
     in the agent's three detection_heuristics buckets.
@@ -2211,6 +2232,11 @@ class ScanEngine:
         agent_names: list[str],
         scan_metadata: dict[str, Any] | None = None,
         formats: list[str] | None = None,
+        challenger_mode: str | None = None,
+        challenger_execution: str | None = None,
+        challenger_prompt: str | None = None,
+        challenger_target: dict[str, Any] | None = None,
+        challenger_timeout_seconds: int = 120,
     ) -> dict[str, Any]:
         """Read the staging buffer for a session, render reports, cache result.
 
@@ -2232,8 +2258,18 @@ class ScanEngine:
                 call (or echoed on subsequent accumulate calls).
             agent_names: Agent names that produced findings (e.g. ["sqli"]).
             scan_metadata: Optional metadata (target, timestamp).
-            formats: Output formats. Defaults to ["json", "markdown"].
+            formats: Output formats. Defaults to ["json", "markdown", "csv"].
                 Accepted: "json", "markdown", "sarif", "csv".
+            challenger_mode: Optional configured Phase 5 mode to run against
+                finalized active findings.
+            challenger_execution: Optional execution surface for the configured
+                mode. Accepted: "dry_run" for fixture transports, "cli" for
+                opt-in live CLI transports.
+            challenger_prompt: Optional prompt passed to challenger runners.
+            challenger_target: Optional structured target payload passed to
+                challenger runners. Defaults to scan metadata target when
+                available.
+            challenger_timeout_seconds: Timeout for live CLI challenger runs.
 
         Returns:
             Dict with:
@@ -2269,6 +2305,17 @@ class ScanEngine:
         # Normal first-call path: read staged findings, render reports,
         # cache the result for idempotent re-calls.
         findings_raw = read_for_finalize(project_root, session_id)
+        challenger_results_provider = self._challenger_results_provider(
+            project_root=project_root,
+            session_id=session_id,
+            agent_names=agent_names,
+            scan_metadata=scan_metadata,
+            challenger_mode=challenger_mode,
+            challenger_execution=challenger_execution,
+            challenger_prompt=challenger_prompt,
+            challenger_target=challenger_target,
+            challenger_timeout_seconds=challenger_timeout_seconds,
+        )
         result = render_and_write(
             project_root=project_root,
             findings_raw=findings_raw,
@@ -2276,6 +2323,7 @@ class ScanEngine:
             scan_metadata=scan_metadata,
             formats=formats,
             agent_registry=self._registry,
+            challenger_results_provider=challenger_results_provider,
         )
 
         # Phase 3b T16: attach coverage-gap detection to the finalize
@@ -2351,6 +2399,78 @@ class ScanEngine:
 
         save_finalize_result(project_root, session_id, result)
         return result
+
+    def _challenger_results_provider(
+        self,
+        *,
+        project_root: Path,
+        session_id: str,
+        agent_names: list[str],
+        scan_metadata: dict[str, Any] | None,
+        challenger_mode: str | None,
+        challenger_execution: str | None,
+        challenger_prompt: str | None,
+        challenger_target: dict[str, Any] | None,
+        challenger_timeout_seconds: int,
+    ):
+        """Build an optional callback that runs a configured challenger mode."""
+        if challenger_mode is None and challenger_execution is None:
+            return None
+        if not challenger_mode or not challenger_execution:
+            raise ValueError(
+                "challenger_mode and challenger_execution must be provided "
+                "together"
+            )
+        if challenger_execution not in {"dry_run", "cli"}:
+            raise ValueError(
+                "challenger_execution must be one of: 'dry_run', 'cli'"
+            )
+
+        target = challenger_target or _challenger_target_from_metadata(
+            scan_metadata,
+            session_id=session_id,
+        )
+        prompt = challenger_prompt or (
+            "Review the finalized screw-agents findings for security validity "
+            "and return structured challenger assessment JSON."
+        )
+        run_id = f"{session_id}-challenger"
+
+        def provider(findings: list[Finding]) -> list[dict[str, Any]]:
+            if not findings:
+                return []
+
+            finding_payloads = [finding.model_dump(mode="json") for finding in findings]
+            if challenger_execution == "dry_run":
+                from screw_agents.challenger.execution import run_challenger_dry_run
+
+                result = run_challenger_dry_run(
+                    project_root=project_root,
+                    mode_name=challenger_mode,
+                    run_id=run_id,
+                    session_id=session_id,
+                    agents=agent_names,
+                    target=target,
+                    prompt=prompt,
+                    findings=finding_payloads,
+                )
+            else:
+                from screw_agents.challenger.execution import run_challenger_cli
+
+                result = run_challenger_cli(
+                    project_root=project_root,
+                    mode_name=challenger_mode,
+                    run_id=run_id,
+                    session_id=session_id,
+                    agents=agent_names,
+                    target=target,
+                    prompt=prompt,
+                    findings=finding_payloads,
+                    timeout_seconds=challenger_timeout_seconds,
+                )
+            return [result.model_dump(mode="json")]
+
+        return provider
 
     def format_output(
         self,
@@ -2630,9 +2750,42 @@ class ScanEngine:
                         "type": ["array", "null"],
                         "items": {"type": "string", "enum": ["json", "markdown", "sarif", "csv"]},
                         "description": (
-                            "Output formats to write. Defaults to ['json', 'markdown'] "
-                            "when null/omitted."
+                            "Output formats to write. Defaults to "
+                            "['json', 'markdown', 'csv'] when null/omitted."
                         ),
+                    },
+                    "challenger_mode": {
+                        "type": ["string", "null"],
+                        "description": (
+                            "Optional configured Phase 5 challenger mode to run "
+                            "against finalized active findings. Must be provided "
+                            "with challenger_execution."
+                        ),
+                    },
+                    "challenger_execution": {
+                        "type": ["string", "null"],
+                        "enum": ["dry_run", "cli", None],
+                        "description": (
+                            "Optional challenger execution surface. Use 'dry_run' "
+                            "for fixture transports or 'cli' for opt-in live CLI "
+                            "transports."
+                        ),
+                    },
+                    "challenger_prompt": {
+                        "type": ["string", "null"],
+                        "description": "Optional prompt passed to challenger runners.",
+                    },
+                    "challenger_target": {
+                        "type": ["object", "null"],
+                        "description": (
+                            "Optional structured target payload passed to challenger "
+                            "runners. Defaults to scan_metadata.target when present."
+                        ),
+                    },
+                    "challenger_timeout_seconds": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "Timeout for opt-in live CLI challenger runs.",
                     },
                 },
                 "required": ["project_root", "session_id", "agent_names"],

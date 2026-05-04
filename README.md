@@ -62,11 +62,13 @@ Implemented today:
 - Phase 4 calibration and closure evidence for the current agent set.
 - Phase 5 multi-LLM challenger execution surfaces for dry-run and opt-in live
   CLI transports.
+- Explicit challenger attachment during `finalize_scan_results` for configured
+  dry-run or opt-in CLI modes.
 
 Not yet implemented:
 
-- Automatic scan-to-challenger orchestration that attaches challenger results
-  during normal scan finalization.
+- Claude plugin command UX for enabling challenger review directly from
+  `/screw:scan`.
 - Phase 5.5 web application integration pilot.
 - Phase 6 small-batch expansion beyond the current four agents.
 - Phase 7 screw.nvim editor integration.
@@ -353,6 +355,9 @@ Upcoming:
     execution primitives for clients, CI, and the Phase 5.5 web app path.
   - JSON, Markdown, and SARIF reports preserve supplied challenger run results
     and finding-level reconciliation summaries; CSV remains finding-only.
+  - `finalize_scan_results` can run and attach a configured challenger mode
+    against finalized active findings when `challenger_mode` and
+    `challenger_execution` are explicitly provided.
   - Provider-neutral adapters so Gemini, local LLMs, or future assistants can
     be added without changing agent YAML.
   - Transport choice per provider: subscription-backed CLI/local execution or
@@ -394,7 +399,7 @@ uv run ruff check .
 The current full-suite baseline after Phase 4 signoff is:
 
 ```text
-1177 passed, 9 skipped
+1181 passed, 9 skipped
 ```
 
 ## Documentation Map

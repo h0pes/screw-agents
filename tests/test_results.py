@@ -295,6 +295,42 @@ class TestRenderAndWriteExclusions:
         assert result["summary"]["suppressed"] == 1
         assert result["summary"]["active"] == 1
 
+    def test_challenger_provider_receives_active_findings_after_exclusions(
+        self, tmp_path, finding_sqli, finding_sqli_line30
+    ):
+        self._setup_exclusion(tmp_path, "exact_line", path="src/api.py")
+        reviewed_ids: list[str] = []
+
+        def provider(findings):
+            reviewed_ids.extend(finding.id for finding in findings)
+            return [{
+                "run_id": "run-001",
+                "mode": "fixture_review",
+                "assessments": [],
+                "reconciliations": [{
+                    "finding_ids": reviewed_ids,
+                    "status": "unique",
+                    "participant_providers": ["codex"],
+                    "rationale": "fixture",
+                }],
+                "provider_metadata": {},
+                "guardrails": {"allowed": True},
+            }]
+
+        result = render_and_write(
+            project_root=tmp_path,
+            findings_raw=[finding_sqli, finding_sqli_line30],
+            agent_names=["sqli"],
+            formats=["json"],
+            challenger_results_provider=provider,
+        )
+
+        assert reviewed_ids == ["sqli-002"]
+        findings_json = json.loads(Path(result["files_written"]["json"]).read_text())
+        assert findings_json["challenger_results"][0]["reconciliations"][0][
+            "finding_ids"
+        ] == ["sqli-002"]
+
     def test_directory_scope_suppresses_findings_in_dir(
         self, tmp_path, finding_sqli
     ):
