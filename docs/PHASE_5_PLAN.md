@@ -13,7 +13,8 @@
 > knowledge are implemented; backend generic/Claude/Codex CLI primary scanner
 > runner plumbing is implemented; `screw-agents provider-scan` and MCP
 > `run_provider_scan` expose fixture and opt-in CLI primary scan execution;
-> manual live validation is still pending; see
+> fixture-mode manual validation is recorded; manual live validation is still
+> pending; see
 > `docs/PHASE_5_PRIMARY_SCANNER_PLAN.md`.
 > Last updated: 2026-05-04.
 
@@ -28,6 +29,10 @@ scanner UX through `/screw:scan`. Provider-neutral primary scan contracts,
 fixture runner, scan input assembler, CLI primary scanner runner, package CLI,
 and MCP tool now exist. Phase 5 is not closure-ready until these primary
 scanner paths are manually validated.
+
+Fixture-mode public provider scan validation is recorded in
+`docs/PHASE_5_MANUAL_VALIDATION.md`. Live Codex/Claude CLI validation remains
+pending explicit approval.
 
 ## Goals
 

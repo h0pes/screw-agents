@@ -5,9 +5,11 @@
 > input assembly from YAML agent knowledge are implemented. Primary scanner
 > CLI runner plumbing is implemented for configured Claude/Codex/generic CLI
 > transports, and the `provider-scan` package CLI plus `run_provider_scan` MCP
-> tool expose fixture and opt-in CLI primary scan execution. Manual round-trip
-> validation is still pending. Phase 5 is not closure-ready until this gap is
-> closed or explicitly re-scoped.
+> tool expose fixture and opt-in CLI primary scan execution. Fixture-mode
+> manual round-trip validation is recorded in
+> `docs/PHASE_5_MANUAL_VALIDATION.md`; live CLI validation is still pending.
+> Phase 5 is not closure-ready until this gap is closed or explicitly
+> re-scoped.
 
 ## Why This Exists
 
@@ -53,8 +55,9 @@ context.
 | Provider-neutral scan input assembly from YAML agent knowledge | Implemented |
 | Generic/Claude/Codex CLI primary scan runner plumbing | Implemented |
 | `provider-scan` package CLI and `run_provider_scan` MCP tool | Implemented |
+| Fixture manual validation for provider-neutral primary scan surfaces | Passed |
 | Codex primary review participant over supplied findings | Implemented at challenger-orchestrator level |
-| Codex as first-pass scanner from YAML agent knowledge | Public CLI/MCP path implemented; manual validation pending |
+| Codex as first-pass scanner from YAML agent knowledge | Public CLI/MCP path implemented; live CLI validation pending |
 | Gemini/local as first-pass scanner from YAML agent knowledge | Pending adapter |
 | Parallel independent first-pass scans with reconciliation | Pending |
 | Manual round-trip validation of all Phase 5 modes | Pending |
@@ -207,8 +210,9 @@ provider produced or disputed each finding.
 
 ### P5-P6 - Manual Round-Trip Validation
 
-- Status: pending.
-- Fixture-mode validation for all modes.
+- Status: in progress.
+- Fixture-mode provider-neutral primary scan validation is recorded in
+  `docs/PHASE_5_MANUAL_VALIDATION.md`.
 - CLI dry-run validation with no API keys.
 - Opt-in live CLI validation only when Marco explicitly approves it.
 - Record results in the Phase 5 closure readiness document.

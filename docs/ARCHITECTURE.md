@@ -270,7 +270,7 @@ See `docs/PRD.md` §9 for the full taxonomy mapping and `docs/DECISIONS.md` ADR-
 | Phase 2 | Per-vuln | Claude Code Integration (subagents, skills, FP learning) | **Complete** |
 | Phase 3 | **One-time** | Adaptive Analysis & Learning | **Complete** (Phase 3a + Phase 3b + Phase 3b-C2) |
 | Phase 4 | **One-time** | Autoresearch & Self-Improvement | **Complete** |
-| Phase 5 | **One-time** | Multi-LLM Challenger + Provider-Neutral Primary Scanning | In progress — challenger/reconciliation/report surfaces, primary scan contracts, fixture validation, scan input assembly, backend CLI primary scanner runner plumbing, package CLI, and MCP surface are implemented, but manual provider-neutral primary scan validation is pending; see `docs/PHASE_5_PLAN.md` and `docs/PHASE_5_PRIMARY_SCANNER_PLAN.md` |
+| Phase 5 | **One-time** | Multi-LLM Challenger + Provider-Neutral Primary Scanning | In progress — challenger/reconciliation/report surfaces, primary scan contracts, fixture validation, scan input assembly, backend CLI primary scanner runner plumbing, package CLI, and MCP surface are implemented; fixture-mode provider scan validation is recorded, but live and composed-mode validation is pending; see `docs/PHASE_5_PLAN.md`, `docs/PHASE_5_PRIMARY_SCANNER_PLAN.md`, and `docs/PHASE_5_MANUAL_VALIDATION.md` |
 | Phase 5.5 | **One-time** | Web application integration pilot | Pending |
 | Phase 6 | Mixed | Small-batch agent expansion | Pending |
 | Phase 7 | **One-time** | screw.nvim Integration | Pending |
@@ -286,6 +286,7 @@ See `docs/PRD.md` §12 for detailed phase descriptions and `docs/PROJECT_STATUS.
 - `docs/PHASE_0_5_PLAN.md` — Phase 0.5 implementation plan (28 tasks)
 - `docs/PHASE_0_5_VALIDATION_GATES.md` — Phase 1.7 acceptance criteria
 - `docs/PHASE_5_PLAN.md` — Phase 5 challenger provider and transport plan
+- `docs/PHASE_5_MANUAL_VALIDATION.md` — Phase 5 manual round-trip validation evidence
 - `docs/PROJECT_STATUS.md` — Current state + deferred obligations
 - `docs/KNOWLEDGE_SOURCES.md` — Research targets for knowledge sprint
 - `docs/AGENT_AUTHORING.md` — Guide for writing new agent YAMLs
