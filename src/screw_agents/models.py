@@ -14,8 +14,8 @@ from typing import Any, ClassVar, Literal, TypedDict
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic.main import IncEx
 
+from screw_agents.challenger.models import ChallengerConfig
 from screw_agents.treesitter import SUPPORTED_LANGUAGES
-
 
 # ---------------------------------------------------------------------------
 # YAML Agent Definition Schema (PRD §4)
@@ -414,6 +414,7 @@ class ScrewConfig(BaseModel):
     adaptive: bool = False
     legacy_unsigned_exclusions: Literal["reject", "warn", "allow"] = "reject"
     trusted_reviewers_file: str | None = None
+    challenger: ChallengerConfig = Field(default_factory=ChallengerConfig)
 
     # Phase 3b C1 staging lifecycle (T4 + T6). Consumed by
     # ``engine._read_stale_staging_hours`` (T4's promote-path staleness

@@ -92,57 +92,75 @@ but they must not fork the vulnerability knowledge base.
 ```yaml
 challenger:
   enabled: false
-  cost_acknowledged: false
-  privacy_acknowledged: false
+  consent:
+    cost_acknowledged: false
+    privacy_acknowledged: false
+    api_billing_allowed: false
+    source_sharing_allowed: false
 
   providers:
     claude:
       assistant: claude
       transports:
         cli:
+          kind: cli
           enabled: true
           command: claude
           use_api_key: false
         api:
+          kind: api
           enabled: false
           api_key_env: ANTHROPIC_API_KEY
+          allow_api_billing: false
 
     codex:
       assistant: codex
       transports:
         cli:
+          kind: cli
           enabled: true
           command: codex
           use_api_key: false
         api:
+          kind: api
           enabled: false
           api_key_env: OPENAI_API_KEY
+          allow_api_billing: false
 
     gemini:
       assistant: gemini
       transports:
         api:
+          kind: api
           enabled: false
           api_key_env: GOOGLE_API_KEY
+          allow_api_billing: false
 
     local:
       assistant: local
       transports:
         local:
+          kind: local
           enabled: false
           endpoint: http://127.0.0.1:11434
+          sends_source_externally: false
 
   modes:
     claude_primary_codex_challenger:
-      primary: {provider: claude, transport: cli}
-      challenger: {provider: codex, transport: cli}
-    codex_primary_claude_challenger:
-      primary: {provider: codex, transport: cli}
-      challenger: {provider: claude, transport: cli}
-    parallel:
+      enabled: false
       participants:
-        - {provider: claude, transport: cli}
-        - {provider: codex, transport: cli}
+        - {provider: claude, transport: cli, role: primary}
+        - {provider: codex, transport: cli, role: challenger}
+    codex_primary_claude_challenger:
+      enabled: false
+      participants:
+        - {provider: codex, transport: cli, role: primary}
+        - {provider: claude, transport: cli, role: challenger}
+    parallel:
+      enabled: false
+      participants:
+        - {provider: claude, transport: cli, role: parallel}
+        - {provider: codex, transport: cli, role: parallel}
 ```
 
 The exact schema can change during implementation, but these separations should
