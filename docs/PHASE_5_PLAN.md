@@ -11,8 +11,9 @@
 > expose both execution surfaces to clients. Provider-neutral primary scan
 > contracts, fixture validation, and scan input assembly from YAML agent
 > knowledge are implemented; backend generic/Claude/Codex CLI primary scanner
-> runner plumbing is implemented; public MCP/CLI exposure and manual live
-> validation are still pending; see
+> runner plumbing is implemented; `screw-agents provider-scan` and MCP
+> `run_provider_scan` expose fixture and opt-in CLI primary scan execution;
+> manual live validation is still pending; see
 > `docs/PHASE_5_PRIMARY_SCANNER_PLAN.md`.
 > Last updated: 2026-05-04.
 
@@ -23,12 +24,10 @@ provider runners are replaceable execution adapters.
 
 Important status distinction: current Phase 5 challenger work can review and
 reconcile supplied findings, and Claude Code remains the implemented primary
-scanner UX through `/screw:scan`. Codex, Gemini, and local models do not yet
-have an equivalent public provider-neutral first-pass scan surface, although
-the backend input/result contract, fixture runner, scan input assembler, and
-CLI primary scanner runner now exist in `src/screw_agents/primary_scan/` and
-`ScanEngine.assemble_primary_scan_input`. Phase 5 is not closure-ready until
-public primary scanner paths exist and are manually validated.
+scanner UX through `/screw:scan`. Provider-neutral primary scan contracts,
+fixture runner, scan input assembler, CLI primary scanner runner, package CLI,
+and MCP tool now exist. Phase 5 is not closure-ready until these primary
+scanner paths are manually validated.
 
 ## Goals
 
@@ -399,9 +398,10 @@ by Claude Code today.
 Implemented so far: provider-neutral primary scan contracts, fixture scanner,
 provider output validation, `ScanEngine.assemble_primary_scan_input`, which
 packages selected YAML agent knowledge and resolved source chunks, and backend
-generic/Claude/Codex CLI primary scanner runner plumbing. MCP/CLI exposure,
-accumulation/finalization wiring, and manual round-trip validation are still
-pending.
+generic/Claude/Codex CLI primary scanner runner plumbing. `screw-agents
+provider-scan` and MCP `run_provider_scan` expose fixture and opt-in CLI
+execution. Accumulation/finalization wiring, parallel reconciliation, and
+manual round-trip validation are still pending.
 
 Required outcomes:
 

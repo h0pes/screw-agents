@@ -7,6 +7,8 @@ Unified dispatcher for user-facing CLI commands. Subcommands:
   print JSON
 - ``screw-agents challenger-run`` — run an opt-in CLI-backed challenger mode and
   print JSON
+- ``screw-agents provider-scan`` — run a provider-neutral primary scan through
+  fixture or opt-in CLI execution and print JSON
 - ``screw-agents init-trust`` — register the local SSH key as a trusted reviewer
 - ``screw-agents migrate-exclusions`` — bulk-sign legacy unsigned exclusions
 - ``screw-agents validate-exclusion <id>`` — sign a single quarantined exclusion
@@ -166,6 +168,62 @@ def build_parser() -> argparse.ArgumentParser:
         help="Per-provider CLI timeout in seconds (default: 120)",
     )
 
+    # --- provider-scan ---
+    provider_scan_p = subparsers.add_parser(
+        "provider-scan",
+        help="Run a provider-neutral primary scan and print JSON",
+    )
+    provider_scan_p.add_argument("--provider", required=True, help="Provider name")
+    provider_scan_p.add_argument("--transport", required=True, help="Transport name")
+    provider_scan_p.add_argument(
+        "--execution",
+        choices=["fixture", "cli"],
+        required=True,
+        help="Execution surface. Use fixture for dry-run tests or cli for opt-in live CLI.",
+    )
+    provider_scan_p.add_argument(
+        "--agents",
+        required=True,
+        help="Comma-separated registered agent names, e.g. sqli,xss",
+    )
+    provider_scan_p.add_argument(
+        "--target-json",
+        required=True,
+        help="Target spec JSON object, e.g. '{\"type\":\"file\",\"path\":\"src/app.py\"}'",
+    )
+    provider_scan_p.add_argument(
+        "--project-root",
+        type=Path,
+        default=Path("."),
+        help="Project root directory (default: current working directory)",
+    )
+    provider_scan_p.add_argument(
+        "--run-id",
+        default="provider-scan-001",
+        help="Run identifier recorded in output",
+    )
+    provider_scan_p.add_argument(
+        "--session-id",
+        default="provider-scan-session",
+        help="Session identifier recorded in output",
+    )
+    provider_scan_p.add_argument(
+        "--thoroughness",
+        choices=["quick", "standard", "deep"],
+        default="standard",
+        help="Prompt thoroughness (default: standard)",
+    )
+    provider_scan_p.add_argument(
+        "--timeout-seconds",
+        type=int,
+        default=120,
+        help="Per-provider CLI timeout in seconds (default: 120)",
+    )
+    provider_scan_p.add_argument(
+        "--fixture-findings-json",
+        help="Fixture finding array JSON for fixture execution",
+    )
+
     # --- init-trust ---
     init_p = subparsers.add_parser(
         "init-trust",
@@ -276,6 +334,25 @@ def main(argv: list[str] | None = None) -> int:
             session_id=args.session_id,
             target_path=args.target_path,
             timeout_seconds=args.timeout_seconds,
+        )
+
+    if args.command == "provider-scan":
+        from screw_agents.cli.provider_scan import run_provider_scan_cli
+
+        return _run_json_command(
+            "provider-scan",
+            run_provider_scan_cli,
+            project_root=project_root,
+            provider=args.provider,
+            transport=args.transport,
+            execution=args.execution,
+            agents_csv=args.agents,
+            target_json=args.target_json,
+            run_id=args.run_id,
+            session_id=args.session_id,
+            thoroughness=args.thoroughness,
+            timeout_seconds=args.timeout_seconds,
+            fixture_findings_json=args.fixture_findings_json,
         )
 
     if args.command == "init-trust":

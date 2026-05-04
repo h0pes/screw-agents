@@ -106,6 +106,50 @@ uv run screw-agents challenger-run claude_primary_codex_challenger \
   --prompt "Review this finding and return challenger assessment JSON."
 ```
 
+### `screw-agents provider-scan`
+
+Run one provider-neutral primary scan through fixture or opt-in CLI execution
+and print the structured `PrimaryScanResult` JSON. This command assembles
+selected YAML agent knowledge, resolves the target, sends a structured
+`PrimaryScanInput` to the selected runner, and validates returned findings with
+the shared `Finding` schema.
+
+API and local transports are rejected until adapters exist. Claude and Codex
+CLI runners remove `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`, respectively, for
+subscription-backed CLI use.
+
+```bash
+uv run screw-agents provider-scan --provider PROVIDER --transport TRANSPORT --execution fixture|cli --agents AGENTS_CSV --target-json TARGET_JSON [--project-root PATH] [--run-id ID] [--session-id ID] [--thoroughness quick|standard|deep] [--timeout-seconds N] [--fixture-findings-json FINDINGS_JSON]
+```
+
+Options:
+
+| Option | Required | Default | Description |
+|---|---|---:|---|
+| `--provider` | yes | n/a | Configured provider name, e.g. `codex` |
+| `--transport` | yes | n/a | Configured transport name, e.g. `cli` or `fixture` |
+| `--execution` | yes | n/a | `fixture` or opt-in live `cli` |
+| `--agents` | yes | n/a | Comma-separated registered agent names |
+| `--target-json` | yes | n/a | Target spec JSON object |
+| `--project-root` | no | `.` | Project root containing `.screw/config.yaml` |
+| `--run-id` | no | `provider-scan-001` | Run identifier recorded in output |
+| `--session-id` | no | `provider-scan-session` | Session identifier recorded in output |
+| `--thoroughness` | no | `standard` | Prompt depth |
+| `--timeout-seconds` | no | `120` | Per-provider CLI timeout |
+| `--fixture-findings-json` | no | none | Fixture finding array for `--execution fixture` |
+
+Example:
+
+```bash
+uv run screw-agents provider-scan \
+  --provider codex \
+  --transport fixture \
+  --execution fixture \
+  --agents sqli \
+  --target-json '{"type":"file","path":"src/app.py"}' \
+  --fixture-findings-json '[]'
+```
+
 ### `screw-agents init-trust`
 
 Register the local SSH key as a trusted reviewer for a project.
@@ -259,6 +303,7 @@ The MCP server exposes these tools to clients.
 |---|---|---|
 | `scan_agents` | Primary paginated scan primitive for explicit agents | `agents`, `target`, `project_root?`, `cursor?`, `page_size?`, `thoroughness?` |
 | `scan_domain` | Convenience wrapper for all agents in one domain | `domain`, `target`, `project_root?`, `cursor?`, `page_size?`, `thoroughness?` |
+| `run_provider_scan` | Provider-neutral first-pass scan execution through fixture or opt-in CLI transports | `project_root`, `provider`, `transport`, `execution`, `run_id`, `session_id`, `agents`, `target`, `thoroughness?`, `timeout_seconds?`, `fixture_findings?` |
 
 Retired scan tools:
 
@@ -303,6 +348,17 @@ is supplied. CSV remains finding-only.
 requires all selected-mode participants to use enabled `cli` transports and
 refuses fixture, API, and local transports. Both tools use the same structured
 result envelope as the package CLI commands.
+
+### Provider Scan Execution
+
+| Tool | Purpose | Key inputs |
+|---|---|---|
+| `run_provider_scan` | Run a provider-neutral primary scan and return `PrimaryScanResult` JSON | `project_root`, `provider`, `transport`, `execution`, `run_id`, `session_id`, `agents`, `target` |
+
+`run_provider_scan` supports `execution: "fixture"` and opt-in
+`execution: "cli"` only. It rejects API/local transports until adapters exist.
+The tool does not finalize reports; it returns validated findings for callers
+to inspect, accumulate, challenge, or reconcile in later workflow steps.
 
 ### Trust And Adaptive Analysis
 
