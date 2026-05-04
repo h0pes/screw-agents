@@ -69,6 +69,8 @@ Implemented today:
 
 Not yet implemented:
 
+- Provider-neutral first-pass scan runner for Codex, Gemini, local models, or
+  future assistants using the same YAML agent knowledge.
 - API/local challenger transports in `/screw:scan`.
 - Phase 5.5 web application integration pilot.
 - Phase 6 small-batch expansion beyond the current four agents.
@@ -362,6 +364,9 @@ Upcoming:
     `challenger_execution` are explicitly provided.
   - `/screw:scan` exposes the same explicit attachment path through
     `--challenger <mode> --challenger-execution dry_run|cli`.
+  - Provider-neutral first-pass scanning from YAML agent knowledge is still
+    pending; Codex/Gemini/local models cannot yet act as full primary scanners
+    through an equivalent backend runner.
   - Provider-neutral adapters so Gemini, local LLMs, or future assistants can
     be added without changing agent YAML.
   - Transport choice per provider: subscription-backed CLI/local execution or
@@ -415,6 +420,7 @@ The current full-suite baseline after Phase 4 signoff is:
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | System architecture and component overview |
 | [COMMAND_REFERENCE.md](docs/COMMAND_REFERENCE.md) | CLI, Claude plugin, MCP, and benchmark command reference |
 | [PHASE_5_PLAN.md](docs/PHASE_5_PLAN.md) | Multi-LLM challenger plan, provider/transport architecture, required modes |
+| [PHASE_5_PRIMARY_SCANNER_PLAN.md](docs/PHASE_5_PRIMARY_SCANNER_PLAN.md) | Required Phase 5 plan for provider-neutral primary scanning beyond Claude Code |
 | [AGENT_CATALOG.md](docs/AGENT_CATALOG.md) | Planned CWE-1400 agent inventory |
 | [AGENT_AUTHORING.md](docs/AGENT_AUTHORING.md) | How to write new agent YAML |
 | [DECISIONS.md](docs/DECISIONS.md) | Architecture decision records |

@@ -270,7 +270,7 @@ See `docs/PRD.md` §9 for the full taxonomy mapping and `docs/DECISIONS.md` ADR-
 | Phase 2 | Per-vuln | Claude Code Integration (subagents, skills, FP learning) | **Complete** |
 | Phase 3 | **One-time** | Adaptive Analysis & Learning | **Complete** (Phase 3a + Phase 3b + Phase 3b-C2) |
 | Phase 4 | **One-time** | Autoresearch & Self-Improvement | **Complete** |
-| Phase 5 | **One-time** | Multi-LLM Challenger | In progress — config/model contracts, reconciliation, provider runner interface, fixture-backed required-mode orchestration, Claude/Codex subscription-backed CLI runner plumbing, runner factory wiring, fixture-only dry-run execution, opt-in live CLI execution, MCP challenger tools, challenger-aware JSON/Markdown/SARIF formatting, explicit finalize-time challenger attachment, and `/screw:scan` challenger flags are implemented; see `docs/PHASE_5_PLAN.md` |
+| Phase 5 | **One-time** | Multi-LLM Challenger + Provider-Neutral Primary Scanning | In progress — challenger/reconciliation/report surfaces are implemented, but provider-neutral first-pass scanning from YAML agent knowledge is pending; see `docs/PHASE_5_PLAN.md` and `docs/PHASE_5_PRIMARY_SCANNER_PLAN.md` |
 | Phase 5.5 | **One-time** | Web application integration pilot | Pending |
 | Phase 6 | Mixed | Small-batch agent expansion | Pending |
 | Phase 7 | **One-time** | screw.nvim Integration | Pending |

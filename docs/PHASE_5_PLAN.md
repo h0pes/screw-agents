@@ -8,13 +8,21 @@
 > factory wiring from config is implemented; the first fixture-only
 > user-facing dry-run execution surface is implemented; opt-in live CLI
 > execution through configured CLI transports is implemented; MCP tools now
-> expose both execution surfaces to clients.
+> expose both execution surfaces to clients. Provider-neutral primary scanning
+> from YAML agent knowledge is still pending; see
+> `docs/PHASE_5_PRIMARY_SCANNER_PLAN.md`.
 > Last updated: 2026-05-04.
 
 Phase 5 adds multi-LLM secure-code-review execution without making Claude,
 Codex, Anthropic, or OpenAI permanent architectural assumptions. The durable
 asset remains provider-neutral YAML agent knowledge in `domains/**/*.yaml`;
 provider runners are replaceable execution adapters.
+
+Important status distinction: current Phase 5 challenger work can review and
+reconcile supplied findings, and Claude Code remains the implemented primary
+scanner UX through `/screw:scan`. Codex, Gemini, and local models do not yet
+have an equivalent provider-neutral first-pass scan runner. Phase 5 is not
+closure-ready until that primary scanner path exists and is manually validated.
 
 ## Goals
 
@@ -35,6 +43,9 @@ provider runners are replaceable execution adapters.
   second-provider execution runs by default.
 - Feed disagreement evidence into autoresearch as reviewed input, never as
   automatic YAML mutation.
+- Make first-pass scanning provider-neutral so Codex, Gemini, local models, or
+  future assistants can scan from the same YAML agent knowledge without Claude
+  Code being the only scanner frontend.
 
 ## Non-Goals
 
@@ -363,6 +374,24 @@ the no-challenger default.
 - Update `README.md`, `docs/COMMAND_REFERENCE.md`, and architecture/status docs
   in the same PR when new MCP tools, CLI options, plugin commands, or output
   fields become user-facing.
+
+### P5-P - Provider-Neutral Primary Scanning
+
+Status: required and pending. The detailed plan is
+`docs/PHASE_5_PRIMARY_SCANNER_PLAN.md`.
+
+This work adds a backend primary scan runner that can invoke a selected provider
+or assistant as the first-pass scanner using the same YAML agent knowledge,
+target resolution, finding schema, accumulation, and finalization pipeline used
+by Claude Code today.
+
+Required outcomes:
+
+- Codex can act as first-pass scanner, not only challenger/reviewer.
+- Claude and Codex can be chosen independently as primary/challenger.
+- Parallel independent primary scans can be reconciled.
+- Future Gemini/local assistants can be added through adapter/config work
+  without changing YAML agent definitions.
 
 ### P5-6 - Autoresearch Feedback
 
