@@ -36,6 +36,11 @@ from screw_agents.models import (
     Finding,
     HeuristicEntry,
 )
+from screw_agents.primary_scan import (
+    PrimaryScanInput,
+    PrimaryScanParticipant,
+    SourceChunk,
+)
 from screw_agents.registry import AgentRegistry
 from screw_agents.resolver import ResolvedCode, filter_by_relevance, resolve_target
 from screw_agents.treesitter import language_from_shebang
@@ -2009,6 +2014,99 @@ class ScanEngine:
             result["trust_status"] = self.verify_trust(project_root=project_root)
         return result
 
+    def assemble_primary_scan_input(
+        self,
+        *,
+        run_id: str,
+        session_id: str,
+        participant: PrimaryScanParticipant,
+        agents: list[str],
+        target: dict[str, Any],
+        thoroughness: str = "standard",
+        project_root: Path | None = None,
+    ) -> PrimaryScanInput:
+        """Assemble provider-neutral first-pass scanner input.
+
+        This packages the same YAML agent knowledge and resolved target context
+        used by the Claude Code scan path into the Phase 5 primary scan
+        contract. It does not invoke any provider.
+        """
+        if thoroughness not in {"quick", "standard", "deep"}:
+            raise ValueError(
+                f"Invalid thoroughness: {thoroughness!r}. "
+                f"Must be one of: 'quick', 'standard', 'deep'."
+            )
+        if not agents:
+            raise ValueError(
+                "agents list is empty; pass at least one registered agent name. "
+                "Use list_agents() to discover names."
+            )
+        non_string = [a for a in agents if not isinstance(a, str)]
+        if non_string:
+            raise ValueError(
+                f"agents must be a list of strings; got non-string element(s): "
+                f"{non_string!r}. Pass agent names as strings (e.g., 'sqli')."
+            )
+        duplicates = sorted({a for a in agents if agents.count(a) > 1})
+        if duplicates:
+            raise ValueError(
+                f"agents list contains duplicate name(s): {duplicates}. "
+                "Each agent must appear at most once."
+            )
+
+        agent_defs = [self._registry.get_agent(name) for name in agents]
+        unknown = [name for name, agent in zip(agents, agent_defs, strict=True) if agent is None]
+        if unknown:
+            raise ValueError(
+                f"Unknown agent name(s): {sorted(unknown)}. "
+                f"Use list_agents() to discover available names."
+            )
+
+        resolved_codes = resolve_target(target)
+        kept_agents, excluded = _filter_relevant_agents(
+            resolved_codes,
+            [agent for agent in agent_defs if agent is not None],
+        )
+        kept_agents = sorted(kept_agents, key=lambda agent: agent.meta.name)
+        if not kept_agents:
+            raise ValueError(
+                "No selected agents are relevant to the resolved target. "
+                "Use scan_agents for relevance diagnostics or choose agents "
+                "matching the target language."
+            )
+
+        source_chunks = [
+            SourceChunk(
+                path=code.file_path,
+                content=code.content,
+                language=code.language,
+                line_start=code.line_start,
+                line_end=code.line_end,
+                metadata=code.metadata,
+            )
+            for code in resolved_codes
+        ]
+
+        return PrimaryScanInput(
+            run_id=run_id,
+            session_id=session_id,
+            participant=participant,
+            agents=[agent.meta.name for agent in kept_agents],
+            target=target,
+            prompt=self._build_primary_scan_prompt(kept_agents, thoroughness),
+            source_chunks=source_chunks,
+            output_schema=Finding.model_json_schema(),
+            metadata={
+                "thoroughness": thoroughness,
+                "agent_meta": [
+                    self._agent_meta_summary(agent) for agent in kept_agents
+                ],
+                "agents_excluded_by_relevance": excluded,
+                "project_root": str(project_root) if project_root is not None else None,
+                "provider_execution": False,
+            },
+        )
+
     def get_agent_prompt(
         self,
         agent_name: str,
@@ -3588,6 +3686,29 @@ class ScanEngine:
             parts.append("\n".join(example_lines))
 
         return "\n\n".join(parts)
+
+    def _build_primary_scan_prompt(
+        self,
+        agents: list[AgentDefinition],
+        thoroughness: str,
+    ) -> str:
+        """Build provider-neutral first-pass scanner instructions."""
+        sections = [
+            "You are running screw-agents provider-neutral primary scanning.",
+            "Use the supplied source chunks and YAML-derived agent knowledge to "
+            "identify only well-supported security findings.",
+            "Return JSON only, with this shape: "
+            '{"findings": [<Finding objects matching the supplied output schema>]}.',
+            "Do not include prose outside the JSON object.",
+        ]
+        for agent in agents:
+            sections.extend(
+                [
+                    f"## Agent: {agent.meta.name}",
+                    self._build_prompt(agent, thoroughness),
+                ]
+            )
+        return "\n\n".join(sections)
 
     def _format_code_context(self, codes: list[ResolvedCode]) -> str:
         """Format resolved code chunks with file headers into a single string."""

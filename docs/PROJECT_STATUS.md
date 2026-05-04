@@ -417,11 +417,12 @@ is tracked in `docs/PHASE_4_CLOSURE_READINESS.md`.
   configured challenger mode after merge/exclusion filtering. The Claude plugin
   `/screw:scan` command exposes this as explicit
   `--challenger <mode> --challenger-execution dry_run|cli` flags; API/local
-  provider execution is still pending. Provider-neutral primary scan contracts
-  and fixture validation now exist in `src/screw_agents/primary_scan/`, but
-  live primary scanning from YAML agent knowledge is still pending:
-  Codex/Gemini/local models cannot yet act as first-pass scanners through an
-  equivalent backend runner. See
+  provider execution is still pending. Provider-neutral primary scan contracts,
+  fixture validation, and scan input assembly from YAML agent knowledge now
+  exist in `src/screw_agents/primary_scan/` and
+  `ScanEngine.assemble_primary_scan_input`, but live primary provider
+  execution is still pending: Codex/Gemini/local models cannot yet act as
+  first-pass scanners through an equivalent backend runner. See
   `docs/PHASE_5_PRIMARY_SCANNER_PLAN.md`.
 - `docs/` structure in place (PRD, DECISIONS, CONTRIBUTING, KNOWLEDGE_SOURCES, AGENT_AUTHORING)
 
@@ -800,7 +801,7 @@ Structured as a dependency graph with three parallel tracks converging at smoke 
 | Phase 3b | Adaptive Analysis & Learning Refinement | **Complete** — PR #4 (#10) 2026-04-18, PR #5 (#11) 2026-04-20, PR #6 (#12) 2026-04-23, Phase 3b-C2 2026-04-24, BACKLOG-PR6-22 (#14) 2026-04-24, T19-M D7 (#15) 2026-04-24, T-SCAN-REFACTOR final 2026-04-25 |
 | Phase 3c | Sandbox hardening sweep (seccomp filter + thread-safety + dedup) | **Deferred** — see `docs/DEFERRED_BACKLOG.md` §"Phase 3c (sandbox hardening follow-ups)" |
 | Phase 4 | Autoresearch & Self-Improvement | **Complete** — D-01 merged; D-02 calibration workflow, guardrails, failure payloads, accepted inclusions/exclusions, Wave C representative validation, focused runtime validation, and final signoff are recorded |
-| Phase 5 | Multi-LLM Challenger System | In progress — challenger config/model contracts, reconciliation, provider runner interface, fixture/generic/Claude/Codex CLI runners, required-mode orchestration, CLI/MCP challenger execution surfaces, report integration, finalize-time attachment, and `/screw:scan` challenger flags are implemented; provider-neutral first-pass scanning from YAML agent knowledge is still pending and is required before Phase 5 closure |
+| Phase 5 | Multi-LLM Challenger System | In progress — challenger config/model contracts, reconciliation, provider runner interface, fixture/generic/Claude/Codex CLI runners, required-mode orchestration, CLI/MCP challenger execution surfaces, report integration, finalize-time attachment, `/screw:scan` challenger flags, primary scan contracts, fixture validation, and scan input assembly are implemented; live provider-neutral first-pass scanner execution is still pending and is required before Phase 5 closure |
 | Phase 5.5 | Web application integration pilot | Pending — first external product integration target after Phase 5; start with the existing four accepted agents and wire orchestration/correlation/triage before broad agent expansion |
 | Phase 6 | Agent Expansion & Ecosystem | Pending — add CWE-1400 agents in small reviewed batches using Phase 4 calibration infrastructure, not a full-catalog big bang |
 | Phase 7 | screw.nvim Integration (scan commands, review-before-import, exclusions) | Pending — editor-native workflow after the web-app integration pilot unless product priority changes |
@@ -817,11 +818,10 @@ concrete failure-input payloads can be generated from controlled run output.
 
 ## Next Roadmap Priorities
 
-1. **Phase 5 — provider-neutral primary scanner.** Implement the missing
-   first-pass scan runner described in
-   `docs/PHASE_5_PRIMARY_SCANNER_PLAN.md`, so Codex and future assistants can
-   scan from the same YAML agent knowledge instead of only reviewing supplied
-   findings.
+1. **Phase 5 — provider-neutral primary scanner.** Implement live first-pass
+   provider execution described in `docs/PHASE_5_PRIMARY_SCANNER_PLAN.md`, so
+   Codex and future assistants can scan from the same assembled YAML agent
+   knowledge instead of only reviewing supplied findings.
    Preserve opt-in cost/privacy controls and provider-agnostic interfaces for
    future LLMs. Provider configuration must allow future
    assistants such as Gemini or local LLMs, and each provider should support
