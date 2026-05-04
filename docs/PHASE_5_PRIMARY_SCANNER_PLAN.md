@@ -1,8 +1,10 @@
 # Phase 5 Primary Scanner Plan
 
 > Status: required Phase 5 work. The challenger/orchestration layer exists,
-> but provider-neutral first-pass scanning is not implemented yet. Phase 5 is
-> not closure-ready until this gap is closed or explicitly re-scoped.
+> and the provider-neutral primary scan contract plus fixture runner are
+> implemented. Live provider-neutral first-pass scanning is still pending.
+> Phase 5 is not closure-ready until this gap is closed or explicitly
+> re-scoped.
 
 ## Why This Exists
 
@@ -18,8 +20,10 @@ the first-pass scan:
 
 Today, Claude Code is the implemented primary scan UX. It uses the MCP backend,
 target resolver, YAML agent knowledge, accumulation, and report finalization.
-Codex, Gemini, and local models do not yet have an equivalent first-pass scan
-runner that consumes the same YAML agent knowledge and emits `Finding` JSON.
+Codex, Gemini, and local models do not yet have an equivalent live first-pass
+scan runner that consumes the same YAML agent knowledge and emits `Finding`
+JSON. The backend contract for such runners now exists in
+`src/screw_agents/primary_scan/`.
 
 The current Phase 5 challenger package supports provider-neutral participant
 roles and reconciliation, but those "primary" roles operate inside the
@@ -35,6 +39,8 @@ context.
 | Attach configured challenger review during `finalize_scan_results` | Implemented |
 | `/screw:scan --challenger ... --challenger-execution dry_run\|cli` | Implemented |
 | Fixture/CLI challenger mode orchestration and reconciliation | Implemented |
+| Provider-neutral primary scan input/result contract | Implemented |
+| Fixture primary scan runner and output validation | Implemented |
 | Codex primary review participant over supplied findings | Implemented at challenger-orchestrator level |
 | Codex as first-pass scanner from YAML agent knowledge | Pending |
 | Gemini/local as first-pass scanner from YAML agent knowledge | Pending adapter |
@@ -43,17 +49,18 @@ context.
 
 ## Required Architecture
 
-Add a provider-neutral primary scan runner that sits beside the Claude Code
-plugin path and uses the same backend primitives:
+Add live provider-neutral primary scan runners that sit beside the Claude Code
+plugin path and use the same backend primitives:
 
 1. Resolve scope and target through MCP/backend code.
-2. Assemble provider-neutral scan input from:
+2. Assemble `PrimaryScanInput` from:
    - selected YAML agent definitions;
    - resolved source chunks;
    - target metadata;
    - output schema instructions for `Finding` JSON.
 3. Invoke the configured primary provider/transport.
-4. Parse and validate findings against the existing `Finding` model.
+4. Parse provider output through `parse_primary_scan_output` and validate
+   findings against the existing `Finding` model.
 5. Accumulate findings into the existing staging protocol.
 6. Optionally run challenger review using the existing Phase 5 challenger
    execution path.
@@ -128,6 +135,9 @@ provider produced or disputed each finding.
 - No second-provider execution by default.
 - No API billing unless explicitly configured and requested.
 - Subscription-backed CLI transports are first-class when available.
+- If a corresponding local CLI is not installed, the provider can only be used
+  through an explicitly configured API, local endpoint, or other future
+  transport adapter.
 - `ANTHROPIC_API_KEY` remains unset for subscription-backed Claude CLI
   execution.
 - Provider adapters must return structured JSON; malformed output is a failed
@@ -139,13 +149,15 @@ provider produced or disputed each finding.
 
 ### P5-P1 - Primary Scan Contract
 
-- Add provider-neutral `PrimaryScanInput`, `PrimaryScanResult`, and
-  parse/validation helpers.
-- Reuse existing `Finding` for output.
-- Add fixture primary scan runner for deterministic tests.
+- Status: implemented.
+- Added provider-neutral `PrimaryScanInput`, `PrimaryScanResult`, and
+  `parse_primary_scan_output`.
+- Reuses existing `Finding` for output validation.
+- Added fixture primary scan runner for deterministic tests.
 
 ### P5-P2 - Scan Assembly For Providers
 
+- Status: pending.
 - Build scan input from the existing registry, resolver, and scan assembly
   primitives.
 - Ensure Codex/Gemini/local paths receive the same curated YAML knowledge
@@ -153,6 +165,7 @@ provider produced or disputed each finding.
 
 ### P5-P3 - CLI Runner Integration
 
+- Status: pending.
 - Add Codex CLI primary scan runner.
 - Add Claude CLI primary scan runner only if it can run outside the Claude Code
   plugin path without breaking subscription/API-key guardrails.
@@ -160,12 +173,14 @@ provider produced or disputed each finding.
 
 ### P5-P4 - MCP/CLI Surface
 
+- Status: pending.
 - Expose provider primary scanning through MCP and package CLI.
 - Keep `/screw:scan` as the Claude Code frontend, but make the backend surface
   usable by other assistants and future web-app workers.
 
 ### P5-P5 - Parallel Scan Reconciliation
 
+- Status: pending.
 - Run multiple primary providers independently.
 - Normalize findings.
 - Reconcile agreed/disputed/unique results.
@@ -173,6 +188,7 @@ provider produced or disputed each finding.
 
 ### P5-P6 - Manual Round-Trip Validation
 
+- Status: pending.
 - Fixture-mode validation for all modes.
 - CLI dry-run validation with no API keys.
 - Opt-in live CLI validation only when Marco explicitly approves it.

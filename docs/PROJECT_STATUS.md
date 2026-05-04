@@ -417,9 +417,11 @@ is tracked in `docs/PHASE_4_CLOSURE_READINESS.md`.
   configured challenger mode after merge/exclusion filtering. The Claude plugin
   `/screw:scan` command exposes this as explicit
   `--challenger <mode> --challenger-execution dry_run|cli` flags; API/local
-  provider execution is still pending. Provider-neutral primary scanning from
-  YAML agent knowledge is also pending: Codex/Gemini/local models cannot yet
-  act as first-pass scanners through an equivalent backend runner. See
+  provider execution is still pending. Provider-neutral primary scan contracts
+  and fixture validation now exist in `src/screw_agents/primary_scan/`, but
+  live primary scanning from YAML agent knowledge is still pending:
+  Codex/Gemini/local models cannot yet act as first-pass scanners through an
+  equivalent backend runner. See
   `docs/PHASE_5_PRIMARY_SCANNER_PLAN.md`.
 - `docs/` structure in place (PRD, DECISIONS, CONTRIBUTING, KNOWLEDGE_SOURCES, AGENT_AUTHORING)
 

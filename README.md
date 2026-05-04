@@ -66,11 +66,13 @@ Implemented today:
   dry-run or opt-in CLI modes.
 - Claude plugin `/screw:scan` flags for explicit challenger review:
   `--challenger <mode> --challenger-execution dry_run|cli`.
+- Provider-neutral primary scan contracts and a fixture primary scanner for
+  validating first-pass scanner output against the shared `Finding` schema.
 
 Not yet implemented:
 
-- Provider-neutral first-pass scan runner for Codex, Gemini, local models, or
-  future assistants using the same YAML agent knowledge.
+- Live provider-neutral first-pass scan runners for Codex, Gemini, local
+  models, or future assistants using the same YAML agent knowledge.
 - API/local challenger transports in `/screw:scan`.
 - Phase 5.5 web application integration pilot.
 - Phase 6 small-batch expansion beyond the current four agents.
