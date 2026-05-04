@@ -15,10 +15,9 @@ lines of focused pattern matching), not for whole-program analysis.
 
 from __future__ import annotations
 
-from typing import Iterator
+from collections.abc import Iterator
 
 from tree_sitter import Node
-
 
 # Per-language source and sanitizer lists, keyed by language name.
 # These mirror (a subset of) what the YAML agents declare in their detection_heuristics.

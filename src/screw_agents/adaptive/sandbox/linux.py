@@ -74,7 +74,6 @@ from time import monotonic
 
 from screw_agents.models import SandboxResult
 
-
 # Per-file write cap applied via RLIMIT_FSIZE in preexec_fn. Bounds:
 #  (a) /findings/findings.json (the script's intentional output)
 #  (b) parent-side tempfile stdout/stderr via inherited file descriptors
@@ -218,7 +217,7 @@ def run_in_sandbox(
         "--bind", str(findings_path), "/findings",
         "--ro-bind", str(script_path), "/script.py",
         # --- Tmpfs / virtual filesystems ---
-        "--tmpfs", "/tmp",
+        "--tmpfs", "/tmp",  # noqa: S108 - in-sandbox tmpfs path, not host temp use.
         "--tmpfs", "/var",
         "--proc", "/proc",
         "--dev", "/dev",
@@ -227,7 +226,8 @@ def run_in_sandbox(
         # No PYTHONPATH / PYTHONHOME (Python -I ignores them anyway).
         "--setenv", "PYTHONDONTWRITEBYTECODE", "1",
         "--setenv", "PATH", "/usr/bin",
-        "--setenv", "HOME", "/tmp",  # some stdlib paths consult HOME
+        # In-sandbox HOME points at the tmpfs above; no host /tmp is exposed.
+        "--setenv", "HOME", "/tmp",  # noqa: S108
         "--setenv", "LANG", "C.UTF-8",  # PEP 540 + explicit UTF-8 for str/bytes
         "--setenv", "SCREW_FINDINGS_PATH", "/findings/findings.json",
         "--setenv", "SCREW_PROJECT_ROOT", "/project",
@@ -319,7 +319,7 @@ def run_in_sandbox(
     # via _MAX_OUTPUT_BYTES; RLIMIT_FSIZE in preexec bounds the write side.
     with tempfile.TemporaryFile() as out_file, tempfile.TemporaryFile() as err_file:
         try:
-            completed = subprocess.run(
+            completed = subprocess.run(  # noqa: S603 - argv is constructed above.
                 bwrap_args,
                 timeout=wall_clock_s,
                 stdout=out_file,

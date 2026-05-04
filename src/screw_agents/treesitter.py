@@ -9,7 +9,7 @@ package API (tree-sitter 0.25+).
 from __future__ import annotations
 
 import importlib
-from functools import lru_cache
+from functools import cache
 from pathlib import Path
 
 from tree_sitter import Language, Parser
@@ -115,7 +115,7 @@ def language_from_shebang(first_line: str) -> str | None:
     return None
 
 
-@lru_cache(maxsize=None)
+@cache
 def get_language(name: str) -> Language:
     """Return a tree-sitter Language for the given canonical name.
 

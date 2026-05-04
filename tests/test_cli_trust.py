@@ -170,6 +170,11 @@ class TestCLIDispatcher:
         parser = build_parser()
         # Each subcommand should parse without error for its happy-path args
         assert parser.parse_args(["serve", "--transport", "stdio"]).command == "serve"
+        http_args = parser.parse_args(
+            ["serve", "--transport", "http", "--host", "127.0.0.1"]
+        )
+        assert http_args.command == "serve"
+        assert http_args.host == "127.0.0.1"
         assert (
             parser.parse_args(
                 ["init-trust", "--name", "Marco", "--email", "marco@example.com"]

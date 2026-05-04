@@ -397,6 +397,9 @@ is tracked in `docs/PHASE_4_CLOSURE_READINESS.md`.
 **Repository scaffold:**
 - `pyproject.toml` with `uv`-compatible project definition (ADR-011)
 - Dependencies declared: `mcp`, `tree-sitter>=0.23`, `pyyaml>=6.0`
+- Production-source lint baseline is clean with
+  `uv run ruff check src/screw_agents`; benchmark fixture lint remains outside
+  this baseline because those fixtures intentionally include vulnerable code.
 - Phase 5 challenger package has provider-neutral config/model contracts in
   `src/screw_agents/challenger/models.py` and deterministic reconciliation in
   `src/screw_agents/challenger/reconciliation.py`; provider runner contracts

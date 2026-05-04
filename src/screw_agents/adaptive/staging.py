@@ -36,7 +36,7 @@ import json
 import os
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from screw_agents.adaptive.script_name import validate_script_name as _validate_script_name
@@ -506,7 +506,7 @@ def _utc_now_iso() -> str:
     ``datetime.strptime(..., "%Y-%m-%dT%H:%M:%SZ")`` with ``tzinfo``
     injected — keep the format stable across releases.
     """
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 # =====================================================================
@@ -552,12 +552,12 @@ def _compute_age_days(entry: dict | None, py_path: Path) -> int:
         try:
             t = datetime.strptime(
                 entry["staged_at"], "%Y-%m-%dT%H:%M:%SZ"
-            ).replace(tzinfo=timezone.utc)
-            return (datetime.now(timezone.utc) - t).days
+            ).replace(tzinfo=UTC)
+            return (datetime.now(UTC) - t).days
         except ValueError:
             pass
-    mtime = datetime.fromtimestamp(py_path.stat().st_mtime, tz=timezone.utc)
-    return (datetime.now(timezone.utc) - mtime).days
+    mtime = datetime.fromtimestamp(py_path.stat().st_mtime, tz=UTC)
+    return (datetime.now(UTC) - mtime).days
 
 
 def _classify_sweep_reason(

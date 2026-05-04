@@ -64,6 +64,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Port for HTTP transport (default: 8080)",
     )
     serve_p.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help=(
+            "Host interface for HTTP transport (default: 127.0.0.1; use "
+            "0.0.0.0 only for intentional network exposure)"
+        ),
+    )
+    serve_p.add_argument(
         "--domains-dir",
         type=Path,
         default=None,
@@ -340,7 +348,7 @@ def _run_serve(args: argparse.Namespace) -> int:
     if args.transport == "stdio":
         asyncio.run(run_stdio(args.domains_dir))
     else:
-        asyncio.run(run_http(args.domains_dir, args.port))
+        asyncio.run(run_http(args.domains_dir, args.port, args.host))
     return 0
 
 

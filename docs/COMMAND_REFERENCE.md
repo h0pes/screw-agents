@@ -19,7 +19,7 @@ uv run screw-agents <command> [options]
 Run the MCP server.
 
 ```bash
-uv run screw-agents serve [--transport stdio|http] [--port 8080] [--domains-dir PATH] [--log-level LEVEL]
+uv run screw-agents serve [--transport stdio|http] [--host 127.0.0.1] [--port 8080] [--domains-dir PATH] [--log-level LEVEL]
 ```
 
 Options:
@@ -27,6 +27,7 @@ Options:
 | Option | Values | Default | Description |
 |---|---|---:|---|
 | `--transport` | `stdio`, `http` | `stdio` | MCP transport protocol |
+| `--host` | host/IP | `127.0.0.1` | HTTP bind host; use `0.0.0.0` only for intentional network exposure |
 | `--port` | integer | `8080` | HTTP port when `--transport http` is used |
 | `--domains-dir` | path | auto-detect | Alternate agent YAML domains directory |
 | `--log-level` | `DEBUG`, `INFO`, `WARNING`, `ERROR` | `INFO` | Server logging level |
@@ -36,6 +37,7 @@ Examples:
 ```bash
 uv run screw-agents serve --transport stdio
 uv run screw-agents serve --transport http --port 8080
+uv run screw-agents serve --transport http --host 0.0.0.0 --port 8080
 ```
 
 ### `screw-agents challenger-dry-run`
@@ -470,8 +472,13 @@ uv sync
 uv run pytest
 uv run pytest tests/test_registry_invariants.py -v
 uv run pytest benchmarks/tests/test_autoresearch_controlled_executor.py -v
+uv run ruff check src/screw_agents
 uv run ruff check .
 ```
+
+`uv run ruff check src/screw_agents` is the production-source lint baseline.
+Repo-wide lint also traverses tests and benchmark material, including
+assert-heavy pytest files and intentionally vulnerable benchmark fixtures.
 
 Claude plugin development:
 

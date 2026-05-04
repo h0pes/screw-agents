@@ -590,7 +590,7 @@ class AdaptiveScriptResult(BaseModel):
     """Full result of an adaptive script execution, including findings."""
 
     script_name: str
-    findings: list["Finding"]
+    findings: list[Finding]
     sandbox_result: SandboxResult
     stale: bool = False
     execution_time_ms: int

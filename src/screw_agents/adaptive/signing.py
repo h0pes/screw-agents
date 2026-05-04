@@ -33,10 +33,10 @@ from __future__ import annotations
 
 import hashlib
 import os
-import yaml
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import yaml
 from pydantic import ValidationError
 
 from screw_agents.adaptive.script_name import (
@@ -66,7 +66,7 @@ def build_signed_script_meta(
     source: str,
     current_sha256: str,
     signer_email: str,
-    private_key: "Ed25519PrivateKey",
+    private_key: Ed25519PrivateKey,
 ) -> dict[str, Any]:
     """Return a fully populated meta dict ready to persist.
 

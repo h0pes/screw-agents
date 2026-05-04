@@ -20,9 +20,6 @@ from typing import Any
 import yaml
 
 from screw_agents.adaptive.executor import execute_script
-from screw_agents.adaptive.signing import (
-    _sign_script_bytes,
-)
 from screw_agents.aggregation import (
     aggregate_directory_suggestions,
     aggregate_fp_report,
@@ -32,7 +29,13 @@ from screw_agents.formatter import format_findings
 from screw_agents.learning import (
     load_exclusions,
 )
-from screw_agents.models import AgentDefinition, Exclusion, Finding, HeuristicEntry
+from screw_agents.models import (
+    AgentDefinition,
+    CoverageGap,
+    Exclusion,
+    Finding,
+    HeuristicEntry,
+)
 from screw_agents.registry import AgentRegistry
 from screw_agents.resolver import ResolvedCode, filter_by_relevance, resolve_target
 from screw_agents.treesitter import language_from_shebang
@@ -684,8 +687,7 @@ class ScanEngine:
 
         Spec §3.2.
         """
-        import yaml
-        from datetime import datetime, timedelta, timezone
+        from datetime import UTC, datetime, timedelta
 
         from screw_agents.adaptive.signing import (
             _sign_script_bytes,
@@ -776,7 +778,7 @@ class ScanEngine:
             try:
                 staged_at = datetime.strptime(
                     staged_at_str, "%Y-%m-%dT%H:%M:%SZ"
-                ).replace(tzinfo=timezone.utc)
+                ).replace(tzinfo=UTC)
             except ValueError as exc:
                 # I3 hardening: malformed staged_at must NOT silently bypass
                 # the staleness check. Fail loudly so ops can investigate.
@@ -791,7 +793,7 @@ class ScanEngine:
                         f"Inspect `.screw/local/pending-approvals.jsonl`."
                     ),
                 }
-            age = datetime.now(timezone.utc) - staged_at
+            age = datetime.now(UTC) - staged_at
             if (
                 age > timedelta(hours=stale_threshold_hours)
                 and not confirm_stale
@@ -912,8 +914,8 @@ class ScanEngine:
                     "status": "error",
                     "error": "fallback_sha_mismatch",
                     "message": (
-                        f"Confirm phrase sha prefix does not match the "
-                        f"recovered staging file. Re-run scan."
+                        "Confirm phrase sha prefix does not match the "
+                        "recovered staging file. Re-run scan."
                     ),
                     "expected_in_phrase": actual_sha256[:8],
                     "got_in_phrase": confirm_sha_prefix,
@@ -1586,7 +1588,11 @@ class ScanEngine:
         if include_prompt:
             result["core_prompt"] = self._build_prompt(agent, thoroughness)
         if project_root is not None:
-            all_exclusions = _preloaded_exclusions if _preloaded_exclusions is not None else load_exclusions(project_root)
+            all_exclusions = (
+                _preloaded_exclusions
+                if _preloaded_exclusions is not None
+                else load_exclusions(project_root)
+            )
             # Subagent-facing exclusions list excludes quarantined entries —
             # exposing tampered/unsigned-under-reject entries here risks the
             # subagent (or a downstream consumer) treating them as actionable.
@@ -2080,7 +2086,7 @@ class ScanEngine:
         agent_name: str,
         project_root: Path,
         session_id: str,
-    ) -> list["CoverageGap"]:
+    ) -> list[CoverageGap]:
         """Compute D1 + D2 coverage gaps for a single agent within a scan session.
 
         Phase 3b T16 (part 3): closes the adaptive end-to-end loop. Reads
@@ -2126,7 +2132,6 @@ class ScanEngine:
             detect_d1_context_required_gaps,
             detect_d2_unresolved_sink_gaps,
         )
-        from screw_agents.models import CoverageGap
         from screw_agents.staging import load_context_required_matches
 
         agent = self._registry.get_agent(agent_name)
@@ -2246,7 +2251,6 @@ class ScanEngine:
             detect_d1_context_required_gaps,
             detect_d2_unresolved_sink_gaps,
         )
-        from screw_agents.models import CoverageGap
         from screw_agents.results import render_and_write
         from screw_agents.staging import (
             finalize_result_cached,
@@ -2685,7 +2689,10 @@ class ScanEngine:
                     },
                     "scan_metadata": {
                         "type": "object",
-                        "description": "Optional metadata (target, agents, timestamp) for report header.",
+                        "description": (
+                            "Optional metadata (target, agents, timestamp) "
+                            "for report header."
+                        ),
                     },
                 },
                 "required": ["findings"],
@@ -2727,7 +2734,13 @@ class ScanEngine:
                                 "properties": {
                                     "type": {
                                         "type": "string",
-                                        "enum": ["exact_line", "pattern", "function", "file", "directory"],
+                                        "enum": [
+                                            "exact_line",
+                                            "pattern",
+                                            "function",
+                                            "file",
+                                            "directory",
+                                        ],
                                     },
                                     "pattern": {"type": "string"},
                                     "path": {"type": "string"},
@@ -3387,7 +3400,11 @@ class ScanEngine:
             parts.append("\n".join(bypass_lines))
 
         # Few-shot examples — omitted for quick scans
-        vulnerable_examples = [] if thoroughness == "quick" else agent.few_shot_examples.vulnerable[:3]
+        vulnerable_examples = (
+            []
+            if thoroughness == "quick"
+            else agent.few_shot_examples.vulnerable[:3]
+        )
         safe_examples = [] if thoroughness == "quick" else agent.few_shot_examples.safe[:3]
 
         if vulnerable_examples or safe_examples:

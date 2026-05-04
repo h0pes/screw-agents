@@ -115,7 +115,9 @@ Run the MCP server over HTTP:
 uv run screw-agents serve --transport http --port 8080
 ```
 
-The HTTP MCP endpoint is exposed at `/mcp`.
+The HTTP MCP endpoint is exposed at `/mcp` and binds to `127.0.0.1` by
+default. Use `--host 0.0.0.0` only when intentionally exposing the MCP server
+outside localhost.
 
 ## Claude Code Plugin Usage
 
@@ -368,7 +370,15 @@ Run a focused test module:
 uv run pytest tests/test_registry_invariants.py -v
 ```
 
-Run linting:
+Run production-source linting:
+
+```bash
+uv run ruff check src/screw_agents
+```
+
+Repo-wide lint also traverses tests and benchmark material, including
+assert-heavy pytest files and intentionally vulnerable benchmark fixtures, so
+`src/screw_agents` is the production-source baseline.
 
 ```bash
 uv run ruff check .
@@ -377,7 +387,7 @@ uv run ruff check .
 The current full-suite baseline after Phase 4 signoff is:
 
 ```text
-1172 passed, 9 skipped
+1173 passed, 9 skipped
 ```
 
 ## Documentation Map

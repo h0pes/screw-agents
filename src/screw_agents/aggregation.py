@@ -11,7 +11,7 @@ of the same signed exclusions database.
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Literal
 
 from screw_agents.models import (
@@ -319,7 +319,7 @@ def aggregate_fp_report(exclusions: list[Exclusion]) -> FPReport:
         )
 
     return FPReport(
-        generated_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        generated_at=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         scope="project",
         top_fp_patterns=patterns,
     )

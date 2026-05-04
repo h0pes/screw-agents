@@ -13,11 +13,11 @@ import fnmatch
 import re
 import sys
 import warnings
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
-import yaml
 
+import yaml
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
@@ -236,7 +236,7 @@ def record_exclusion(project_root: Path, exclusion: ExclusionInput) -> Exclusion
         load_exclusions(project_root, config=config) if path.exists() else []
     )
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     date_str = now.strftime("%Y-%m-%d")
     today_prefix = f"fp-{date_str}-"
     today_ids = [e.id for e in existing if e.id.startswith(today_prefix)]
