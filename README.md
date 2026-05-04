@@ -362,7 +362,7 @@ uv run ruff check .
 The current full-suite baseline after Phase 4 signoff is:
 
 ```text
-1101 passed, 9 skipped
+1116 passed, 9 skipped
 ```
 
 ## Documentation Map

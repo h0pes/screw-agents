@@ -1024,27 +1024,58 @@ The system defines a **provider-agnostic challenger interface** — a standardiz
 ```yaml
 # .screw/config.yaml
 challenger:
-  enabled: false  # opt-in per analysis
+  enabled: false
+  consent:
+    cost_acknowledged: false
+    privacy_acknowledged: false
+    api_billing_allowed: false
+    source_sharing_allowed: false
+
   providers:
-    - name: "openai-codex"
-      type: "openai"
-      model: "codex"  # or specific model version
-      api_key_env: "OPENAI_API_KEY"
-      priority: 1
-    # Future providers — adding a new LLM is just a config entry
-    # - name: "google-gemini"
-    #   type: "google"
-    #   model: "gemini-2.5-pro"
-    #   api_key_env: "GOOGLE_API_KEY"
-    #   priority: 2
-  
-  # When to invoke the challenger
-  trigger:
-    mode: "on-demand"  # "on-demand" | "severity-gated" | "all-findings"
-    min_severity: "high"  # for severity-gated mode
-  
-  # Cost disclaimer acknowledged
-  cost_acknowledged: false  # must be set to true before first use
+    claude:
+      assistant: claude
+      transports:
+        cli:
+          kind: cli
+          enabled: true
+          command: claude
+          use_api_key: false
+        api:
+          kind: api
+          enabled: false
+          api_key_env: ANTHROPIC_API_KEY
+          allow_api_billing: false
+
+    codex:
+      assistant: codex
+      transports:
+        cli:
+          kind: cli
+          enabled: true
+          command: codex
+          use_api_key: false
+        api:
+          kind: api
+          enabled: false
+          api_key_env: OPENAI_API_KEY
+          allow_api_billing: false
+
+  modes:
+    claude_primary_codex_challenger:
+      enabled: false
+      participants:
+        - {provider: claude, transport: cli, role: primary}
+        - {provider: codex, transport: cli, role: challenger}
+    codex_primary_claude_challenger:
+      enabled: false
+      participants:
+        - {provider: codex, transport: cli, role: primary}
+        - {provider: claude, transport: cli, role: challenger}
+    parallel:
+      enabled: false
+      participants:
+        - {provider: claude, transport: cli, role: parallel}
+        - {provider: codex, transport: cli, role: parallel}
 ```
 
 #### Challenge Flows
@@ -1147,7 +1178,7 @@ This creates a **three-way feedback loop**: benchmark metrics + challenger disag
 #### Cost and User Experience
 
 - **Opt-in only** — The challenger is never activated by default. The user explicitly enables it per analysis
-- **Cost disclaimer** — Before first use, the system displays a clear notice: "Multi-LLM analysis will send findings to [provider] via their API. This incurs additional API costs. Your code context will be shared with the challenger provider. Do you want to proceed?" The user must acknowledge (`cost_acknowledged: true` in config)
+- **Cost disclaimer** — Before first use, the system displays a clear notice explaining the selected provider and transport. API transports require explicit API-billing permission; subscription-backed CLI/local transports do not assume API credits. The notice must also explain whether code context will be shared with another provider. The user must acknowledge cost and privacy implications in config.
 - **Configurable trigger** — Users can choose to challenge all findings, only high-severity findings, or specific findings on demand
 - **Provider-agnostic design** — Adding a new LLM provider (e.g., Gemini) requires only a new config entry and a thin API adapter. The challenger interface, prompt design, and reconciliation logic are provider-agnostic
 
@@ -1442,9 +1473,10 @@ screw-agents/
 │   │   ├── benchmark.py             # Benchmark runner + scoring
 │   │   └── mutations.py             # Mutation strategies
 │   └── challenger/
-│       ├── interface.py             # Provider-agnostic challenger contract
-│       ├── codex_adapter.py         # OpenAI Codex implementation
-│       └── reconciliation.py        # Finding reconciliation logic
+│       ├── models.py                # Provider-neutral config/result contracts
+│       ├── providers.py             # Future provider runner interface
+│       ├── codex_adapter.py         # Future OpenAI Codex implementation
+│       └── reconciliation.py        # Future finding reconciliation logic
 │
 ├── domains/                         # Agent YAML definitions (the knowledge base)
 │   ├── injection-input-handling/    # CWE-1406/1407/1409
