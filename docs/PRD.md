@@ -1138,7 +1138,9 @@ challenger data exists, and emits a `{findings, challenger_results}` envelope
 only for challenger-enriched output. SARIF stores run-level challenger metadata
 and finding-level reconciliation in `properties`; CSV remains finding-only.
 `finalize_scan_results` can attach this metadata directly when a configured
-challenger mode and execution surface are explicitly requested.
+challenger mode and execution surface are explicitly requested. The Claude
+plugin `/screw:scan` command exposes the same attachment through explicit
+`--challenger <mode> --challenger-execution dry_run|cli` flags.
 
 Example conceptual payload:
 

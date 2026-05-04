@@ -1,7 +1,7 @@
 ---
 name: screw:scan
-description: "Run a security scan with screw-agents. Usage: /screw:scan <scope-spec> [target] [--thoroughness standard|deep] [--format json|sarif|markdown|csv] [--adaptive] [--no-confirm]. Migration: bare-token form (`/screw:scan sqli`) is preserved. The retired `scan_full` and per-agent (`scan_sqli`, ...) MCP tools are replaced by `scan_agents` (Task 6); for full-coverage scans use `/screw:scan full` or call `scan_agents(agents=list_agents().names)` directly."
-argument-hint: <scope-spec> [target] [--adaptive | --no-confirm | --thoroughness standard|deep | --format json|sarif|markdown|csv] [--help]
+description: "Run a security scan with screw-agents. Usage: /screw:scan <scope-spec> [target] [--thoroughness standard|deep] [--format json|sarif|markdown|csv] [--adaptive] [--no-confirm] [--challenger MODE --challenger-execution dry_run|cli]. Migration: bare-token form (`/screw:scan sqli`) is preserved. The retired `scan_full` and per-agent (`scan_sqli`, ...) MCP tools are replaced by `scan_agents` (Task 6); for full-coverage scans use `/screw:scan full` or call `scan_agents(agents=list_agents().names)` directly."
+argument-hint: <scope-spec> [target] [--adaptive | --no-confirm | --thoroughness standard|deep | --format json|sarif|markdown|csv | --challenger MODE --challenger-execution dry_run|cli] [--help]
 allowed-tools:
   - Read
   - Task
@@ -47,7 +47,7 @@ Claude Code's architecture forbids nested subagent dispatch (`sub-agents.md:711`
 ## Syntax
 
 ```
-/screw:scan <scope-spec> [target] [--thoroughness standard|deep] [--format json|sarif|markdown|csv] [--adaptive] [--no-confirm]
+/screw:scan <scope-spec> [target] [--thoroughness standard|deep] [--format json|sarif|markdown|csv] [--adaptive] [--no-confirm] [--challenger MODE --challenger-execution dry_run|cli]
 ```
 
 ## Scope-spec forms (mutually exclusive — pick one)
@@ -74,11 +74,15 @@ The three forms are mutually exclusive. Mixing (e.g., `full domains:A` or `sqli 
 
 - `[target]` (last positional, optional, defaults to codebase root): bare path, `src/api/**` glob, `git_diff:BASE`, `function:NAME@FILE`, `class:NAME@FILE`, `commits:RANGE`.
 - `--thoroughness standard|deep` (default `standard`): passed to scan tool.
-- `--format json|sarif|markdown|csv` (default `["json", "markdown", "csv"]`; pass `--format <one>` to restrict): passed to `finalize_scan_results`. The default matches the engine's `results.py:163` default.
+- `--format json|sarif|markdown|csv` (default `["json", "markdown", "csv"]`; pass `--format <one>` to restrict): passed to `finalize_scan_results`. The default matches the engine's report-rendering default.
 - `--adaptive` (optional flag, default disabled): enable adaptive analysis mode. Requires `.screw/config.yaml` with `script_reviewers` populated and an interactive session. CI/piped contexts MUST NOT pass `--adaptive`. The `--adaptive` flag IS the user consent.
 - `--no-confirm` (optional flag, default false): skip the pre-execution `Continue?` prompt. CI / piped contexts MUST pass this. The summary line still prints to stderr-equivalent for audit.
+- `--challenger MODE` (optional, default disabled): explicitly request Phase 5 challenger review using a configured `.screw/config.yaml` challenger mode. This flag does nothing by itself; it MUST be paired with `--challenger-execution`.
+- `--challenger-execution dry_run|cli` (optional, required when `--challenger` is present): choose the challenger execution surface. `dry_run` only permits fixture transports and does not invoke external assistants. `cli` permits configured, opt-in live CLI transports and may send source context to configured providers according to project consent. API and local transports are not exposed by this slash-command path yet.
 
 **Example:** `/screw:scan sqli src/api/ --adaptive`
+**Challenger dry-run example:** `/screw:scan sqli src/api/ --challenger claude_primary_codex_challenger --challenger-execution dry_run`
+**Challenger CLI example:** `/screw:scan sqli src/api/ --challenger claude_primary_codex_challenger --challenger-execution cli`
 
 ## Workflow
 
@@ -108,6 +112,8 @@ FLAGS
   --no-confirm                  Skip pre-execution confirmation prompt (CI / non-interactive contexts)
   --thoroughness standard|deep  Scan depth (default: standard)
   --format <fmt>                Single output format from {json, markdown, csv, sarif}; if omitted, all 3 defaults are emitted (json, markdown, csv)
+  --challenger <mode>           Explicitly attach configured Phase 5 challenger review during finalize
+  --challenger-execution <kind> Execution surface for --challenger: dry_run or cli
 
 DISCOVERY
   To list available domains:    invoke MCP tool `mcp__screw-agents__list_domains`
@@ -118,6 +124,7 @@ EXAMPLES
   /screw:scan sqli src/
   /screw:scan full src/ --no-confirm --format json
   /screw:scan domains:injection-input-handling agents:sqli,xss src/ --adaptive
+  /screw:scan sqli src/ --challenger claude_primary_codex_challenger --challenger-execution dry_run
 ```
 
 Then exit cleanly — no further steps. The `--help` short-circuit runs BEFORE `validate_flags` mutual-exclusivity check below, so `--help` combined with any other flag still prints help and exits.
@@ -126,7 +133,7 @@ Pre-parse algorithm — token classification (T-SCAN-REFACTOR Task 8 plan-fix Ed
 
 ```
 tokens = $ARGUMENTS.split()
-flags = {}        # --adaptive, --no-confirm, --thoroughness <v>, --format <v>
+flags = {}        # --adaptive, --no-confirm, --thoroughness <v>, --format <v>, --challenger <mode>, --challenger-execution <kind>
 scope_tokens = [] # the scope-spec portion (passed to resolve_scope)
 target = None
 
@@ -136,7 +143,7 @@ while i < len(tokens):
     if t == "--adaptive" or t == "--no-confirm":
         flags[t.lstrip("-")] = True
         i += 1
-    elif t in ("--thoroughness", "--format"):
+    elif t in ("--thoroughness", "--format", "--challenger", "--challenger-execution"):
         if i + 1 >= len(tokens):
             raise ValueError(f"Flag {t} requires a value")
         flags[t.lstrip("-")] = tokens[i+1]
@@ -172,6 +179,18 @@ scope_text = " ".join(scope_tokens)  # passed to resolve_scope MCP tool
 > Error: `--adaptive` requires interactive consent (5-section review prompts). `--no-confirm` signals non-interactive context. Pick one — they cannot be combined.
 
 (The `validate_flags` helper in `scan_command.py` enforces this; the equivalent check lives at the top of this body so the slash command surfaces the error fast.)
+
+**Challenger flag validation:** Challenger review is disabled unless the user explicitly supplies both `--challenger <mode>` and `--challenger-execution <dry_run|cli>`.
+
+- If exactly one of `--challenger` or `--challenger-execution` is present, abort BEFORE dispatch with:
+
+> Error: `--challenger` and `--challenger-execution` must be provided together. Use `--challenger <mode> --challenger-execution dry_run` for fixture validation, or `--challenger <mode> --challenger-execution cli` for opt-in live CLI execution.
+
+- If `--challenger-execution` is not `dry_run` or `cli`, abort with:
+
+> Error: `--challenger-execution` must be `dry_run` or `cli`. API and local challenger transports are not exposed by `/screw:scan` yet.
+
+- Do NOT infer a challenger mode from config. Do NOT default to live CLI. Do NOT set API keys. ANTHROPIC_API_KEY remains unset for subscription-backed Claude CLI execution; the backend runner enforces provider-specific API-key isolation.
 
 ### Step 2: Resolve scope via the `resolve_scope` MCP tool
 
@@ -226,6 +245,7 @@ Trust: <trust_status summary>  (if project_root given)
 Files scanned: <total_files>
 Thoroughness: <T>
 Adaptive mode: <enabled|disabled>
+Challenger: <disabled | mode=<M>, execution=<dry_run|cli>>
 Format: <F>
 ```
 
@@ -258,6 +278,7 @@ Task(
     - thoroughness: <standard|deep>
     - adaptive_flag: <true|false>
     - format: <json|sarif|markdown|csv>
+    - challenger: <disabled | mode=<M>, execution=<dry_run|cli>>  ← informational only; subagent does not run challenger review
 
     Follow your subagent instructions. End your turn with the structured
     JSON payload per your Step 5 schema. DO NOT dispatch any other subagent
@@ -597,11 +618,15 @@ mcp__screw-agents__finalize_scan_results({
     "session_id": <session_id from Step 6>,
     "agent_names": <kept-agents list from Step 4>,
     "scan_metadata": <scan_metadata from Step 6 — includes target + timestamp>,
-    "formats": [<format from $ARGUMENTS, default ["json", "markdown", "csv"] (engine default per results.py:163, T19-M D7); if --format <one> passed, single-element list [<one>]>],
+    "formats": [<format from $ARGUMENTS, default ["json", "markdown", "csv"] (engine default per T19-M D7); if --format <one> passed, single-element list [<one>]>],
+    "challenger_mode": <flags["challenger"] if provided, else null>,
+    "challenger_execution": <flags["challenger-execution"] if provided, else null>,
+    "challenger_prompt": <"Review the finalized screw-agents findings for security validity and return structured challenger assessment JSON." if challenger enabled, else null>,
+    "challenger_target": <scan_metadata["target"] if it is an object, else {"type": "scan_target", "value": scan_metadata["target"]} if it is a string, else null>,
 })
 ```
 
-Capture `files_written` paths, `summary` counts, and `exclusions_applied` from the response.
+Only include the four `challenger_*` keys when challenger review is enabled. When disabled, omit them entirely or pass null values. Capture `files_written` paths, `summary` counts, `exclusions_applied`, and any rendered challenger-review section from the response reports.
 
 > **Full-scope note:** Today the registry has one domain (`injection-input-handling`) so a single `finalize_scan_results` call covers the full `full`-scope path. As the registry grows under CWE-1400 expansion, the universal `screw-scan` subagent still produces ONE session per dispatch (it scans all kept agents under one `session_id`); a single finalize call per dispatch is correct. The `list_domains` MCP tool is referenced HERE only as a registry visibility primitive — main session may call it to print "scope expanded to N domains" in the pre-execution summary, NOT to fan out subagent dispatches (that's the universal subagent's job under one session).
 
@@ -614,7 +639,8 @@ Capture `files_written` paths, `summary` counts, and `exclusions_applied` from t
 3. Report path (from `finalize_scan_results.files_written`).
 4. Adaptive summary: how many `pending_reviews` → how many promoted → how many rejected → how many skipped (failed review, malformed output, sandbox failure).
 5. Any `confirm-high` approvals: note in summary for audit visibility.
-6. Offer: "Apply a fix?", "Mark a finding as false positive?", "Run another agent?"
+6. Challenger summary: if challenger review was enabled, state the configured mode/execution and point to the JSON/Markdown/SARIF reports where the challenger review is rendered. If disabled, do not mention challenger review.
+7. Offer: "Apply a fix?", "Mark a finding as false positive?", "Run another agent?"
 
 ## Error handling
 

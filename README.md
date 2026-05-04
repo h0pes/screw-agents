@@ -64,11 +64,12 @@ Implemented today:
   CLI transports.
 - Explicit challenger attachment during `finalize_scan_results` for configured
   dry-run or opt-in CLI modes.
+- Claude plugin `/screw:scan` flags for explicit challenger review:
+  `--challenger <mode> --challenger-execution dry_run|cli`.
 
 Not yet implemented:
 
-- Claude plugin command UX for enabling challenger review directly from
-  `/screw:scan`.
+- API/local challenger transports in `/screw:scan`.
 - Phase 5.5 web application integration pilot.
 - Phase 6 small-batch expansion beyond the current four agents.
 - Phase 7 screw.nvim editor integration.
@@ -155,6 +156,7 @@ Run a scan from Claude Code:
 /screw:scan agents:sqli,xss src/api/ --format markdown
 /screw:scan full . --no-confirm
 /screw:scan sqli src/api/ --adaptive
+/screw:scan sqli src/api/ --challenger claude_primary_codex_challenger --challenger-execution dry_run
 ```
 
 Useful plugin commands:
@@ -358,6 +360,8 @@ Upcoming:
   - `finalize_scan_results` can run and attach a configured challenger mode
     against finalized active findings when `challenger_mode` and
     `challenger_execution` are explicitly provided.
+  - `/screw:scan` exposes the same explicit attachment path through
+    `--challenger <mode> --challenger-execution dry_run|cli`.
   - Provider-neutral adapters so Gemini, local LLMs, or future assistants can
     be added without changing agent YAML.
   - Transport choice per provider: subscription-backed CLI/local execution or
@@ -399,7 +403,7 @@ uv run ruff check .
 The current full-suite baseline after Phase 4 signoff is:
 
 ```text
-1181 passed, 9 skipped
+1184 passed, 9 skipped
 ```
 
 ## Documentation Map
