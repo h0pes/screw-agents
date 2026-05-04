@@ -275,6 +275,11 @@ Use `scan_agents` instead.
 | `check_exclusions` | Read project exclusions | `project_root`, `agent?` |
 | `aggregate_learning` | Build learning reports from exclusions | `project_root`, `report_type?` |
 
+When `scan_metadata.challenger_results` is provided, JSON, Markdown, and SARIF
+outputs include the challenger run envelope and finding-level reconciliation
+summaries. Existing JSON array output is preserved when no challenger metadata
+is supplied. CSV remains finding-only.
+
 ### Challenger Execution
 
 | Tool | Purpose | Key inputs |

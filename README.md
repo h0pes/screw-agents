@@ -53,15 +53,20 @@ Implemented today:
 - Supported parser languages: Python, JavaScript, TypeScript, Go, Rust, Java,
   Ruby, PHP, C, C#, and C++.
 - Output formats: JSON, Markdown, CSV, and SARIF.
+- Challenger run metadata in JSON, Markdown, and SARIF outputs when supplied
+  through scan metadata.
 - Project-local learning through `.screw/learning/exclusions.yaml`.
 - Trust model for signed exclusions and adaptive scripts.
 - Adaptive script staging, review, promotion, sandboxed execution, and cleanup.
 - CWE-1400-native benchmark runner and controlled autoresearch workflow.
 - Phase 4 calibration and closure evidence for the current agent set.
+- Phase 5 multi-LLM challenger execution surfaces for dry-run and opt-in live
+  CLI transports.
 
 Not yet implemented:
 
-- Phase 5 multi-LLM challenger execution.
+- Automatic scan-to-challenger orchestration that attaches challenger results
+  during normal scan finalization.
 - Phase 5.5 web application integration pilot.
 - Phase 6 small-batch expansion beyond the current four agents.
 - Phase 7 screw.nvim editor integration.
@@ -236,7 +241,7 @@ Scan and learning artifacts are stored under the scanned project:
 
 | Path | Purpose |
 |---|---|
-| `.screw/findings/` | JSON, Markdown, CSV, and SARIF scan reports |
+| `.screw/findings/` | JSON, Markdown, CSV, and SARIF scan reports; JSON/Markdown/SARIF can include challenger run metadata when present |
 | `.screw/learning/exclusions.yaml` | Signed false-positive exclusions |
 | `.screw/config.yaml` | Project trust and adaptive-analysis configuration |
 | `.screw/custom-scripts/` | Approved adaptive analysis scripts |
@@ -346,6 +351,8 @@ Upcoming:
     adapters exist.
   - MCP tools `challenger_dry_run` and `challenger_run` expose the same
     execution primitives for clients, CI, and the Phase 5.5 web app path.
+  - JSON, Markdown, and SARIF reports preserve supplied challenger run results
+    and finding-level reconciliation summaries; CSV remains finding-only.
   - Provider-neutral adapters so Gemini, local LLMs, or future assistants can
     be added without changing agent YAML.
   - Transport choice per provider: subscription-backed CLI/local execution or
@@ -387,7 +394,7 @@ uv run ruff check .
 The current full-suite baseline after Phase 4 signoff is:
 
 ```text
-1173 passed, 9 skipped
+1177 passed, 9 skipped
 ```
 
 ## Documentation Map

@@ -1131,7 +1131,14 @@ Respond with a structured assessment including your confidence level
 
 #### Output: Enriched Finding Report
 
-When the challenger is active, the markdown report and structured findings include both perspectives:
+When challenger run metadata is supplied to report rendering, the markdown
+report and structured outputs include both perspectives without changing the
+base finding schema. JSON keeps the legacy bare finding array when no
+challenger data exists, and emits a `{findings, challenger_results}` envelope
+only for challenger-enriched output. SARIF stores run-level challenger metadata
+and finding-level reconciliation in `properties`; CSV remains finding-only.
+
+Example conceptual payload:
 
 ```json
 {
@@ -1271,7 +1278,8 @@ This creates a **three-way feedback loop**: benchmark metrics + challenger disag
   - Codex primary, Claude challenger, using the same YAML agent knowledge
   - Claude and Codex parallel independent review with reconciliation
 - **Finding reconciliation logic (agreed/disputed/unique classification)**
-- **Enriched output: dual-perspective findings in markdown reports and JSON**
+- **Enriched output: dual-perspective challenger metadata in Markdown, JSON,
+  and SARIF reports while preserving the base finding schema**
 - **Cost/privacy controls: opt-in configuration, disclaimers, severity-gated triggers, explicit API-billing permission, and source-sharing acknowledgement**
 - **Connect challenger disagreement signals to autoresearch loop (§11.3)**
 - **Prepare extensibility for additional providers (Gemini, etc.) — config-only addition**

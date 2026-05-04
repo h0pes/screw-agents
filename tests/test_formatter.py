@@ -33,6 +33,40 @@ def _make_finding(**overrides) -> Finding:
     return Finding(**defaults)
 
 
+def _challenger_result(*, status: str) -> dict:
+    return {
+        "run_id": "run-001",
+        "mode": "cli_mode",
+        "assessments": [
+            {
+                "provider": "codex",
+                "transport": "cli",
+                "role": "challenger",
+                "finding_id": "sqli-001",
+                "exploitability": "agree",
+                "severity": "agree",
+                "remediation": "agree",
+                "confidence": "high",
+                "reasoning": "Reviewed independently.",
+                "additional_findings": [],
+            }
+        ],
+        "reconciliations": [
+            {
+                "finding_ids": ["sqli-001"],
+                "status": status,
+                "primary_provider": "claude",
+                "participant_providers": ["claude", "codex"],
+                "agreed_severity": "high" if status == "agreed" else None,
+                "confidence": "high",
+                "rationale": "Challenger reconciliation rationale.",
+            }
+        ],
+        "provider_metadata": {},
+        "guardrails": {"allowed": True},
+    }
+
+
 # === JSON Tests ===
 
 def test_format_json_single_finding():
@@ -84,6 +118,18 @@ def test_format_json_multiple_findings():
     assert len(parsed) == 2
 
 
+def test_format_json_with_challenger_results():
+    challenger_result = _challenger_result(status="agreed")
+    output = format_findings(
+        [_make_finding()],
+        format="json",
+        scan_metadata={"challenger_results": [challenger_result]},
+    )
+    parsed = json.loads(output)
+    assert parsed["findings"][0]["id"] == "sqli-001"
+    assert parsed["challenger_results"][0]["mode"] == "cli_mode"
+
+
 # === SARIF Tests ===
 
 def test_format_sarif_structure():
@@ -130,6 +176,22 @@ def test_format_sarif_empty():
     output = format_findings([], format="sarif")
     sarif = json.loads(output)
     assert sarif["runs"][0]["results"] == []
+
+
+def test_format_sarif_with_challenger_properties():
+    challenger_result = _challenger_result(status="disputed")
+    output = format_findings(
+        [_make_finding()],
+        format="sarif",
+        scan_metadata={"challenger_results": [challenger_result]},
+    )
+    sarif = json.loads(output)
+    run = sarif["runs"][0]
+    assert run["properties"]["challengerResults"][0]["run_id"] == "run-001"
+    result = run["results"][0]
+    challenger = result["properties"]["challengerReconciliation"]
+    assert challenger["status"] == "disputed"
+    assert challenger["finding_ids"] == ["sqli-001"]
 
 
 # === Markdown Tests ===
@@ -198,6 +260,19 @@ def test_format_markdown_with_fix_code():
     )
     output = format_findings([finding], format="markdown")
     assert "cursor.execute" in output
+
+
+def test_format_markdown_with_challenger_review_section():
+    challenger_result = _challenger_result(status="disputed")
+    output = format_findings(
+        [_make_finding()],
+        format="markdown",
+        scan_metadata={"challenger_results": [challenger_result]},
+    )
+    assert "## Challenger review" in output
+    assert "`cli_mode` run `run-001`" in output
+    assert "disputed: 1" in output
+    assert "Attention: disputed for `sqli-001`" in output
 
 
 # === Task 11 — Trust verification section in Markdown ===
