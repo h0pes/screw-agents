@@ -800,7 +800,9 @@ concrete failure-input payloads can be generated from controlled run output.
    assistants such as Gemini or local LLMs, and each provider should support
    the user's available transport where possible: subscription-backed CLI/local
    execution for Pro-plan users without API credits, or API execution for users
-   who explicitly allow API billing.
+   who explicitly allow API billing. Keep documentation aligned in the same PR
+   as each Phase 5 code change; see `docs/PHASE_5_PLAN.md` for the required
+   documentation-alignment checklist.
 2. **Phase 5.5 — web application integration pilot.** Treat the AppSec
    orchestration/correlation web app as the first external product integration
    target immediately after Phase 5. Start with the current four accepted
