@@ -223,6 +223,21 @@ def build_parser() -> argparse.ArgumentParser:
         "--fixture-findings-json",
         help="Fixture finding array JSON for fixture execution",
     )
+    provider_scan_p.add_argument(
+        "--finalize",
+        action="store_true",
+        help="Accumulate returned findings and write normal .screw/findings reports",
+    )
+    provider_scan_p.add_argument(
+        "--format",
+        choices=["json", "markdown", "csv", "sarif"],
+        action="append",
+        dest="formats",
+        help=(
+            "Output format to write when --finalize is set. Repeat for multiple "
+            "formats. Defaults to json, markdown, and csv."
+        ),
+    )
 
     # --- init-trust ---
     init_p = subparsers.add_parser(
@@ -353,6 +368,8 @@ def main(argv: list[str] | None = None) -> int:
             thoroughness=args.thoroughness,
             timeout_seconds=args.timeout_seconds,
             fixture_findings_json=args.fixture_findings_json,
+            finalize=args.finalize,
+            formats=args.formats,
         )
 
     if args.command == "init-trust":

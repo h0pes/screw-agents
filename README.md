@@ -76,6 +76,8 @@ Implemented today:
   output, and API-key stripping for subscription-backed CLI use.
 - Public `provider-scan` package CLI and `run_provider_scan` MCP tool for
   fixture and opt-in CLI provider-neutral primary scan execution.
+- Optional provider-scan finalization path that accumulates returned findings
+  and writes normal `.screw/findings/` reports.
 - Fixture-mode manual validation for `provider-scan` and `run_provider_scan`
   using a temporary `/tmp` end-user project.
 
@@ -380,9 +382,10 @@ Upcoming:
   - `/screw:scan` exposes the same explicit attachment path through
     `--challenger <mode> --challenger-execution dry_run|cli`.
   - Provider-neutral scan input assembly, backend CLI primary scanner runner
-    plumbing, `provider-scan`, and MCP `run_provider_scan` are implemented;
-    manual round-trip validation is still pending before treating Codex/Claude
-    CLI primary scanning as accepted Phase 5 behavior.
+    plumbing, `provider-scan`, MCP `run_provider_scan`, and optional
+    provider-scan report finalization are implemented; manual live validation
+    is still pending before treating Codex/Claude CLI primary scanning as
+    accepted Phase 5 behavior.
   - Provider-neutral adapters so Gemini, local LLMs, or future assistants can
     be added without changing agent YAML.
   - Transport choice per provider: subscription-backed CLI/local execution or

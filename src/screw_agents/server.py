@@ -299,9 +299,9 @@ def _dispatch_tool(
         return result.model_dump(mode="json")
 
     if name == "run_provider_scan":
-        from screw_agents.primary_scan.execution import run_provider_scan
+        from screw_agents.primary_scan.execution import run_provider_scan_workflow
 
-        result = run_provider_scan(
+        return run_provider_scan_workflow(
             engine=engine,
             project_root=Path(args["project_root"]),
             provider=args["provider"],
@@ -314,8 +314,9 @@ def _dispatch_tool(
             thoroughness=args.get("thoroughness", "standard"),
             timeout_seconds=args.get("timeout_seconds", 120),
             fixture_findings=args.get("fixture_findings"),
+            finalize=args.get("finalize", False),
+            formats=args.get("formats"),
         )
-        return result.model_dump(mode="json")
 
     # --- Phase 3b T16: adaptive coverage-gap E2E ---
 
