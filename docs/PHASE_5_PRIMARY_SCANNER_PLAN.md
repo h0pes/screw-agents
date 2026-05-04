@@ -7,8 +7,8 @@
 > transports, and the `provider-scan` package CLI plus `run_provider_scan` MCP
 > tool expose fixture and opt-in CLI primary scan execution. Provider-scan can
 > optionally finalize returned findings into normal `.screw/findings/` reports.
-> Fixture-mode manual round-trip validation is recorded in
-> `docs/PHASE_5_MANUAL_VALIDATION.md`; live CLI validation is still pending.
+> Fixture-mode and one live Codex/Claude benchmark round-trip validation are
+> recorded in `docs/PHASE_5_MANUAL_VALIDATION.md`.
 > Phase 5 is not closure-ready until this gap is closed or explicitly
 > re-scoped.
 
@@ -59,8 +59,10 @@ context.
 | Optional provider-scan accumulation/finalization path | Implemented |
 | Fixture manual validation for provider-neutral primary scan surfaces | Passed |
 | Codex primary review participant over supplied findings | Implemented at challenger-orchestrator level |
-| Codex as first-pass scanner from YAML agent knowledge | Public CLI/MCP path implemented; live CLI validation pending |
+| Codex as first-pass scanner from YAML agent knowledge | Public CLI/MCP path implemented; one live vulnerable/patched benchmark round trip passed |
+| Claude as first-pass scanner from YAML agent knowledge through provider-scan | Public CLI/MCP path implemented; one live vulnerable/patched benchmark round trip passed with temporary output-normalization adapter |
 | Gemini/local as first-pass scanner from YAML agent knowledge | Pending adapter |
+| Provider-neutral primary selection in `/screw:scan` UX | Pending |
 | Parallel independent first-pass scans with reconciliation | Pending |
 | Manual round-trip validation of all Phase 5 modes | Pending |
 
@@ -189,8 +191,10 @@ provider produced or disputed each finding.
   and `ANTHROPIC_API_KEY` respectively for subscription-backed CLI use.
 - Command invocation is shell-free and provider output is parsed through the
   shared `parse_primary_scan_output` validator.
-- Live/manual CLI validation remains pending until the public surface exists
-  and Marco explicitly approves provider invocation.
+- Live/manual CLI validation passed for one MLflow MoreFixes vulnerable/patched
+  SSTI benchmark round trip with both Codex and Claude. Codex used strict
+  structured output from `codex exec`; Claude required a temporary adapter that
+  extracted `structured_output.findings` from the Claude CLI JSON envelope.
 
 ### P5-P4 - MCP/CLI Surface
 
@@ -217,8 +221,11 @@ provider produced or disputed each finding.
 - Status: in progress.
 - Fixture-mode provider-neutral primary scan validation is recorded in
   `docs/PHASE_5_MANUAL_VALIDATION.md`.
-- CLI dry-run validation with no API keys.
-- Opt-in live CLI validation only when Marco explicitly approves it.
+- Live Codex and Claude CLI primary scan validation is recorded for one real
+  vulnerable/patched benchmark case.
+- Remaining manual validation covers composed primary-plus-challenger flows,
+  parallel independent scans with reconciliation, and the final Claude Code
+  plugin UX for selecting a primary provider.
 - Record results in the Phase 5 closure readiness document.
 
 ## Phase 5 Closure Dependencies
@@ -226,11 +233,15 @@ provider produced or disputed each finding.
 Phase 5 closure must wait for:
 
 - Provider-neutral primary scan runner implemented.
-- Codex first-pass scan from YAML knowledge validated.
+- Codex and Claude first-pass scans from YAML knowledge validated beyond the
+  single benchmark round trip already recorded.
 - All three required modes validated:
   - Claude primary, Codex challenger.
   - Codex primary, Claude challenger.
   - parallel independent scans with reconciliation.
 - Manual round-trip checklist recorded.
+- Provider-specific CLI output adapters implemented without temporary wrappers.
+- `/screw:scan` or an adjacent plugin command exposes provider-neutral primary
+  scanner selection for Claude Code users.
 - API/local provider adapter deferrals explicitly documented.
 - Phase 5.5 handoff surfaces documented for web application integration.

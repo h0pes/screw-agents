@@ -80,11 +80,17 @@ Implemented today:
   and writes normal `.screw/findings/` reports.
 - Fixture-mode manual validation for `provider-scan` and `run_provider_scan`
   using a temporary `/tmp` end-user project.
+- Live Codex and Claude CLI provider-scan validation on a real MLflow MoreFixes
+  SSTI vulnerable/patched benchmark pair.
 
 Not yet implemented:
 
-- Live/manual round-trip validation for Codex and Claude CLI primary scan
-  execution.
+- Production-grade provider-specific CLI output adapters. The live Claude
+  validation used a temporary adapter to extract `structured_output.findings`
+  from the Claude CLI JSON envelope.
+- Claude plugin `/screw:scan` UX for choosing a provider-neutral primary
+  scanner. `/screw:scan` challenger attachment is implemented; provider
+  primary selection is still backend/package-CLI first.
 - API/local primary scanner transports for Gemini, local models, or future
   assistants.
 - API/local challenger transports in `/screw:scan`.
@@ -383,9 +389,10 @@ Upcoming:
     `--challenger <mode> --challenger-execution dry_run|cli`.
   - Provider-neutral scan input assembly, backend CLI primary scanner runner
     plumbing, `provider-scan`, MCP `run_provider_scan`, and optional
-    provider-scan report finalization are implemented; manual live validation
-    is still pending before treating Codex/Claude CLI primary scanning as
-    accepted Phase 5 behavior.
+    provider-scan report finalization are implemented; one live Codex/Claude
+    vulnerable/patched benchmark round trip is recorded, while composed-mode
+    validation and `/screw:scan` primary-provider UX remain pending before
+    Phase 5 closure.
   - Provider-neutral adapters so Gemini, local LLMs, or future assistants can
     be added without changing agent YAML.
   - Transport choice per provider: subscription-backed CLI/local execution or
@@ -424,10 +431,10 @@ assert-heavy pytest files and intentionally vulnerable benchmark fixtures, so
 uv run ruff check .
 ```
 
-The current full-suite baseline after Phase 4 signoff is:
+The current full-suite baseline after PR #119 is:
 
 ```text
-1184 passed, 9 skipped
+1214 passed, 9 skipped
 ```
 
 ## Documentation Map
