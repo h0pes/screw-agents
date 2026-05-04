@@ -329,6 +329,8 @@ Upcoming:
   - Claude primary, Codex challenger.
   - Codex primary, Claude challenger.
   - Claude and Codex parallel independent review with reconciliation.
+  - Fixture-backed required-mode orchestration is implemented; live provider
+    adapters are the next Phase 5 step.
   - Provider-neutral adapters so Gemini, local LLMs, or future assistants can
     be added without changing agent YAML.
   - Transport choice per provider: subscription-backed CLI/local execution or
@@ -362,7 +364,7 @@ uv run ruff check .
 The current full-suite baseline after Phase 4 signoff is:
 
 ```text
-1134 passed, 9 skipped
+1140 passed, 9 skipped
 ```
 
 ## Documentation Map

@@ -12,9 +12,15 @@ from screw_agents.challenger.models import (
     ChallengerRunResult,
     ChallengerTransportConfig,
 )
+from screw_agents.challenger.orchestrator import (
+    participant_label,
+    participant_runner_key,
+    run_challenger_mode,
+)
 from screw_agents.challenger.providers import (
     FixtureProviderRunner,
     ProviderGuardrailReport,
+    ProviderRunner,
     ProviderRunnerCapabilities,
     capabilities_from_transport,
     preflight_capabilities,
@@ -37,9 +43,13 @@ __all__ = [
     "ChallengerTransportConfig",
     "FixtureProviderRunner",
     "ProviderGuardrailReport",
+    "ProviderRunner",
     "ProviderRunnerCapabilities",
     "capabilities_from_transport",
     "finding_key",
+    "participant_label",
+    "participant_runner_key",
     "preflight_capabilities",
     "reconcile_findings",
+    "run_challenger_mode",
 ]
