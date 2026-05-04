@@ -9,8 +9,9 @@
 > user-facing dry-run execution surface is implemented; opt-in live CLI
 > execution through configured CLI transports is implemented; MCP tools now
 > expose both execution surfaces to clients. Provider-neutral primary scan
-> contracts and fixture validation are implemented; live primary scanning from
-> YAML agent knowledge is still pending; see
+> contracts, fixture validation, and scan input assembly from YAML agent
+> knowledge are implemented; live primary provider execution is still pending;
+> see
 > `docs/PHASE_5_PRIMARY_SCANNER_PLAN.md`.
 > Last updated: 2026-05-04.
 
@@ -23,9 +24,10 @@ Important status distinction: current Phase 5 challenger work can review and
 reconcile supplied findings, and Claude Code remains the implemented primary
 scanner UX through `/screw:scan`. Codex, Gemini, and local models do not yet
 have an equivalent live provider-neutral first-pass scan runner, although the
-backend input/result contract and fixture runner now exist in
-`src/screw_agents/primary_scan/`. Phase 5 is not closure-ready until live
-primary scanner paths exist and are manually validated.
+backend input/result contract, fixture runner, and scan input assembler now
+exist in `src/screw_agents/primary_scan/` and
+`ScanEngine.assemble_primary_scan_input`. Phase 5 is not closure-ready until
+live primary scanner paths exist and are manually validated.
 
 ## Goals
 
@@ -385,13 +387,18 @@ the no-challenger default.
 
 ### P5-P - Provider-Neutral Primary Scanning
 
-Status: required and pending. The detailed plan is
+Status: required and partially implemented. The detailed plan is
 `docs/PHASE_5_PRIMARY_SCANNER_PLAN.md`.
 
 This work adds a backend primary scan runner that can invoke a selected provider
 or assistant as the first-pass scanner using the same YAML agent knowledge,
 target resolution, finding schema, accumulation, and finalization pipeline used
 by Claude Code today.
+
+Implemented so far: provider-neutral primary scan contracts, fixture scanner,
+provider output validation, and `ScanEngine.assemble_primary_scan_input`, which
+packages selected YAML agent knowledge and resolved source chunks without live
+provider execution.
 
 Required outcomes:
 

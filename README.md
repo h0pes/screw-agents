@@ -68,11 +68,14 @@ Implemented today:
   `--challenger <mode> --challenger-execution dry_run|cli`.
 - Provider-neutral primary scan contracts and a fixture primary scanner for
   validating first-pass scanner output against the shared `Finding` schema.
+- Provider-neutral primary scan input assembly from selected YAML agent
+  knowledge, resolved source chunks, target metadata, and the shared `Finding`
+  output schema.
 
 Not yet implemented:
 
 - Live provider-neutral first-pass scan runners for Codex, Gemini, local
-  models, or future assistants using the same YAML agent knowledge.
+  models, or future assistants using the assembled YAML agent knowledge.
 - API/local challenger transports in `/screw:scan`.
 - Phase 5.5 web application integration pilot.
 - Phase 6 small-batch expansion beyond the current four agents.
@@ -366,9 +369,10 @@ Upcoming:
     `challenger_execution` are explicitly provided.
   - `/screw:scan` exposes the same explicit attachment path through
     `--challenger <mode> --challenger-execution dry_run|cli`.
-  - Provider-neutral first-pass scanning from YAML agent knowledge is still
-    pending; Codex/Gemini/local models cannot yet act as full primary scanners
-    through an equivalent backend runner.
+  - Provider-neutral scan input assembly from YAML agent knowledge is
+    implemented; live provider-neutral first-pass scanner execution is still
+    pending, so Codex/Gemini/local models cannot yet act as full primary
+    scanners through an equivalent backend runner.
   - Provider-neutral adapters so Gemini, local LLMs, or future assistants can
     be added without changing agent YAML.
   - Transport choice per provider: subscription-backed CLI/local execution or

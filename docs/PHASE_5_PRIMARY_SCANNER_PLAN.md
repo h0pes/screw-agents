@@ -1,10 +1,10 @@
 # Phase 5 Primary Scanner Plan
 
 > Status: required Phase 5 work. The challenger/orchestration layer exists,
-> and the provider-neutral primary scan contract plus fixture runner are
-> implemented. Live provider-neutral first-pass scanning is still pending.
-> Phase 5 is not closure-ready until this gap is closed or explicitly
-> re-scoped.
+> and the provider-neutral primary scan contract, fixture runner, and scan
+> input assembly from YAML agent knowledge are implemented. Live
+> provider-neutral first-pass scanning is still pending. Phase 5 is not
+> closure-ready until this gap is closed or explicitly re-scoped.
 
 ## Why This Exists
 
@@ -23,7 +23,9 @@ target resolver, YAML agent knowledge, accumulation, and report finalization.
 Codex, Gemini, and local models do not yet have an equivalent live first-pass
 scan runner that consumes the same YAML agent knowledge and emits `Finding`
 JSON. The backend contract for such runners now exists in
-`src/screw_agents/primary_scan/`.
+`src/screw_agents/primary_scan/`, and `ScanEngine.assemble_primary_scan_input`
+packages selected YAML agent prompts, resolved source chunks, target metadata,
+and the shared `Finding` output schema without invoking a provider.
 
 The current Phase 5 challenger package supports provider-neutral participant
 roles and reconciliation, but those "primary" roles operate inside the
@@ -41,6 +43,7 @@ context.
 | Fixture/CLI challenger mode orchestration and reconciliation | Implemented |
 | Provider-neutral primary scan input/result contract | Implemented |
 | Fixture primary scan runner and output validation | Implemented |
+| Provider-neutral scan input assembly from YAML agent knowledge | Implemented |
 | Codex primary review participant over supplied findings | Implemented at challenger-orchestrator level |
 | Codex as first-pass scanner from YAML agent knowledge | Pending |
 | Gemini/local as first-pass scanner from YAML agent knowledge | Pending adapter |
@@ -157,11 +160,12 @@ provider produced or disputed each finding.
 
 ### P5-P2 - Scan Assembly For Providers
 
-- Status: pending.
-- Build scan input from the existing registry, resolver, and scan assembly
-  primitives.
-- Ensure Codex/Gemini/local paths receive the same curated YAML knowledge
-  Claude Code receives today.
+- Status: implemented.
+- Added `ScanEngine.assemble_primary_scan_input`.
+- Builds scan input from the existing registry, target resolver, relevance
+  filter, YAML prompt builder, and `Finding` output schema.
+- Ensures Codex/Gemini/local-style provider inputs receive the same curated
+  YAML knowledge used by Claude Code, without executing any provider.
 
 ### P5-P3 - CLI Runner Integration
 
