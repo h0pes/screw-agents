@@ -15,8 +15,8 @@
 > `run_provider_scan` expose fixture and opt-in CLI primary scan execution;
 > optional provider-scan report finalization is implemented; fixture-mode
 > manual validation is recorded; one live Codex/Claude benchmark round trip is
-> recorded; composed-mode validation and plugin primary-provider UX remain
-> pending; see
+> recorded; composed-mode validation and universal assistant command
+> primary-provider UX remain pending; see
 > `docs/PHASE_5_PRIMARY_SCANNER_PLAN.md`.
 > Last updated: 2026-05-04.
 
@@ -384,9 +384,11 @@ when `challenger_mode` and `challenger_execution` are explicitly supplied.
 Execution stays disabled by default. The challenger receives finalized active
 findings after merge and exclusion filtering, then the returned
 `ChallengerRunResult` is rendered into JSON, Markdown, and SARIF outputs.
-The Claude plugin `/screw:scan` command exposes this path through explicit
+The current Claude Code implementation of the universal `/screw:scan` command
+exposes this path through explicit
 `--challenger <mode> --challenger-execution dry_run|cli` flags while preserving
-the no-challenger default.
+the no-challenger default. Future Codex, Gemini, local assistant, and other
+plugin-host integrations should preserve the same command semantics.
 
 - Add API/local execution only after the CLI/MCP execution surfaces, output
   shape, and consent guardrails are stable.
@@ -413,7 +415,8 @@ execution, with optional accumulation/finalization into normal
 `.screw/findings/` reports. One Codex/Claude live benchmark round trip has
 passed for the MLflow MoreFixes SSTI vulnerable/patched pair. Parallel
 reconciliation, composed primary-plus-challenger validation, production
-provider adapters, and `/screw:scan` primary-provider UX are still pending.
+provider adapters, and universal `/screw:scan` primary-provider UX are still
+pending.
 
 Required outcomes:
 

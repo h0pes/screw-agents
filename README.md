@@ -64,7 +64,7 @@ Implemented today:
   CLI transports.
 - Explicit challenger attachment during `finalize_scan_results` for configured
   dry-run or opt-in CLI modes.
-- Claude plugin `/screw:scan` flags for explicit challenger review:
+- Assistant-facing `/screw:scan` flags for explicit challenger review:
   `--challenger <mode> --challenger-execution dry_run|cli`.
 - Provider-neutral primary scan contracts and a fixture primary scanner for
   validating first-pass scanner output against the shared `Finding` schema.
@@ -88,9 +88,10 @@ Not yet implemented:
 - Production-grade provider-specific CLI output adapters. The live Claude
   validation used a temporary adapter to extract `structured_output.findings`
   from the Claude CLI JSON envelope.
-- Claude plugin `/screw:scan` UX for choosing a provider-neutral primary
-  scanner. `/screw:scan` challenger attachment is implemented; provider
-  primary selection is still backend/package-CLI first.
+- Universal `/screw:scan` UX for choosing a provider-neutral primary scanner.
+  `/screw:scan` challenger attachment is implemented in the current Claude Code
+  plugin; provider primary selection is still backend/package-CLI first and
+  must be exposed consistently by future assistant integrations.
 - API/local primary scanner transports for Gemini, local models, or future
   assistants.
 - API/local challenger transports in `/screw:scan`.
@@ -391,8 +392,8 @@ Upcoming:
     plumbing, `provider-scan`, MCP `run_provider_scan`, and optional
     provider-scan report finalization are implemented; one live Codex/Claude
     vulnerable/patched benchmark round trip is recorded, while composed-mode
-    validation and `/screw:scan` primary-provider UX remain pending before
-    Phase 5 closure.
+    validation and universal `/screw:scan` primary-provider UX remain pending
+    before Phase 5 closure.
   - Provider-neutral adapters so Gemini, local LLMs, or future assistants can
     be added without changing agent YAML.
   - Transport choice per provider: subscription-backed CLI/local execution or
@@ -444,7 +445,7 @@ The current full-suite baseline after PR #119 is:
 | [PRD.md](docs/PRD.md) | Product requirements, architecture rationale, phase plan |
 | [PROJECT_STATUS.md](docs/PROJECT_STATUS.md) | Current project status and roadmap |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | System architecture and component overview |
-| [COMMAND_REFERENCE.md](docs/COMMAND_REFERENCE.md) | CLI, Claude plugin, MCP, and benchmark command reference |
+| [COMMAND_REFERENCE.md](docs/COMMAND_REFERENCE.md) | CLI, assistant/plugin commands, MCP, and benchmark command reference |
 | [PHASE_5_PLAN.md](docs/PHASE_5_PLAN.md) | Multi-LLM challenger plan, provider/transport architecture, required modes |
 | [PHASE_5_PRIMARY_SCANNER_PLAN.md](docs/PHASE_5_PRIMARY_SCANNER_PLAN.md) | Required Phase 5 plan for provider-neutral primary scanning beyond Claude Code |
 | [PHASE_5_MANUAL_VALIDATION.md](docs/PHASE_5_MANUAL_VALIDATION.md) | Manual round-trip validation evidence for Phase 5 provider surfaces |

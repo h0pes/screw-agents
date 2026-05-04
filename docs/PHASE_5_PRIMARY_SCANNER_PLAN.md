@@ -47,7 +47,7 @@ context.
 
 | Capability | Status |
 |---|---|
-| Claude Code primary scanning through `/screw:scan` | Implemented |
+| Claude Code implementation of `/screw:scan` primary scanning | Implemented |
 | Attach configured challenger review during `finalize_scan_results` | Implemented |
 | `/screw:scan --challenger ... --challenger-execution dry_run\|cli` | Implemented |
 | Fixture/CLI challenger mode orchestration and reconciliation | Implemented |
@@ -62,7 +62,7 @@ context.
 | Codex as first-pass scanner from YAML agent knowledge | Public CLI/MCP path implemented; one live vulnerable/patched benchmark round trip passed |
 | Claude as first-pass scanner from YAML agent knowledge through provider-scan | Public CLI/MCP path implemented; one live vulnerable/patched benchmark round trip passed with temporary output-normalization adapter |
 | Gemini/local as first-pass scanner from YAML agent knowledge | Pending adapter |
-| Provider-neutral primary selection in `/screw:scan` UX | Pending |
+| Provider-neutral primary selection in universal `/screw:scan` UX | Pending |
 | Parallel independent first-pass scans with reconciliation | Pending |
 | Manual round-trip validation of all Phase 5 modes | Pending |
 
@@ -205,8 +205,10 @@ provider produced or disputed each finding.
   transports. API/local transports are still rejected until adapters exist.
 - Public surface can optionally accumulate returned findings and finalize
   normal `.screw/findings/` reports.
-- Keep `/screw:scan` as the Claude Code frontend, but make the backend surface
-  usable by other assistants and future web-app workers.
+- Keep `/screw:scan` as the universal assistant-facing scan command, not a
+  Claude-only frontend. The current Claude Code plugin is one implementation;
+  future Codex, Gemini, local assistant, and web-app worker integrations should
+  use the same MCP/backend semantics.
 
 ### P5-P5 - Parallel Scan Reconciliation
 
@@ -225,7 +227,7 @@ provider produced or disputed each finding.
   vulnerable/patched benchmark case.
 - Remaining manual validation covers composed primary-plus-challenger flows,
   parallel independent scans with reconciliation, and the final Claude Code
-  plugin UX for selecting a primary provider.
+  assistant command UX for selecting a primary provider.
 - Record results in the Phase 5 closure readiness document.
 
 ## Phase 5 Closure Dependencies
@@ -241,7 +243,7 @@ Phase 5 closure must wait for:
   - parallel independent scans with reconciliation.
 - Manual round-trip checklist recorded.
 - Provider-specific CLI output adapters implemented without temporary wrappers.
-- `/screw:scan` or an adjacent plugin command exposes provider-neutral primary
-  scanner selection for Claude Code users.
+- `/screw:scan` or an adjacent assistant command exposes provider-neutral
+  primary scanner selection across supported assistant hosts.
 - API/local provider adapter deferrals explicitly documented.
 - Phase 5.5 handoff surfaces documented for web application integration.

@@ -216,7 +216,13 @@ Options:
 | `SCRIPT_NAME` | yes | n/a | Script name without `.py` suffix |
 | `--project-root` | no | `.` | Project root |
 
-## Claude Code Plugin Commands
+## Assistant Plugin Commands
+
+These slash-command names are the assistant-facing command contract. The
+currently shipped plugin implementation lives under `plugins/screw/` and is
+loaded by Claude Code today, but the command grammar is intended to stay
+portable across Codex, Gemini, local assistants, or future plugin hosts that
+can call the same MCP/backend tools.
 
 Load the plugin locally:
 
@@ -374,9 +380,10 @@ produce the required structured findings, but production use needs a provider
 adapter that extracts `structured_output.findings` from Claude's JSON envelope.
 
 `provider-scan` is the backend/package CLI surface for provider-neutral primary
-scanning. The Claude plugin `/screw:scan` remains the user-facing scan command
-and already exposes challenger attachment with `--challenger`; provider-neutral
-primary selection has not yet been added to the `/screw:scan` UX.
+scanning. `/screw:scan` is the universal assistant-facing scan command and
+already exposes challenger attachment with `--challenger` in the current Claude
+Code plugin. Provider-neutral primary selection has not yet been added to the
+portable `/screw:scan` UX.
 
 ### Trust And Adaptive Analysis
 
@@ -571,7 +578,7 @@ uv run ruff check .
 Repo-wide lint also traverses tests and benchmark material, including
 assert-heavy pytest files and intentionally vulnerable benchmark fixtures.
 
-Claude plugin development:
+Current Claude Code plugin development:
 
 ```bash
 claude --plugin-dir ./plugins/screw
