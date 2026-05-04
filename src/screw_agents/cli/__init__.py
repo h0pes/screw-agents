@@ -3,6 +3,8 @@
 Unified dispatcher for user-facing CLI commands. Subcommands:
 
 - ``screw-agents serve`` — run the MCP server (stdio or HTTP transport)
+- ``screw-agents challenger-dry-run`` — run a fixture-only challenger mode and
+  print JSON
 - ``screw-agents init-trust`` — register the local SSH key as a trusted reviewer
 - ``screw-agents migrate-exclusions`` — bulk-sign legacy unsigned exclusions
 - ``screw-agents validate-exclusion <id>`` — sign a single quarantined exclusion
@@ -20,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
 import sys
 from collections.abc import Callable
@@ -69,6 +72,44 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         default="INFO",
         help="Logging level (default: INFO)",
+    )
+
+    # --- challenger-dry-run ---
+    dry_run_p = subparsers.add_parser(
+        "challenger-dry-run",
+        help="Run a fixture-only Phase 5 challenger mode and print JSON",
+    )
+    dry_run_p.add_argument("mode", help="Configured challenger mode name")
+    dry_run_p.add_argument(
+        "--project-root",
+        type=Path,
+        default=Path("."),
+        help="Project root directory (default: current working directory)",
+    )
+    dry_run_p.add_argument(
+        "--finding-json",
+        required=True,
+        help="Finding object JSON used as dry-run input",
+    )
+    dry_run_p.add_argument(
+        "--prompt",
+        default="Phase 5 challenger dry-run.",
+        help="Prompt text passed to fixture runners",
+    )
+    dry_run_p.add_argument(
+        "--target-path",
+        default=".",
+        help="Target path recorded in dry-run metadata (default: .)",
+    )
+    dry_run_p.add_argument(
+        "--run-id",
+        default="dry-run-001",
+        help="Run identifier recorded in output",
+    )
+    dry_run_p.add_argument(
+        "--session-id",
+        default="dry-run-session",
+        help="Session identifier recorded in output",
     )
 
     # --- init-trust ---
@@ -151,6 +192,21 @@ def main(argv: list[str] | None = None) -> int:
         return _run_serve(args)
 
     project_root = args.project_root.resolve()
+
+    if args.command == "challenger-dry-run":
+        from screw_agents.cli.challenger_dry_run import run_challenger_dry_run_cli
+
+        return _run_json_command(
+            "challenger-dry-run",
+            run_challenger_dry_run_cli,
+            project_root=project_root,
+            mode_name=args.mode,
+            finding_json=args.finding_json,
+            prompt=args.prompt,
+            run_id=args.run_id,
+            session_id=args.session_id,
+            target_path=args.target_path,
+        )
 
     if args.command == "init-trust":
         from screw_agents.cli.init_trust import run_init_trust
@@ -270,6 +326,22 @@ def _run_trust_command(
         return 1
     print(result["message"])
     return 1 if result["status"] in failure_statuses else 0
+
+
+def _run_json_command(
+    command_label: str,
+    runner: Callable[..., dict[str, Any]],
+    **kwargs: Any,
+) -> int:
+    """Run a JSON-producing CLI command with friendly error surfacing."""
+    try:
+        result = runner(**kwargs)
+    except (ValueError, RuntimeError) as exc:
+        print(f"screw-agents {command_label}: {exc}", file=sys.stderr)
+        return 1
+
+    print(json.dumps(result, sort_keys=True))
+    return 0
 
 
 if __name__ == "__main__":

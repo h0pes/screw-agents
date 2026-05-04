@@ -5,7 +5,8 @@
 > and fixture runner are implemented; P5-4 required-mode orchestration is
 > implemented with fixture-backed runners; subscription-backed CLI runner
 > plumbing plus Claude/Codex CLI API-key isolation are implemented; runner
-> factory wiring from config is implemented.
+> factory wiring from config is implemented; the first fixture-only
+> user-facing dry-run execution surface is implemented.
 > Last updated: 2026-05-04.
 
 Phase 5 adds multi-LLM secure-code-review execution without making Claude,
@@ -321,11 +322,18 @@ Status: implemented.
 
 ### P5-5 - Output And MCP Surface
 
+Status: in progress. The first user-facing execution surface is the
+fixture-only `screw-agents challenger-dry-run` CLI command, which runs a
+configured mode through the runner factory and refuses live CLI, API, or local
+transports. This validates mode wiring and JSON output shape without provider
+invocation or API spend.
+
 - Enrich JSON and Markdown output with provider perspectives and consensus
   state without breaking existing finding consumers.
 - Preserve SARIF compatibility by keeping provider-specific challenger details
   in properties when exported.
-- Add MCP tools only after model and reconciliation contracts settle.
+- Add live CLI/API execution and MCP tools only after the dry-run surface,
+  output shape, and consent guardrails are stable.
 - Update `README.md`, `docs/COMMAND_REFERENCE.md`, and architecture/status docs
   in the same PR when new MCP tools, CLI options, plugin commands, or output
   fields become user-facing.

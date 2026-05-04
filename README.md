@@ -172,6 +172,7 @@ Main CLI commands:
 | Command | Purpose |
 |---|---|
 | `screw-agents serve` | Run the MCP server with stdio or HTTP transport |
+| `screw-agents challenger-dry-run` | Run a configured fixture-only Phase 5 challenger mode and print JSON |
 | `screw-agents init-trust` | Register a local reviewer key for project trust |
 | `screw-agents migrate-exclusions` | Sign legacy false-positive exclusions |
 | `screw-agents validate-exclusion` | Re-sign a quarantined exclusion after review |
@@ -333,8 +334,9 @@ Upcoming:
   - Subscription-backed CLI runner plumbing is implemented, including Claude
     and Codex CLI environment isolation that unsets API-key variables for
     non-API use.
-  - Config-driven runner factory wiring is implemented; user-facing execution
-    commands are the next Phase 5 step.
+  - Config-driven runner factory wiring is implemented.
+  - A fixture-only `challenger-dry-run` CLI execution surface is implemented
+    for validating configured modes without live provider calls.
   - Provider-neutral adapters so Gemini, local LLMs, or future assistants can
     be added without changing agent YAML.
   - Transport choice per provider: subscription-backed CLI/local execution or
@@ -368,7 +370,7 @@ uv run ruff check .
 The current full-suite baseline after Phase 4 signoff is:
 
 ```text
-1153 passed, 9 skipped
+1160 passed, 9 skipped
 ```
 
 ## Documentation Map

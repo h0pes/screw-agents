@@ -38,6 +38,36 @@ uv run screw-agents serve --transport stdio
 uv run screw-agents serve --transport http --port 8080
 ```
 
+### `screw-agents challenger-dry-run`
+
+Run one configured Phase 5 challenger mode with fixture transports only and
+print the structured result JSON. This command is intentionally non-live: it
+refuses CLI, API, or local transports so users can validate mode wiring and
+output shape without invoking external assistants or spending API credits.
+
+```bash
+uv run screw-agents challenger-dry-run MODE --finding-json FINDING_JSON [--project-root PATH] [--prompt TEXT] [--target-path PATH] [--run-id ID] [--session-id ID]
+```
+
+Options:
+
+| Argument/Option | Required | Default | Description |
+|---|---|---:|---|
+| `MODE` | yes | n/a | Configured challenger mode name |
+| `--finding-json` | yes | n/a | Finding object JSON used as dry-run input |
+| `--project-root` | no | `.` | Project root containing `.screw/config.yaml` |
+| `--prompt` | no | `Phase 5 challenger dry-run.` | Prompt text passed to fixture runners |
+| `--target-path` | no | `.` | Target path recorded in dry-run metadata |
+| `--run-id` | no | `dry-run-001` | Run identifier recorded in output |
+| `--session-id` | no | `dry-run-session` | Session identifier recorded in output |
+
+Example:
+
+```bash
+uv run screw-agents challenger-dry-run claude_primary_codex_challenger \
+  --finding-json '{"id":"sqli-001","agent":"sqli","location":{"file":"src/app.py","line_start":42},"classification":{"cwe":"CWE-89","severity":"high"}}'
+```
+
 ### `screw-agents init-trust`
 
 Register the local SSH key as a trusted reviewer for a project.
