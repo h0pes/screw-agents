@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from screw_agents.engine import ScanEngine
-from screw_agents.primary_scan.execution import run_provider_scan
+from screw_agents.primary_scan.execution import run_provider_scan_workflow
 
 
 def run_provider_scan_cli(
@@ -23,6 +23,8 @@ def run_provider_scan_cli(
     thoroughness: str = "standard",
     timeout_seconds: int = 120,
     fixture_findings_json: str | None = None,
+    finalize: bool = False,
+    formats: list[str] | None = None,
 ) -> dict[str, Any]:
     """Run a provider-neutral primary scan and return a JSON-ready dict."""
     target = _json_object(target_json, "target-json")
@@ -35,7 +37,7 @@ def run_provider_scan_cli(
     if not agents:
         raise ValueError("agents must include at least one agent name")
 
-    result = run_provider_scan(
+    return run_provider_scan_workflow(
         engine=ScanEngine.from_defaults(),
         project_root=project_root,
         provider=provider,
@@ -48,8 +50,9 @@ def run_provider_scan_cli(
         thoroughness=thoroughness,
         timeout_seconds=timeout_seconds,
         fixture_findings=fixture_findings,
+        finalize=finalize,
+        formats=formats,
     )
-    return result.model_dump(mode="json")
 
 
 def _json_object(raw: str, label: str) -> dict[str, Any]:

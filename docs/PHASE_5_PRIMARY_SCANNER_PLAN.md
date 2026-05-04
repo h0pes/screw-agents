@@ -5,8 +5,9 @@
 > input assembly from YAML agent knowledge are implemented. Primary scanner
 > CLI runner plumbing is implemented for configured Claude/Codex/generic CLI
 > transports, and the `provider-scan` package CLI plus `run_provider_scan` MCP
-> tool expose fixture and opt-in CLI primary scan execution. Fixture-mode
-> manual round-trip validation is recorded in
+> tool expose fixture and opt-in CLI primary scan execution. Provider-scan can
+> optionally finalize returned findings into normal `.screw/findings/` reports.
+> Fixture-mode manual round-trip validation is recorded in
 > `docs/PHASE_5_MANUAL_VALIDATION.md`; live CLI validation is still pending.
 > Phase 5 is not closure-ready until this gap is closed or explicitly
 > re-scoped.
@@ -55,6 +56,7 @@ context.
 | Provider-neutral scan input assembly from YAML agent knowledge | Implemented |
 | Generic/Claude/Codex CLI primary scan runner plumbing | Implemented |
 | `provider-scan` package CLI and `run_provider_scan` MCP tool | Implemented |
+| Optional provider-scan accumulation/finalization path | Implemented |
 | Fixture manual validation for provider-neutral primary scan surfaces | Passed |
 | Codex primary review participant over supplied findings | Implemented at challenger-orchestrator level |
 | Codex as first-pass scanner from YAML agent knowledge | Public CLI/MCP path implemented; live CLI validation pending |
@@ -197,6 +199,8 @@ provider produced or disputed each finding.
 - Added MCP tool `run_provider_scan`.
 - Public surface supports fixture execution and opt-in configured CLI
   transports. API/local transports are still rejected until adapters exist.
+- Public surface can optionally accumulate returned findings and finalize
+  normal `.screw/findings/` reports.
 - Keep `/screw:scan` as the Claude Code frontend, but make the backend surface
   usable by other assistants and future web-app workers.
 

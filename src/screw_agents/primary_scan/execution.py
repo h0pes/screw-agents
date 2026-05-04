@@ -83,6 +83,74 @@ def run_provider_scan(
     return runner.run(scan_input)
 
 
+def run_provider_scan_workflow(
+    *,
+    engine: ScanEngine,
+    project_root: Path,
+    provider: str,
+    transport: str,
+    execution: str,
+    run_id: str,
+    session_id: str,
+    agents: list[str],
+    target: dict[str, Any],
+    thoroughness: str = "standard",
+    timeout_seconds: int = 120,
+    fixture_findings: list[dict[str, Any]] | None = None,
+    command_runner: CliPrimaryScanCommandRunner | None = None,
+    env: Mapping[str, str] | None = None,
+    finalize: bool = False,
+    formats: list[str] | None = None,
+) -> dict[str, Any]:
+    """Run provider scan and optionally finalize findings into reports."""
+    scan_result = run_provider_scan(
+        engine=engine,
+        project_root=project_root,
+        provider=provider,
+        transport=transport,
+        execution=execution,
+        run_id=run_id,
+        session_id=session_id,
+        agents=agents,
+        target=target,
+        thoroughness=thoroughness,
+        timeout_seconds=timeout_seconds,
+        fixture_findings=fixture_findings,
+        command_runner=command_runner,
+        env=env,
+    )
+    result = scan_result.model_dump(mode="json")
+    if not finalize:
+        return result
+
+    findings = [finding.model_dump(mode="json") for finding in scan_result.findings]
+    accumulate_result = engine.accumulate_findings(
+        project_root=project_root,
+        findings_chunk=findings,
+        session_id=session_id,
+    )
+    finalize_result = engine.finalize_scan_results(
+        project_root=project_root,
+        session_id=accumulate_result["session_id"],
+        agent_names=agents,
+        scan_metadata={
+            "target": target,
+            "provider_scan": {
+                "provider": provider,
+                "transport": transport,
+                "execution": execution,
+                "run_id": run_id,
+            },
+        },
+        formats=formats,
+    )
+    return {
+        "primary_scan_result": result,
+        "accumulate_result": accumulate_result,
+        "finalize_result": finalize_result,
+    }
+
+
 def _enabled_transport(
     config: ChallengerConfig,
     provider: str,

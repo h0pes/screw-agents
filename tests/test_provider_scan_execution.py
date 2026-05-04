@@ -10,6 +10,7 @@ from screw_agents.challenger.models import ChallengerTransportConfig
 from screw_agents.cli import main
 from screw_agents.engine import ScanEngine
 from screw_agents.primary_scan.execution import run_provider_scan
+from screw_agents.primary_scan.execution import run_provider_scan_workflow
 from screw_agents.primary_scan.providers import (
     CliPrimaryScanCommandResult,
     CliPrimaryScanInvocation,
@@ -246,3 +247,99 @@ def test_provider_scan_cli_fixture_outputs_json(
     payload = json.loads(captured.out)
     assert exit_code == 0
     assert payload["findings"][0]["id"] == "sqli-001"
+
+
+def test_run_provider_scan_workflow_finalize_writes_reports(tmp_path: Path) -> None:
+    _write_config(tmp_path, transport_kind="fixture")
+
+    result = run_provider_scan_workflow(
+        engine=_engine(),
+        project_root=tmp_path,
+        provider="codex",
+        transport="fixture",
+        execution="fixture",
+        run_id="run-1",
+        session_id="session-1",
+        agents=["sqli"],
+        target=_target(tmp_path),
+        fixture_findings=[_finding_dict()],
+        finalize=True,
+        formats=["json", "markdown"],
+    )
+
+    assert result["primary_scan_result"]["findings"][0]["id"] == "sqli-001"
+    assert result["accumulate_result"]["session_id"] == "session-1"
+    assert result["finalize_result"]["summary"]["total"] == 1
+    assert "json" in result["finalize_result"]["files_written"]
+    assert "markdown" in result["finalize_result"]["files_written"]
+    assert Path(result["finalize_result"]["files_written"]["json"]).exists()
+
+
+def test_run_provider_scan_mcp_tool_finalize_fixture(tmp_path: Path) -> None:
+    _write_config(tmp_path, transport_kind="fixture")
+
+    result = _dispatch_tool(
+        _engine(),
+        "run_provider_scan",
+        {
+            "project_root": str(tmp_path),
+            "provider": "codex",
+            "transport": "fixture",
+            "execution": "fixture",
+            "run_id": "run-1",
+            "session_id": "session-1",
+            "agents": ["sqli"],
+            "target": _target(tmp_path),
+            "fixture_findings": [_finding_dict()],
+            "finalize": True,
+            "formats": ["json"],
+        },
+    )
+
+    assert result["accumulate_result"]["session_id"] == "session-1"
+    assert result["finalize_result"]["summary"]["total"] == 1
+    assert Path(result["finalize_result"]["files_written"]["json"]).exists()
+
+
+def test_provider_scan_cli_finalize_outputs_report_paths(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _write_config(tmp_path, transport_kind="fixture")
+    target = _target(tmp_path)
+
+    exit_code = main(
+        [
+            "provider-scan",
+            "--project-root",
+            str(tmp_path),
+            "--provider",
+            "codex",
+            "--transport",
+            "fixture",
+            "--execution",
+            "fixture",
+            "--agents",
+            "sqli",
+            "--target-json",
+            json.dumps(target),
+            "--fixture-findings-json",
+            json.dumps([_finding_dict()]),
+            "--run-id",
+            "run-1",
+            "--session-id",
+            "session-1",
+            "--finalize",
+            "--format",
+            "json",
+            "--format",
+            "markdown",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert exit_code == 0
+    assert payload["primary_scan_result"]["findings"][0]["id"] == "sqli-001"
+    assert payload["finalize_result"]["summary"]["total"] == 1
+    assert Path(payload["finalize_result"]["files_written"]["json"]).exists()

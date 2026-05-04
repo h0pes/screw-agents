@@ -2923,8 +2923,10 @@ class ScanEngine:
                 "Run a provider-neutral first-pass scan through fixture or "
                 "opt-in CLI execution and return a validated PrimaryScanResult. "
                 "The tool assembles YAML agent knowledge and resolved source "
-                "context before invoking the selected provider transport. API "
-                "and local transports are rejected until adapters exist."
+                "context before invoking the selected provider transport. When "
+                "finalize=true, returned findings are accumulated and normal "
+                ".screw/findings reports are written. API and local transports "
+                "are rejected until adapters exist."
             ),
             "input_schema": _provider_scan_schema(),
         })
@@ -3951,6 +3953,25 @@ def _provider_scan_schema() -> dict[str, Any]:
                 "type": ["array", "null"],
                 "items": {"type": "object"},
                 "description": "Optional fixture findings returned during fixture execution.",
+            },
+            "finalize": {
+                "type": "boolean",
+                "default": False,
+                "description": (
+                    "When true, accumulate returned findings and write normal "
+                    ".screw/findings reports through finalize_scan_results."
+                ),
+            },
+            "formats": {
+                "type": ["array", "null"],
+                "items": {
+                    "type": "string",
+                    "enum": ["json", "markdown", "sarif", "csv"],
+                },
+                "description": (
+                    "Output formats to write when finalize=true. Defaults to "
+                    "json, markdown, and csv."
+                ),
             },
         },
         "required": [

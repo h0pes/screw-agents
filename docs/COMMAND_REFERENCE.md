@@ -119,7 +119,7 @@ CLI runners remove `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`, respectively, for
 subscription-backed CLI use.
 
 ```bash
-uv run screw-agents provider-scan --provider PROVIDER --transport TRANSPORT --execution fixture|cli --agents AGENTS_CSV --target-json TARGET_JSON [--project-root PATH] [--run-id ID] [--session-id ID] [--thoroughness quick|standard|deep] [--timeout-seconds N] [--fixture-findings-json FINDINGS_JSON]
+uv run screw-agents provider-scan --provider PROVIDER --transport TRANSPORT --execution fixture|cli --agents AGENTS_CSV --target-json TARGET_JSON [--project-root PATH] [--run-id ID] [--session-id ID] [--thoroughness quick|standard|deep] [--timeout-seconds N] [--fixture-findings-json FINDINGS_JSON] [--finalize] [--format json|markdown|csv|sarif]
 ```
 
 Options:
@@ -137,6 +137,8 @@ Options:
 | `--thoroughness` | no | `standard` | Prompt depth |
 | `--timeout-seconds` | no | `120` | Per-provider CLI timeout |
 | `--fixture-findings-json` | no | none | Fixture finding array for `--execution fixture` |
+| `--finalize` | no | false | Accumulate returned findings and write normal `.screw/findings/` reports |
+| `--format` | no | JSON + Markdown + CSV | Output format used with `--finalize`; repeat for multiple formats |
 
 Example:
 
@@ -149,6 +151,9 @@ uv run screw-agents provider-scan \
   --target-json '{"type":"file","path":"src/app.py"}' \
   --fixture-findings-json '[]'
 ```
+
+With `--finalize`, output changes from a raw `PrimaryScanResult` to an object
+containing `primary_scan_result`, `accumulate_result`, and `finalize_result`.
 
 ### `screw-agents init-trust`
 
@@ -303,7 +308,7 @@ The MCP server exposes these tools to clients.
 |---|---|---|
 | `scan_agents` | Primary paginated scan primitive for explicit agents | `agents`, `target`, `project_root?`, `cursor?`, `page_size?`, `thoroughness?` |
 | `scan_domain` | Convenience wrapper for all agents in one domain | `domain`, `target`, `project_root?`, `cursor?`, `page_size?`, `thoroughness?` |
-| `run_provider_scan` | Provider-neutral first-pass scan execution through fixture or opt-in CLI transports | `project_root`, `provider`, `transport`, `execution`, `run_id`, `session_id`, `agents`, `target`, `thoroughness?`, `timeout_seconds?`, `fixture_findings?` |
+| `run_provider_scan` | Provider-neutral first-pass scan execution through fixture or opt-in CLI transports | `project_root`, `provider`, `transport`, `execution`, `run_id`, `session_id`, `agents`, `target`, `thoroughness?`, `timeout_seconds?`, `fixture_findings?`, `finalize?`, `formats?` |
 
 Retired scan tools:
 
@@ -357,8 +362,10 @@ result envelope as the package CLI commands.
 
 `run_provider_scan` supports `execution: "fixture"` and opt-in
 `execution: "cli"` only. It rejects API/local transports until adapters exist.
-The tool does not finalize reports; it returns validated findings for callers
-to inspect, accumulate, challenge, or reconcile in later workflow steps.
+By default it returns validated findings for callers to inspect, accumulate,
+challenge, or reconcile. When `finalize: true`, it also accumulates the returned
+findings and writes normal `.screw/findings/` reports through
+`finalize_scan_results`.
 
 ### Trust And Adaptive Analysis
 

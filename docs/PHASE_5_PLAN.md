@@ -13,8 +13,8 @@
 > knowledge are implemented; backend generic/Claude/Codex CLI primary scanner
 > runner plumbing is implemented; `screw-agents provider-scan` and MCP
 > `run_provider_scan` expose fixture and opt-in CLI primary scan execution;
-> fixture-mode manual validation is recorded; manual live validation is still
-> pending; see
+> optional provider-scan report finalization is implemented; fixture-mode
+> manual validation is recorded; manual live validation is still pending; see
 > `docs/PHASE_5_PRIMARY_SCANNER_PLAN.md`.
 > Last updated: 2026-05-04.
 
@@ -405,8 +405,9 @@ provider output validation, `ScanEngine.assemble_primary_scan_input`, which
 packages selected YAML agent knowledge and resolved source chunks, and backend
 generic/Claude/Codex CLI primary scanner runner plumbing. `screw-agents
 provider-scan` and MCP `run_provider_scan` expose fixture and opt-in CLI
-execution. Accumulation/finalization wiring, parallel reconciliation, and
-manual round-trip validation are still pending.
+execution, with optional accumulation/finalization into normal
+`.screw/findings/` reports. Parallel reconciliation and live/manual
+round-trip validation are still pending.
 
 Required outcomes:
 
