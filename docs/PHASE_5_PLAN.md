@@ -354,9 +354,10 @@ when `challenger_mode` and `challenger_execution` are explicitly supplied.
 Execution stays disabled by default. The challenger receives finalized active
 findings after merge and exclusion filtering, then the returned
 `ChallengerRunResult` is rendered into JSON, Markdown, and SARIF outputs.
+The Claude plugin `/screw:scan` command exposes this path through explicit
+`--challenger <mode> --challenger-execution dry_run|cli` flags while preserving
+the no-challenger default.
 
-- Add Claude plugin command UX for requesting challenger review from
-  `/screw:scan` while preserving explicit opt-in cost/privacy controls.
 - Add API/local execution only after the CLI/MCP execution surfaces, output
   shape, and consent guardrails are stable.
 - Update `README.md`, `docs/COMMAND_REFERENCE.md`, and architecture/status docs

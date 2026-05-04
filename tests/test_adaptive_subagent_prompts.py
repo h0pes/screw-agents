@@ -85,6 +85,49 @@ def test_scan_command_doc_documents_adaptive_flag() -> None:
     ), "scan.md must include the interactive-consent caveat for --adaptive"
 
 
+def test_scan_command_documents_explicit_challenger_flags() -> None:
+    """Phase 5: challenger review from /screw:scan must be explicit opt-in."""
+    _, body = _parse_subagent_file(_SCAN_COMMAND_FILE)
+
+    assert "--challenger MODE" in body or "--challenger <mode>" in body
+    assert "--challenger-execution dry_run|cli" in body
+    assert "Challenger review is disabled unless" in body
+    assert "Do NOT default to live CLI" in body
+    assert "ANTHROPIC_API_KEY remains unset" in body
+
+
+def test_scan_md_finalize_call_threads_challenger_options() -> None:
+    """Phase 5: scan.md must pass explicit challenger options to finalize."""
+    _, body = _parse_subagent_file(_SCAN_COMMAND_FILE)
+
+    finalize_idx = body.find("mcp__screw-agents__finalize_scan_results")
+    assert finalize_idx >= 0, "scan.md must call finalize_scan_results"
+    finalize_section = body[finalize_idx:]
+    for key in [
+        '"challenger_mode"',
+        '"challenger_execution"',
+        '"challenger_prompt"',
+        '"challenger_target"',
+    ]:
+        assert key in finalize_section, (
+            f"scan.md finalize call missing challenger option {key}"
+        )
+
+
+def test_scan_md_challenger_help_lists_non_api_execution_choices() -> None:
+    """Phase 5 UX must not imply API/local transports are available here."""
+    _, body = _parse_subagent_file(_SCAN_COMMAND_FILE)
+    help_start = body.find("FLAGS")
+    help_end = body.find("DISCOVERY", help_start)
+    assert help_start >= 0 and help_end >= 0
+    help_block = body[help_start:help_end]
+
+    assert "--challenger <mode>" in help_block
+    assert "--challenger-execution <kind>" in help_block
+    assert "dry_run or cli" in help_block
+    assert "api" not in help_block.lower()
+
+
 # ---- C2: scan.md main-session orchestrator assertions ----------------------
 
 

@@ -180,7 +180,7 @@ claude --plugin-dir ./plugins/screw
 Run security review with one or more agents.
 
 ```text
-/screw:scan <scope-spec> [target] [--adaptive | --no-confirm] [--thoroughness standard|deep] [--format json|sarif|markdown|csv]
+/screw:scan <scope-spec> [target] [--adaptive | --no-confirm] [--thoroughness standard|deep] [--format json|sarif|markdown|csv] [--challenger MODE --challenger-execution dry_run|cli]
 ```
 
 Scope forms:
@@ -202,9 +202,14 @@ Options:
 | `--no-confirm` | flag | false | Skip pre-execution confirmation for CI/non-interactive use |
 | `--thoroughness` | `standard`, `deep` | `standard` | Scan depth passed to agent prompts |
 | `--format` | `json`, `markdown`, `csv`, `sarif` | JSON + Markdown + CSV | Restrict output to one format |
+| `--challenger` | configured mode name | disabled | Explicitly attach Phase 5 challenger review during finalization |
+| `--challenger-execution` | `dry_run`, `cli` | n/a | Required with `--challenger`; selects fixture dry-run or opt-in live CLI execution |
 | `--help` | flag | n/a | Print command help without scanning |
 
 `--adaptive` and `--no-confirm` are mutually exclusive.
+`--challenger` and `--challenger-execution` must be supplied together. The
+slash command does not infer a default challenger mode, does not default to
+live CLI execution, and does not expose API/local challenger transports.
 
 Target forms include paths, globs, git diffs, commit ranges, pull requests,
 classes, functions, and line ranges as supported by the MCP target resolver.
@@ -217,6 +222,7 @@ Examples:
 /screw:scan full . --no-confirm
 /screw:scan agents:sqli,xss src/api/ --format sarif
 /screw:scan sqli src/api/ --adaptive
+/screw:scan sqli src/api/ --challenger claude_primary_codex_challenger --challenger-execution dry_run
 ```
 
 ### `/screw:learn-report`

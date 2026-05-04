@@ -135,7 +135,7 @@ Subagents do NOT dispatch other subagents (Claude Code constraint, `sub-agents.m
 
 ### Slash command grammar (post-Task-8)
 
-`/screw:scan <scope-spec> <target> [--adaptive | --no-confirm | --thoroughness <L>] [--format <F>]`
+`/screw:scan <scope-spec> <target> [--adaptive | --no-confirm | --thoroughness <L>] [--format <F>] [--challenger <mode> --challenger-execution dry_run|cli]`
 
 `--adaptive` and `--no-confirm` are mutually exclusive (adaptive mode requires interactive consent).
 
@@ -152,6 +152,7 @@ Examples:
 /screw:scan agents:sqli,xss src/api/         # subset across domains
 /screw:scan domains:foo agents:baz src/      # mix
 /screw:scan domains:A,B agents:1A,2A,1B src/ # subset of A + subset of B
+/screw:scan sqli src/api/ --challenger claude_primary_codex_challenger --challenger-execution dry_run
 ```
 
 ### Scan flow (chain-subagents architecture)
@@ -269,7 +270,7 @@ See `docs/PRD.md` §9 for the full taxonomy mapping and `docs/DECISIONS.md` ADR-
 | Phase 2 | Per-vuln | Claude Code Integration (subagents, skills, FP learning) | **Complete** |
 | Phase 3 | **One-time** | Adaptive Analysis & Learning | **Complete** (Phase 3a + Phase 3b + Phase 3b-C2) |
 | Phase 4 | **One-time** | Autoresearch & Self-Improvement | **Complete** |
-| Phase 5 | **One-time** | Multi-LLM Challenger | In progress — config/model contracts, reconciliation, provider runner interface, fixture-backed required-mode orchestration, Claude/Codex subscription-backed CLI runner plumbing, runner factory wiring, fixture-only dry-run execution, opt-in live CLI execution, MCP challenger tools, challenger-aware JSON/Markdown/SARIF formatting, and explicit finalize-time challenger attachment are implemented; see `docs/PHASE_5_PLAN.md` |
+| Phase 5 | **One-time** | Multi-LLM Challenger | In progress — config/model contracts, reconciliation, provider runner interface, fixture-backed required-mode orchestration, Claude/Codex subscription-backed CLI runner plumbing, runner factory wiring, fixture-only dry-run execution, opt-in live CLI execution, MCP challenger tools, challenger-aware JSON/Markdown/SARIF formatting, explicit finalize-time challenger attachment, and `/screw:scan` challenger flags are implemented; see `docs/PHASE_5_PLAN.md` |
 | Phase 5.5 | **One-time** | Web application integration pilot | Pending |
 | Phase 6 | Mixed | Small-batch agent expansion | Pending |
 | Phase 7 | **One-time** | screw.nvim Integration | Pending |
