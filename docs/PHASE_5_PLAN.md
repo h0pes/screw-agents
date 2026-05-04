@@ -1,6 +1,7 @@
 # Phase 5 Plan - Multi-LLM Challenger System
 
-> Status: in progress. P5-1 challenger config/model contracts are merged.
+> Status: in progress. P5-1 challenger config/model contracts are merged;
+> P5-2 reconciliation engine is implemented.
 > Last updated: 2026-05-04.
 
 Phase 5 adds multi-LLM secure-code-review execution without making Claude,
@@ -224,6 +225,8 @@ Status: merged in PR #97.
 
 ### P5-2 - Reconciliation Engine
 
+Status: implemented.
+
 - Implement deterministic reconciliation independent of any provider:
   - agreed;
   - disputed;
@@ -232,6 +235,16 @@ Status: merged in PR #97.
   - unsupported because a participant failed or declined.
 - Use finding identity, CWE, file, line, severity, and provider assessment
   fields rather than provider-specific prose.
+- Current implementation:
+  - `src/screw_agents/challenger/reconciliation.py` reconciles
+    finding-shaped dictionaries and `ChallengerAssessment` records.
+  - Matching uses explicit finding IDs first, then `file:line_start:CWE`.
+  - Status resolution is deterministic:
+    `unique` < `agreed` < `uncertain` < `disputed` < `unsupported` by the
+    presence of matching assessments and verdicts.
+  - `tests/test_challenger_reconciliation.py` covers stable keys, ordering,
+    agreement, disputes, uncertainty, unsupported runs, unique findings, and
+    confidence aggregation.
 
 ### P5-3 - Provider Runner Interface
 

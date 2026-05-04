@@ -1476,7 +1476,7 @@ screw-agents/
 │       ├── models.py                # Provider-neutral config/result contracts
 │       ├── providers.py             # Future provider runner interface
 │       ├── codex_adapter.py         # Future OpenAI Codex implementation
-│       └── reconciliation.py        # Future finding reconciliation logic
+│       └── reconciliation.py        # Provider-neutral finding reconciliation
 │
 ├── domains/                         # Agent YAML definitions (the knowledge base)
 │   ├── injection-input-handling/    # CWE-1406/1407/1409

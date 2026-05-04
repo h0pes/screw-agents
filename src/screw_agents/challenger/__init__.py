@@ -12,6 +12,10 @@ from screw_agents.challenger.models import (
     ChallengerRunResult,
     ChallengerTransportConfig,
 )
+from screw_agents.challenger.reconciliation import (
+    finding_key,
+    reconcile_findings,
+)
 
 __all__ = [
     "ChallengerAssessment",
@@ -24,4 +28,6 @@ __all__ = [
     "ChallengerRunInput",
     "ChallengerRunResult",
     "ChallengerTransportConfig",
+    "finding_key",
+    "reconcile_findings",
 ]
