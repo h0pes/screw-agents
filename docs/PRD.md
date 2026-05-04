@@ -1264,7 +1264,9 @@ This creates a **three-way feedback loop**: benchmark metrics + challenger disag
 - **Keep provider additions and replacements configuration-driven where possible: Gemini, local LLMs, and future assistants must require only a thin adapter plus config when they satisfy the same structured contract**
 - **Support transport choice per provider: subscription-backed CLI/local assistant execution and API-backed execution are both first-class paths; API keys and API credits must not be assumed**
 - **Challenger prompt design with anti-anchoring measures**
-- **Three challenge flow modes are required scope, not optional polish:**
+- **Three challenge flow modes are required scope, not optional polish; the
+  provider-neutral fixture-backed orchestrator is implemented and live adapters
+  will attach to that control flow:**
   - Claude primary, Codex challenger
   - Codex primary, Claude challenger, using the same YAML agent knowledge
   - Claude and Codex parallel independent review with reconciliation
@@ -1474,6 +1476,7 @@ screw-agents/
 │   │   └── mutations.py             # Mutation strategies
 │   └── challenger/
 │       ├── models.py                # Provider-neutral config/result contracts
+│       ├── orchestrator.py          # Required-mode control flow
 │       ├── providers.py             # Provider runner interface + fixture runner
 │       ├── codex_adapter.py         # Future OpenAI Codex implementation
 │       └── reconciliation.py        # Provider-neutral finding reconciliation

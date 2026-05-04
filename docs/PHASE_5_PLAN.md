@@ -2,7 +2,8 @@
 
 > Status: in progress. P5-1 challenger config/model contracts are merged;
 > P5-2 reconciliation engine is implemented; P5-3 provider runner interface
-> and fixture runner are implemented.
+> and fixture runner are implemented; P5-4 required-mode orchestration is
+> implemented with fixture-backed runners.
 > Last updated: 2026-05-04.
 
 Phase 5 adds multi-LLM secure-code-review execution without making Claude,
@@ -273,10 +274,23 @@ Status: implemented.
 
 ### P5-4 - Required Modes
 
+Status: implemented.
+
 - Implement Claude primary / Codex challenger.
 - Implement Codex primary / Claude challenger.
 - Implement parallel independent review with reconciliation.
 - Keep each mode opt-in and testable with fixture runners.
+- Current implementation:
+  - `src/screw_agents/challenger/orchestrator.py` runs one configured mode
+    through explicitly injected provider runners.
+  - The orchestrator supports primary/challenger and parallel participant
+    roles without provider-specific branches.
+  - All participants are preflighted before any runner executes; if cost or
+    privacy guardrails block a participant, no runner is invoked and the
+    result records structured guardrail blockers.
+  - `tests/test_challenger_orchestrator.py` validates Claude-primary,
+    Codex-primary, and parallel fixture modes, plus guardrail blocks, missing
+    runners, and disabled modes.
 
 ### P5-5 - Output And MCP Surface
 
