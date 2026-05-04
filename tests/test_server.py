@@ -1,6 +1,7 @@
 """Tests for MCP server initialization and tool registration."""
 
 from pathlib import Path
+import inspect
 
 import pytest
 
@@ -33,6 +34,13 @@ def test_create_http_app(domains_dir):
     from screw_agents.server import create_http_app
     app = create_http_app(domains_dir)
     assert app is not None
+
+
+def test_run_http_binds_localhost_by_default() -> None:
+    from screw_agents.server import run_http
+
+    signature = inspect.signature(run_http)
+    assert signature.parameters["host"].default == "127.0.0.1"
 
 
 def test_scan_agents_dispatch_via_server(engine, tmp_path: Path) -> None:

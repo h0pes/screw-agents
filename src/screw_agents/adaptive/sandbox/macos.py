@@ -63,7 +63,6 @@ from time import monotonic
 
 from screw_agents.models import SandboxResult
 
-
 # Per-file write cap applied via RLIMIT_FSIZE in preexec_fn. Bounds:
 # (a) findings buffer file (the script's intentional output)
 # (b) parent-side tempfile stdout/stderr writes via inherited fds
@@ -165,7 +164,8 @@ def run_in_sandbox(
     env = {
         "PYTHONDONTWRITEBYTECODE": "1",
         "PATH": "/usr/bin:/bin",
-        "HOME": "/tmp",
+        # In-sandbox HOME for sandbox-exec profile; no host temp file is opened.
+        "HOME": "/tmp",  # noqa: S108
         "LANG": "C.UTF-8",
         "SCREW_FINDINGS_PATH": str(findings_path / "findings.json"),
         "SCREW_PROJECT_ROOT": str(project_root),
@@ -184,7 +184,7 @@ def run_in_sandbox(
     # Bounded tempfile capture — mirrors Linux backend's B3 fix.
     with tempfile.TemporaryFile() as out_file, tempfile.TemporaryFile() as err_file:
         try:
-            completed = subprocess.run(
+            completed = subprocess.run(  # noqa: S603 - argv is constructed above.
                 args,
                 env=env,
                 timeout=wall_clock_s,

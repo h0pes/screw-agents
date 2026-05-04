@@ -166,7 +166,10 @@ def _check_top_level_structure(tree: ast.Module, violations: list[LintViolation]
             # Anything else at top level: rejected
             violations.append(LintViolation(
                 rule="top_level_code",
-                message=f"top-level {type(node).__name__} not allowed; only imports and `def analyze`",
+                message=(
+                    f"top-level {type(node).__name__} not allowed; "
+                    "only imports and `def analyze`"
+                ),
                 line=node.lineno,
             ))
     if not analyze_found:
@@ -243,7 +246,10 @@ def _check_node(node: ast.AST, violations: list[LintViolation]) -> None:
     if isinstance(node, ast.Import):
         violations.append(LintViolation(
             rule="disallowed_import",
-            message=f"`import {node.names[0].name}` not allowed; use `from screw_agents.adaptive import ...`",
+            message=(
+                f"`import {node.names[0].name}` not allowed; use "
+                "`from screw_agents.adaptive import ...`"
+            ),
             line=line,
         ))
 
@@ -286,7 +292,10 @@ def _check_node(node: ast.AST, violations: list[LintViolation]) -> None:
     if isinstance(node, (ast.Yield, ast.YieldFrom)):
         violations.append(LintViolation(
             rule="forbidden_yield",
-            message="yield/yield-from in analyze turns it into a generator (silent no-op); not allowed",
+            message=(
+                "yield/yield-from in analyze turns it into a generator "
+                "(silent no-op); not allowed"
+            ),
             line=line,
         ))
 

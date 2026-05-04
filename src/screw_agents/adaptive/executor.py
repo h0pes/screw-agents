@@ -23,6 +23,7 @@ from __future__ import annotations
 import datetime
 import hashlib
 import json
+import logging
 import shutil
 import tempfile
 from pathlib import Path
@@ -48,6 +49,8 @@ from screw_agents.models import (
     SandboxResult,
 )
 from screw_agents.trust import load_config, verify_script
+
+logger = logging.getLogger(__name__)
 
 
 class LintFailure(RuntimeError):
@@ -287,11 +290,15 @@ def _check_stale(
         # the first call site without walking the whole project.
         try:
             first = next(find_calls(project, pattern), None)
-        except Exception:
+        except Exception as exc:
             # Defensive: if the AST walk itself errors on a single
             # pattern (e.g., tree-sitter parse failure on one file),
             # skip the pattern and keep checking the others. This
             # mirrors find_calls's own per-file try/except.
+            logger.debug(
+                "stale adaptive-script target pattern check failed",
+                exc_info=exc,
+            )
             continue
         if first is not None:
             return (False, None)
@@ -386,10 +393,18 @@ def _parse_findings(findings_json: str | None, meta: AdaptiveScriptMeta) -> list
     return findings
 
 
-def _compute_finding_id(*, agent: str, file: str, line: int, cwe: str, message: str, column: int = 0) -> str:
+def _compute_finding_id(
+    *,
+    agent: str,
+    file: str,
+    line: int,
+    cwe: str,
+    message: str,
+    column: int = 0,
+) -> str:
     """Content-hash-based ID for a Finding. Stable across runs of the same
     script against the same code + column (so duplicate findings across
     scans dedupe naturally via id equality; different-column findings at
     the same line get distinct IDs)."""
-    key = f"{agent}|{file}|{line}|{column}|{cwe}|{message}".encode("utf-8")
+    key = f"{agent}|{file}|{line}|{column}|{cwe}|{message}".encode()
     return hashlib.sha256(key).hexdigest()[:16]

@@ -10,18 +10,21 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import mcp.types as types
-from mcp.server.lowlevel import Server, NotificationOptions
+from mcp.server.lowlevel import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
 
-from screw_agents.engine import ScanEngine, _DEFAULT_DOMAINS_DIR
+from screw_agents.engine import _DEFAULT_DOMAINS_DIR, ScanEngine
 from screw_agents.learning import load_exclusions, record_exclusion
 from screw_agents.models import ExclusionInput, Finding
 from screw_agents.registry import AgentRegistry
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from starlette.applications import Starlette
 
 
 # T-SCAN-REFACTOR Task 6: positive list of MCP tool names retired by the refactor.
@@ -388,7 +391,7 @@ async def run_stdio(domains_dir: Path | None = None) -> None:
 
 def create_http_app(
     domains_dir: Path | None = None, path: str = "/mcp"
-) -> "Starlette":
+) -> Starlette:
     """Create a Starlette app serving the MCP server over Streamable HTTP.
 
     Args:
@@ -398,10 +401,9 @@ def create_http_app(
     Returns:
         A :class:`starlette.applications.Starlette` application instance.
     """
+    from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
     from starlette.applications import Starlette
     from starlette.routing import Route
-
-    from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 
     server, _ = create_server(domains_dir)
 
@@ -420,16 +422,23 @@ def create_http_app(
     return app
 
 
-async def run_http(domains_dir: Path | None = None, port: int = 8080) -> None:
+async def run_http(
+    domains_dir: Path | None = None,
+    port: int = 8080,
+    host: str = "127.0.0.1",
+) -> None:
     """Run the MCP server over Streamable HTTP transport.
 
     Args:
         domains_dir: Optional override for the domains directory.
         port: TCP port to listen on (default ``8080``).
+        host: Host interface to bind (default ``127.0.0.1``). Use
+            ``0.0.0.0`` only when intentionally exposing HTTP MCP outside
+            localhost.
     """
     import uvicorn
 
     app = create_http_app(domains_dir)
-    config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="info")
+    config = uvicorn.Config(app, host=host, port=port, log_level="info")
     uvi_server = uvicorn.Server(config)
     await uvi_server.serve()

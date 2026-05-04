@@ -28,7 +28,6 @@ from typing import Literal
 
 from screw_agents.registry import AgentRegistry
 
-
 # Quality review EQ1=B (Marco approved): cap total scope size at the parser
 # layer so all callers (MCP traffic, direct Python tests) hit the same
 # guard. 50 covers the future 41-agent CWE-1400 expansion plus headroom;

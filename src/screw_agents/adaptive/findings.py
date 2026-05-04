@@ -26,7 +26,6 @@ import re
 from dataclasses import dataclass, field
 from typing import Literal
 
-
 _CWE_PATTERN = re.compile(r"^CWE-\d+$")
 _VALID_SEVERITIES = {"high", "medium", "low", "info"}
 # Severity vocabulary intentionally narrower than the project's `Finding`

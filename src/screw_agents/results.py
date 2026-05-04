@@ -11,7 +11,7 @@ implements the rendering + file I/O half of the protocol while
 from __future__ import annotations
 
 from collections import OrderedDict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -123,7 +123,7 @@ def render_and_write(
     agent_names: list[str],
     scan_metadata: dict[str, Any] | None = None,
     formats: list[str] | None = None,
-    agent_registry: "AgentRegistry | None" = None,
+    agent_registry: AgentRegistry | None = None,
 ) -> dict[str, Any]:
     """Render findings to disk under ``.screw/findings/`` and apply
     server-side exclusion matching.
@@ -284,7 +284,7 @@ def render_and_write(
         prefix = "scan"
 
     # Build metadata
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     ts = now.strftime("%Y-%m-%dT%H-%M-%S")
     meta = dict(scan_metadata or {})
     meta.setdefault("agents", agent_names)

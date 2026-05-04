@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import fnmatch
 import glob as globlib
+import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -23,6 +24,13 @@ _FUNCTION_NODE_TYPES = {
     "function_item",            # Rust
     "function",                 # PHP
 }
+
+
+def _git_executable() -> str:
+    git = shutil.which("git")
+    if git is None:
+        raise ValueError("git executable not found on PATH")
+    return git
 
 _CLASS_NODE_TYPES = {
     "class_definition",         # Python
@@ -267,16 +275,29 @@ def _resolve_codebase(target: dict) -> list[ResolvedCode]:
 def _resolve_git_diff(target: dict) -> list[ResolvedCode]:
     cwd = target.get("cwd", ".")
     context_lines = target.get("context_lines", 10)
+    git = _git_executable()
 
     if "base" in target and "head" in target:
-        cmd = ["git", "diff", f"-U{context_lines}", f"{target['base']}...{target['head']}", "--"]
+        cmd = [
+            git,
+            "diff",
+            f"-U{context_lines}",
+            f"{target['base']}...{target['head']}",
+            "--",
+        ]
     elif target.get("staged_only"):
-        cmd = ["git", "diff", "--staged", f"-U{context_lines}", "--"]
+        cmd = [git, "diff", "--staged", f"-U{context_lines}", "--"]
     else:
-        cmd = ["git", "diff", f"-U{context_lines}", "--"]
+        cmd = [git, "diff", f"-U{context_lines}", "--"]
 
     try:
-        result = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, check=True)
+        result = subprocess.run(  # noqa: S603 - argv is fixed git subcommands.
+            cmd,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
     except subprocess.CalledProcessError as e:
         raise ValueError(f"git command failed: {e.stderr.strip() or e}") from e
 
@@ -327,11 +348,15 @@ def _resolve_git_commits(target: dict) -> list[ResolvedCode]:
     cwd = target.get("cwd", ".")
     commit_range = target["range"]
     context_lines = target.get("context_lines", 10)
+    git = _git_executable()
 
     try:
-        result = subprocess.run(
-            ["git", "diff", f"-U{context_lines}", commit_range, "--"],
-            cwd=cwd, capture_output=True, text=True, check=True,
+        result = subprocess.run(  # noqa: S603 - argv is fixed git subcommands.
+            [git, "diff", f"-U{context_lines}", commit_range, "--"],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            check=True,
         )
     except subprocess.CalledProcessError as e:
         raise ValueError(f"git command failed: {e.stderr.strip() or e}") from e
