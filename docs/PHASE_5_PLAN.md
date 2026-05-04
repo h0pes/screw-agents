@@ -87,6 +87,28 @@ YAML agent knowledge and scan assembly path as Claude-primary execution.
 Provider adapters may format a provider-specific envelope around the prompt,
 but they must not fork the vulnerability knowledge base.
 
+### Documentation Alignment
+
+Every Phase 5 implementation PR must update the relevant documentation in the
+same branch as the code change. Documentation is part of the implementation,
+not a follow-up cleanup task. At minimum, each PR should check whether its
+change affects:
+
+- `README.md`, for current capabilities, roadmap, and user-facing overview.
+- `docs/PHASE_5_PLAN.md`, for Phase 5 task status, contracts, and guardrails.
+- `docs/PROJECT_STATUS.md`, for current state and next roadmap priorities.
+- `docs/PRD.md`, for product requirements or scope changes.
+- `docs/ARCHITECTURE.md`, for component boundaries or lifecycle changes.
+- `docs/COMMAND_REFERENCE.md`, when commands, MCP tools, CLI options, scripts,
+  or user workflows change.
+- `docs/AGENT_CATALOG.md` and `docs/AGENT_AUTHORING.md`, when agent dispatch,
+  YAML schema, or authoring expectations change.
+- `docs/DEFERRED_BACKLOG.md`, when work is intentionally deferred, retired, or
+  promoted into the current phase.
+
+If a document is reviewed and does not need a change, the PR summary should say
+so when that decision is not obvious.
+
 ## Proposed Configuration Shape
 
 ```yaml
@@ -188,6 +210,8 @@ permission.
   - provider/transport metadata;
   - consent and cost/privacy guardrail state.
 - Keep models serializable for JSON reports and future web-app ingestion.
+- Keep `docs/PHASE_5_PLAN.md` and any affected durable docs aligned with the
+  implemented model names and config schema.
 
 ### P5-2 - Reconciliation Engine
 
@@ -227,6 +251,9 @@ permission.
 - Preserve SARIF compatibility by keeping provider-specific challenger details
   in properties when exported.
 - Add MCP tools only after model and reconciliation contracts settle.
+- Update `README.md`, `docs/COMMAND_REFERENCE.md`, and architecture/status docs
+  in the same PR when new MCP tools, CLI options, plugin commands, or output
+  fields become user-facing.
 
 ### P5-6 - Autoresearch Feedback
 
@@ -248,6 +275,8 @@ permission.
   unset unless an API transport is explicitly selected.
 - Use fixture runners for mode orchestration before invoking real assistants.
 - Run the full suite before merging implementation PRs.
+- Before opening a Phase 5 PR, review the durable docs listed in
+  "Documentation Alignment" and update every one affected by the code change.
 
 ## Phase 5.5 Compatibility
 
