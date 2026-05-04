@@ -418,11 +418,12 @@ is tracked in `docs/PHASE_4_CLOSURE_READINESS.md`.
   `/screw:scan` command exposes this as explicit
   `--challenger <mode> --challenger-execution dry_run|cli` flags; API/local
   provider execution is still pending. Provider-neutral primary scan contracts,
-  fixture validation, and scan input assembly from YAML agent knowledge now
-  exist in `src/screw_agents/primary_scan/` and
-  `ScanEngine.assemble_primary_scan_input`, but live primary provider
+  fixture validation, scan input assembly from YAML agent knowledge, and
+  backend generic/Claude/Codex CLI primary scanner runner plumbing now exist in
+  `src/screw_agents/primary_scan/` and
+  `ScanEngine.assemble_primary_scan_input`, but public primary provider
   execution is still pending: Codex/Gemini/local models cannot yet act as
-  first-pass scanners through an equivalent backend runner. See
+  first-pass scanners through an exposed backend runner. See
   `docs/PHASE_5_PRIMARY_SCANNER_PLAN.md`.
 - `docs/` structure in place (PRD, DECISIONS, CONTRIBUTING, KNOWLEDGE_SOURCES, AGENT_AUTHORING)
 

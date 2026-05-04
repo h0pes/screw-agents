@@ -2,9 +2,11 @@
 
 > Status: required Phase 5 work. The challenger/orchestration layer exists,
 > and the provider-neutral primary scan contract, fixture runner, and scan
-> input assembly from YAML agent knowledge are implemented. Live
-> provider-neutral first-pass scanning is still pending. Phase 5 is not
-> closure-ready until this gap is closed or explicitly re-scoped.
+> input assembly from YAML agent knowledge are implemented. Primary scanner
+> CLI runner plumbing is implemented for configured Claude/Codex/generic CLI
+> transports, but MCP/CLI exposure and manual round-trip validation are still
+> pending. Phase 5 is not closure-ready until this gap is closed or explicitly
+> re-scoped.
 
 ## Why This Exists
 
@@ -25,7 +27,10 @@ scan runner that consumes the same YAML agent knowledge and emits `Finding`
 JSON. The backend contract for such runners now exists in
 `src/screw_agents/primary_scan/`, and `ScanEngine.assemble_primary_scan_input`
 packages selected YAML agent prompts, resolved source chunks, target metadata,
-and the shared `Finding` output schema without invoking a provider.
+and the shared `Finding` output schema without invoking a provider. The
+`CliPrimaryScanRunner` can invoke a configured CLI transport shell-free and
+validate JSON output back into `Finding` objects, but it is not yet exposed as
+a package CLI or MCP tool.
 
 The current Phase 5 challenger package supports provider-neutral participant
 roles and reconciliation, but those "primary" roles operate inside the
@@ -44,8 +49,9 @@ context.
 | Provider-neutral primary scan input/result contract | Implemented |
 | Fixture primary scan runner and output validation | Implemented |
 | Provider-neutral scan input assembly from YAML agent knowledge | Implemented |
+| Generic/Claude/Codex CLI primary scan runner plumbing | Implemented |
 | Codex primary review participant over supplied findings | Implemented at challenger-orchestrator level |
-| Codex as first-pass scanner from YAML agent knowledge | Pending |
+| Codex as first-pass scanner from YAML agent knowledge | Backend CLI runner implemented; public surface and manual validation pending |
 | Gemini/local as first-pass scanner from YAML agent knowledge | Pending adapter |
 | Parallel independent first-pass scans with reconciliation | Pending |
 | Manual round-trip validation of all Phase 5 modes | Pending |
@@ -169,11 +175,14 @@ provider produced or disputed each finding.
 
 ### P5-P3 - CLI Runner Integration
 
-- Status: pending.
-- Add Codex CLI primary scan runner.
-- Add Claude CLI primary scan runner only if it can run outside the Claude Code
-  plugin path without breaking subscription/API-key guardrails.
-- Keep command invocation shell-free.
+- Status: implemented for backend runner plumbing.
+- Added generic `CliPrimaryScanRunner`.
+- Added Codex and Claude CLI primary scan wrappers that strip `OPENAI_API_KEY`
+  and `ANTHROPIC_API_KEY` respectively for subscription-backed CLI use.
+- Command invocation is shell-free and provider output is parsed through the
+  shared `parse_primary_scan_output` validator.
+- Live/manual CLI validation remains pending until the public surface exists
+  and Marco explicitly approves provider invocation.
 
 ### P5-P4 - MCP/CLI Surface
 

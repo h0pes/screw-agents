@@ -8,11 +8,21 @@ from screw_agents.primary_scan.models import (
     parse_primary_scan_output,
 )
 from screw_agents.primary_scan.providers import (
+    ClaudeCliPrimaryScanRunner,
+    CliPrimaryScanCommandResult,
+    CliPrimaryScanInvocation,
+    CliPrimaryScanRunner,
+    CodexCliPrimaryScanRunner,
     FixturePrimaryScanRunner,
     PrimaryScanRunner,
 )
 
 __all__ = [
+    "ClaudeCliPrimaryScanRunner",
+    "CliPrimaryScanCommandResult",
+    "CliPrimaryScanInvocation",
+    "CliPrimaryScanRunner",
+    "CodexCliPrimaryScanRunner",
     "FixturePrimaryScanRunner",
     "PrimaryScanInput",
     "PrimaryScanParticipant",
