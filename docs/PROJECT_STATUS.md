@@ -417,7 +417,10 @@ is tracked in `docs/PHASE_4_CLOSURE_READINESS.md`.
   configured challenger mode after merge/exclusion filtering. The Claude plugin
   `/screw:scan` command exposes this as explicit
   `--challenger <mode> --challenger-execution dry_run|cli` flags; API/local
-  provider execution is still pending.
+  provider execution is still pending. Provider-neutral primary scanning from
+  YAML agent knowledge is also pending: Codex/Gemini/local models cannot yet
+  act as first-pass scanners through an equivalent backend runner. See
+  `docs/PHASE_5_PRIMARY_SCANNER_PLAN.md`.
 - `docs/` structure in place (PRD, DECISIONS, CONTRIBUTING, KNOWLEDGE_SOURCES, AGENT_AUTHORING)
 
 **Phase 0 — Knowledge Research Sprint (complete for all 4 Phase 1 agents):**
@@ -795,7 +798,7 @@ Structured as a dependency graph with three parallel tracks converging at smoke 
 | Phase 3b | Adaptive Analysis & Learning Refinement | **Complete** — PR #4 (#10) 2026-04-18, PR #5 (#11) 2026-04-20, PR #6 (#12) 2026-04-23, Phase 3b-C2 2026-04-24, BACKLOG-PR6-22 (#14) 2026-04-24, T19-M D7 (#15) 2026-04-24, T-SCAN-REFACTOR final 2026-04-25 |
 | Phase 3c | Sandbox hardening sweep (seccomp filter + thread-safety + dedup) | **Deferred** — see `docs/DEFERRED_BACKLOG.md` §"Phase 3c (sandbox hardening follow-ups)" |
 | Phase 4 | Autoresearch & Self-Improvement | **Complete** — D-01 merged; D-02 calibration workflow, guardrails, failure payloads, accepted inclusions/exclusions, Wave C representative validation, focused runtime validation, and final signoff are recorded |
-| Phase 5 | Multi-LLM Challenger System | In progress — P5-1 challenger config/model contracts merged in PR #97; P5-2 provider-neutral reconciliation engine is implemented; P5-3 provider runner interface, fixture runner, generic CLI runner, and Claude/Codex CLI API-key isolation are implemented; P5-4 required-mode orchestration and config-driven runner factory wiring are implemented for Claude primary/Codex challenger, Codex primary/Claude challenger, and parallel independent review; fixture-only dry-run plus opt-in live CLI execution surfaces are exposed through package CLI and MCP tools; JSON/Markdown/SARIF formatting preserves supplied challenger run metadata; `finalize_scan_results` and `/screw:scan` can explicitly attach configured challenger review; provider and transport choices must remain configurable |
+| Phase 5 | Multi-LLM Challenger System | In progress — challenger config/model contracts, reconciliation, provider runner interface, fixture/generic/Claude/Codex CLI runners, required-mode orchestration, CLI/MCP challenger execution surfaces, report integration, finalize-time attachment, and `/screw:scan` challenger flags are implemented; provider-neutral first-pass scanning from YAML agent knowledge is still pending and is required before Phase 5 closure |
 | Phase 5.5 | Web application integration pilot | Pending — first external product integration target after Phase 5; start with the existing four accepted agents and wire orchestration/correlation/triage before broad agent expansion |
 | Phase 6 | Agent Expansion & Ecosystem | Pending — add CWE-1400 agents in small reviewed batches using Phase 4 calibration infrastructure, not a full-catalog big bang |
 | Phase 7 | screw.nvim Integration (scan commands, review-before-import, exclusions) | Pending — editor-native workflow after the web-app integration pilot unless product priority changes |
@@ -812,11 +815,11 @@ concrete failure-input payloads can be generated from controlled run output.
 
 ## Next Roadmap Priorities
 
-1. **Phase 5 — Multi-LLM challenger.** Harden the now-exposed
-   `/screw:scan` challenger path with final UX examples and provider-adapter
-   planning, using the runner factory to attach Claude/Codex CLI runners to
-   the required-mode orchestrator and the existing output formatters to
-   preserve challenger metadata.
+1. **Phase 5 — provider-neutral primary scanner.** Implement the missing
+   first-pass scan runner described in
+   `docs/PHASE_5_PRIMARY_SCANNER_PLAN.md`, so Codex and future assistants can
+   scan from the same YAML agent knowledge instead of only reviewing supplied
+   findings.
    Preserve opt-in cost/privacy controls and provider-agnostic interfaces for
    future LLMs. Provider configuration must allow future
    assistants such as Gemini or local LLMs, and each provider should support
@@ -825,19 +828,22 @@ concrete failure-input payloads can be generated from controlled run output.
    who explicitly allow API billing. Keep documentation aligned in the same PR
    as each Phase 5 code change; see `docs/PHASE_5_PLAN.md` for the required
    documentation-alignment checklist.
-2. **Phase 5.5 — web application integration pilot.** Treat the AppSec
+2. **Phase 5 closure readiness.** After provider-neutral primary scanning is
+   implemented, run and record the manual round-trip matrix for the three
+   required modes and document any API/local adapter deferrals before Phase 5.5.
+3. **Phase 5.5 — web application integration pilot.** Treat the AppSec
    orchestration/correlation web app as the first external product integration
    target immediately after Phase 5. Start with the current four accepted
    agents so scan submission, background execution, result ingestion, triage,
    learning/exclusions, and correlation can be validated before adding more
    vulnerability domains.
-3. **Phase 6 — small-batch agent expansion.** Add new CWE-1400 agents in
+4. **Phase 6 — small-batch agent expansion.** Add new CWE-1400 agents in
    narrow, high-value batches. Reuse Phase 4's calibration workflow rather than
    repeating a full Phase 4 for every agent.
-4. **Phase 7 — screw.nvim integration.** Keep editor-native workflows on the
+5. **Phase 7 — screw.nvim integration.** Keep editor-native workflows on the
    roadmap, but sequence them after the web-app integration pilot unless
    product priority changes.
-5. **Hardening and deferred backlog.** Before production-like deployment,
+6. **Hardening and deferred backlog.** Before production-like deployment,
    revisit Phase 3c sandbox hardening and any `phase-7-scoped` concurrency or
    server lifecycle items in `docs/DEFERRED_BACKLOG.md`.
 

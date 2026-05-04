@@ -1272,6 +1272,9 @@ This creates a **three-way feedback loop**: benchmark metrics + challenger disag
 ### Phase 5: Multi-LLM Challenger System
 - **Define provider-agnostic challenger interface (structured input/output contract)**
 - **Implement OpenAI Codex adapter (first non-Claude provider)**
+- **Implement provider-neutral primary scanner execution so Claude, Codex,
+  Gemini, local models, or future assistants can act as the first-pass scanner
+  from the same YAML agent knowledge**
 - **Keep provider additions and replacements configuration-driven where possible: Gemini, local LLMs, and future assistants must require only a thin adapter plus config when they satisfy the same structured contract**
 - **Support transport choice per provider: subscription-backed CLI/local assistant execution and API-backed execution are both first-class paths; API keys and API credits must not be assumed**
 - **Challenger prompt design with anti-anchoring measures**
@@ -1281,6 +1284,9 @@ This creates a **three-way feedback loop**: benchmark metrics + challenger disag
   - Claude primary, Codex challenger
   - Codex primary, Claude challenger, using the same YAML agent knowledge
   - Claude and Codex parallel independent review with reconciliation
+- **Manual round-trip validation is required before Phase 5 closure. The
+  existing challenger/reconciliation layer does not by itself prove that Codex
+  or future assistants can perform first-pass scanning.**
 - **Finding reconciliation logic (agreed/disputed/unique classification)**
 - **Enriched output: dual-perspective challenger metadata in Markdown, JSON,
   and SARIF reports while preserving the base finding schema**
