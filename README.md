@@ -329,6 +329,10 @@ Upcoming:
   - Claude primary, Codex challenger.
   - Codex primary, Claude challenger.
   - Claude and Codex parallel independent review with reconciliation.
+  - Provider-neutral adapters so Gemini, local LLMs, or future assistants can
+    be added without changing agent YAML.
+  - Transport choice per provider: subscription-backed CLI/local execution or
+    API-backed execution, with API billing explicitly opt-in.
 - Phase 5.5: web application integration pilot using the four current agents.
 - Phase 6: small-batch CWE-1400 agent expansion.
 - Phase 7: screw.nvim integration.
@@ -369,6 +373,7 @@ The current full-suite baseline after Phase 4 signoff is:
 | [PROJECT_STATUS.md](docs/PROJECT_STATUS.md) | Current project status and roadmap |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | System architecture and component overview |
 | [COMMAND_REFERENCE.md](docs/COMMAND_REFERENCE.md) | CLI, Claude plugin, MCP, and benchmark command reference |
+| [PHASE_5_PLAN.md](docs/PHASE_5_PLAN.md) | Multi-LLM challenger plan, provider/transport architecture, required modes |
 | [AGENT_CATALOG.md](docs/AGENT_CATALOG.md) | Planned CWE-1400 agent inventory |
 | [AGENT_AUTHORING.md](docs/AGENT_AUTHORING.md) | How to write new agent YAML |
 | [DECISIONS.md](docs/DECISIONS.md) | Architecture decision records |
@@ -379,7 +384,7 @@ The current full-suite baseline after Phase 4 signoff is:
 
 - Scans may include source code in prompts sent to an LLM client.
 - The Phase 5 challenger system is explicitly opt-in and must preserve
-  provider, cost, and privacy controls.
+  provider, cost, billing-transport, and privacy controls.
 - Adaptive scripts are powerful and therefore gated through review, signing,
   linting, sandboxing, and trust verification.
 - The Linux sandbox has strong namespace/capability isolation today; seccomp

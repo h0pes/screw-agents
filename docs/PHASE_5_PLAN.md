@@ -1,0 +1,240 @@
+# Phase 5 Plan - Multi-LLM Challenger System
+
+> Status: planning.
+> Last updated: 2026-05-04.
+
+Phase 5 adds multi-LLM secure-code-review execution without making Claude,
+Codex, Anthropic, or OpenAI permanent architectural assumptions. The durable
+asset remains provider-neutral YAML agent knowledge in `domains/**/*.yaml`;
+provider runners are replaceable execution adapters.
+
+## Goals
+
+- Ship all three required Phase 5 modes:
+  - Claude primary, Codex challenger.
+  - Codex primary, Claude challenger, using the same YAML agent knowledge.
+  - Parallel independent review with reconciliation.
+- Keep provider support open-ended. Gemini, local LLMs, or future assistants
+  must be addable through configuration plus a thin adapter, not a scan-engine
+  rewrite.
+- Support multiple execution transports per provider:
+  - subscription-backed CLI or local assistant execution, such as Claude Code
+    Pro or Codex Pro;
+  - API-backed execution for users with provider API credits;
+  - local model execution when an adapter can satisfy the same structured
+    contract.
+- Preserve explicit privacy, cost, and provider controls. No challenger or
+  second-provider execution runs by default.
+- Feed disagreement evidence into autoresearch as reviewed input, never as
+  automatic YAML mutation.
+
+## Non-Goals
+
+- Do not build a bespoke REST API for Phase 5. The public integration boundary
+  remains MCP unless a later design justifies another surface.
+- Do not assume Anthropic or OpenAI API credits are available.
+- Do not require API keys for the common local developer workflow when a
+  subscription-backed CLI transport is available.
+- Do not make provider-specific prompt formats leak into the YAML agent
+  schema.
+- Do not broaden the accepted agent set beyond `sqli`, `cmdi`, `ssti`, and
+  `xss` as part of Phase 5.
+
+## Design Invariants
+
+### Provider-Neutral Core
+
+The core Phase 5 contracts should use provider-neutral terms:
+
+- `provider`: logical provider name, such as `anthropic`, `openai`, `google`,
+  or `local`.
+- `assistant`: provider-specific product or model family, such as `claude`,
+  `codex`, `gemini`, or a local model profile.
+- `transport`: invocation mechanism, such as `cli`, `api`, or `local`.
+- `role`: `primary` or `challenger`.
+
+The scan and reconciliation layers should depend on these contracts, not on
+Claude- or Codex-specific classes.
+
+### Transport Choice
+
+Provider configuration must distinguish provider identity from how the provider
+is invoked. A user with API credits can choose an API transport. A user with a
+Pro subscription and no API credits can choose the provider's local CLI or
+assistant transport when available.
+
+Subscription-backed transports are not a fallback hack; they are first-class
+Phase 5 execution paths. Benchmark and live executor commands must continue to
+avoid accidental API usage. In particular, Claude Code benchmark/executor paths
+must keep `ANTHROPIC_API_KEY` unset unless the user explicitly chooses an API
+transport.
+
+### Explicit Consent
+
+Every mode that sends code or findings to a second provider requires explicit
+configuration and run-time acknowledgement. Configuration should record:
+
+- enabled providers and transports;
+- whether source code may be shared with each provider;
+- whether API billing is permitted;
+- maximum prompt or token budget when measurable;
+- whether the user has acknowledged cost and privacy implications.
+
+### Shared Agent Knowledge
+
+Codex-primary, Gemini-primary, or local-primary execution must use the same
+YAML agent knowledge and scan assembly path as Claude-primary execution.
+Provider adapters may format a provider-specific envelope around the prompt,
+but they must not fork the vulnerability knowledge base.
+
+## Proposed Configuration Shape
+
+```yaml
+challenger:
+  enabled: false
+  cost_acknowledged: false
+  privacy_acknowledged: false
+
+  providers:
+    claude:
+      assistant: claude
+      transports:
+        cli:
+          enabled: true
+          command: claude
+          use_api_key: false
+        api:
+          enabled: false
+          api_key_env: ANTHROPIC_API_KEY
+
+    codex:
+      assistant: codex
+      transports:
+        cli:
+          enabled: true
+          command: codex
+          use_api_key: false
+        api:
+          enabled: false
+          api_key_env: OPENAI_API_KEY
+
+    gemini:
+      assistant: gemini
+      transports:
+        api:
+          enabled: false
+          api_key_env: GOOGLE_API_KEY
+
+    local:
+      assistant: local
+      transports:
+        local:
+          enabled: false
+          endpoint: http://127.0.0.1:11434
+
+  modes:
+    claude_primary_codex_challenger:
+      primary: {provider: claude, transport: cli}
+      challenger: {provider: codex, transport: cli}
+    codex_primary_claude_challenger:
+      primary: {provider: codex, transport: cli}
+      challenger: {provider: claude, transport: cli}
+    parallel:
+      participants:
+        - {provider: claude, transport: cli}
+        - {provider: codex, transport: cli}
+```
+
+The exact schema can change during implementation, but these separations should
+remain: provider, assistant, transport, role, billing permission, and privacy
+permission.
+
+## Work Breakdown
+
+### P5-0 - Spec And Documentation Alignment
+
+- Add this plan.
+- Update the PRD non-goal that conflicts with Phase 5.
+- Document provider replacement and transport flexibility as Phase 5
+  requirements.
+- Keep README and project status linked to this plan.
+
+### P5-1 - Challenger Models
+
+- Add Pydantic models under `src/screw_agents/challenger/`.
+- Define structured inputs and outputs for:
+  - primary analysis runs;
+  - challenger assessments;
+  - parallel participant results;
+  - reconciliation summaries;
+  - provider/transport metadata;
+  - consent and cost/privacy guardrail state.
+- Keep models serializable for JSON reports and future web-app ingestion.
+
+### P5-2 - Reconciliation Engine
+
+- Implement deterministic reconciliation independent of any provider:
+  - agreed;
+  - disputed;
+  - unique;
+  - uncertain;
+  - unsupported because a participant failed or declined.
+- Use finding identity, CWE, file, line, severity, and provider assessment
+  fields rather than provider-specific prose.
+
+### P5-3 - Provider Runner Interface
+
+- Define an adapter interface for provider execution.
+- Support dry-run and fixture-backed runners first.
+- Add CLI transport adapters before API transports so Pro/subscription-backed
+  usage is not blocked on API credits.
+- Require every adapter to declare:
+  - whether it sends source code externally;
+  - whether it may bill API credits;
+  - which environment variables it reads;
+  - which command it invokes, if any;
+  - what budget controls it can enforce.
+
+### P5-4 - Required Modes
+
+- Implement Claude primary / Codex challenger.
+- Implement Codex primary / Claude challenger.
+- Implement parallel independent review with reconciliation.
+- Keep each mode opt-in and testable with fixture runners.
+
+### P5-5 - Output And MCP Surface
+
+- Enrich JSON and Markdown output with provider perspectives and consensus
+  state without breaking existing finding consumers.
+- Preserve SARIF compatibility by keeping provider-specific challenger details
+  in properties when exported.
+- Add MCP tools only after model and reconciliation contracts settle.
+
+### P5-6 - Autoresearch Feedback
+
+- Store challenger disagreements as reviewed evidence for future
+  autoresearch.
+- Do not mutate `domains/**/*.yaml` automatically from disagreements.
+- Require concrete examples and human review before any YAML change, matching
+  the Phase 4 closure discipline.
+
+## Verification Strategy
+
+- Unit-test provider-neutral models and reconciliation logic with fixture
+  findings.
+- Add guardrail tests showing API transports are disabled unless explicitly
+  enabled.
+- Add tests that subscription-backed CLI transports do not require API key
+  environment variables.
+- Add tests that Claude CLI benchmark/executor paths keep `ANTHROPIC_API_KEY`
+  unset unless an API transport is explicitly selected.
+- Use fixture runners for mode orchestration before invoking real assistants.
+- Run the full suite before merging implementation PRs.
+
+## Phase 5.5 Compatibility
+
+The web application pilot needs machine-readable outputs, background execution,
+triage, and learning feedback. Phase 5 should therefore keep result objects
+stable, JSON-friendly, and independent of Claude Code plugin assumptions. The
+web app should be able to choose the same provider/transport configuration
+without a bespoke REST API.

@@ -46,7 +46,9 @@ The real value lies not in the architecture but in the **quality of agent knowle
 - Real-time collaborative multi-user scanning (screw.nvim collaboration features remain separate)
 - Replacing SAST tools entirely — this complements them, not replaces
 - Fully autonomous remediation (agents suggest fixes, humans approve)
-- Supporting non-Claude LLMs as the analysis backend
+- Requiring any single LLM provider or API billing path. Phase 5 explicitly
+  supports non-Claude primary and challenger execution through provider-neutral
+  adapters.
 
 ---
 
@@ -1227,7 +1229,9 @@ This creates a **three-way feedback loop**: benchmark metrics + challenger disag
 
 ### Phase 5: Multi-LLM Challenger System
 - **Define provider-agnostic challenger interface (structured input/output contract)**
-- **Implement OpenAI Codex adapter (first provider)**
+- **Implement OpenAI Codex adapter (first non-Claude provider)**
+- **Keep provider additions and replacements configuration-driven where possible: Gemini, local LLMs, and future assistants must require only a thin adapter plus config when they satisfy the same structured contract**
+- **Support transport choice per provider: subscription-backed CLI/local assistant execution and API-backed execution are both first-class paths; API keys and API credits must not be assumed**
 - **Challenger prompt design with anti-anchoring measures**
 - **Three challenge flow modes are required scope, not optional polish:**
   - Claude primary, Codex challenger
@@ -1235,7 +1239,7 @@ This creates a **three-way feedback loop**: benchmark metrics + challenger disag
   - Claude and Codex parallel independent review with reconciliation
 - **Finding reconciliation logic (agreed/disputed/unique classification)**
 - **Enriched output: dual-perspective findings in markdown reports and JSON**
-- **Cost controls: opt-in configuration, disclaimers, severity-gated triggers**
+- **Cost/privacy controls: opt-in configuration, disclaimers, severity-gated triggers, explicit API-billing permission, and source-sharing acknowledgement**
 - **Connect challenger disagreement signals to autoresearch loop (§11.3)**
 - **Prepare extensibility for additional providers (Gemini, etc.) — config-only addition**
 

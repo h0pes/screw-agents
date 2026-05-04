@@ -268,9 +268,10 @@ See `docs/PRD.md` §9 for the full taxonomy mapping and `docs/DECISIONS.md` ADR-
 | Phase 1 | **One-time** | MCP Server + Registry + Resolver + Formatter | **Complete** |
 | Phase 2 | Per-vuln | Claude Code Integration (subagents, skills, FP learning) | **Complete** |
 | Phase 3 | **One-time** | Adaptive Analysis & Learning | **Complete** (Phase 3a + Phase 3b + Phase 3b-C2) |
-| Phase 4 | **One-time** | Autoresearch & Self-Improvement | **Pending** (gated only on D-01 Rust benchmark corpus) |
-| Phase 5 | **One-time** | Multi-LLM Challenger | Pending |
-| Phase 6 | Mixed | Agent Expansion (per-vuln) + Ecosystem (one-time) | Pending |
+| Phase 4 | **One-time** | Autoresearch & Self-Improvement | **Complete** |
+| Phase 5 | **One-time** | Multi-LLM Challenger | Planning — see `docs/PHASE_5_PLAN.md` |
+| Phase 5.5 | **One-time** | Web application integration pilot | Pending |
+| Phase 6 | Mixed | Small-batch agent expansion | Pending |
 | Phase 7 | **One-time** | screw.nvim Integration | Pending |
 
 See `docs/PRD.md` §12 for detailed phase descriptions and `docs/PROJECT_STATUS.md` for current state.
@@ -283,6 +284,7 @@ See `docs/PRD.md` §12 for detailed phase descriptions and `docs/PROJECT_STATUS.
 - `docs/DECISIONS.md` — Architecture Decision Records
 - `docs/PHASE_0_5_PLAN.md` — Phase 0.5 implementation plan (28 tasks)
 - `docs/PHASE_0_5_VALIDATION_GATES.md` — Phase 1.7 acceptance criteria
+- `docs/PHASE_5_PLAN.md` — Phase 5 challenger provider and transport plan
 - `docs/PROJECT_STATUS.md` — Current state + deferred obligations
 - `docs/KNOWLEDGE_SOURCES.md` — Research targets for knowledge sprint
 - `docs/AGENT_AUTHORING.md` — Guide for writing new agent YAMLs
