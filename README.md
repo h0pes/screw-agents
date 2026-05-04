@@ -331,7 +331,8 @@ Upcoming:
   - Claude and Codex parallel independent review with reconciliation.
   - Fixture-backed required-mode orchestration is implemented.
   - Subscription-backed CLI runner plumbing is implemented, including Claude
-    CLI environment isolation that unsets `ANTHROPIC_API_KEY` for non-API use.
+    and Codex CLI environment isolation that unsets API-key variables for
+    non-API use.
   - Provider-neutral adapters so Gemini, local LLMs, or future assistants can
     be added without changing agent YAML.
   - Transport choice per provider: subscription-backed CLI/local execution or
@@ -365,7 +366,7 @@ uv run ruff check .
 The current full-suite baseline after Phase 4 signoff is:
 
 ```text
-1146 passed, 9 skipped
+1147 passed, 9 skipped
 ```
 
 ## Documentation Map
