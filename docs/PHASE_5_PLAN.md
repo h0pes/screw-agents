@@ -14,7 +14,9 @@
 > runner plumbing is implemented; `screw-agents provider-scan` and MCP
 > `run_provider_scan` expose fixture and opt-in CLI primary scan execution;
 > optional provider-scan report finalization is implemented; fixture-mode
-> manual validation is recorded; manual live validation is still pending; see
+> manual validation is recorded; one live Codex/Claude benchmark round trip is
+> recorded; composed-mode validation and plugin primary-provider UX remain
+> pending; see
 > `docs/PHASE_5_PRIMARY_SCANNER_PLAN.md`.
 > Last updated: 2026-05-04.
 
@@ -30,9 +32,11 @@ fixture runner, scan input assembler, CLI primary scanner runner, package CLI,
 and MCP tool now exist. Phase 5 is not closure-ready until these primary
 scanner paths are manually validated.
 
-Fixture-mode public provider scan validation is recorded in
-`docs/PHASE_5_MANUAL_VALIDATION.md`. Live Codex/Claude CLI validation remains
-pending explicit approval.
+Fixture-mode public provider scan validation and one live Codex/Claude CLI
+vulnerable/patched benchmark round trip are recorded in
+`docs/PHASE_5_MANUAL_VALIDATION.md`. Production-grade provider output adapters,
+composed-mode validation, parallel reconciliation, and the Claude Code plugin
+UX for provider-neutral primary selection remain pending.
 
 ## Goals
 
@@ -406,8 +410,10 @@ packages selected YAML agent knowledge and resolved source chunks, and backend
 generic/Claude/Codex CLI primary scanner runner plumbing. `screw-agents
 provider-scan` and MCP `run_provider_scan` expose fixture and opt-in CLI
 execution, with optional accumulation/finalization into normal
-`.screw/findings/` reports. Parallel reconciliation and live/manual
-round-trip validation are still pending.
+`.screw/findings/` reports. One Codex/Claude live benchmark round trip has
+passed for the MLflow MoreFixes SSTI vulnerable/patched pair. Parallel
+reconciliation, composed primary-plus-challenger validation, production
+provider adapters, and `/screw:scan` primary-provider UX are still pending.
 
 Required outcomes:
 

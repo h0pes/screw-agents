@@ -367,6 +367,17 @@ challenge, or reconcile. When `finalize: true`, it also accumulates the returned
 findings and writes normal `.screw/findings/` reports through
 `finalize_scan_results`.
 
+Manual live validation has passed for Codex and Claude CLI primary scans on one
+MLflow MoreFixes SSTI vulnerable/patched benchmark pair. Codex can satisfy the
+contract through strict structured output from `codex exec`; Claude CLI can
+produce the required structured findings, but production use needs a provider
+adapter that extracts `structured_output.findings` from Claude's JSON envelope.
+
+`provider-scan` is the backend/package CLI surface for provider-neutral primary
+scanning. The Claude plugin `/screw:scan` remains the user-facing scan command
+and already exposes challenger attachment with `--challenger`; provider-neutral
+primary selection has not yet been added to the `/screw:scan` UX.
+
 ### Trust And Adaptive Analysis
 
 | Tool | Purpose | Key inputs |
