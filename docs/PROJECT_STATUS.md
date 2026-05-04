@@ -775,7 +775,7 @@ Structured as a dependency graph with three parallel tracks converging at smoke 
 | Phase 3b | Adaptive Analysis & Learning Refinement | **Complete** — PR #4 (#10) 2026-04-18, PR #5 (#11) 2026-04-20, PR #6 (#12) 2026-04-23, Phase 3b-C2 2026-04-24, BACKLOG-PR6-22 (#14) 2026-04-24, T19-M D7 (#15) 2026-04-24, T-SCAN-REFACTOR final 2026-04-25 |
 | Phase 3c | Sandbox hardening sweep (seccomp filter + thread-safety + dedup) | **Deferred** — see `docs/DEFERRED_BACKLOG.md` §"Phase 3c (sandbox hardening follow-ups)" |
 | Phase 4 | Autoresearch & Self-Improvement | **Complete** — D-01 merged; D-02 calibration workflow, guardrails, failure payloads, accepted inclusions/exclusions, Wave C representative validation, focused runtime validation, and final signoff are recorded |
-| Phase 5 | Multi-LLM Challenger System | Pending — must ship all three modes: Claude primary/Codex challenger, Codex primary/Claude challenger, and parallel independent review with reconciliation |
+| Phase 5 | Multi-LLM Challenger System | Pending — planning in `docs/PHASE_5_PLAN.md`; must ship all three modes: Claude primary/Codex challenger, Codex primary/Claude challenger, and parallel independent review with reconciliation; provider and transport choices must remain configurable |
 | Phase 5.5 | Web application integration pilot | Pending — first external product integration target after Phase 5; start with the existing four accepted agents and wire orchestration/correlation/triage before broad agent expansion |
 | Phase 6 | Agent Expansion & Ecosystem | Pending — add CWE-1400 agents in small reviewed batches using Phase 4 calibration infrastructure, not a full-catalog big bang |
 | Phase 7 | screw.nvim Integration (scan commands, review-before-import, exclusions) | Pending — editor-native workflow after the web-app integration pilot unless product priority changes |
@@ -796,7 +796,11 @@ concrete failure-input payloads can be generated from controlled run output.
    provider and ship all three required modes: Claude primary/Codex challenger,
    Codex primary/Claude challenger, and parallel independent review with
    reconciliation. Preserve opt-in cost/privacy controls and provider-agnostic
-   interfaces for future LLMs.
+   interfaces for future LLMs. Provider configuration must allow future
+   assistants such as Gemini or local LLMs, and each provider should support
+   the user's available transport where possible: subscription-backed CLI/local
+   execution for Pro-plan users without API credits, or API execution for users
+   who explicitly allow API billing.
 2. **Phase 5.5 — web application integration pilot.** Treat the AppSec
    orchestration/correlation web app as the first external product integration
    target immediately after Phase 5. Start with the current four accepted
