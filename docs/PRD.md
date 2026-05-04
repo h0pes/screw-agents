@@ -1475,7 +1475,7 @@ screw-agents/
 │   │   ├── benchmark.py             # Benchmark runner + scoring
 │   │   └── mutations.py             # Mutation strategies
 │   └── challenger/
-│       ├── execution.py             # Dry-run and live CLI execution surfaces
+│       ├── execution.py             # Dry-run/live CLI execution for CLI + MCP
 │       ├── models.py                # Provider-neutral config/result contracts
 │       ├── orchestrator.py          # Required-mode control flow
 │       ├── providers.py             # Provider runners: fixture + CLI

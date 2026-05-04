@@ -273,6 +273,18 @@ Use `scan_agents` instead.
 | `check_exclusions` | Read project exclusions | `project_root`, `agent?` |
 | `aggregate_learning` | Build learning reports from exclusions | `project_root`, `report_type?` |
 
+### Challenger Execution
+
+| Tool | Purpose | Key inputs |
+|---|---|---|
+| `challenger_dry_run` | Run a fixture-only configured challenger mode and return JSON | `project_root`, `mode`, `run_id`, `session_id`, `agents`, `target`, `prompt`, `findings` |
+| `challenger_run` | Run an opt-in CLI-backed challenger mode and return JSON | `project_root`, `mode`, `run_id`, `session_id`, `agents`, `target`, `prompt`, `findings`, `timeout_seconds?` |
+
+`challenger_dry_run` refuses CLI, API, and local transports. `challenger_run`
+requires all selected-mode participants to use enabled `cli` transports and
+refuses fixture, API, and local transports. Both tools use the same structured
+result envelope as the package CLI commands.
+
 ### Trust And Adaptive Analysis
 
 | Tool | Purpose | Key inputs |
