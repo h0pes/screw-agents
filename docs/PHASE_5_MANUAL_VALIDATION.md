@@ -188,11 +188,13 @@ Conclusion: passed with a temporary Claude output-normalization adapter.
   vulnerable finding count `1`, patched finding count `0`, same CWE/location
   signal as truth evidence.
 - The package CLI and MCP/backend surface are validated for primary provider
-  execution, but the polished Claude Code plugin UX for provider-neutral
-  primary selection is still pending. `/screw:scan` remains the Claude Code
-  scan frontend and already supports challenger attachment; primary provider
-  selection should be exposed through `/screw:scan` or a clearly related plugin
-  command before Phase 5 closure.
+  execution, but the polished assistant-facing UX for provider-neutral primary
+  selection is still pending. `/screw:scan` is the universal scan command
+  contract that should be exposed consistently by Claude Code, Codex, Gemini,
+  local assistants, or future plugin hosts. The currently tracked Claude Code
+  plugin already supports challenger attachment; primary provider selection
+  should be exposed through `/screw:scan` or a clearly related assistant command
+  before Phase 5 closure.
 
 ## Fixture Provider-Scan CLI Round Trip
 
@@ -276,7 +278,7 @@ provider invocation.
 | Provider scan result accumulation/finalization | Passed | Fixture, Codex live, and Claude live outputs wrote `.screw/findings/` reports |
 | Primary plus challenger public round trip | Pending | Requires accumulation/finalization or explicit orchestration |
 | Parallel independent primary scans | Pending | P5-P5 |
-| `/screw:scan` provider-neutral primary UX | Pending | Backend exists; plugin UX still needs provider-primary selection |
+| `/screw:scan` provider-neutral primary UX | Pending | Backend exists; universal assistant command UX still needs provider-primary selection |
 
 ## Decision
 
@@ -285,5 +287,5 @@ public package CLI and MCP surfaces. Live Codex and Claude CLI primary scanning
 is validated on one real benchmark vulnerable/patched pair, including report
 finalization. Phase 5 is still not closure-ready because composed primary plus
 challenger flows, parallel independent scan reconciliation, production-grade
-provider output adapters, and the `/screw:scan` provider-primary UX have not
+provider output adapters, and the universal `/screw:scan` provider-primary UX have not
 been completed and manually validated.
