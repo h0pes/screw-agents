@@ -1474,7 +1474,7 @@ screw-agents/
 │   │   └── mutations.py             # Mutation strategies
 │   └── challenger/
 │       ├── models.py                # Provider-neutral config/result contracts
-│       ├── providers.py             # Future provider runner interface
+│       ├── providers.py             # Provider runner interface + fixture runner
 │       ├── codex_adapter.py         # Future OpenAI Codex implementation
 │       └── reconciliation.py        # Provider-neutral finding reconciliation
 │

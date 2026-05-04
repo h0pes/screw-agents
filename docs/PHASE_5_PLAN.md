@@ -1,7 +1,8 @@
 # Phase 5 Plan - Multi-LLM Challenger System
 
 > Status: in progress. P5-1 challenger config/model contracts are merged;
-> P5-2 reconciliation engine is implemented.
+> P5-2 reconciliation engine is implemented; P5-3 provider runner interface
+> and fixture runner are implemented.
 > Last updated: 2026-05-04.
 
 Phase 5 adds multi-LLM secure-code-review execution without making Claude,
@@ -248,6 +249,8 @@ Status: implemented.
 
 ### P5-3 - Provider Runner Interface
 
+Status: implemented.
+
 - Define an adapter interface for provider execution.
 - Support dry-run and fixture-backed runners first.
 - Add CLI transport adapters before API transports so Pro/subscription-backed
@@ -258,6 +261,15 @@ Status: implemented.
   - which environment variables it reads;
   - which command it invokes, if any;
   - what budget controls it can enforce.
+- Current implementation:
+  - `src/screw_agents/challenger/providers.py` defines provider runner
+    capability metadata, guardrail preflight reports, the provider runner
+    protocol, and a deterministic in-memory `FixtureProviderRunner`.
+  - Fixture runs never invoke external commands, APIs, or local model
+    endpoints.
+  - `tests/test_challenger_providers.py` validates capability extraction,
+    API-billing/source-sharing guardrails, fixture isolation, assessment
+    filtering, and reconciliation compatibility.
 
 ### P5-4 - Required Modes
 
