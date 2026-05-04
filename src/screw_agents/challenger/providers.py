@@ -1,13 +1,19 @@
-"""Provider runner contracts and fixture runner for Phase 5.
+"""Provider runner contracts and provider runners for Phase 5.
 
-This module defines the non-live provider boundary. Real CLI/API adapters will
-arrive in later Phase 5 slices; the fixture runner here proves the contract and
-guardrail plumbing without invoking external commands or providers.
+This module defines the provider boundary. Fixture runners prove orchestration
+without invoking external providers; CLI runners provide the first
+subscription-backed live transport path without requiring API credits.
 """
 
 from __future__ import annotations
 
-from typing import Protocol
+import json
+import os
+import shlex
+import subprocess
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
+from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -63,6 +69,28 @@ class ProviderRunner(Protocol):
 
     def run(self, run_input: ChallengerRunInput) -> ChallengerRunResult:
         """Run provider analysis and return structured result data."""
+
+
+@dataclass(frozen=True)
+class CliInvocation:
+    """One shell-free CLI invocation request."""
+
+    argv: list[str]
+    stdin: str
+    env: Mapping[str, str]
+    timeout_seconds: int
+
+
+@dataclass(frozen=True)
+class CliCommandResult:
+    """Normalized CLI process result."""
+
+    returncode: int
+    stdout: str = ""
+    stderr: str = ""
+
+
+CliCommandRunner = Callable[[CliInvocation], CliCommandResult]
 
 
 def capabilities_from_transport(
@@ -174,3 +202,238 @@ class FixtureProviderRunner:
             },
             guardrails={"fixture_runner": True},
         )
+
+
+class CliProviderRunner:
+    """Provider runner for subscription-backed CLI transports.
+
+    The runner invokes a configured command without ``shell=True`` and sends the
+    challenger prompt over stdin. The command is expected to emit JSON with an
+    optional ``assessments`` list and optional ``findings`` list. Future
+    provider-specific prompt envelopes can sit above this class while preserving
+    the same command, guardrail, and result behavior.
+    """
+
+    def __init__(
+        self,
+        *,
+        participant: ChallengerParticipant,
+        transport: ChallengerTransportConfig,
+        command_runner: CliCommandRunner | None = None,
+        timeout_seconds: int = 120,
+        env: Mapping[str, str] | None = None,
+        unset_env_vars: tuple[str, ...] = (),
+    ) -> None:
+        if transport.kind != "cli":
+            raise ValueError("CliProviderRunner requires a cli transport")
+        if not transport.command:
+            raise ValueError("CliProviderRunner requires transport.command")
+        if timeout_seconds < 1:
+            raise ValueError("timeout_seconds must be >= 1")
+
+        self._participant = participant
+        self._transport = transport
+        self._command_runner = command_runner or _subprocess_command_runner
+        self._timeout_seconds = timeout_seconds
+        self._base_env = dict(env) if env is not None else dict(os.environ)
+        self._unset_env_vars = unset_env_vars
+        self._capabilities = capabilities_from_transport(participant, transport)
+
+    @property
+    def capabilities(self) -> ProviderRunnerCapabilities:
+        return self._capabilities
+
+    def preflight(self, consent: ChallengerConsent) -> ProviderGuardrailReport:
+        return preflight_capabilities(self.capabilities, consent)
+
+    def run(self, run_input: ChallengerRunInput) -> ChallengerRunResult:
+        argv = shlex.split(self._transport.command or "")
+        if not argv:
+            raise ValueError("transport.command must include an executable")
+
+        invocation = CliInvocation(
+            argv=argv,
+            stdin=run_input.prompt,
+            env=self._execution_env(),
+            timeout_seconds=self._timeout_seconds,
+        )
+        result = self._command_runner(invocation)
+        if result.returncode != 0:
+            return self._failed_result(run_input, result)
+
+        return self._successful_result(run_input, result)
+
+    def _execution_env(self) -> dict[str, str]:
+        env = dict(self._base_env)
+        for name in self._unset_env_vars:
+            env.pop(name, None)
+        return env
+
+    def _successful_result(
+        self,
+        run_input: ChallengerRunInput,
+        command_result: CliCommandResult,
+    ) -> ChallengerRunResult:
+        payload = _parse_cli_payload(command_result.stdout)
+        assessments = [
+            _assessment_from_payload(
+                item,
+                participant=self._participant,
+            )
+            for item in payload.get("assessments", [])
+        ]
+        findings = _payload_findings(payload) or run_input.findings
+        findings_for_reconciliation = _finding_pool(findings, assessments)
+
+        return ChallengerRunResult(
+            run_id=run_input.run_id,
+            mode=run_input.metadata.get("mode", "cli"),
+            assessments=assessments,
+            reconciliations=reconcile_findings(
+                findings_for_reconciliation,
+                assessments,
+                primary_provider=run_input.metadata.get("primary_provider"),
+            ),
+            provider_metadata={
+                self._participant.provider: {
+                    **self.capabilities.model_dump(mode="json"),
+                    "returncode": command_result.returncode,
+                }
+            },
+            guardrails={
+                "cli_runner": True,
+                "command": self.capabilities.command,
+            },
+        )
+
+    def _failed_result(
+        self,
+        run_input: ChallengerRunInput,
+        command_result: CliCommandResult,
+    ) -> ChallengerRunResult:
+        assessment = ChallengerAssessment(
+            provider=self._participant.provider,
+            transport=self._participant.transport,
+            role=self._participant.role,
+            exploitability="unsupported",
+            severity="unsupported",
+            remediation="unsupported",
+            confidence="low",
+            reasoning=_failure_reason(command_result),
+        )
+        return ChallengerRunResult(
+            run_id=run_input.run_id,
+            mode=run_input.metadata.get("mode", "cli"),
+            assessments=[assessment],
+            provider_metadata={
+                self._participant.provider: {
+                    **self.capabilities.model_dump(mode="json"),
+                    "returncode": command_result.returncode,
+                }
+            },
+            guardrails={
+                "cli_runner": True,
+                "command": self.capabilities.command,
+                "failed": True,
+            },
+        )
+
+
+class ClaudeCliProviderRunner(CliProviderRunner):
+    """Claude CLI runner that avoids Anthropic API-key billing by default."""
+
+    def __init__(
+        self,
+        *,
+        participant: ChallengerParticipant,
+        transport: ChallengerTransportConfig,
+        command_runner: CliCommandRunner | None = None,
+        timeout_seconds: int = 120,
+        env: Mapping[str, str] | None = None,
+    ) -> None:
+        super().__init__(
+            participant=participant,
+            transport=transport,
+            command_runner=command_runner,
+            timeout_seconds=timeout_seconds,
+            env=env,
+            unset_env_vars=("ANTHROPIC_API_KEY",),
+        )
+
+
+def _subprocess_command_runner(invocation: CliInvocation) -> CliCommandResult:
+    # Provider commands come from explicit challenger transport config and run
+    # as argv without a shell.
+    completed = subprocess.run(  # noqa: S603
+        invocation.argv,
+        input=invocation.stdin,
+        env=dict(invocation.env),
+        capture_output=True,
+        text=True,
+        timeout=invocation.timeout_seconds,
+        check=False,
+    )
+    return CliCommandResult(
+        returncode=completed.returncode,
+        stdout=completed.stdout,
+        stderr=completed.stderr,
+    )
+
+
+def _parse_cli_payload(stdout: str) -> dict[str, Any]:
+    if not stdout.strip():
+        return {}
+    try:
+        payload = json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        raise ValueError("CLI provider output must be JSON") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("CLI provider output must be a JSON object")
+    return payload
+
+
+def _assessment_from_payload(
+    item: Any,
+    *,
+    participant: ChallengerParticipant,
+) -> ChallengerAssessment:
+    if not isinstance(item, dict):
+        raise ValueError("CLI assessment entries must be JSON objects")
+    data = {
+        "provider": participant.provider,
+        "transport": participant.transport,
+        "role": participant.role,
+        **item,
+    }
+    return ChallengerAssessment.model_validate(data)
+
+
+def _payload_findings(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_findings = payload.get("findings", [])
+    if raw_findings is None:
+        return []
+    if not isinstance(raw_findings, list):
+        raise ValueError("CLI findings payload must be a list")
+    findings: list[dict[str, Any]] = []
+    for finding in raw_findings:
+        if not isinstance(finding, dict):
+            raise ValueError("CLI finding entries must be JSON objects")
+        findings.append(finding)
+    return findings
+
+
+def _finding_pool(
+    findings: list[dict[str, Any]],
+    assessments: list[ChallengerAssessment],
+) -> list[dict[str, Any]]:
+    pool = list(findings)
+    for assessment in assessments:
+        pool.extend(assessment.additional_findings)
+    return pool
+
+
+def _failure_reason(command_result: CliCommandResult) -> str:
+    stderr = command_result.stderr.strip()
+    stdout = command_result.stdout.strip()
+    detail = stderr or stdout or "no output"
+    return f"CLI provider exited with {command_result.returncode}: {detail}"

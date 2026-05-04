@@ -3,7 +3,8 @@
 > Status: in progress. P5-1 challenger config/model contracts are merged;
 > P5-2 reconciliation engine is implemented; P5-3 provider runner interface
 > and fixture runner are implemented; P5-4 required-mode orchestration is
-> implemented with fixture-backed runners.
+> implemented with fixture-backed runners; subscription-backed CLI runner
+> plumbing and Claude CLI API-key isolation are implemented.
 > Last updated: 2026-05-04.
 
 Phase 5 adds multi-LLM secure-code-review execution without making Claude,
@@ -265,12 +266,23 @@ Status: implemented.
 - Current implementation:
   - `src/screw_agents/challenger/providers.py` defines provider runner
     capability metadata, guardrail preflight reports, the provider runner
-    protocol, and a deterministic in-memory `FixtureProviderRunner`.
+    protocol, a deterministic in-memory `FixtureProviderRunner`, a generic
+    `CliProviderRunner`, and `ClaudeCliProviderRunner`.
   - Fixture runs never invoke external commands, APIs, or local model
     endpoints.
+  - CLI runners invoke configured commands as argv without `shell=True`, pass
+    the provider prompt on stdin, parse structured JSON output, and convert
+    non-zero exits into unsupported assessments.
+  - `ClaudeCliProviderRunner` removes `ANTHROPIC_API_KEY` from its execution
+    environment so subscription-backed Claude CLI use does not accidentally
+    switch to API-key billing.
   - `tests/test_challenger_providers.py` validates capability extraction,
     API-billing/source-sharing guardrails, fixture isolation, assessment
     filtering, and reconciliation compatibility.
+  - `tests/test_challenger_cli_providers.py` validates shell-free command
+    invocation, structured output parsing, source-sharing preflight,
+    failure-to-unsupported behavior, invalid output rejection, and Claude
+    API-key environment isolation.
 
 ### P5-4 - Required Modes
 
@@ -320,7 +332,9 @@ Status: implemented.
 - Add tests that subscription-backed CLI transports do not require API key
   environment variables.
 - Add tests that Claude CLI benchmark/executor paths keep `ANTHROPIC_API_KEY`
-  unset unless an API transport is explicitly selected.
+  unset unless an API transport is explicitly selected. Current coverage
+  verifies this for the Phase 5 Claude CLI provider runner; benchmark/executor
+  integration remains pending.
 - Use fixture runners for mode orchestration before invoking real assistants.
 - Run the full suite before merging implementation PRs.
 - Before opening a Phase 5 PR, review the durable docs listed in
