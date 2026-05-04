@@ -34,6 +34,7 @@ from screw_agents.challenger.reconciliation import (
     finding_key,
     reconcile_findings,
 )
+from screw_agents.challenger.runner_factory import build_runners_for_mode
 
 __all__ = [
     "ChallengerAssessment",
@@ -55,6 +56,7 @@ __all__ = [
     "ProviderGuardrailReport",
     "ProviderRunner",
     "ProviderRunnerCapabilities",
+    "build_runners_for_mode",
     "capabilities_from_transport",
     "finding_key",
     "participant_label",

@@ -4,7 +4,8 @@
 > P5-2 reconciliation engine is implemented; P5-3 provider runner interface
 > and fixture runner are implemented; P5-4 required-mode orchestration is
 > implemented with fixture-backed runners; subscription-backed CLI runner
-> plumbing plus Claude/Codex CLI API-key isolation are implemented.
+> plumbing plus Claude/Codex CLI API-key isolation are implemented; runner
+> factory wiring from config is implemented.
 > Last updated: 2026-05-04.
 
 Phase 5 adds multi-LLM secure-code-review execution without making Claude,
@@ -299,14 +300,24 @@ Status: implemented.
 - Current implementation:
   - `src/screw_agents/challenger/orchestrator.py` runs one configured mode
     through explicitly injected provider runners.
+  - `src/screw_agents/challenger/runner_factory.py` builds those runner maps
+    from `ChallengerConfig` for a selected mode.
   - The orchestrator supports primary/challenger and parallel participant
     roles without provider-specific branches.
+  - The runner factory selects `ClaudeCliProviderRunner`,
+    `CodexCliProviderRunner`, `FixtureProviderRunner`, or generic
+    `CliProviderRunner` based on provider/transport configuration.
+  - API and local transports are rejected with clear errors until their
+    adapters exist.
   - All participants are preflighted before any runner executes; if cost or
     privacy guardrails block a participant, no runner is invoked and the
     result records structured guardrail blockers.
   - `tests/test_challenger_orchestrator.py` validates Claude-primary,
     Codex-primary, and parallel fixture modes, plus guardrail blocks, missing
     runners, and disabled modes.
+  - `tests/test_challenger_runner_factory.py` validates config-driven runner
+    selection, required-mode wiring, fixture payload wiring, API rejection, and
+    injectable CLI command execution without live provider invocation.
 
 ### P5-5 - Output And MCP Surface
 

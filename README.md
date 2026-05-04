@@ -333,6 +333,8 @@ Upcoming:
   - Subscription-backed CLI runner plumbing is implemented, including Claude
     and Codex CLI environment isolation that unsets API-key variables for
     non-API use.
+  - Config-driven runner factory wiring is implemented; user-facing execution
+    commands are the next Phase 5 step.
   - Provider-neutral adapters so Gemini, local LLMs, or future assistants can
     be added without changing agent YAML.
   - Transport choice per provider: subscription-backed CLI/local execution or
@@ -366,7 +368,7 @@ uv run ruff check .
 The current full-suite baseline after Phase 4 signoff is:
 
 ```text
-1147 passed, 9 skipped
+1153 passed, 9 skipped
 ```
 
 ## Documentation Map
