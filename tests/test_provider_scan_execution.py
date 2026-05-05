@@ -6,11 +6,12 @@ from pathlib import Path
 import pytest
 import yaml
 
-from screw_agents.challenger.models import ChallengerTransportConfig
 from screw_agents.cli import main
 from screw_agents.engine import ScanEngine
-from screw_agents.primary_scan.execution import run_provider_scan
-from screw_agents.primary_scan.execution import run_provider_scan_workflow
+from screw_agents.primary_scan.execution import (
+    run_provider_scan,
+    run_provider_scan_workflow,
+)
 from screw_agents.primary_scan.providers import (
     CliPrimaryScanCommandResult,
     CliPrimaryScanInvocation,

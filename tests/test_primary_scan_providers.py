@@ -156,6 +156,41 @@ def test_claude_cli_primary_scan_runner_unsets_anthropic_api_key():
     assert runner_backend.invocations[0].env["PATH"] == "/usr/bin"
 
 
+def test_claude_cli_primary_scan_runner_extracts_structured_output_findings():
+    participant = _participant(provider="claude")
+    envelope = {
+        "type": "result",
+        "subtype": "success",
+        "is_error": False,
+        "session_id": "claude-session-1",
+        "total_cost_usd": 0,
+        "result": "I found one issue.",
+        "structured_output": {"findings": [_finding_dict()]},
+    }
+    runner_backend = RecordingCommandRunner(
+        CliPrimaryScanCommandResult(returncode=0, stdout=json.dumps(envelope))
+    )
+    runner = ClaudeCliPrimaryScanRunner(
+        participant=participant,
+        transport=_transport(command="claude -p --output-format json"),
+        command_runner=runner_backend,
+        env={"ANTHROPIC_API_KEY": "must-not-leak", "PATH": "/usr/bin"},
+    )
+
+    result = runner.run(_scan_input(participant))
+
+    assert result.findings[0].id == "sqli-001"
+    assert "ANTHROPIC_API_KEY" not in runner_backend.invocations[0].env
+    assert result.provider_metadata["claude"]["envelope"] == {
+        "type": "result",
+        "subtype": "success",
+        "is_error": False,
+        "session_id": "claude-session-1",
+        "total_cost_usd": 0,
+    }
+    assert result.provider_metadata["claude"]["returncode"] == 0
+
+
 def test_codex_cli_primary_scan_runner_unsets_openai_api_key():
     participant = _participant(provider="codex")
     runner_backend = RecordingCommandRunner(
@@ -173,6 +208,69 @@ def test_codex_cli_primary_scan_runner_unsets_openai_api_key():
     assert runner_backend.invocations[0].argv == ["codex", "exec", "--json"]
     assert "OPENAI_API_KEY" not in runner_backend.invocations[0].env
     assert runner_backend.invocations[0].env["PATH"] == "/usr/bin"
+
+
+def test_codex_cli_primary_scan_runner_accepts_strict_schema_command():
+    participant = _participant(provider="codex")
+    command = (
+        "codex exec --skip-git-repo-check --sandbox read-only "
+        "--output-schema /tmp/primary-scan-output.schema.json -"
+    )
+    runner_backend = RecordingCommandRunner(
+        CliPrimaryScanCommandResult(
+            returncode=0,
+            stdout=json.dumps({"findings": [_finding_dict()]}),
+        )
+    )
+    runner = CodexCliPrimaryScanRunner(
+        participant=participant,
+        transport=_transport(command=command),
+        command_runner=runner_backend,
+        env={"OPENAI_API_KEY": "must-not-leak", "PATH": "/usr/bin"},
+    )
+
+    result = runner.run(_scan_input(participant))
+
+    assert runner_backend.invocations[0].argv == [
+        "codex",
+        "exec",
+        "--skip-git-repo-check",
+        "--sandbox",
+        "read-only",
+        "--output-schema",
+        "/tmp/primary-scan-output.schema.json",
+        "-",
+    ]
+    assert result.findings[0].id == "sqli-001"
+    assert result.provider_metadata["codex"]["command"] == command
+
+
+def test_codex_cli_primary_scan_runner_extracts_jsonl_final_message():
+    participant = _participant(provider="codex")
+    stdout = "\n".join(
+        [
+            json.dumps({"type": "session.started", "session_id": "codex-session-1"}),
+            json.dumps(
+                {
+                    "type": "agent_message",
+                    "message": json.dumps({"findings": [_finding_dict()]}),
+                }
+            ),
+        ]
+    )
+    runner = CodexCliPrimaryScanRunner(
+        participant=participant,
+        transport=_transport(),
+        command_runner=RecordingCommandRunner(
+            CliPrimaryScanCommandResult(returncode=0, stdout=stdout)
+        ),
+        env={"OPENAI_API_KEY": "must-not-leak", "PATH": "/usr/bin"},
+    )
+
+    result = runner.run(_scan_input(participant))
+
+    assert result.findings[0].id == "sqli-001"
+    assert result.guardrails["cli_runner"] is True
 
 
 def test_cli_primary_scan_runner_returns_failed_result_on_nonzero_exit():

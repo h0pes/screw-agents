@@ -76,8 +76,9 @@ Implemented today:
   knowledge, resolved source chunks, target metadata, and the shared `Finding`
   output schema.
 - Backend generic/Claude/Codex CLI primary scanner runner plumbing with
-  shell-free invocation, structured stdin payloads, validated `Finding` JSON
-  output, and API-key stripping for subscription-backed CLI use.
+  shell-free invocation, structured stdin payloads, provider-specific output
+  normalization, validated `Finding` JSON output, and API-key stripping for
+  subscription-backed CLI use.
 - Public `provider-scan` package CLI and `run_provider_scan` MCP tool for
   fixture and opt-in CLI provider-neutral primary scan execution.
 - Optional provider-scan finalization path that accumulates returned findings
@@ -89,9 +90,8 @@ Implemented today:
 
 Not yet implemented:
 
-- Production-grade provider-specific CLI output adapters. The live Claude
-  validation used a temporary adapter to extract `structured_output.findings`
-  from the Claude CLI JSON envelope.
+- Additional provider-specific primary CLI adapters beyond the implemented
+  generic, Claude, and Codex runners.
 - Universal `/screw:scan` UX for choosing a provider-neutral primary scanner.
   `/screw:scan` challenger attachment is implemented in the current Claude Code
   plugin; provider primary selection is still backend/package-CLI first and
@@ -393,11 +393,11 @@ Upcoming:
   - `/screw:scan` exposes the same explicit attachment path through
     `--challenger <mode> --challenger-execution dry_run|cli`.
   - Provider-neutral scan input assembly, backend CLI primary scanner runner
-    plumbing, `provider-scan`, MCP `run_provider_scan`, and optional
-    provider-scan report finalization are implemented; one live Codex/Claude
-    vulnerable/patched benchmark round trip is recorded, while composed-mode
-    validation and universal `/screw:scan` primary-provider UX remain pending
-    before Phase 5 closure.
+    plumbing, production Claude/Codex output normalization, `provider-scan`,
+    MCP `run_provider_scan`, and optional provider-scan report finalization are
+    implemented; one live Codex/Claude vulnerable/patched benchmark round trip
+    is recorded, while composed-mode validation and universal `/screw:scan`
+    primary-provider UX remain pending before Phase 5 closure.
   - Provider-neutral adapters so Gemini, local LLMs, or future assistants can
     be added without changing agent YAML.
   - Transport choice per provider: subscription-backed CLI/local execution or
