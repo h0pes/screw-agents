@@ -299,6 +299,8 @@ def test_provider_scan_tool_is_registered() -> None:
     names = {tool["name"] for tool in _engine().list_tool_definitions()}
 
     assert "run_provider_scan" in names
+    assert "run_composed_provider_scan" in names
+    assert "run_parallel_provider_scan" in names
 
 
 def test_provider_scan_cli_fixture_outputs_json(
@@ -604,3 +606,65 @@ def test_parallel_provider_scan_workflow_marks_severity_disputes(
 
     assert result["reconciliations"][0]["status"] == "disputed"
     assert result["reconciliations"][0]["agreed_severity"] is None
+
+
+def test_composed_provider_scan_mcp_tool_fixture(tmp_path: Path) -> None:
+    _write_composed_config(
+        tmp_path,
+        primary_provider="codex",
+        challenger_provider="claude",
+    )
+
+    result = _dispatch_tool(
+        _engine(),
+        "run_composed_provider_scan",
+        {
+            "project_root": str(tmp_path),
+            "primary_provider": "codex",
+            "primary_transport": "fixture",
+            "primary_execution": "fixture",
+            "challenger_mode": "primary_challenger",
+            "challenger_execution": "dry_run",
+            "run_id": "run-1",
+            "session_id": "session-1",
+            "agents": ["sqli"],
+            "target": _target(tmp_path),
+            "fixture_findings": [_finding_dict()],
+            "formats": ["json"],
+        },
+    )
+
+    assert result["mode"]["type"] == "primary_challenger"
+    assert result["primary_scan_result"]["provider"] == "codex"
+    assert result["challenger_results"][0]["mode"] == "primary_challenger"
+
+
+def test_parallel_provider_scan_mcp_tool_fixture(tmp_path: Path) -> None:
+    _write_composed_config(
+        tmp_path,
+        primary_provider="claude",
+        challenger_provider="codex",
+    )
+
+    result = _dispatch_tool(
+        _engine(),
+        "run_parallel_provider_scan",
+        {
+            "project_root": str(tmp_path),
+            "participants": [
+                {"provider": "claude", "transport": "fixture", "execution": "fixture"},
+                {"provider": "codex", "transport": "fixture", "execution": "fixture"},
+            ],
+            "run_id": "parallel-run",
+            "session_id": "parallel-session",
+            "agents": ["sqli"],
+            "target": _target(tmp_path),
+            "fixture_findings_by_provider": {
+                "claude": [_finding_variant(finding_id="claude-sqli-001")],
+                "codex": [_finding_variant(finding_id="codex-sqli-001")],
+            },
+        },
+    )
+
+    assert result["mode"]["type"] == "parallel"
+    assert result["reconciliations"][0]["status"] == "agreed"

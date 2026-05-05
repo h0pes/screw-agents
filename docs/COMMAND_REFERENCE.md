@@ -240,7 +240,7 @@ claude --plugin-dir ./plugins/screw
 Run security review with one or more agents.
 
 ```text
-/screw:scan <scope-spec> [target] [--adaptive | --no-confirm] [--thoroughness standard|deep] [--format json|sarif|markdown|csv] [--challenger MODE --challenger-execution dry_run|cli]
+/screw:scan <scope-spec> [target] [--adaptive | --no-confirm] [--thoroughness standard|deep] [--format json|sarif|markdown|csv] [--primary-provider PROVIDER --primary-transport TRANSPORT --primary-execution fixture|cli] [--parallel-providers provider:transport:execution,...] [--challenger MODE --challenger-execution dry_run|cli]
 ```
 
 Scope forms:
@@ -262,14 +262,27 @@ Options:
 | `--no-confirm` | flag | false | Skip pre-execution confirmation for CI/non-interactive use |
 | `--thoroughness` | `standard`, `deep` | `standard` | Scan depth passed to agent prompts |
 | `--format` | `json`, `markdown`, `csv`, `sarif` | JSON + Markdown + CSV | Restrict output to one format |
+| `--primary-provider` | configured provider name | disabled | Explicitly choose a provider-neutral first-pass scanner |
+| `--primary-transport` | configured transport name | n/a | Required with `--primary-provider` |
+| `--primary-execution` | `fixture`, `cli` | n/a | Required with `--primary-provider`; selects fixture dry-run or opt-in live CLI primary execution |
+| `--parallel-providers` | `provider:transport:execution,...` | disabled | Run two or more independent provider-neutral primary scans and reconcile results |
 | `--challenger` | configured mode name | disabled | Explicitly attach Phase 5 challenger review during finalization |
 | `--challenger-execution` | `dry_run`, `cli` | n/a | Required with `--challenger`; selects fixture dry-run or opt-in live CLI execution |
 | `--help` | flag | n/a | Print command help without scanning |
 
 `--adaptive` and `--no-confirm` are mutually exclusive.
+`--primary-provider`, `--primary-transport`, and `--primary-execution` must be
+supplied together. Primary-provider mode is currently mutually exclusive with
+`--adaptive`; it routes through provider scan tools rather than the legacy
+subagent scan path.
+`--parallel-providers` is mutually exclusive with primary-provider flags,
+challenger flags, and `--adaptive`.
 `--challenger` and `--challenger-execution` must be supplied together. The
 slash command does not infer a default challenger mode, does not default to
 live CLI execution, and does not expose API/local challenger transports.
+Provider-primary execution likewise does not infer a default provider or
+transport, and does not expose API/local primary transports until adapters
+exist.
 
 Target forms include paths, globs, git diffs, commit ranges, pull requests,
 classes, functions, and line ranges as supported by the MCP target resolver.
@@ -282,7 +295,10 @@ Examples:
 /screw:scan full . --no-confirm
 /screw:scan agents:sqli,xss src/api/ --format sarif
 /screw:scan sqli src/api/ --adaptive
+/screw:scan sqli src/api/ --primary-provider codex --primary-transport cli --primary-execution cli
 /screw:scan sqli src/api/ --challenger claude_primary_codex_challenger --challenger-execution dry_run
+/screw:scan sqli src/api/ --primary-provider codex --primary-transport cli --primary-execution cli --challenger codex_primary_claude_challenger --challenger-execution cli
+/screw:scan sqli src/api/ --parallel-providers claude:cli:cli,codex:cli:cli
 ```
 
 ### `/screw:learn-report`
@@ -320,6 +336,8 @@ The MCP server exposes these tools to clients.
 | `scan_agents` | Primary paginated scan primitive for explicit agents | `agents`, `target`, `project_root?`, `cursor?`, `page_size?`, `thoroughness?` |
 | `scan_domain` | Convenience wrapper for all agents in one domain | `domain`, `target`, `project_root?`, `cursor?`, `page_size?`, `thoroughness?` |
 | `run_provider_scan` | Provider-neutral first-pass scan execution through fixture or opt-in CLI transports | `project_root`, `provider`, `transport`, `execution`, `run_id`, `session_id`, `agents`, `target`, `thoroughness?`, `timeout_seconds?`, `fixture_findings?`, `finalize?`, `formats?` |
+| `run_composed_provider_scan` | Provider-neutral primary scan followed by configured challenger review/finalization | `project_root`, `primary_provider`, `primary_transport`, `primary_execution`, `challenger_mode`, `challenger_execution`, `run_id`, `session_id`, `agents`, `target`, `thoroughness?`, `primary_timeout_seconds?`, `challenger_timeout_seconds?`, `fixture_findings?`, `formats?` |
+| `run_parallel_provider_scan` | Independent provider-neutral primary scans with agreed/disputed/unique reconciliation | `project_root`, `participants`, `run_id`, `session_id`, `agents`, `target`, `thoroughness?`, `timeout_seconds?`, `fixture_findings_by_provider?` |
 
 Retired scan tools:
 
@@ -370,6 +388,8 @@ result envelope as the package CLI commands.
 | Tool | Purpose | Key inputs |
 |---|---|---|
 | `run_provider_scan` | Run a provider-neutral primary scan and return `PrimaryScanResult` JSON | `project_root`, `provider`, `transport`, `execution`, `run_id`, `session_id`, `agents`, `target` |
+| `run_composed_provider_scan` | Run provider-neutral primary scanning, accumulate/finalize findings, and attach challenger review | `project_root`, `primary_provider`, `primary_transport`, `primary_execution`, `challenger_mode`, `challenger_execution`, `run_id`, `session_id`, `agents`, `target` |
+| `run_parallel_provider_scan` | Run multiple provider-neutral primary scans and return reconciliation metadata | `project_root`, `participants`, `run_id`, `session_id`, `agents`, `target` |
 
 `run_provider_scan` supports `execution: "fixture"` and opt-in
 `execution: "cli"` only. It rejects API/local transports until adapters exist.
@@ -377,6 +397,12 @@ By default it returns validated findings for callers to inspect, accumulate,
 challenge, or reconcile. When `finalize: true`, it also accumulates the returned
 findings and writes normal `.screw/findings/` reports through
 `finalize_scan_results`.
+
+`run_composed_provider_scan` supports the two required primary/challenger
+directions through configured modes, for example Codex primary with Claude
+challenger and Claude primary with Codex challenger. `run_parallel_provider_scan`
+requires at least two participants, runs them independently from the same
+YAML-derived scan input, and reports agreed, disputed, and unique findings.
 
 Manual live validation has passed for Codex and Claude CLI primary scans on one
 MLflow MoreFixes SSTI vulnerable/patched benchmark pair. Codex can satisfy the
@@ -387,9 +413,8 @@ envelope.
 
 `provider-scan` is the backend/package CLI surface for provider-neutral primary
 scanning. `/screw:scan` is the universal assistant-facing scan command and
-already exposes challenger attachment with `--challenger` in the current Claude
-Code plugin. Provider-neutral primary selection has not yet been added to the
-portable `/screw:scan` UX.
+now exposes provider-neutral primary selection, primary-plus-challenger
+composition, and parallel provider scan reconciliation through explicit flags.
 
 ### Trust And Adaptive Analysis
 

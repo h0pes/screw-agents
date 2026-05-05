@@ -2930,6 +2930,28 @@ class ScanEngine:
             ),
             "input_schema": _provider_scan_schema(),
         })
+        tools.append({
+            "name": "run_composed_provider_scan",
+            "description": (
+                "Run a provider-neutral primary scan, accumulate/finalize the "
+                "returned findings, and attach configured Phase 5 challenger "
+                "review through the normal report path. Supports fixture and "
+                "opt-in CLI primary execution; challenger execution is dry_run "
+                "or cli."
+            ),
+            "input_schema": _composed_provider_scan_schema(),
+        })
+        tools.append({
+            "name": "run_parallel_provider_scan",
+            "description": (
+                "Run independent provider-neutral primary scans with multiple "
+                "configured providers and return provider-keyed findings plus "
+                "agreed/disputed/unique reconciliation summaries. Supports "
+                "fixture and opt-in CLI execution; API and local transports "
+                "remain rejected until adapters exist."
+            ),
+            "input_schema": _parallel_provider_scan_schema(),
+        })
 
         # Phase 2: format_output
         tools.append({
@@ -3979,6 +4001,126 @@ def _provider_scan_schema() -> dict[str, Any]:
             "provider",
             "transport",
             "execution",
+            "run_id",
+            "session_id",
+            "agents",
+            "target",
+        ],
+    }
+
+
+def _composed_provider_scan_schema() -> dict[str, Any]:
+    """JSON Schema for primary-provider plus challenger execution."""
+    schema = _provider_scan_schema()
+    properties = dict(schema["properties"])
+    properties["primary_provider"] = properties.pop("provider")
+    properties["primary_transport"] = properties.pop("transport")
+    properties["primary_execution"] = properties.pop("execution")
+    properties["primary_timeout_seconds"] = properties.pop("timeout_seconds")
+    properties.pop("finalize", None)
+    properties["challenger_mode"] = {
+        "type": "string",
+        "description": "Configured Phase 5 challenger mode to attach.",
+    }
+    properties["challenger_execution"] = {
+        "type": "string",
+        "enum": ["dry_run", "cli"],
+        "description": "Challenger execution surface.",
+    }
+    properties["challenger_timeout_seconds"] = {
+        "type": "integer",
+        "minimum": 1,
+        "default": 120,
+        "description": "Timeout for opt-in live CLI challenger runs.",
+    }
+    properties["challenger_prompt"] = {
+        "type": ["string", "null"],
+        "description": "Optional prompt passed to challenger runners.",
+    }
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": properties,
+        "required": [
+            "project_root",
+            "primary_provider",
+            "primary_transport",
+            "primary_execution",
+            "challenger_mode",
+            "challenger_execution",
+            "run_id",
+            "session_id",
+            "agents",
+            "target",
+        ],
+    }
+
+
+def _parallel_provider_scan_schema() -> dict[str, Any]:
+    """JSON Schema for parallel provider-neutral primary scan execution."""
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "project_root": {
+                "type": "string",
+                "description": "Absolute path to the project root containing .screw/config.yaml.",
+            },
+            "participants": {
+                "type": "array",
+                "minItems": 2,
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "provider": {"type": "string"},
+                        "transport": {"type": "string"},
+                        "execution": {
+                            "type": "string",
+                            "enum": ["fixture", "cli"],
+                        },
+                    },
+                    "required": ["provider", "transport", "execution"],
+                },
+                "description": (
+                    "Parallel primary scan participants, each as provider, "
+                    "transport, and execution."
+                ),
+            },
+            "run_id": {
+                "type": "string",
+                "description": "Run identifier prefix recorded in provider results.",
+            },
+            "session_id": {
+                "type": "string",
+                "description": "Session identifier prefix recorded in provider results.",
+            },
+            "agents": {
+                "type": "array",
+                "items": {"type": "string"},
+                "minItems": 1,
+                "uniqueItems": True,
+            },
+            "target": _target_schema(),
+            "thoroughness": _thoroughness_schema(),
+            "timeout_seconds": {
+                "type": "integer",
+                "minimum": 1,
+                "default": 120,
+                "description": "Per-provider CLI timeout in seconds.",
+            },
+            "fixture_findings_by_provider": {
+                "type": ["object", "null"],
+                "additionalProperties": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                },
+                "description": "Optional fixture findings keyed by provider.",
+            },
+        },
+        "required": [
+            "project_root",
+            "participants",
             "run_id",
             "session_id",
             "agents",

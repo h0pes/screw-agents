@@ -190,6 +190,37 @@ class TestNewToolsRegistered:
         assert "challenger_target" in props
         assert "challenger_timeout_seconds" in props
 
+    def test_provider_primary_mode_tools_registered(self, domains_dir):
+        _, engine = create_server(domains_dir)
+        tools = engine.list_tool_definitions()
+        names = {t["name"] for t in tools}
+
+        assert "run_provider_scan" in names
+        assert "run_composed_provider_scan" in names
+        assert "run_parallel_provider_scan" in names
+
+    def test_composed_provider_scan_tool_schema(self, domains_dir):
+        _, engine = create_server(domains_dir)
+        tools = engine.list_tool_definitions()
+        tool = next(t for t in tools if t["name"] == "run_composed_provider_scan")
+        props = tool["input_schema"]["properties"]
+
+        assert "primary_provider" in props
+        assert "primary_transport" in props
+        assert props["primary_execution"]["enum"] == ["fixture", "cli"]
+        assert "challenger_mode" in props
+        assert props["challenger_execution"]["enum"] == ["dry_run", "cli"]
+
+    def test_parallel_provider_scan_tool_schema(self, domains_dir):
+        _, engine = create_server(domains_dir)
+        tools = engine.list_tool_definitions()
+        tool = next(t for t in tools if t["name"] == "run_parallel_provider_scan")
+        props = tool["input_schema"]["properties"]
+
+        assert props["participants"]["minItems"] == 2
+        participant_props = props["participants"]["items"]["properties"]
+        assert participant_props["execution"]["enum"] == ["fixture", "cli"]
+
     def test_scan_tools_have_project_root(self, domains_dir):
         _, engine = create_server(domains_dir)
         tools = engine.list_tool_definitions()

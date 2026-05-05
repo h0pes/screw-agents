@@ -1,7 +1,7 @@
 ---
 name: screw:scan
-description: "Run a security scan with screw-agents. Usage: /screw:scan <scope-spec> [target] [--thoroughness standard|deep] [--format json|sarif|markdown|csv] [--adaptive] [--no-confirm] [--challenger MODE --challenger-execution dry_run|cli]. Migration: bare-token form (`/screw:scan sqli`) is preserved. The retired `scan_full` and per-agent (`scan_sqli`, ...) MCP tools are replaced by `scan_agents` (Task 6); for full-coverage scans use `/screw:scan full` or call `scan_agents(agents=list_agents().names)` directly."
-argument-hint: <scope-spec> [target] [--adaptive | --no-confirm | --thoroughness standard|deep | --format json|sarif|markdown|csv | --challenger MODE --challenger-execution dry_run|cli] [--help]
+description: "Run a security scan with screw-agents. Usage: /screw:scan <scope-spec> [target] [--thoroughness standard|deep] [--format json|sarif|markdown|csv] [--adaptive] [--no-confirm] [--primary-provider PROVIDER --primary-transport TRANSPORT --primary-execution fixture|cli] [--parallel-providers provider:transport:execution,...] [--challenger MODE --challenger-execution dry_run|cli]. Migration: bare-token form (`/screw:scan sqli`) is preserved. The retired `scan_full` and per-agent (`scan_sqli`, ...) MCP tools are replaced by `scan_agents` (Task 6); for full-coverage scans use `/screw:scan full` or call `scan_agents(agents=list_agents().names)` directly."
+argument-hint: <scope-spec> [target] [--adaptive | --no-confirm | --thoroughness standard|deep | --format json|sarif|markdown|csv | --primary-provider PROVIDER --primary-transport TRANSPORT --primary-execution fixture|cli | --parallel-providers provider:transport:execution,... | --challenger MODE --challenger-execution dry_run|cli] [--help]
 allowed-tools:
   - Read
   - Task
@@ -12,6 +12,9 @@ allowed-tools:
   - mcp__screw-agents__verify_trust
   - mcp__screw-agents__accumulate_findings
   - mcp__screw-agents__finalize_scan_results
+  - mcp__screw-agents__run_provider_scan
+  - mcp__screw-agents__run_composed_provider_scan
+  - mcp__screw-agents__run_parallel_provider_scan
   - mcp__screw-agents__stage_adaptive_script
   - mcp__screw-agents__promote_staged_script
   - mcp__screw-agents__reject_staged_script
@@ -47,7 +50,7 @@ Claude Code's architecture forbids nested subagent dispatch (`sub-agents.md:711`
 ## Syntax
 
 ```
-/screw:scan <scope-spec> [target] [--thoroughness standard|deep] [--format json|sarif|markdown|csv] [--adaptive] [--no-confirm] [--challenger MODE --challenger-execution dry_run|cli]
+/screw:scan <scope-spec> [target] [--thoroughness standard|deep] [--format json|sarif|markdown|csv] [--adaptive] [--no-confirm] [--primary-provider PROVIDER --primary-transport TRANSPORT --primary-execution fixture|cli] [--parallel-providers provider:transport:execution,...] [--challenger MODE --challenger-execution dry_run|cli]
 ```
 
 ## Scope-spec forms (mutually exclusive — pick one)
@@ -79,8 +82,15 @@ The three forms are mutually exclusive. Mixing (e.g., `full domains:A` or `sqli 
 - `--no-confirm` (optional flag, default false): skip the pre-execution `Continue?` prompt. CI / piped contexts MUST pass this. The summary line still prints to stderr-equivalent for audit.
 - `--challenger MODE` (optional, default disabled): explicitly request Phase 5 challenger review using a configured `.screw/config.yaml` challenger mode. This flag does nothing by itself; it MUST be paired with `--challenger-execution`.
 - `--challenger-execution dry_run|cli` (optional, required when `--challenger` is present): choose the challenger execution surface. `dry_run` only permits fixture transports and does not invoke external assistants. `cli` permits configured, opt-in live CLI transports and may send source context to configured providers according to project consent. API and local transports are not exposed by this slash-command path yet.
+- `--primary-provider PROVIDER` (optional): choose a configured provider to perform provider-neutral first-pass scanning from the selected YAML agent knowledge. This MUST be paired with `--primary-transport` and `--primary-execution`.
+- `--primary-transport TRANSPORT` (optional): configured transport name for `--primary-provider`.
+- `--primary-execution fixture|cli` (optional): provider primary execution surface. `fixture` is for deterministic validation; `cli` is opt-in live CLI execution. API/local primary transports are not exposed by this slash-command path yet.
+- `--parallel-providers provider:transport:execution,...` (optional): run independent provider-neutral primary scans and reconcile results. Each entry must use `execution` of `fixture` or `cli`. This flag is mutually exclusive with `--primary-provider`, `--primary-transport`, `--primary-execution`, `--adaptive`, and challenger flags.
 
 **Example:** `/screw:scan sqli src/api/ --adaptive`
+**Provider primary example:** `/screw:scan sqli src/api/ --primary-provider codex --primary-transport cli --primary-execution cli`
+**Provider primary + challenger example:** `/screw:scan sqli src/api/ --primary-provider codex --primary-transport cli --primary-execution cli --challenger codex_primary_claude_challenger --challenger-execution cli`
+**Parallel primary example:** `/screw:scan sqli src/api/ --parallel-providers claude:cli:cli,codex:cli:cli`
 **Challenger dry-run example:** `/screw:scan sqli src/api/ --challenger claude_primary_codex_challenger --challenger-execution dry_run`
 **Challenger CLI example:** `/screw:scan sqli src/api/ --challenger claude_primary_codex_challenger --challenger-execution cli`
 
@@ -112,6 +122,10 @@ FLAGS
   --no-confirm                  Skip pre-execution confirmation prompt (CI / non-interactive contexts)
   --thoroughness standard|deep  Scan depth (default: standard)
   --format <fmt>                Single output format from {json, markdown, csv, sarif}; if omitted, all 3 defaults are emitted (json, markdown, csv)
+  --primary-provider <provider> Provider-neutral first-pass scanner provider
+  --primary-transport <name>    Transport for --primary-provider
+  --primary-execution <kind>    Provider primary execution: fixture or cli
+  --parallel-providers <spec>   Comma list provider:transport:execution entries for independent primary scans
   --challenger <mode>           Explicitly attach configured Phase 5 challenger review during finalize
   --challenger-execution <kind> Execution surface for --challenger: dry_run or cli
 
@@ -124,6 +138,8 @@ EXAMPLES
   /screw:scan sqli src/
   /screw:scan full src/ --no-confirm --format json
   /screw:scan domains:injection-input-handling agents:sqli,xss src/ --adaptive
+  /screw:scan sqli src/ --primary-provider codex --primary-transport cli --primary-execution cli
+  /screw:scan sqli src/ --parallel-providers claude:cli:cli,codex:cli:cli
   /screw:scan sqli src/ --challenger claude_primary_codex_challenger --challenger-execution dry_run
 ```
 
@@ -133,7 +149,7 @@ Pre-parse algorithm — token classification (T-SCAN-REFACTOR Task 8 plan-fix Ed
 
 ```
 tokens = $ARGUMENTS.split()
-flags = {}        # --adaptive, --no-confirm, --thoroughness <v>, --format <v>, --challenger <mode>, --challenger-execution <kind>
+flags = {}        # --adaptive, --no-confirm, --thoroughness <v>, --format <v>, --primary-provider <v>, --primary-transport <v>, --primary-execution <v>, --parallel-providers <v>, --challenger <mode>, --challenger-execution <kind>
 scope_tokens = [] # the scope-spec portion (passed to resolve_scope)
 target = None
 
@@ -143,7 +159,16 @@ while i < len(tokens):
     if t == "--adaptive" or t == "--no-confirm":
         flags[t.lstrip("-")] = True
         i += 1
-    elif t in ("--thoroughness", "--format", "--challenger", "--challenger-execution"):
+    elif t in (
+        "--thoroughness",
+        "--format",
+        "--primary-provider",
+        "--primary-transport",
+        "--primary-execution",
+        "--parallel-providers",
+        "--challenger",
+        "--challenger-execution",
+    ):
         if i + 1 >= len(tokens):
             raise ValueError(f"Flag {t} requires a value")
         flags[t.lstrip("-")] = tokens[i+1]
@@ -192,6 +217,31 @@ scope_text = " ".join(scope_tokens)  # passed to resolve_scope MCP tool
 
 - Do NOT infer a challenger mode from config. Do NOT default to live CLI. Do NOT set API keys. ANTHROPIC_API_KEY remains unset for subscription-backed Claude CLI execution; the backend runner enforces provider-specific API-key isolation.
 
+**Provider-primary flag validation:** Provider-neutral primary scanning is disabled unless the user explicitly supplies all three primary flags.
+
+- `--primary-provider`, `--primary-transport`, and `--primary-execution` MUST be provided together. If only a subset is present, abort BEFORE dispatch with:
+
+> Error: `--primary-provider`, `--primary-transport`, and `--primary-execution` must be provided together.
+
+- If `--primary-execution` is not `fixture` or `cli`, abort with:
+
+> Error: `--primary-execution` must be `fixture` or `cli`. API and local primary transports are not exposed by `/screw:scan` yet.
+
+- Primary flags are mutually exclusive with `--adaptive` until provider-primary
+  adaptive chaining is explicitly implemented. If both are present, abort with:
+
+> Error: provider-primary scans are not compatible with `--adaptive` yet. Run the provider-primary scan without `--adaptive`, or use the legacy scan route for adaptive analysis.
+
+- If primary flags are present WITHOUT challenger flags, route to `mcp__screw-agents__run_provider_scan` with `finalize=true`.
+- If primary flags are present WITH challenger flags, route to `mcp__screw-agents__run_composed_provider_scan`.
+
+**Parallel provider validation:** `--parallel-providers` requests independent provider-neutral primary scans with reconciliation.
+
+- `--parallel-providers` is mutually exclusive with `--primary-provider`, `--primary-transport`, `--primary-execution`, `--challenger`, `--challenger-execution`, and `--adaptive`.
+- Parse the value as comma-separated `provider:transport:execution` entries. There MUST be at least two entries. Each `execution` MUST be `fixture` or `cli`.
+- If validation passes, route to `mcp__screw-agents__run_parallel_provider_scan`.
+- Do NOT infer parallel providers from config. Do NOT default to live CLI. API/local transports are not exposed by `/screw:scan` yet.
+
 ### Step 2: Resolve scope via the `resolve_scope` MCP tool
 
 Use the `mcp__screw-agents__resolve_scope` tool with `scope_text: "<scope_tokens joined by space>"`. The tool returns `{agents: [...], summary: [...]}`:
@@ -206,6 +256,66 @@ mcp__screw-agents__resolve_scope({
 ```
 
 If the call raises (`ValueError` / `ScopeResolutionError` on parse/resolve error), surface the error message verbatim to the user and abort — no shell, no `python -c`, no shell-injection surface (E1=A: the MCP layer JSON-serializes input; no shell parsing happens).
+
+### Step 2b: Provider-primary route selection
+
+If provider-primary or parallel flags are present, use the resolved `agents` from Step 2 and the parsed `target`, then call the provider-neutral MCP tools below. These routes skip the legacy `scan_agents` init-page/subagent path because the provider-primary backend assembles source chunks and YAML agent knowledge itself.
+
+**Single provider primary, no challenger:**
+
+```
+mcp__screw-agents__run_provider_scan({
+  "project_root": <absolute project root>,
+  "provider": flags["primary-provider"],
+  "transport": flags["primary-transport"],
+  "execution": flags["primary-execution"],
+  "run_id": <generated run id>,
+  "session_id": <generated session id>,
+  "agents": <agents from Step 2>,
+  "target": <parsed target>,
+  "thoroughness": <standard|deep>,
+  "finalize": true,
+  "formats": <formats or null>
+})
+```
+
+**Provider primary plus challenger:**
+
+```
+mcp__screw-agents__run_composed_provider_scan({
+  "project_root": <absolute project root>,
+  "primary_provider": flags["primary-provider"],
+  "primary_transport": flags["primary-transport"],
+  "primary_execution": flags["primary-execution"],
+  "challenger_mode": flags["challenger"],
+  "challenger_execution": flags["challenger-execution"],
+  "run_id": <generated run id>,
+  "session_id": <generated session id>,
+  "agents": <agents from Step 2>,
+  "target": <parsed target>,
+  "thoroughness": <standard|deep>,
+  "formats": <formats or null>
+})
+```
+
+**Parallel independent primary scans:**
+
+```
+mcp__screw-agents__run_parallel_provider_scan({
+  "project_root": <absolute project root>,
+  "participants": [
+    {"provider": "claude", "transport": "cli", "execution": "cli"},
+    {"provider": "codex", "transport": "cli", "execution": "cli"}
+  ],
+  "run_id": <generated run id>,
+  "session_id": <generated session id>,
+  "agents": <agents from Step 2>,
+  "target": <parsed target>,
+  "thoroughness": <standard|deep>
+})
+```
+
+After a provider-primary tool returns, summarize its `primary_scan_result`, `finalize_result`, `challenger_results`, or `reconciliations` fields as applicable and return. Do not continue to Step 3.
 
 ### Step 3: Init-page call — main session calls `scan_agents(cursor=null)` directly (E2=A architecture)
 

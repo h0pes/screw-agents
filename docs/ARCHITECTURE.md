@@ -135,7 +135,7 @@ Subagents do NOT dispatch other subagents (Claude Code constraint, `sub-agents.m
 
 ### Slash command grammar (post-Task-8)
 
-`/screw:scan <scope-spec> <target> [--adaptive | --no-confirm | --thoroughness <L>] [--format <F>] [--challenger <mode> --challenger-execution dry_run|cli]`
+`/screw:scan <scope-spec> <target> [--adaptive | --no-confirm | --thoroughness <L>] [--format <F>] [--primary-provider <provider> --primary-transport <transport> --primary-execution fixture|cli] [--parallel-providers provider:transport:execution,...] [--challenger <mode> --challenger-execution dry_run|cli]`
 
 `--adaptive` and `--no-confirm` are mutually exclusive (adaptive mode requires interactive consent).
 
@@ -153,6 +153,8 @@ Examples:
 /screw:scan domains:foo agents:baz src/      # mix
 /screw:scan domains:A,B agents:1A,2A,1B src/ # subset of A + subset of B
 /screw:scan sqli src/api/ --challenger claude_primary_codex_challenger --challenger-execution dry_run
+/screw:scan sqli src/api/ --primary-provider codex --primary-transport cli --primary-execution cli
+/screw:scan sqli src/api/ --parallel-providers claude:cli:cli,codex:cli:cli
 ```
 
 ### Scan flow (chain-subagents architecture)
@@ -277,7 +279,7 @@ See `docs/PRD.md` §9 for the full taxonomy mapping and `docs/DECISIONS.md` ADR-
 | Phase 2 | Per-vuln | Claude Code Integration (subagents, skills, FP learning) | **Complete** |
 | Phase 3 | **One-time** | Adaptive Analysis & Learning | **Complete** (Phase 3a + Phase 3b + Phase 3b-C2) |
 | Phase 4 | **One-time** | Autoresearch & Self-Improvement | **Complete** |
-| Phase 5 | **One-time** | Multi-LLM Challenger + Provider-Neutral Primary Scanning | In progress — challenger/reconciliation/report surfaces, primary scan contracts, fixture validation, scan input assembly, backend CLI primary scanner runner plumbing, production Claude/Codex output normalization, package CLI, MCP surface, optional provider-scan finalization, backend composed primary-plus-challenger workflow, backend parallel primary reconciliation, and one live Codex/Claude benchmark round trip are implemented/recorded; live composed/parallel validation, additional provider adapters, and universal `/screw:scan` primary-provider UX remain pending; see `docs/PHASE_5_PLAN.md`, `docs/PHASE_5_PRIMARY_SCANNER_PLAN.md`, and `docs/PHASE_5_MANUAL_VALIDATION.md` |
+| Phase 5 | **One-time** | Multi-LLM Challenger + Provider-Neutral Primary Scanning | In progress — challenger/reconciliation/report surfaces, primary scan contracts, fixture validation, scan input assembly, backend CLI primary scanner runner plumbing, production Claude/Codex output normalization, package CLI, MCP surface, optional provider-scan finalization, backend composed primary-plus-challenger workflow, backend parallel primary reconciliation, universal `/screw:scan` provider-primary command contract, and one live Codex/Claude benchmark round trip are implemented/recorded; live composed/parallel validation and additional provider adapters remain pending; see `docs/PHASE_5_PLAN.md`, `docs/PHASE_5_PRIMARY_SCANNER_PLAN.md`, and `docs/PHASE_5_MANUAL_VALIDATION.md` |
 | Phase 5.5 | **One-time** | Web application integration pilot | Pending |
 | Phase 6 | Mixed | Small-batch agent expansion | Pending |
 | Phase 7 | **One-time** | screw.nvim Integration | Pending |

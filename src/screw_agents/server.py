@@ -318,6 +318,49 @@ def _dispatch_tool(
             formats=args.get("formats"),
         )
 
+    if name == "run_composed_provider_scan":
+        from screw_agents.primary_scan.execution import (
+            run_composed_provider_scan_workflow,
+        )
+
+        return run_composed_provider_scan_workflow(
+            engine=engine,
+            project_root=Path(args["project_root"]),
+            primary_provider=args["primary_provider"],
+            primary_transport=args["primary_transport"],
+            primary_execution=args["primary_execution"],
+            challenger_mode=args["challenger_mode"],
+            challenger_execution=args["challenger_execution"],
+            run_id=args["run_id"],
+            session_id=args["session_id"],
+            agents=args["agents"],
+            target=args["target"],
+            thoroughness=args.get("thoroughness", "standard"),
+            primary_timeout_seconds=args.get("primary_timeout_seconds", 120),
+            challenger_timeout_seconds=args.get("challenger_timeout_seconds", 120),
+            fixture_findings=args.get("fixture_findings"),
+            formats=args.get("formats"),
+            challenger_prompt=args.get("challenger_prompt"),
+        )
+
+    if name == "run_parallel_provider_scan":
+        from screw_agents.primary_scan.execution import (
+            run_parallel_provider_scan_workflow,
+        )
+
+        return run_parallel_provider_scan_workflow(
+            engine=engine,
+            project_root=Path(args["project_root"]),
+            participants=args["participants"],
+            run_id=args["run_id"],
+            session_id=args["session_id"],
+            agents=args["agents"],
+            target=args["target"],
+            thoroughness=args.get("thoroughness", "standard"),
+            timeout_seconds=args.get("timeout_seconds", 120),
+            fixture_findings_by_provider=args.get("fixture_findings_by_provider"),
+        )
+
     # --- Phase 3b T16: adaptive coverage-gap E2E ---
 
     if name == "record_context_required_match":

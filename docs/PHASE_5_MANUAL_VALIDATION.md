@@ -6,7 +6,8 @@
 > adapter behavior discovered during that run is now implemented in the
 > production runner. Backend composed primary-plus-challenger workflow has
 > fixture coverage; backend parallel primary reconciliation has fixture
-> coverage for agreed, unique, and severity-disputed findings. Live composed
+> coverage for agreed, unique, and severity-disputed findings. The universal
+> `/screw:scan` provider-primary command contract is implemented. Live composed
 > challenger and parallel mode validation remain pending.
 > Last updated: 2026-05-05.
 
@@ -195,13 +196,11 @@ the production Claude CLI primary runner.
   vulnerable finding count `1`, patched finding count `0`, same CWE/location
   signal as truth evidence.
 - The package CLI and MCP/backend surface are validated for primary provider
-  execution, but the polished assistant-facing UX for provider-neutral primary
-  selection is still pending. `/screw:scan` is the universal scan command
-  contract that should be exposed consistently by Claude Code, Codex, Gemini,
-  local assistants, or future plugin hosts. The currently tracked Claude Code
-  plugin already supports challenger attachment; primary provider selection
-  should be exposed through `/screw:scan` or a clearly related assistant command
-  before Phase 5 closure.
+  execution. `/screw:scan` now exposes provider-neutral primary selection as
+  the universal scan command contract that should be exposed consistently by
+  Claude Code, Codex, Gemini, local assistants, or future plugin hosts. The new
+  assistant command routes still need manual round-trip validation before Phase
+  5 closure.
 
 ## Fixture Provider-Scan CLI Round Trip
 
@@ -285,7 +284,7 @@ provider invocation.
 | Provider scan result accumulation/finalization | Passed | Fixture, Codex live, and Claude live outputs wrote `.screw/findings/` reports |
 | Primary plus challenger public round trip | Pending | Requires accumulation/finalization or explicit orchestration |
 | Parallel independent primary scans | Backend fixture coverage passed | Live validation pending |
-| `/screw:scan` provider-neutral primary UX | Pending | Backend exists; universal assistant command UX still needs provider-primary selection |
+| `/screw:scan` provider-neutral primary UX | Implemented, validation pending | Universal assistant command contract now exposes provider-primary, primary-plus-challenger, and parallel-provider flags through MCP provider scan tools |
 
 ## Decision
 
@@ -295,8 +294,9 @@ is validated on one real benchmark vulnerable/patched pair, including report
 finalization. Backend composed primary plus challenger flow is covered for both
 Codex-primary/Claude-challenger and Claude-primary/Codex-challenger fixture
 directions. Backend parallel independent scan reconciliation is covered for
-agreed, unique, and severity-disputed fixture findings. Phase 5 is still not
-closure-ready because live composed primary plus challenger flows, live
-parallel independent scan reconciliation, additional provider adapters, and the
-universal `/screw:scan` provider-primary UX have not been completed and
+agreed, unique, and severity-disputed fixture findings. The universal
+`/screw:scan` provider-primary command contract is implemented. Phase 5 is
+still not closure-ready because live composed primary plus challenger flows,
+live parallel independent scan reconciliation, additional provider adapters,
+and the new `/screw:scan` provider-primary/parallel routes have not been
 manually validated.

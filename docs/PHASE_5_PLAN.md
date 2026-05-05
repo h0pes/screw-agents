@@ -16,10 +16,10 @@
 > fixture and opt-in CLI primary scan execution; optional provider-scan report
 > finalization is implemented; backend composed primary-plus-challenger
 > workflow and backend parallel primary reconciliation workflow are
-> implemented; fixture-mode manual validation is recorded; one live
+> implemented; universal assistant command provider-primary and parallel flags
+> are implemented; fixture-mode manual validation is recorded; one live
 > Codex/Claude benchmark round trip is recorded; live composed/parallel mode
-> validation and universal assistant command primary-provider UX remain
-> pending; see
+> validation remains pending; see
 > `docs/PHASE_5_PRIMARY_SCANNER_PLAN.md`.
 > Last updated: 2026-05-05.
 
@@ -29,19 +29,19 @@ asset remains provider-neutral YAML agent knowledge in `domains/**/*.yaml`;
 provider runners are replaceable execution adapters.
 
 Important status distinction: current Phase 5 challenger work can review and
-reconcile supplied findings, and Claude Code remains the implemented primary
-scanner UX through `/screw:scan`. Provider-neutral primary scan contracts,
-fixture runner, scan input assembler, CLI primary scanner runner, package CLI,
-and MCP tool now exist. Phase 5 is not closure-ready until these primary
-scanner paths are manually validated.
+reconcile supplied findings, and `/screw:scan` now exposes both the legacy
+subagent scan route and explicit provider-primary routes. Provider-neutral
+primary scan contracts, fixture runner, scan input assembler, CLI primary
+scanner runner, package CLI, MCP tools, and command flags now exist. Phase 5 is
+not closure-ready until these primary scanner paths are manually validated.
 
 Fixture-mode public provider scan validation and one live Codex/Claude CLI
 vulnerable/patched benchmark round trip are recorded in
-`docs/PHASE_5_MANUAL_VALIDATION.md`. Production Claude/Codex output adapters
-and backend composed primary-plus-challenger plus parallel primary
-reconciliation workflows are implemented. Live composed/parallel validation and
-the portable assistant command/plugin UX for provider-neutral primary selection
-remain pending.
+`docs/PHASE_5_MANUAL_VALIDATION.md`. Production Claude/Codex output adapters,
+backend composed primary-plus-challenger plus parallel primary reconciliation
+workflows, and the portable assistant command/plugin UX for provider-neutral
+primary selection are implemented. Live composed/parallel validation remains
+pending.
 
 ## Goals
 
@@ -394,11 +394,11 @@ when `challenger_mode` and `challenger_execution` are explicitly supplied.
 Execution stays disabled by default. The challenger receives finalized active
 findings after merge and exclusion filtering, then the returned
 `ChallengerRunResult` is rendered into JSON, Markdown, and SARIF outputs.
-The current Claude Code implementation of the universal `/screw:scan` command
-exposes this path through explicit
+The universal `/screw:scan` command exposes this path through explicit
 `--challenger <mode> --challenger-execution dry_run|cli` flags while preserving
-the no-challenger default. Future Codex, Gemini, local assistant, and other
-plugin-host integrations should preserve the same command semantics.
+the no-challenger default. The current implementation lives in the Claude Code
+plugin package, and future Codex, Gemini, local assistant, and other plugin-host
+integrations should preserve the same command semantics.
 
 - Add API/local execution only after the CLI/MCP execution surfaces, output
   shape, and consent guardrails are stable.
@@ -408,14 +408,13 @@ plugin-host integrations should preserve the same command semantics.
 
 ### P5-P - Provider-Neutral Primary Scanning
 
-Status: required and partially implemented. The detailed plan is
+Status: in progress. The detailed plan is
 `docs/PHASE_5_PRIMARY_SCANNER_PLAN.md`.
 
 This work adds a backend primary scan runner that can invoke a selected provider
 or assistant as the first-pass scanner using the same YAML agent knowledge,
 target resolution, finding schema, accumulation, and finalization pipeline used
-by the current Claude Code implementation today and intended for all future
-assistant hosts.
+by the universal assistant command contract.
 
 Implemented so far: provider-neutral primary scan contracts, fixture scanner,
 provider output validation, `ScanEngine.assemble_primary_scan_input`, which
@@ -429,8 +428,9 @@ challenger review through the normal finalization/report path. A backend
 parallel workflow now runs independent provider primary scans and reconciles
 provider-keyed findings as agreed, disputed, or unique. One Codex/Claude live
 benchmark round trip has passed for the MLflow MoreFixes SSTI
-vulnerable/patched pair. Live composed/parallel validation, additional provider
-adapters, and universal `/screw:scan` primary-provider UX are still pending.
+vulnerable/patched pair. Universal `/screw:scan` primary-provider and parallel
+flags are implemented. Live composed/parallel validation and additional
+provider adapters are still pending.
 
 Required outcomes:
 
