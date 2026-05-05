@@ -30,7 +30,7 @@ Based on the user's request, decide which subagent to dispatch:
 | Specific vulnerability: "template injection", "SSTI" | `screw-scan` (with `agents:[ssti]`) |
 | Specific vulnerability: "XSS", "cross-site scripting" | `screw-scan` (with `agents:[xss]`) |
 | Domain: "injection vulnerabilities", "input validation" | `screw-scan` (with `agents:[sqli, cmdi, ssti, xss]`) |
-| Broad: "security review", "security audit", "full scan" | See §3 redirect |
+| Broad: "security review", "security audit", "full scan" | Use the `screw-scan` skill / scan command workflow |
 
 ### 2. Check for Existing Findings
 
@@ -48,13 +48,9 @@ Example dispatch prompt (for "scan src/ for SQLi"):
 
 > Run `screw-scan` with `agents: [sqli]`, `target: src/`. Loop `scan_agents` pages until `next_cursor` is null, accumulate findings, return the structured payload to the main session.
 
-For the broad/full row: do NOT dispatch. Respond to the user with this message verbatim:
-
-> Full scans require `/screw:scan full` (skills dispatch a single subagent with one fixed scope; full-scope coverage is owned by the slash command's resolver). Either run `/screw:scan full` directly, or specify a domain (e.g., `injection-input-handling`) or agent (`sqli`, `cmdi`, `ssti`, `xss`) for a targeted scan.
-
-Rationale (do not include in user output): the screw-agents plugin enforces a chain-subagents pattern (sub-agents.md:683-689) where multi-agent fan-out lives in the main-session slash command (`scan.md` Step 1b), not in a skill. The skill's role is narrow intent routing; broad intents require the slash command.
-
-Wait for the user's follow-up after printing the message.
+For the broad/full row: route to the `screw-scan` skill or the equivalent scan
+command workflow with `scope_text: "full"`. Do not ask the user to switch host
+surfaces just to run a broad scan.
 
 ### 4. Summarize
 

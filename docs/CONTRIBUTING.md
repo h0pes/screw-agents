@@ -43,9 +43,16 @@ codex mcp add screw-agents -- uv run --directory /path/to/screw-agents screw-age
 ```
 
 Because this is a local marketplace entry, Codex reads the configured root
-path directly; restart Codex after editing plugin metadata, commands, agents,
-or skills. Use `codex mcp list` and `codex mcp get screw-agents` to verify the
-backend registration.
+path directly. Open `/plugins` inside Codex and enable `screw-agents` after
+adding the marketplace; restart Codex after editing plugin metadata, commands,
+agents, or skills. Use `codex mcp list` and `codex mcp get screw-agents` to
+verify the backend registration.
+
+Codex caches local plugins by manifest version under `~/.codex/plugins/cache`.
+When changing Codex-visible plugin metadata or skill behavior, bump
+`plugins/screw/.codex-plugin/plugin.json` so a restart loads the new copy.
+Codex reusable workflow instructions should be packaged as skills; custom
+prompts are deprecated in current OpenAI Codex docs.
 
 ### Why `--plugin-dir` instead of `.claude/commands/` symlinks
 
@@ -95,3 +102,4 @@ uv run pytest tests/test_aggregation.py -v   # single module, verbose
 | See raw plugin-loading errors | `claude --debug --plugin-dir ./plugins/screw` |
 | Validate plugin manifest syntax | `claude plugin validate ./plugins/screw` |
 | Register local Codex marketplace | `codex plugin marketplace add /path/to/screw-agents` |
+| Enable local Codex plugin | `/plugins` inside Codex, then enable `screw-agents` |

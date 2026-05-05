@@ -244,8 +244,12 @@ codex mcp add screw-agents -- uv run --directory /path/to/screw-agents screw-age
 ```
 
 Use `codex mcp list` and `codex mcp get screw-agents` to verify the backend
-registration. Codex plugin commands are loaded from `plugins/screw/commands/`
-through the repo-local marketplace entry in `.agents/plugins/marketplace.json`.
+registration. Current Codex releases use skills, not custom prompts, for
+reusable workflows; the repo-local plugin packages Codex skills for scan,
+learning-report, and adaptive-cleanup workflows. Those skills use the same MCP
+tools and command grammar as the slash-command files.
+After adding the marketplace, open `/plugins` in Codex and enable the
+`screw-agents` plugin so Codex loads the packaged skills and MCP server config.
 
 ### `/screw:scan`
 
@@ -643,5 +647,6 @@ codex mcp get screw-agents
 The repo-local Codex plugin manifest is
 `plugins/screw/.codex-plugin/plugin.json`; its local marketplace entry is
 `.agents/plugins/marketplace.json`. Local marketplace entries are read from
-their configured root path; `codex plugin marketplace upgrade` is for Git-backed
-marketplaces, not this repo-local path.
+their configured root path; enable the plugin from `/plugins` after adding the
+marketplace. `codex plugin marketplace upgrade` is for Git-backed marketplaces,
+not this repo-local path.

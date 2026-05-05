@@ -1,7 +1,7 @@
 """Tests for MCP server initialization and tool registration."""
 
-from pathlib import Path
 import inspect
+from pathlib import Path
 
 import pytest
 
