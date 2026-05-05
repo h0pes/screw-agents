@@ -15,8 +15,9 @@
 > implemented; `screw-agents provider-scan` and MCP `run_provider_scan` expose
 > fixture and opt-in CLI primary scan execution; optional provider-scan report
 > finalization is implemented; backend composed primary-plus-challenger
-> workflow is implemented; fixture-mode manual validation is recorded; one
-> live Codex/Claude benchmark round trip is recorded; live composed-mode
+> workflow and backend parallel primary reconciliation workflow are
+> implemented; fixture-mode manual validation is recorded; one live
+> Codex/Claude benchmark round trip is recorded; live composed/parallel mode
 > validation and universal assistant command primary-provider UX remain
 > pending; see
 > `docs/PHASE_5_PRIMARY_SCANNER_PLAN.md`.
@@ -37,9 +38,10 @@ scanner paths are manually validated.
 Fixture-mode public provider scan validation and one live Codex/Claude CLI
 vulnerable/patched benchmark round trip are recorded in
 `docs/PHASE_5_MANUAL_VALIDATION.md`. Production Claude/Codex output adapters
-and backend composed primary-plus-challenger workflow are implemented. Live
-composed-mode validation, parallel reconciliation, and the portable assistant
-command/plugin UX for provider-neutral primary selection remain pending.
+and backend composed primary-plus-challenger plus parallel primary
+reconciliation workflows are implemented. Live composed/parallel validation and
+the portable assistant command/plugin UX for provider-neutral primary selection
+remain pending.
 
 ## Goals
 
@@ -423,11 +425,12 @@ Claude/Codex output normalization. `screw-agents provider-scan` and MCP
 `run_provider_scan` expose fixture and opt-in CLI execution, with optional
 accumulation/finalization into normal `.screw/findings/` reports. A backend
 composed workflow now connects provider primary scan output into configured
-challenger review through the normal finalization/report path. One
-Codex/Claude live benchmark round trip has passed for the MLflow MoreFixes SSTI
-vulnerable/patched pair. Parallel reconciliation, live composed
-primary-plus-challenger validation, additional provider adapters, and universal
-`/screw:scan` primary-provider UX are still pending.
+challenger review through the normal finalization/report path. A backend
+parallel workflow now runs independent provider primary scans and reconciles
+provider-keyed findings as agreed, disputed, or unique. One Codex/Claude live
+benchmark round trip has passed for the MLflow MoreFixes SSTI
+vulnerable/patched pair. Live composed/parallel validation, additional provider
+adapters, and universal `/screw:scan` primary-provider UX are still pending.
 
 Required outcomes:
 

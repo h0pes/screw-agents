@@ -7,7 +7,11 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from screw_agents.challenger.models import ChallengerConfig, ChallengerTransportConfig
+from screw_agents.challenger.models import (
+    ChallengerConfig,
+    ChallengerReconciliation,
+    ChallengerTransportConfig,
+)
 from screw_agents.engine import ScanEngine
 from screw_agents.primary_scan.models import PrimaryScanParticipant, PrimaryScanResult
 from screw_agents.primary_scan.providers import (
@@ -250,6 +254,83 @@ def run_composed_provider_scan_workflow(
     }
 
 
+def run_parallel_provider_scan_workflow(
+    *,
+    engine: ScanEngine,
+    project_root: Path,
+    participants: list[dict[str, str]],
+    run_id: str,
+    session_id: str,
+    agents: list[str],
+    target: dict[str, Any],
+    thoroughness: str = "standard",
+    timeout_seconds: int = 120,
+    fixture_findings_by_provider: Mapping[str, list[dict[str, Any]]] | None = None,
+    command_runners_by_provider: Mapping[str, CliPrimaryScanCommandRunner] | None = None,
+    env: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
+    """Run independent provider primary scans and reconcile their findings."""
+    if len(participants) < 2:
+        raise ValueError("parallel provider scans require at least two participants")
+
+    scan_results: list[PrimaryScanResult] = []
+    for participant in participants:
+        provider = _participant_field(participant, "provider")
+        transport = _participant_field(participant, "transport")
+        execution = _participant_field(participant, "execution")
+        scan_results.append(
+            run_provider_scan(
+                engine=engine,
+                project_root=project_root,
+                provider=provider,
+                transport=transport,
+                execution=execution,
+                run_id=f"{run_id}-{provider}",
+                session_id=f"{session_id}-{provider}",
+                agents=agents,
+                target=target,
+                thoroughness=thoroughness,
+                timeout_seconds=timeout_seconds,
+                fixture_findings=(fixture_findings_by_provider or {}).get(provider),
+                command_runner=(command_runners_by_provider or {}).get(provider),
+                env=env,
+            )
+        )
+
+    provider_findings = {
+        result.provider: [
+            finding.model_dump(mode="json") for finding in result.findings
+        ]
+        for result in scan_results
+    }
+    return {
+        "mode": {
+            "type": "parallel",
+            "participants": [
+                {
+                    "provider": result.provider,
+                    "transport": result.transport,
+                    "execution": result.transport_kind,
+                }
+                for result in scan_results
+            ],
+        },
+        "primary_scan_results": [
+            result.model_dump(mode="json") for result in scan_results
+        ],
+        "provider_findings": provider_findings,
+        "findings": [
+            finding
+            for findings in provider_findings.values()
+            for finding in findings
+        ],
+        "reconciliations": [
+            reconciliation.model_dump(mode="json")
+            for reconciliation in _reconcile_parallel_findings(provider_findings)
+        ],
+    }
+
+
 def _enabled_transport(
     config: ChallengerConfig,
     provider: str,
@@ -337,3 +418,88 @@ def _challenger_results_from_finalize_result(
             if isinstance(item, dict)
         ]
     return []
+
+
+def _participant_field(participant: dict[str, str], field_name: str) -> str:
+    value = participant.get(field_name)
+    if not value:
+        raise ValueError(f"parallel participant requires {field_name!r}")
+    return value
+
+
+def _reconcile_parallel_findings(
+    provider_findings: Mapping[str, list[dict[str, Any]]],
+) -> list[ChallengerReconciliation]:
+    buckets: dict[str, list[tuple[str, dict[str, Any]]]] = {}
+    key_order: list[str] = []
+    for provider, findings in provider_findings.items():
+        for finding in findings:
+            key = _parallel_finding_key(finding)
+            if key not in buckets:
+                buckets[key] = []
+                key_order.append(key)
+            buckets[key].append((provider, finding))
+
+    reconciliations: list[ChallengerReconciliation] = []
+    for key in key_order:
+        entries = buckets[key]
+        providers = _ordered_unique([provider for provider, _finding in entries])
+        status = "agreed" if len(providers) > 1 else "unique"
+        severities = _ordered_unique(
+            [
+                str((finding.get("classification") or {}).get("severity"))
+                for _provider, finding in entries
+                if (finding.get("classification") or {}).get("severity") is not None
+            ]
+        )
+        if status == "agreed" and len(severities) > 1:
+            status = "disputed"
+        reconciliations.append(
+            ChallengerReconciliation(
+                finding_ids=[
+                    _finding_id(finding, fallback_key=key)
+                    for _provider, finding in entries
+                ],
+                status=status,
+                participant_providers=providers,
+                agreed_severity=severities[0] if status == "agreed" and severities else None,
+                rationale=_parallel_rationale(status, providers),
+            )
+        )
+    return reconciliations
+
+
+def _parallel_finding_key(finding: dict[str, Any]) -> str:
+    location = finding.get("location") or {}
+    classification = finding.get("classification") or {}
+    file_path = location.get("file")
+    line_start = location.get("line_start")
+    cwe = classification.get("cwe")
+    if file_path is not None and line_start is not None and cwe is not None:
+        return f"{file_path}:{line_start}:{cwe}"
+    return _finding_id(finding, fallback_key="unknown")
+
+
+def _finding_id(finding: dict[str, Any], *, fallback_key: str) -> str:
+    finding_id = finding.get("id")
+    return finding_id if isinstance(finding_id, str) and finding_id else fallback_key
+
+
+def _ordered_unique(values: list[str]) -> list[str]:
+    seen: list[str] = []
+    for value in values:
+        if value not in seen:
+            seen.append(value)
+    return seen
+
+
+def _parallel_rationale(status: str, providers: list[str]) -> str:
+    provider_list = ", ".join(providers)
+    if status == "agreed":
+        return f"Multiple primary providers reported the same finding: {provider_list}."
+    if status == "disputed":
+        return (
+            "Multiple primary providers reported the same finding with "
+            f"different severities: {provider_list}."
+        )
+    return f"Only one primary provider reported this finding: {provider_list}."
