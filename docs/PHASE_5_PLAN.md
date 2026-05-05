@@ -14,9 +14,11 @@
 > runner plumbing plus production Claude/Codex output normalization are
 > implemented; `screw-agents provider-scan` and MCP `run_provider_scan` expose
 > fixture and opt-in CLI primary scan execution; optional provider-scan report
-> finalization is implemented; fixture-mode manual validation is recorded; one
-> live Codex/Claude benchmark round trip is recorded; composed-mode validation
-> and universal assistant command primary-provider UX remain pending; see
+> finalization is implemented; backend composed primary-plus-challenger
+> workflow is implemented; fixture-mode manual validation is recorded; one
+> live Codex/Claude benchmark round trip is recorded; live composed-mode
+> validation and universal assistant command primary-provider UX remain
+> pending; see
 > `docs/PHASE_5_PRIMARY_SCANNER_PLAN.md`.
 > Last updated: 2026-05-05.
 
@@ -34,7 +36,8 @@ scanner paths are manually validated.
 
 Fixture-mode public provider scan validation and one live Codex/Claude CLI
 vulnerable/patched benchmark round trip are recorded in
-`docs/PHASE_5_MANUAL_VALIDATION.md`. Production-grade provider output adapters,
+`docs/PHASE_5_MANUAL_VALIDATION.md`. Production Claude/Codex output adapters
+and backend composed primary-plus-challenger workflow are implemented. Live
 composed-mode validation, parallel reconciliation, and the portable assistant
 command/plugin UX for provider-neutral primary selection remain pending.
 
@@ -418,9 +421,11 @@ packages selected YAML agent knowledge and resolved source chunks, backend
 generic/Claude/Codex CLI primary scanner runner plumbing, and production
 Claude/Codex output normalization. `screw-agents provider-scan` and MCP
 `run_provider_scan` expose fixture and opt-in CLI execution, with optional
-accumulation/finalization into normal `.screw/findings/` reports. One
+accumulation/finalization into normal `.screw/findings/` reports. A backend
+composed workflow now connects provider primary scan output into configured
+challenger review through the normal finalization/report path. One
 Codex/Claude live benchmark round trip has passed for the MLflow MoreFixes SSTI
-vulnerable/patched pair. Parallel reconciliation, composed
+vulnerable/patched pair. Parallel reconciliation, live composed
 primary-plus-challenger validation, additional provider adapters, and universal
 `/screw:scan` primary-provider UX are still pending.
 

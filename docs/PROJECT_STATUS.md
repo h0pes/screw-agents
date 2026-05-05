@@ -426,9 +426,11 @@ is tracked in `docs/PHASE_4_CLOSURE_READINESS.md`.
   recorded in `docs/PHASE_5_MANUAL_VALIDATION.md`; provider-scan can
   optionally finalize returned findings into normal reports. One live
   Codex/Claude CLI benchmark round trip passed on the MLflow MoreFixes SSTI
-  vulnerable/patched case. Composed-mode validation, parallel reconciliation,
-  additional provider adapters, and universal `/screw:scan` provider-primary
-  UX remain pending before Phase 5 closure. See
+  vulnerable/patched case. Backend composed primary-plus-challenger workflow is
+  implemented with fixture coverage for both Claude/Codex directions. Live
+  composed-mode validation, parallel reconciliation, additional provider
+  adapters, and universal `/screw:scan` provider-primary UX remain pending
+  before Phase 5 closure. See
   `docs/PHASE_5_PRIMARY_SCANNER_PLAN.md`.
 - Tool-agnostic command surface invariant: Claude Code is the first shipped
   plugin host, but the `/screw:*` commands, agents, skills, MCP tools, package
@@ -813,7 +815,7 @@ Structured as a dependency graph with three parallel tracks converging at smoke 
 | Phase 3b | Adaptive Analysis & Learning Refinement | **Complete** — PR #4 (#10) 2026-04-18, PR #5 (#11) 2026-04-20, PR #6 (#12) 2026-04-23, Phase 3b-C2 2026-04-24, BACKLOG-PR6-22 (#14) 2026-04-24, T19-M D7 (#15) 2026-04-24, T-SCAN-REFACTOR final 2026-04-25 |
 | Phase 3c | Sandbox hardening sweep (seccomp filter + thread-safety + dedup) | **Deferred** — see `docs/DEFERRED_BACKLOG.md` §"Phase 3c (sandbox hardening follow-ups)" |
 | Phase 4 | Autoresearch & Self-Improvement | **Complete** — D-01 merged; D-02 calibration workflow, guardrails, failure payloads, accepted inclusions/exclusions, Wave C representative validation, focused runtime validation, and final signoff are recorded |
-| Phase 5 | Multi-LLM Challenger System | In progress — challenger config/model contracts, reconciliation, provider runner interface, fixture/generic/Claude/Codex CLI runners, required-mode orchestration, CLI/MCP challenger execution surfaces, report integration, finalize-time attachment, `/screw:scan` challenger flags, primary scan contracts, fixture validation, scan input assembly, backend primary CLI runners, production Claude/Codex primary output normalization, `provider-scan`, MCP `run_provider_scan`, and optional provider-scan finalization are implemented; fixture-mode provider scan validation and one live Codex/Claude MLflow MoreFixes SSTI vulnerable/patched benchmark round trip are recorded; additional provider adapters, composed-mode validation, parallel reconciliation, and universal `/screw:scan` provider-primary UX remain pending before Phase 5 closure |
+| Phase 5 | Multi-LLM Challenger System | In progress — challenger config/model contracts, reconciliation, provider runner interface, fixture/generic/Claude/Codex CLI runners, required-mode orchestration, CLI/MCP challenger execution surfaces, report integration, finalize-time attachment, `/screw:scan` challenger flags, primary scan contracts, fixture validation, scan input assembly, backend primary CLI runners, production Claude/Codex primary output normalization, `provider-scan`, MCP `run_provider_scan`, optional provider-scan finalization, and backend composed primary-plus-challenger workflow are implemented; fixture-mode provider scan validation, composed workflow fixture coverage, and one live Codex/Claude MLflow MoreFixes SSTI vulnerable/patched benchmark round trip are recorded; additional provider adapters, live composed-mode validation, parallel reconciliation, and universal `/screw:scan` provider-primary UX remain pending before Phase 5 closure |
 | Phase 5.5 | Web application integration pilot | Pending — first external product integration target after Phase 5; start with the existing four accepted agents and wire orchestration/correlation/triage before broad agent expansion |
 | Phase 6 | Agent Expansion & Ecosystem | Pending — add CWE-1400 agents in small reviewed batches using Phase 4 calibration infrastructure, not a full-catalog big bang |
 | Phase 7 | screw.nvim Integration (scan commands, review-before-import, exclusions) | Pending — editor-native workflow after the web-app integration pilot unless product priority changes |

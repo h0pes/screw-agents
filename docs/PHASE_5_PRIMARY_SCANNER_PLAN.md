@@ -8,8 +8,9 @@
 > envelope and Codex structured/JSONL output shapes. The `provider-scan`
 > package CLI plus `run_provider_scan` MCP tool expose fixture and opt-in CLI
 > primary scan execution. Provider-scan can optionally finalize returned
-> findings into normal `.screw/findings/` reports. Fixture-mode and one live
-> Codex/Claude benchmark round-trip validation are recorded in
+> findings into normal `.screw/findings/` reports. The backend composed
+> primary-plus-challenger workflow is implemented for configured modes.
+> Fixture-mode and one live Codex/Claude benchmark round-trip validation are recorded in
 > `docs/PHASE_5_MANUAL_VALIDATION.md`.
 > Phase 5 is not closure-ready until this gap is closed or explicitly
 > re-scoped.
@@ -70,6 +71,7 @@ context.
 | Codex primary review participant over supplied findings | Implemented at challenger-orchestrator level |
 | Codex as first-pass scanner from YAML agent knowledge | Public CLI/MCP path implemented; one live vulnerable/patched benchmark round trip passed |
 | Claude as first-pass scanner from YAML agent knowledge through provider-scan | Public CLI/MCP path implemented; production adapter extracts Claude `structured_output.findings`; one live vulnerable/patched benchmark round trip passed |
+| Backend composed primary-plus-challenger workflow | Implemented for configured provider primary scan plus challenger finalization |
 | Gemini/local as first-pass scanner from YAML agent knowledge | Pending adapter |
 | Provider-neutral primary selection in universal `/screw:scan` UX | Pending |
 | Parallel independent first-pass scans with reconciliation | Pending |
@@ -235,8 +237,11 @@ provider produced or disputed each finding.
   `docs/PHASE_5_MANUAL_VALIDATION.md`.
 - Live Codex and Claude CLI primary scan validation is recorded for one real
   vulnerable/patched benchmark case.
-- Remaining manual validation covers composed primary-plus-challenger flows,
-  parallel independent scans with reconciliation, and the final Claude Code
+- Backend composed primary-plus-challenger workflow is implemented with fixture
+  coverage for Codex-primary/Claude-challenger and
+  Claude-primary/Codex-challenger directions.
+- Remaining manual validation covers live composed primary-plus-challenger
+  flows, parallel independent scans with reconciliation, and the final
   assistant command UX for selecting a primary provider.
 - Record results in the Phase 5 closure readiness document.
 

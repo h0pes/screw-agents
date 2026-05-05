@@ -4,8 +4,9 @@
 > recorded. Live Codex and Claude CLI primary scan validation passed on one
 > vulnerable/patched benchmark round trip; the Claude structured-output
 > adapter behavior discovered during that run is now implemented in the
-> production runner. Composed challenger and parallel mode validation remain
-> pending.
+> production runner. Backend composed primary-plus-challenger workflow has
+> fixture coverage; live composed challenger and parallel mode validation
+> remain pending.
 > Last updated: 2026-05-05.
 
 ## Scope
@@ -290,7 +291,9 @@ provider invocation.
 Fixture-mode provider-neutral primary scan execution is validated for the new
 public package CLI and MCP surfaces. Live Codex and Claude CLI primary scanning
 is validated on one real benchmark vulnerable/patched pair, including report
-finalization. Phase 5 is still not closure-ready because composed primary plus
-challenger flows, parallel independent scan reconciliation, production-grade
-provider output adapters, and the universal `/screw:scan` provider-primary UX have not
+finalization. Backend composed primary plus challenger flow is covered for both
+Codex-primary/Claude-challenger and Claude-primary/Codex-challenger fixture
+directions. Phase 5 is still not closure-ready because live composed primary
+plus challenger flows, parallel independent scan reconciliation, additional
+provider adapters, and the universal `/screw:scan` provider-primary UX have not
 been completed and manually validated.
