@@ -215,11 +215,9 @@ def test_factory_wired_cli_runners_execute_required_mode_without_live_commands()
 
     assert result.reconciliations[0].status == "agreed"
     assert [invocation.argv for invocation in command_runner.invocations] == [
-        ["claude", "--print"],
         ["codex", "exec", "--json"],
     ]
-    assert "ANTHROPIC_API_KEY" not in command_runner.invocations[0].env
-    assert "OPENAI_API_KEY" not in command_runner.invocations[1].env
+    assert "OPENAI_API_KEY" not in command_runner.invocations[0].env
 
 
 def test_factory_wires_codex_primary_claude_challenger_mode() -> None:
@@ -248,7 +246,8 @@ def test_factory_wires_codex_primary_claude_challenger_mode() -> None:
 
     assert result.reconciliations[0].primary_provider == "codex"
     assert result.reconciliations[0].participant_providers == ["codex", "claude"]
-    assert len(command_runner.invocations) == 2
+    assert len(command_runner.invocations) == 1
+    assert command_runner.invocations[0].argv == ["claude", "--print"]
 
 
 def test_factory_wires_parallel_mode() -> None:

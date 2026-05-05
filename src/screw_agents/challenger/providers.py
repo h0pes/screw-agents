@@ -110,7 +110,7 @@ def capabilities_from_transport(
         sends_source_externally=transport.sends_source_externally,
         may_bill_api_credits=transport.may_bill_api_credits(),
         required_env_vars=required_env_vars,
-        command=transport.command,
+        command=transport.command_for_challenger_review(),
         endpoint=transport.endpoint,
         supports_prompt_budget=transport.max_prompt_chars is not None,
         is_fixture=is_fixture,
@@ -226,13 +226,15 @@ class CliProviderRunner:
     ) -> None:
         if transport.kind != "cli":
             raise ValueError("CliProviderRunner requires a cli transport")
-        if not transport.command:
-            raise ValueError("CliProviderRunner requires transport.command")
+        command = transport.command_for_challenger_review()
+        if not command:
+            raise ValueError("CliProviderRunner requires a challenger command")
         if timeout_seconds < 1:
             raise ValueError("timeout_seconds must be >= 1")
 
         self._participant = participant
         self._transport = transport
+        self._command = command
         self._command_runner = command_runner or _subprocess_command_runner
         self._timeout_seconds = timeout_seconds
         self._base_env = dict(env) if env is not None else dict(os.environ)
@@ -247,13 +249,13 @@ class CliProviderRunner:
         return preflight_capabilities(self.capabilities, consent)
 
     def run(self, run_input: ChallengerRunInput) -> ChallengerRunResult:
-        argv = shlex.split(self._transport.command or "")
+        argv = shlex.split(self._command)
         if not argv:
-            raise ValueError("transport.command must include an executable")
+            raise ValueError("transport command must include an executable")
 
         invocation = CliInvocation(
             argv=argv,
-            stdin=run_input.prompt,
+            stdin=_stdin_payload(run_input),
             env=self._execution_env(),
             timeout_seconds=self._timeout_seconds,
         )
@@ -386,20 +388,53 @@ class CodexCliProviderRunner(CliProviderRunner):
 def _subprocess_command_runner(invocation: CliInvocation) -> CliCommandResult:
     # Provider commands come from explicit challenger transport config and run
     # as argv without a shell.
-    completed = subprocess.run(  # noqa: S603
-        invocation.argv,
-        input=invocation.stdin,
-        env=dict(invocation.env),
-        capture_output=True,
-        text=True,
-        timeout=invocation.timeout_seconds,
-        check=False,
-    )
+    try:
+        completed = subprocess.run(  # noqa: S603
+            invocation.argv,
+            input=invocation.stdin,
+            env=dict(invocation.env),
+            capture_output=True,
+            text=True,
+            timeout=invocation.timeout_seconds,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return CliCommandResult(
+            returncode=124,
+            stdout=(exc.stdout or "") if isinstance(exc.stdout, str) else "",
+            stderr=(
+                f"provider CLI timed out after {invocation.timeout_seconds} seconds"
+            ),
+        )
     return CliCommandResult(
         returncode=completed.returncode,
         stdout=completed.stdout,
         stderr=completed.stderr,
     )
+
+
+def _stdin_payload(run_input: ChallengerRunInput) -> str:
+    return (
+        f"{run_input.prompt}\n\n"
+        "## Challenger input\n"
+        "Use the following JSON payload as the authoritative scan context. "
+        "Assess the supplied findings; do not search for findings elsewhere.\n"
+        "```json\n"
+        f"{json.dumps(_run_input_payload(run_input), sort_keys=True)}\n"
+        "```"
+    )
+
+
+def _run_input_payload(run_input: ChallengerRunInput) -> dict[str, Any]:
+    return {
+        "run_id": run_input.run_id,
+        "session_id": run_input.session_id,
+        "participant": run_input.participant.model_dump(mode="json"),
+        "agents": run_input.agents,
+        "target": run_input.target,
+        "findings": run_input.findings,
+        "metadata": run_input.metadata,
+    }
 
 
 def _parse_cli_payload(stdout: str) -> dict[str, Any]:

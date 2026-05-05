@@ -5,12 +5,13 @@
 > vulnerable/patched benchmark round trip; the Claude structured-output
 > adapter behavior discovered during that run is now implemented in the
 > production runner. Backend composed primary-plus-challenger workflow has
-> fixture coverage; backend parallel primary reconciliation has fixture
+> fixture coverage and live Claude/Codex validation in both directions;
+> backend parallel primary reconciliation has fixture
 > coverage for agreed, unique, and severity-disputed findings. The universal
 > `/screw:scan` provider-primary command contract is implemented and
 > route-equivalent fixture validation passed for single provider-primary,
-> primary-plus-challenger, and parallel-provider paths. Live composed
-> challenger and parallel mode validation remain pending. Codex plugin skill
+> primary-plus-challenger, and parallel-provider paths. Live parallel mode
+> validation remains pending. Codex plugin skill
 > validation has passed for the MCP-backed YAML scan route.
 > Last updated: 2026-05-05.
 
@@ -430,7 +431,7 @@ provider invocation.
 | Codex CLI primary scan live run | Passed | MLflow MoreFixes vulnerable/patched SSTI case |
 | Claude CLI primary scan live run | Passed | MLflow MoreFixes vulnerable/patched SSTI case; production runner now extracts the validated `structured_output.findings` shape |
 | Provider scan result accumulation/finalization | Passed | Fixture, Codex live, and Claude live outputs wrote `.screw/findings/` reports |
-| Primary plus challenger public round trip | Fixture route passed, live pending | `/screw:scan` route-equivalent fixture validation reached `run_composed_provider_scan`; live Codex/Claude validation pending |
+| Primary plus challenger public round trip | Passed | Fixture route passed; live Codex-primary/Claude-challenger and Claude-primary/Codex-challenger validation passed on the MLflow MoreFixes SSTI vulnerable/patched pair |
 | Parallel independent primary scans | Fixture route passed, live pending | `/screw:scan` route-equivalent fixture validation reached `run_parallel_provider_scan`; live validation pending |
 | Codex plugin YAML/MCP scan skill | Passed | `screw:screw-scan` routed command-shaped input through MCP scan/finalize tools and wrote JSON |
 | `/screw:scan` provider-neutral primary UX | Route-equivalent fixture validation passed | Universal assistant command contract exposes provider-primary, primary-plus-challenger, and parallel-provider flags through MCP provider scan tools; live provider-mode host validation pending |
@@ -442,12 +443,16 @@ public package CLI and MCP surfaces. Live Codex and Claude CLI primary scanning
 is validated on one real benchmark vulnerable/patched pair, including report
 finalization. Backend composed primary plus challenger flow is covered for both
 Codex-primary/Claude-challenger and Claude-primary/Codex-challenger fixture
-directions. Backend parallel independent scan reconciliation is covered for
-agreed, unique, and severity-disputed fixture findings. The universal
+directions and live CLI directions. In the live vulnerable runs, the primary
+provider reported one high-confidence SSTI finding and the configured
+challenger agreed; in the patched runs, both primary providers returned zero
+findings and no challenger review was invoked. Backend parallel independent
+scan reconciliation is covered for agreed, unique, and severity-disputed
+fixture findings. The universal
 `/screw:scan` provider-primary command contract is implemented, and
 route-equivalent fixture validation passed for single provider-primary,
 primary-plus-challenger, and parallel-provider paths. Codex plugin skill
 validation passed for the normal YAML/MCP scan route. Phase 5 is still not
-closure-ready because live composed primary plus challenger flows, live
-parallel independent scan reconciliation, additional provider adapters, and
-live host validation for provider-primary/parallel routes remain pending.
+closure-ready because live parallel independent scan reconciliation, additional
+provider adapters, and live host validation for provider-primary/parallel
+routes remain pending.

@@ -65,6 +65,8 @@ class ChallengerTransportConfig(BaseModel):
     kind: TransportKind
     enabled: bool = False
     command: str | None = None
+    primary_command: str | None = None
+    challenger_command: str | None = None
     endpoint: str | None = None
     api_key_env: str | None = None
     use_api_key: bool = False
@@ -103,8 +105,19 @@ class ChallengerTransportConfig(BaseModel):
                 f"{self.kind} transports cannot set allow_api_billing=true"
             )
 
-        if self.kind == "cli" and self.enabled and not self.command:
-            raise ValueError("enabled CLI transports require command")
+        if self.kind != "cli" and (self.primary_command or self.challenger_command):
+            raise ValueError(f"{self.kind} transports cannot set CLI command overrides")
+
+        if (
+            self.kind == "cli"
+            and self.enabled
+            and not self.command
+            and not self.primary_command
+            and not self.challenger_command
+        ):
+            raise ValueError(
+                "enabled CLI transports require command or command overrides"
+            )
 
         if self.kind == "local" and self.enabled and not self.endpoint:
             raise ValueError("enabled local transports require endpoint")
@@ -121,6 +134,14 @@ class ChallengerTransportConfig(BaseModel):
     def may_bill_api_credits(self) -> bool:
         """Return whether this transport may consume provider API credits."""
         return self.kind == "api" and self.enabled and self.allow_api_billing
+
+    def command_for_primary_scan(self) -> str | None:
+        """Return the configured CLI command for first-pass scanning."""
+        return self.primary_command or self.command
+
+    def command_for_challenger_review(self) -> str | None:
+        """Return the configured CLI command for challenger review."""
+        return self.challenger_command or self.command
 
 
 class ChallengerProviderConfig(BaseModel):

@@ -54,8 +54,9 @@ def run_challenger_mode(
     if not mode.enabled:
         raise ValueError(f"challenger mode {mode_name!r} is not enabled")
 
-    _ensure_runners(mode, runners)
-    preflight_reports = _preflight(mode, config, runners)
+    participants = _execution_participants(mode)
+    _ensure_runners(participants, runners)
+    preflight_reports = _preflight(participants, config, runners)
     blocked = _blocked_labels(preflight_reports)
     if blocked:
         return _blocked_result(
@@ -76,7 +77,7 @@ def run_challenger_mode(
 
     primary_provider = _primary_provider(mode)
     findings = _finding_pool(run_input.findings, assessments)
-    for participant in mode.participants:
+    for participant in participants:
         runner = runners[participant_runner_key(participant)]
         participant_input = _participant_input(
             run_input,
@@ -105,11 +106,23 @@ def run_challenger_mode(
     )
 
 
-def _ensure_runners(
+def _execution_participants(
     mode: ChallengerModeConfig,
+) -> list[ChallengerParticipant]:
+    if any(participant.role == "parallel" for participant in mode.participants):
+        return list(mode.participants)
+    return [
+        participant
+        for participant in mode.participants
+        if participant.role == "challenger"
+    ]
+
+
+def _ensure_runners(
+    participants: list[ChallengerParticipant],
     runners: Mapping[RunnerKey, ProviderRunner],
 ) -> None:
-    for participant in mode.participants:
+    for participant in participants:
         key = participant_runner_key(participant)
         if key not in runners:
             raise ValueError(
@@ -119,12 +132,12 @@ def _ensure_runners(
 
 
 def _preflight(
-    mode: ChallengerModeConfig,
+    participants: list[ChallengerParticipant],
     config: ChallengerConfig,
     runners: Mapping[RunnerKey, ProviderRunner],
 ) -> dict[str, ProviderGuardrailReport]:
     reports: dict[str, ProviderGuardrailReport] = {}
-    for participant in mode.participants:
+    for participant in participants:
         runner = runners[participant_runner_key(participant)]
         reports[participant_label(participant)] = runner.preflight(config.consent)
     return reports

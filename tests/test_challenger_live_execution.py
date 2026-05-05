@@ -141,12 +141,10 @@ def test_challenger_cli_executes_configured_cli_mode(tmp_path: Path) -> None:
     assert result.mode == "cli_mode"
     assert result.guardrails["allowed"] is True
     assert result.reconciliations[0].status == "agreed"
-    assert [invocation.stdin for invocation in invocations] == [
-        "live prompt",
-        "live prompt",
-    ]
-    assert "ANTHROPIC_API_KEY" not in invocations[0].env
-    assert "OPENAI_API_KEY" not in invocations[1].env
+    assert len(invocations) == 1
+    assert "live prompt" in invocations[0].stdin
+    assert "sqli-001" in invocations[0].stdin
+    assert "OPENAI_API_KEY" not in invocations[0].env
 
 
 def test_challenger_cli_refuses_fixture_transport(tmp_path: Path) -> None:

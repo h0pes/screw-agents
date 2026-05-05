@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 
 import pytest
 
@@ -15,6 +16,7 @@ from screw_agents.challenger import (
     CliProviderRunner,
     CodexCliProviderRunner,
 )
+from screw_agents.challenger.providers import _subprocess_command_runner
 
 
 def _participant(
@@ -103,12 +105,39 @@ def test_cli_runner_invokes_command_without_shell_and_parses_assessments() -> No
     result = runner.run(_run_input(participant))
 
     assert runner_backend.invocations[0].argv == ["codex", "exec", "--json"]
-    assert runner_backend.invocations[0].stdin == "review this finding"
+    assert "review this finding" in runner_backend.invocations[0].stdin
+    assert "sqli-001" in runner_backend.invocations[0].stdin
     assert runner_backend.invocations[0].timeout_seconds == 17
     assert result.assessments[0].provider == "codex"
     assert result.assessments[0].transport == "cli"
     assert result.reconciliations[0].status == "agreed"
     assert result.provider_metadata["codex"]["returncode"] == 0
+
+
+def test_cli_runner_uses_challenger_command_for_primary_participant() -> None:
+    participant = _participant(provider="codex", role="primary")
+    runner_backend = RecordingCommandRunner(
+        CliCommandResult(returncode=0, stdout=json.dumps({"assessments": []}))
+    )
+    transport = ChallengerTransportConfig(
+        kind="cli",
+        enabled=True,
+        primary_command="codex primary-command",
+        challenger_command="codex challenger-command",
+        use_api_key=False,
+        sends_source_externally=True,
+    )
+    runner = CliProviderRunner(
+        participant=participant,
+        transport=transport,
+        command_runner=runner_backend,
+    )
+
+    result = runner.run(_run_input(participant))
+
+    assert runner_backend.invocations[0].argv == ["codex", "challenger-command"]
+    assert runner.capabilities.command == "codex challenger-command"
+    assert result.guardrails["command"] == "codex challenger-command"
 
 
 def test_claude_cli_runner_unsets_anthropic_api_key() -> None:
@@ -190,6 +219,27 @@ def test_cli_failure_returns_unsupported_assessment() -> None:
     assert result.assessments[0].severity == "unsupported"
     assert "not authenticated" in result.assessments[0].reasoning
     assert result.guardrails["failed"] is True
+
+
+def test_subprocess_command_runner_returns_timeout_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def timeout_run(*args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd=["codex"], timeout=7)
+
+    monkeypatch.setattr(subprocess, "run", timeout_run)
+
+    result = _subprocess_command_runner(
+        CliInvocation(
+            argv=["codex"],
+            stdin="prompt",
+            env={},
+            timeout_seconds=7,
+        )
+    )
+
+    assert result.returncode == 124
+    assert "timed out after 7 seconds" in result.stderr
 
 
 def test_cli_runner_rejects_non_json_output() -> None:

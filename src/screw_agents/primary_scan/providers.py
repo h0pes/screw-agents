@@ -102,22 +102,24 @@ class CliPrimaryScanRunner:
     ) -> None:
         if transport.kind != "cli":
             raise ValueError("CliPrimaryScanRunner requires a cli transport")
-        if not transport.command:
-            raise ValueError("CliPrimaryScanRunner requires transport.command")
+        command = transport.command_for_primary_scan()
+        if not command:
+            raise ValueError("CliPrimaryScanRunner requires a primary command")
         if timeout_seconds < 1:
             raise ValueError("timeout_seconds must be >= 1")
 
         self._participant = participant
         self._transport = transport
+        self._command = command
         self._command_runner = command_runner or _subprocess_command_runner
         self._timeout_seconds = timeout_seconds
         self._base_env = dict(env) if env is not None else dict(os.environ)
         self._unset_env_vars = unset_env_vars
 
     def run(self, scan_input: PrimaryScanInput) -> PrimaryScanResult:
-        argv = shlex.split(self._transport.command or "")
+        argv = shlex.split(self._command)
         if not argv:
-            raise ValueError("transport.command must include an executable")
+            raise ValueError("transport command must include an executable")
 
         invocation = CliPrimaryScanInvocation(
             argv=argv,
@@ -134,13 +136,13 @@ class CliPrimaryScanRunner:
         result.provider_metadata[self._participant.provider].update(
             {
                 "returncode": command_result.returncode,
-                "command": self._transport.command,
+                "command": self._command,
             }
         )
         result.guardrails.update(
             {
                 "cli_runner": True,
-                "command": self._transport.command,
+                "command": self._command,
             }
         )
         return result
@@ -177,12 +179,12 @@ class CliPrimaryScanRunner:
             provider_metadata={
                 self._participant.provider: {
                     "returncode": command_result.returncode,
-                    "command": self._transport.command,
+                    "command": self._command,
                 }
             },
             guardrails={
                 "cli_runner": True,
-                "command": self._transport.command,
+                "command": self._command,
                 "failed": True,
                 "reason": _failure_reason(command_result),
             },
@@ -282,15 +284,25 @@ def _stdin_payload(scan_input: PrimaryScanInput) -> str:
 def _subprocess_command_runner(
     invocation: CliPrimaryScanInvocation,
 ) -> CliPrimaryScanCommandResult:
-    completed = subprocess.run(  # noqa: S603
-        invocation.argv,
-        input=invocation.stdin,
-        env=dict(invocation.env),
-        capture_output=True,
-        text=True,
-        timeout=invocation.timeout_seconds,
-        check=False,
-    )
+    try:
+        completed = subprocess.run(  # noqa: S603
+            invocation.argv,
+            input=invocation.stdin,
+            env=dict(invocation.env),
+            capture_output=True,
+            text=True,
+            timeout=invocation.timeout_seconds,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return CliPrimaryScanCommandResult(
+            returncode=124,
+            stdout=(exc.stdout or "") if isinstance(exc.stdout, str) else "",
+            stderr=(
+                f"primary scanner CLI timed out after "
+                f"{invocation.timeout_seconds} seconds"
+            ),
+        )
     return CliPrimaryScanCommandResult(
         returncode=completed.returncode,
         stdout=completed.stdout,

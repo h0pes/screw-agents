@@ -86,6 +86,9 @@ Implemented today:
 - Backend composed primary-plus-challenger workflow that runs a configured
   provider primary scan, finalizes findings, and attaches configured challenger
   review through the normal report path.
+- Live composed primary-plus-challenger validation in both required directions:
+  Codex primary with Claude challenger and Claude primary with Codex
+  challenger.
 - Backend parallel primary scan workflow that runs independent provider scans
   and returns provider-keyed findings plus agreed/disputed/unique
   reconciliation summaries.
@@ -98,8 +101,7 @@ Not yet implemented:
 
 - Additional provider-specific primary CLI adapters beyond the implemented
   generic, Claude, and Codex runners.
-- Live composed/parallel provider scan validation through the assistant command
-  UX.
+- Live parallel provider scan validation through the assistant command UX.
 - API/local primary scanner transports for Gemini, local models, or future
   assistants.
 - API/local challenger transports in `/screw:scan`.
@@ -422,9 +424,10 @@ Upcoming:
     backend composed primary-plus-challenger and parallel primary
     reconciliation workflows, and universal `/screw:scan` provider-primary
     command flags are implemented; route-equivalent fixture validation and one
-    live Codex/Claude vulnerable/patched benchmark round trip are recorded,
-    while live composed/parallel validation remains pending before Phase 5
-    closure.
+    live Codex/Claude vulnerable/patched benchmark round trip are recorded.
+    Live composed primary-plus-challenger validation is recorded in both
+    directions on the same MLflow SSTI vulnerable/patched pair; live parallel
+    validation remains pending before Phase 5 closure.
   - Provider-neutral adapters so Gemini, local LLMs, or future assistants can
     be added without changing agent YAML.
   - Transport choice per provider: subscription-backed CLI/local execution or

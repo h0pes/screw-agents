@@ -153,7 +153,7 @@ def test_claude_primary_codex_challenger_mode_reconciles() -> None:
     assert result.reconciliations[0].primary_provider == "claude"
     assert result.reconciliations[0].participant_providers == ["claude", "codex"]
     assert result.reconciliations[0].status == "agreed"
-    assert runners[participant_runner_key(claude)].run_count == 1
+    assert runners[participant_runner_key(claude)].run_count == 0
     assert runners[participant_runner_key(codex)].run_count == 1
 
 
@@ -230,7 +230,7 @@ def test_guardrail_block_prevents_all_runner_execution() -> None:
     )
 
     assert result.guardrails["allowed"] is False
-    assert result.guardrails["blocked"] == ["claude:fixture", "codex:fixture"]
+    assert result.guardrails["blocked"] == ["codex:fixture"]
     assert result.assessments == []
     assert result.reconciliations == []
     assert runners[participant_runner_key(claude)].run_count == 0
