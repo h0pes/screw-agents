@@ -14,6 +14,7 @@ def test_codex_plugin_manifest_exposes_shared_plugin_assets() -> None:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 
     assert manifest["name"] == "screw"
+    assert manifest["version"] == "0.1.5"
     assert manifest["skills"] == "./skills/"
     assert manifest["mcpServers"] == "./.mcp.json"
     assert manifest["interface"]["displayName"] == "screw-agents"
@@ -21,6 +22,30 @@ def test_codex_plugin_manifest_exposes_shared_plugin_assets() -> None:
 
     for command in ["scan.md", "learn-report.md", "adaptive-cleanup.md"]:
         assert (PLUGIN_ROOT / "commands" / command).is_file()
+
+
+def test_claude_command_names_are_explicit_for_shared_commands() -> None:
+    expected_names = {
+        "scan.md": "screw:scan",
+        "learn-report.md": "screw:learn-report",
+        "adaptive-cleanup.md": "screw:adaptive-cleanup",
+    }
+    for command, expected_name in expected_names.items():
+        command_text = (PLUGIN_ROOT / "commands" / command).read_text(encoding="utf-8")
+        assert f"\nname: {expected_name}\n" in command_text
+
+
+def test_codex_skills_cover_command_workflows() -> None:
+    for skill in [
+        "screw-scan",
+        "screw-learn-report",
+        "screw-adaptive-cleanup",
+    ]:
+        skill_path = PLUGIN_ROOT / "skills" / skill / "SKILL.md"
+        assert skill_path.is_file()
+        skill_text = skill_path.read_text(encoding="utf-8")
+        assert f"name: {skill}" in skill_text
+        assert "screw-agents" in skill_text
 
 
 def test_codex_plugin_mcp_config_points_to_repo_local_server() -> None:

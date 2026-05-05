@@ -1,6 +1,6 @@
 {
   "name": "screw",
-  "version": "0.1.0",
+  "version": "0.1.5",
   "description": "Provider-neutral secure code review commands, agents, skills, and MCP tools.",
   "author": {
     "name": "h0pes",

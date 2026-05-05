@@ -181,8 +181,8 @@ The repo root `.mcp.json` starts the MCP server with:
 }
 ```
 
-Codex can load the same `plugins/screw` command, skill, and MCP assets through
-the repo-local marketplace descriptor:
+Codex can load the shared skills and MCP assets through the repo-local
+marketplace descriptor:
 
 ```bash
 codex plugin marketplace add /path/to/screw-agents
@@ -191,6 +191,12 @@ codex mcp add screw-agents -- uv run --directory /path/to/screw-agents screw-age
 
 The explicit `codex mcp add` command remains useful during local development
 because it makes the MCP server registration visible with `codex mcp list`.
+After adding the marketplace, open `/plugins` inside Codex and enable the
+`screw-agents` plugin so Codex loads the packaged skills and MCP server config.
+Current Codex releases use skills, not custom prompts, for reusable workflow
+instructions. The plugin therefore includes Codex skills for scan, learning
+report, and adaptive-cleanup workflows, backed by the same MCP tools and command
+grammar as the slash-command files.
 
 Run a scan from a supported assistant host:
 
@@ -210,6 +216,9 @@ Useful plugin commands:
 | `/screw:scan` | Run one or more vulnerability agents against a target |
 | `/screw:learn-report` | Summarize project false-positive learning |
 | `/screw:adaptive-cleanup` | Inspect and clean adaptive analysis scripts |
+
+In Codex, invoke the corresponding skills with natural command text such as
+`screw:scan sqli src/` or `run a screw-agents full scan of . --no-confirm`.
 
 For all command forms and options, see
 [COMMAND_REFERENCE.md](docs/COMMAND_REFERENCE.md).

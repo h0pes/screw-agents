@@ -4,6 +4,34 @@
 
 ---
 
+## Phase 5 command-host parity (discovered 2026-05-05)
+
+### BACKLOG-P5-CODEX-SLASH-PARITY — Codex CLI literal `/screw:*` autocomplete/execution adapter
+**Phase-5 readiness:** `tracked gap` — does not block backend provider-neutral scan execution, but must be resolved or explicitly accepted before claiming full Codex command UX parity
+**Source:** Phase 5 manual Codex plugin validation, 2026-05-05
+**Files:** `plugins/screw/commands/*.md`, `plugins/screw/skills/**/SKILL.md`, Codex plugin metadata
+
+**Why deferred:** Manual validation on Codex CLI v0.128.0 confirmed that the
+repo-local plugin installs, skills load, and the `screw-agents` MCP server
+registers all tools from the active worktree. It did not expose
+`/screw:scan`, `/screw:learn-report`, or `/screw:adaptive-cleanup` as Codex CLI
+slash-completion entries from plugin `commands/` files. Official OpenAI Codex
+docs mark custom prompts deprecated and direct reusable workflows toward
+skills, so current Codex support should use skills plus MCP tools rather than a
+custom-prompt workaround.
+
+**Remediation sketch:** Keep command semantics provider/tool agnostic in the
+MCP backend and package Codex skills for scan, learning-report, and
+adaptive-cleanup workflows. Separately investigate whether a supported Codex
+CLI plugin-command adapter, upstream feature, or future Codex release can expose
+literal `/screw:*` commands. Do not document literal Codex slash-command
+autocomplete as working until a manual validation session proves it.
+
+**Estimated scope:** Unknown; likely upstream/host-adapter work rather than
+backend scan logic.
+
+---
+
 ## Phase 3b-C2 T1-review minors + coverage gaps (discovered 2026-04-23)
 
 Non-blocking minors and spec-coverage gaps surfaced during T1 (pre-update assertions) spec + quality review rounds. All are safe to defer past C2 merge; each has a natural resolution point.

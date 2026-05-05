@@ -10,8 +10,9 @@ MCP server.
 - Repo-local Codex marketplace: `../../.agents/plugins/marketplace.json`
 - Repo-local MCP config: `.mcp.json`
 
-The same `commands/`, `agents/`, and `skills/` files are shared across
-assistant hosts.
+The same command semantics are shared across assistant hosts. Claude-compatible
+hosts load `commands/` slash-command files. Codex-compatible hosts load
+`skills/` workflow files, backed by the same `screw-agents` MCP tools.
 
 ## Slash command: `/screw:scan`
 

@@ -10,7 +10,8 @@
 > `/screw:scan` provider-primary command contract is implemented and
 > route-equivalent fixture validation passed for single provider-primary,
 > primary-plus-challenger, and parallel-provider paths. Live composed
-> challenger and parallel mode validation remain pending.
+> challenger and parallel mode validation remain pending. Codex plugin skill
+> validation has passed for the MCP-backed YAML scan route.
 > Last updated: 2026-05-05.
 
 ## Scope
@@ -278,8 +279,76 @@ the production Claude CLI primary runner.
   execution. `/screw:scan` now exposes provider-neutral primary selection as
   the universal scan command contract that should be exposed consistently by
   Claude Code, Codex, Gemini, local assistants, or future plugin hosts. The new
-  assistant command routes still need manual round-trip validation before Phase
-  5 closure.
+  Codex skill route is validated for normal YAML/MCP scanning. Provider-mode
+  assistant routes still need live round-trip validation before Phase 5 closure.
+
+## Codex Plugin Skill Round Trip
+
+The Codex plugin validation used a separate temporary project:
+
+- Temporary end-user project:
+  `/tmp/screw-agents-phase5-live-modes`
+- Plugin marketplace:
+  `.worktrees/phase5-codex-command-discovery`
+- Installed Codex plugin cache version:
+  `0.1.4`
+- MCP server:
+  `uv run --directory .worktrees/phase5-codex-command-discovery screw-agents serve --transport stdio`
+- Agent:
+  `ssti`
+
+Codex v0.128.0 did not expose plugin `commands/` files as literal
+`/screw:*` slash-completion entries during validation. It did load packaged
+skills and MCP tools. OpenAI Codex docs mark custom prompts as deprecated in
+favor of skills, so this validation exercised the Codex-supported skill path.
+
+Setup checks:
+
+- `/plugins` showed the installed `screw-agents` plugin with skills:
+  `screw:screw-adaptive-cleanup`, `screw:screw-learn-report`,
+  `screw:screw-research`, `screw:screw-review`, and `screw:screw-scan`.
+- `/mcp` showed `screw-agents` connected to the worktree server.
+- A no-scan registry check called only `list_domains` and `list_agents`,
+  returning domain `injection-input-handling` and agents `cmdi`, `sqli`,
+  `ssti`, and `xss`.
+
+Dry explanation prompt:
+
+```text
+Use the screw:screw-scan skill to explain how it would handle this request,
+but do not call any MCP tools and do not run a scan: screw:scan ssti
+/tmp/screw-agents-phase5-live-modes --format json
+```
+
+Result: passed. Codex read the `screw:screw-scan` skill and described the
+`resolve_scope` -> `scan_agents` -> `accumulate_findings` ->
+`finalize_scan_results` route without calling MCP tools.
+
+Live skill prompt:
+
+```text
+Use screw:screw-scan to run: screw:scan ssti
+/tmp/screw-agents-phase5-live-modes --format json
+```
+
+Result:
+
+- Scope resolved to `["ssti"]`.
+- `scan_agents` paginated the target and completed.
+- Codex accumulated one high-confidence `CWE-1336` finding for
+  `vulnerable/__init__.py:125`.
+- `finalize_scan_results` wrote JSON:
+  `/tmp/screw-agents-phase5-live-modes/.screw/findings/ssti-2026-05-05T13-50-59.json`
+- Final summary: `1` active finding, severity `high`, no suppressions, no
+  exclusions, clean trust status, no coverage gaps.
+
+Validation note: Codex attempted an unnecessary local
+`uv run python -c "from screw_agents.models import Finding; ..."` schema
+inspection from the temporary project and received
+`ModuleNotFoundError: No module named 'screw_agents'`. This did not affect MCP
+scan/finalization. The Codex scan skill now explicitly instructs Codex not to
+run shell/Python introspection for screw-agents schemas from the scanned
+project; MCP tool contracts are the authoritative interface.
 
 ## Fixture Provider-Scan CLI Round Trip
 
@@ -363,7 +432,8 @@ provider invocation.
 | Provider scan result accumulation/finalization | Passed | Fixture, Codex live, and Claude live outputs wrote `.screw/findings/` reports |
 | Primary plus challenger public round trip | Fixture route passed, live pending | `/screw:scan` route-equivalent fixture validation reached `run_composed_provider_scan`; live Codex/Claude validation pending |
 | Parallel independent primary scans | Fixture route passed, live pending | `/screw:scan` route-equivalent fixture validation reached `run_parallel_provider_scan`; live validation pending |
-| `/screw:scan` provider-neutral primary UX | Route-equivalent fixture validation passed | Universal assistant command contract exposes provider-primary, primary-plus-challenger, and parallel-provider flags through MCP provider scan tools; live host validation pending |
+| Codex plugin YAML/MCP scan skill | Passed | `screw:screw-scan` routed command-shaped input through MCP scan/finalize tools and wrote JSON |
+| `/screw:scan` provider-neutral primary UX | Route-equivalent fixture validation passed | Universal assistant command contract exposes provider-primary, primary-plus-challenger, and parallel-provider flags through MCP provider scan tools; live provider-mode host validation pending |
 
 ## Decision
 
@@ -376,8 +446,8 @@ directions. Backend parallel independent scan reconciliation is covered for
 agreed, unique, and severity-disputed fixture findings. The universal
 `/screw:scan` provider-primary command contract is implemented, and
 route-equivalent fixture validation passed for single provider-primary,
-primary-plus-challenger, and parallel-provider paths. Phase 5 is still not
+primary-plus-challenger, and parallel-provider paths. Codex plugin skill
+validation passed for the normal YAML/MCP scan route. Phase 5 is still not
 closure-ready because live composed primary plus challenger flows, live
 parallel independent scan reconciliation, additional provider adapters, and
-live host validation for the new `/screw:scan` provider-primary/parallel routes
-remain pending.
+live host validation for provider-primary/parallel routes remain pending.
