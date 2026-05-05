@@ -411,6 +411,8 @@ def _challenger_results_from_finalize_result(
         payload = json.loads(Path(json_path).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return []
+    if not isinstance(payload, dict):
+        return []
     challenger_results = payload.get("challenger_results", [])
     if isinstance(challenger_results, list):
         return [

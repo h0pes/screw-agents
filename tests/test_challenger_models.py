@@ -29,6 +29,41 @@ def test_cli_transport_is_subscription_backed_without_api_key() -> None:
     assert not transport.may_bill_api_credits()
 
 
+def test_cli_transport_can_override_commands_by_execution_surface() -> None:
+    transport = ChallengerTransportConfig(
+        kind="cli",
+        enabled=True,
+        command="codex-default",
+        primary_command="codex-primary",
+        challenger_command="codex-challenger",
+        use_api_key=False,
+    )
+
+    assert transport.command_for_primary_scan() == "codex-primary"
+    assert transport.command_for_challenger_review() == "codex-challenger"
+
+
+def test_enabled_cli_transport_accepts_command_overrides_without_default() -> None:
+    transport = ChallengerTransportConfig(
+        kind="cli",
+        enabled=True,
+        challenger_command="codex-challenger",
+        use_api_key=False,
+    )
+
+    assert transport.command_for_challenger_review() == "codex-challenger"
+    assert transport.command_for_primary_scan() is None
+
+
+def test_non_cli_transport_rejects_command_overrides() -> None:
+    with pytest.raises(ValidationError, match="cannot set CLI command overrides"):
+        ChallengerTransportConfig(
+            kind="fixture",
+            enabled=True,
+            challenger_command="codex-challenger",
+        )
+
+
 def test_enabled_api_transport_requires_billing_permission() -> None:
     with pytest.raises(ValidationError, match="allow_api_billing=true"):
         ChallengerTransportConfig(

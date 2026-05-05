@@ -262,14 +262,16 @@ provider produced or disputed each finding.
 - Backend composed primary-plus-challenger workflow is implemented with fixture
   coverage for Codex-primary/Claude-challenger and
   Claude-primary/Codex-challenger directions.
+- Live composed primary-plus-challenger validation is recorded for both
+  Codex-primary/Claude-challenger and Claude-primary/Codex-challenger on the
+  MLflow MoreFixes SSTI vulnerable/patched pair.
 - Backend parallel primary reconciliation workflow is implemented with fixture
   coverage for agreed, unique, and severity-disputed findings.
 - Route-equivalent fixture validation for the new assistant command routes is
   recorded for single provider-primary, primary-plus-challenger, and
   parallel-provider paths.
-- Remaining manual validation covers live composed primary-plus-challenger
-  flows, live parallel independent scans with reconciliation, and live host
-  validation of the new assistant command routes.
+- Remaining manual validation covers live parallel independent scans with
+  reconciliation and live host validation of the new assistant command routes.
 - Record results in the Phase 5 closure readiness document.
 
 ## Phase 5 Closure Dependencies
@@ -280,9 +282,10 @@ Phase 5 closure must wait for:
 - Codex and Claude first-pass scans from YAML knowledge validated beyond the
   single benchmark round trip already recorded.
 - All three required modes validated:
-  - Claude primary, Codex challenger.
-  - Codex primary, Claude challenger.
-  - parallel independent scans with reconciliation.
+  - Claude primary, Codex challenger. Passed in live CLI validation.
+  - Codex primary, Claude challenger. Passed in live CLI validation.
+  - parallel independent scans with reconciliation. Fixture coverage passed;
+    live validation remains pending.
 - Manual round-trip checklist recorded.
 - Provider-specific CLI output adapters implemented without temporary wrappers.
 - `/screw:scan` provider-neutral primary scanner selection is manually

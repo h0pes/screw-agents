@@ -80,6 +80,10 @@ local transports are rejected until their adapters are implemented.
 Configured Claude and Codex CLI runners remove `ANTHROPIC_API_KEY` and
 `OPENAI_API_KEY`, respectively, before invocation so subscription-backed CLI
 use does not accidentally switch to API-key billing.
+CLI challenger prompts include the supplied findings payload as authoritative
+JSON context. In primary/challenger modes, only participants with
+`role: challenger` are invoked during this review step; the primary provider is
+recorded as provenance, not re-run as a reviewer.
 
 ```bash
 uv run screw-agents challenger-run MODE --finding-json FINDING_JSON [--project-root PATH] [--prompt TEXT] [--target-path PATH] [--run-id ID] [--session-id ID] [--timeout-seconds N]
@@ -117,6 +121,13 @@ the shared `Finding` schema.
 API and local transports are rejected until adapters exist. Claude and Codex
 CLI runners remove `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`, respectively, for
 subscription-backed CLI use.
+
+Configured CLI transports may set execution-specific command overrides:
+`primary_command` is used for provider-neutral first-pass scanning, while
+`challenger_command` is used for challenger review. The fallback `command` is
+used when no execution-specific override is present. This is useful when the
+same assistant CLI needs different structured-output schemas for finding
+generation and finding review.
 
 ```bash
 uv run screw-agents provider-scan --provider PROVIDER --transport TRANSPORT --execution fixture|cli --agents AGENTS_CSV --target-json TARGET_JSON [--project-root PATH] [--run-id ID] [--session-id ID] [--thoroughness quick|standard|deep] [--timeout-seconds N] [--fixture-findings-json FINDINGS_JSON] [--finalize] [--format json|markdown|csv|sarif]

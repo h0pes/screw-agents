@@ -20,8 +20,8 @@
 > are implemented; repo-local Codex plugin metadata is implemented;
 > route-equivalent fixture validation passed for single provider-primary,
 > primary-plus-challenger, and parallel-provider paths; one live Codex/Claude
-> benchmark round trip is recorded; live composed/parallel mode validation
-> remains pending; see
+> benchmark round trip is recorded; live composed validation passed in both
+> Claude/Codex directions; live parallel mode validation remains pending; see
 > `docs/PHASE_5_PRIMARY_SCANNER_PLAN.md`.
 > Last updated: 2026-05-05.
 
@@ -178,6 +178,8 @@ challenger:
           kind: cli
           enabled: true
           command: claude
+          primary_command: claude-primary-wrapper
+          challenger_command: claude-challenger-wrapper
           use_api_key: false
         api:
           kind: api
@@ -192,6 +194,8 @@ challenger:
           kind: cli
           enabled: true
           command: codex
+          primary_command: codex-primary-wrapper
+          challenger_command: codex-challenger-wrapper
           use_api_key: false
         api:
           kind: api
@@ -236,8 +240,11 @@ challenger:
 ```
 
 The exact schema can change during implementation, but these separations should
-remain: provider, assistant, transport, role, billing permission, and privacy
-permission.
+remain: provider, assistant, transport, role, billing permission, privacy
+permission, and execution-surface command selection. CLI transports may define
+`primary_command` and `challenger_command` when one assistant CLI requires
+different structured-output schemas or wrappers for first-pass scanning versus
+finding review.
 
 ## Work Breakdown
 
@@ -426,15 +433,20 @@ Claude/Codex output normalization. `screw-agents provider-scan` and MCP
 `run_provider_scan` expose fixture and opt-in CLI execution, with optional
 accumulation/finalization into normal `.screw/findings/` reports. A backend
 composed workflow now connects provider primary scan output into configured
-challenger review through the normal finalization/report path. A backend
+challenger review through the normal finalization/report path. Primary/
+challenger modes execute only participants with `role: challenger` during the
+review step; the primary participant is recorded as provenance, not re-run as a
+reviewer. CLI challenger prompts include the finalized findings payload so the
+reviewing provider assesses the actual finding records. A backend
 parallel workflow now runs independent provider primary scans and reconciles
 provider-keyed findings as agreed, disputed, or unique. One Codex/Claude live
 benchmark round trip has passed for the MLflow MoreFixes SSTI
-vulnerable/patched pair. Universal `/screw:scan` primary-provider and parallel
-flags are implemented, and route-equivalent fixture validation has passed for
-single provider-primary, primary-plus-challenger, and parallel-provider paths.
-Live composed/parallel validation and additional provider adapters are still
-pending.
+vulnerable/patched pair, and live composed validation has passed in both
+directions: Codex primary with Claude challenger and Claude primary with Codex
+challenger. Universal `/screw:scan` primary-provider and parallel flags are
+implemented, and route-equivalent fixture validation has passed for single
+provider-primary, primary-plus-challenger, and parallel-provider paths. Live
+parallel validation and additional provider adapters are still pending.
 
 Required outcomes:
 

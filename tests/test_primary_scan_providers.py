@@ -1,4 +1,5 @@
 import json
+import subprocess
 
 import pytest
 
@@ -14,6 +15,7 @@ from screw_agents.primary_scan import (
     PrimaryScanParticipant,
     SourceChunk,
 )
+from screw_agents.primary_scan.providers import _subprocess_command_runner
 
 
 def _finding_dict():
@@ -135,6 +137,32 @@ def test_cli_primary_scan_runner_invokes_command_and_parses_findings():
     assert result.findings[0].id == "sqli-001"
     assert result.provider_metadata["codex"]["returncode"] == 0
     assert result.guardrails["cli_runner"] is True
+
+
+def test_cli_primary_scan_runner_uses_primary_role_command():
+    participant = _participant()
+    runner_backend = RecordingCommandRunner(
+        CliPrimaryScanCommandResult(returncode=0, stdout=json.dumps({"findings": []}))
+    )
+    transport = ChallengerTransportConfig(
+        kind="cli",
+        enabled=True,
+        primary_command="codex primary-command",
+        challenger_command="codex challenger-command",
+        use_api_key=False,
+        sends_source_externally=True,
+    )
+    runner = CliPrimaryScanRunner(
+        participant=participant,
+        transport=transport,
+        command_runner=runner_backend,
+    )
+
+    result = runner.run(_scan_input(participant))
+
+    assert runner_backend.invocations[0].argv == ["codex", "primary-command"]
+    assert result.provider_metadata["codex"]["command"] == "codex primary-command"
+    assert result.guardrails["command"] == "codex primary-command"
 
 
 def test_claude_cli_primary_scan_runner_unsets_anthropic_api_key():
@@ -289,6 +317,27 @@ def test_cli_primary_scan_runner_returns_failed_result_on_nonzero_exit():
     assert result.guardrails["failed"] is True
     assert "not authenticated" in result.guardrails["reason"]
     assert result.provider_metadata["codex"]["returncode"] == 2
+
+
+def test_subprocess_primary_scan_runner_returns_timeout_result(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    def timeout_run(*args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd=["codex"], timeout=11)
+
+    monkeypatch.setattr(subprocess, "run", timeout_run)
+
+    result = _subprocess_command_runner(
+        CliPrimaryScanInvocation(
+            argv=["codex"],
+            stdin="prompt",
+            env={},
+            timeout_seconds=11,
+        )
+    )
+
+    assert result.returncode == 124
+    assert "timed out after 11 seconds" in result.stderr
 
 
 def test_cli_primary_scan_runner_rejects_non_json_output():

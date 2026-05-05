@@ -9,6 +9,7 @@ import yaml
 from screw_agents.cli import main
 from screw_agents.engine import ScanEngine
 from screw_agents.primary_scan.execution import (
+    _challenger_results_from_finalize_result,
     run_composed_provider_scan_workflow,
     run_parallel_provider_scan_workflow,
     run_provider_scan,
@@ -469,6 +470,17 @@ def test_composed_provider_scan_workflow_codex_primary_claude_challenger(
     report_path = Path(result["finalize_result"]["files_written"]["json"])
     report = json.loads(report_path.read_text(encoding="utf-8"))
     assert report["challenger_results"][0]["mode"] == "primary_challenger"
+
+
+def test_composed_provider_scan_workflow_handles_list_json_report(
+    tmp_path: Path,
+) -> None:
+    report_path = tmp_path / "findings.json"
+    report_path.write_text("[]", encoding="utf-8")
+
+    assert _challenger_results_from_finalize_result(
+        {"files_written": {"json": str(report_path)}}
+    ) == []
 
 
 def test_composed_provider_scan_workflow_claude_primary_codex_challenger(
