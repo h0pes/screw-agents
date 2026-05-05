@@ -35,8 +35,8 @@ scanner paths are manually validated.
 Fixture-mode public provider scan validation and one live Codex/Claude CLI
 vulnerable/patched benchmark round trip are recorded in
 `docs/PHASE_5_MANUAL_VALIDATION.md`. Production-grade provider output adapters,
-composed-mode validation, parallel reconciliation, and the Claude Code plugin
-UX for provider-neutral primary selection remain pending.
+composed-mode validation, parallel reconciliation, and the portable assistant
+command/plugin UX for provider-neutral primary selection remain pending.
 
 ## Goals
 
@@ -60,6 +60,11 @@ UX for provider-neutral primary selection remain pending.
 - Make first-pass scanning provider-neutral so Codex, Gemini, local models, or
   future assistants can scan from the same YAML agent knowledge without Claude
   Code being the only scanner frontend.
+- Keep the whole assistant command/plugin surface provider- and host-neutral.
+  `/screw:scan`, `/screw:learn-report`, `/screw:adaptive-cleanup`, adaptive
+  review flows, trust/exclusion operations, challenger/provider modes, and
+  future commands should expose equivalent semantics across Claude Code, Codex,
+  Gemini, local assistants, and other capable hosts.
 
 ## Non-Goals
 
@@ -404,7 +409,8 @@ Status: required and partially implemented. The detailed plan is
 This work adds a backend primary scan runner that can invoke a selected provider
 or assistant as the first-pass scanner using the same YAML agent knowledge,
 target resolution, finding schema, accumulation, and finalization pipeline used
-by Claude Code today.
+by the current Claude Code implementation today and intended for all future
+assistant hosts.
 
 Implemented so far: provider-neutral primary scan contracts, fixture scanner,
 provider output validation, `ScanEngine.assemble_primary_scan_input`, which

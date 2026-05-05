@@ -428,6 +428,12 @@ is tracked in `docs/PHASE_4_CLOSURE_READINESS.md`.
   validation, parallel reconciliation, and universal `/screw:scan`
   provider-primary UX remain pending before Phase 5 closure. See
   `docs/PHASE_5_PRIMARY_SCANNER_PLAN.md`.
+- Tool-agnostic command surface invariant: Claude Code is the first shipped
+  plugin host, but the `/screw:*` commands, agents, skills, MCP tools, package
+  CLI surfaces, adaptive flows, trust/exclusion operations, and
+  challenger/provider modes are intended to be portable across Codex, Gemini,
+  local assistants, web app workers, editor integrations, CI, and future hosts
+  with equivalent parameters and result shapes.
 - `docs/` structure in place (PRD, DECISIONS, CONTRIBUTING, KNOWLEDGE_SOURCES, AGENT_AUTHORING)
 
 **Phase 0 — Knowledge Research Sprint (complete for all 4 Phase 1 agents):**

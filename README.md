@@ -3,13 +3,14 @@
 Modular secure-code-review agents built around a shared MCP server.
 
 `screw-agents` provides vulnerability-specific security review knowledge as
-YAML agents, exposes that knowledge through a Python MCP server, and ships a
-Claude Code plugin that can scan codebases, write structured findings, learn
-from false-positive triage, and run approved adaptive analysis scripts for
-project-specific patterns.
+YAML agents and exposes that knowledge through a Python MCP server. The
+repository ships a Claude Code plugin today, but the command, agent, skill, and
+MCP tool semantics are intended to be host-agnostic: Codex, Gemini, local
+assistants, web application workers, CI, editor integrations, and future plugin
+hosts should be able to run the same capabilities through equivalent adapters.
 
 The durable asset is the curated knowledge in `domains/**/*.yaml`. The Python
-server is the common backend for Claude Code, future web application
+server is the common backend for Claude Code, Codex, future web application
 integration, screw.nvim, CI, and other clients.
 
 > Status: pre-alpha research/product build. Phase 4 is complete. The accepted
@@ -41,7 +42,10 @@ Core goals:
 Implemented today:
 
 - Python MCP server with stdio and streamable HTTP transports.
-- Claude Code plugin under `plugins/screw`.
+- Claude Code implementation of the portable assistant command/plugin surface
+  under `plugins/screw`.
+- Universal assistant command contract for scan, learning, adaptive cleanup,
+  challenger/provider modes, and future commands.
 - Universal `/screw:scan` command.
 - Four accepted vulnerability agents:
   - `sqli` — SQL injection
@@ -107,12 +111,12 @@ See [PROJECT_STATUS.md](docs/PROJECT_STATUS.md) for the current roadmap.
 |---|---|
 | `src/screw_agents/` | Python MCP server, scan engine, formatter, trust, learning, adaptive execution, autoresearch support |
 | `domains/` | CWE-1400 domain folders and YAML agent definitions |
-| `plugins/screw/` | Claude Code plugin: slash commands, subagents, skills, plugin manifest |
+| `plugins/screw/` | Current Claude Code implementation of portable assistant commands, agents, skills, and plugin manifest |
 | `benchmarks/` | CWE-1400-native benchmark runner, ingest scripts, autoresearch planning/execution scripts |
 | `docs/` | Architecture, product plan, agent authoring, catalog, decisions, benchmark and phase records |
 | `tests/` | Core unit/integration tests |
 | `benchmarks/tests/` | Benchmark infrastructure tests |
-| `.mcp.json` | Project-local Claude Code MCP server configuration |
+| `.mcp.json` | Project-local MCP server configuration used by Claude Code today and adaptable to other MCP-capable hosts |
 
 ## Quick Start
 
