@@ -182,11 +182,17 @@ This document captures every significant design decision made during the archite
 
 ## ADR-010: Single Repository Strategy
 
-**Decision:** One repository (`screw-agents`) holds the MCP server, Claude Code plugin, agent YAML definitions, and benchmarks. screw.nvim integration code stays in the screw.nvim repo.
+**Decision:** One repository (`screw-agents`) holds the MCP server, current
+Claude Code plugin implementation, agent YAML definitions, and benchmarks.
+screw.nvim integration code stays in the screw.nvim repo. The command, agent,
+skill, and MCP workflow semantics are intended to be portable to other
+assistant/plugin hosts, not owned by Claude Code.
 
 **Reasoning:**
 - Adding a new agent is a cross-cutting change (YAML definition + subagent `.md` + test fixtures) — single repo = single PR.
-- Two distribution mechanisms from one repo: PyPI package (MCP server) + Claude Code plugin (agents/skills/commands).
+- Two distribution mechanisms from one repo today: PyPI package (MCP server) +
+  Claude Code plugin (agents/skills/commands). Future hosts should adapt the
+  same command and tool semantics through their own plugin/command surfaces.
 - `domains/` directory at the top level (not buried in `src/`) because it's the community contribution target.
 
 **screw.nvim boundary:** screw.nvim adds screw-agents as an optional dependency (same pattern as Telescope). The MCP protocol is the bridge. Transport (stdio vs HTTP) to be determined in Phase 7.

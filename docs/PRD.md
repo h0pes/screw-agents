@@ -15,9 +15,19 @@ Security code review is a manual, expertise-intensive process. Existing SAST too
 
 ### Vision
 
-Build a modular system of **dedicated, vulnerability-specific AI agents** for secure code review, powered by Claude. Each agent is a specialist (e.g., one for SQL injection, one for SSTI, one for broken access control) carrying distilled knowledge from authoritative security sources (OWASP, CWE, CAPEC, SANS, real-world CVEs, community research).
+Build a modular system of **dedicated, vulnerability-specific AI agents** for
+secure code review, powered by provider-neutral assistant integrations. Each
+agent is a specialist (e.g., one for SQL injection, one for SSTI, one for
+broken access control) carrying distilled knowledge from authoritative security
+sources (OWASP, CWE, CAPEC, SANS, real-world CVEs, community research).
 
-The system must be **pluggable** — usable as a first-class experience inside Claude Code, integratable with the [screw.nvim](https://github.com/h0pes/screw.nvim) Neovim plugin, and extensible to future clients (CI/CD pipelines, VS Code, other editors).
+The system must be **pluggable** — usable as a first-class experience inside
+Claude Code today, but architecturally portable to Codex, Gemini, local
+assistants, the [screw.nvim](https://github.com/h0pes/screw.nvim) Neovim
+plugin, web applications, CI/CD pipelines, VS Code, and other future clients.
+All screw-agents commands, agents, skills, MCP tools, adaptive flows,
+trust/exclusion workflows, and challenger/provider modes should preserve
+equivalent semantics across capable hosts.
 
 ### Core Value Proposition
 
@@ -31,7 +41,9 @@ The real value lies not in the architecture but in the **quality of agent knowle
 
 - **G1:** Dedicated agents for individual vulnerability types (SQLi, SSTI, XPath injection, command injection, etc.) organized into security domains based on the **CWE-1400 (Comprehensive Categorization)** taxonomy — the only established, mutually exclusive, complete classification system for software weaknesses
 - **G2:** User control over target scope — scan a single file, multiple files, entire codebase, specific methods/classes/functions, line ranges, **git diffs, or pull requests**
-- **G3:** First-class standalone experience in Claude Code (no external dependencies required)
+- **G3:** First-class standalone experience in Claude Code today, while keeping
+  the command/plugin semantics portable to Codex, Gemini, local assistants, and
+  future hosts
 - **G4:** Pluggable integration with screw.nvim for editor-native security review workflow
 - **G5:** Agent knowledge built from thorough research of authoritative security sources, optimized for LLM consumption
 - **G6:** Community-extensible agent definitions (new vulnerability types via YAML, no code changes)
@@ -1442,7 +1454,9 @@ The screw-agents system extends screw.nvim with AI-powered vulnerability detecti
 
 ### Repository: `screw-agents`
 
-A single repository (`github.com/h0pes/screw-agents`) containing the MCP server, Claude Code plugin, agent knowledge base, and benchmark infrastructure.
+A single repository (`github.com/h0pes/screw-agents`) containing the MCP server,
+current Claude Code plugin implementation, portable assistant command assets,
+agent knowledge base, and benchmark infrastructure.
 
 ```
 screw-agents/
@@ -1568,7 +1582,11 @@ The MCP server bundles the `domains/` YAML definitions and the `src/screw_agents
 /plugin install screw
 ```
 
-The plugin installs the subagent `.md` files, the skill, and the slash commands. These are thin orchestration wrappers that call the MCP tools.
+The plugin installs the subagent `.md` files, the skill, and the slash commands.
+These are thin orchestration wrappers that call the MCP tools. Claude Code is
+the current host implementation; the same command, agent, skill, and workflow
+semantics are intended to be exposed by future Codex, Gemini, local assistant,
+editor, and web application integrations.
 
 **3. Manual installation (no plugin system):**
 

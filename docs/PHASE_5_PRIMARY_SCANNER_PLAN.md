@@ -24,6 +24,13 @@ the first-pass scan:
 - A chosen primary assistant with a chosen challenger assistant.
 - Parallel independent scans with reconciliation.
 
+The same portability principle applies beyond scanning. The `/screw:*`
+assistant command set, subagents, skills, MCP tools, and package CLI surfaces
+should remain host-agnostic: scan, learning reports, adaptive cleanup, trust and
+exclusion operations, challenger/provider modes, and future workflows should be
+available through equivalent parameters and result shapes from any supported
+assistant or integration host.
+
 Today, Claude Code is the implemented primary scan UX. It uses the MCP backend,
 target resolver, YAML agent knowledge, accumulation, and report finalization.
 Codex, Gemini, and local models do not yet have an equivalent live first-pass

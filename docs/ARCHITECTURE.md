@@ -5,11 +5,11 @@
 
 ## System Overview
 
-screw-agents is a modular, AI-powered secure code review system. It provides dedicated, vulnerability-specific agents that carry deeply researched security knowledge and are invocable from Claude Code, Neovim (via screw.nvim), or CI/CD pipelines through a shared MCP server backbone.
+screw-agents is a modular, AI-powered secure code review system. It provides dedicated, vulnerability-specific agents that carry deeply researched security knowledge and are invocable from Claude Code, Codex, Gemini, local assistants, Neovim (via screw.nvim), web application workers, or CI/CD pipelines through a shared MCP server backbone.
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  Consumers: Claude Code │ screw.nvim │ CI/CD                │
+│  Consumers: Claude Code │ Codex/Gemini/local │ screw.nvim │ CI/CD │
 │                         MCP Protocol                         │
 │  ┌────────────────────────────────────────────────────────┐  │
 │  │              screw-agents-mcp (MCP Server)             │  │
@@ -234,12 +234,19 @@ Reusable `IngestBase` abstract class with 8 dataset-specific subclasses. Each in
 | Vul4J | Java | `ingest_vul4j.py` |
 | MoreFixes | All (via Postgres) | `morefixes_extract.py` |
 
-### Claude Code Integration (`plugins/screw/`)
+### Assistant Command Integration (`plugins/screw/`)
 
-Thin orchestration wrappers calling MCP tools:
+Thin orchestration wrappers calling MCP tools. The current implementation is a
+Claude Code plugin, but the slash-command names, agent roles, skills, and MCP
+tool workflows define a portable assistant command contract. Future Codex,
+Gemini, local assistant, editor, or web-worker integrations should preserve the
+same command semantics and map host-specific UX onto the same backend tools.
+
 - **Subagents** (`agents/`): `screw-scan.md` (universal scan runner; T-SCAN-REFACTOR collapsed 5 per-vuln + per-domain subagents into this one), `screw-script-reviewer.md` (adaptive review chain), `screw-learning-analyst.md` (learning mode). Main session orchestrates dispatch (chain-subagents architecture).
 - **Skills** (`skills/`): Auto-invocation triggers
-- **Slash commands**: User-facing entry points (e.g., `/screw:scan` with multi-scope grammar, see "Tool & Subagent Inventory" above)
+- **Slash commands**: User-facing entry points (for example `/screw:scan`,
+  `/screw:learn-report`, and `/screw:adaptive-cleanup`; see "Tool & Subagent
+  Inventory" above)
 
 ### Project-Level State (`.screw/`)
 

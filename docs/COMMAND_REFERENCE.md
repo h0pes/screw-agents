@@ -218,11 +218,16 @@ Options:
 
 ## Assistant Plugin Commands
 
-These slash-command names are the assistant-facing command contract. The
-currently shipped plugin implementation lives under `plugins/screw/` and is
-loaded by Claude Code today, but the command grammar is intended to stay
-portable across Codex, Gemini, local assistants, or future plugin hosts that
-can call the same MCP/backend tools.
+These command names, agent roles, skills, and tool workflows are the
+assistant-facing command contract for `screw-agents`. The currently shipped
+plugin implementation lives under `plugins/screw/` and is loaded by Claude Code
+today, but the semantics are intended to stay portable across Codex, Gemini,
+local assistants, editor integrations, web workers, or future plugin hosts that
+can call the same MCP/backend tools. This portability applies to all
+`/screw:*` commands, not only `/screw:scan`: scan, learning reports, adaptive
+cleanup, trust/exclusion flows, challenger/provider modes, and future commands
+should expose equivalent inputs, options, and result shapes wherever the host
+can support them.
 
 Load the plugin locally:
 
