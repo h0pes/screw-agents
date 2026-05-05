@@ -10,6 +10,7 @@ from screw_agents.cli import main
 from screw_agents.engine import ScanEngine
 from screw_agents.primary_scan.execution import (
     run_composed_provider_scan_workflow,
+    run_parallel_provider_scan_workflow,
     run_provider_scan,
     run_provider_scan_workflow,
 )
@@ -37,6 +38,19 @@ def _finding_dict() -> dict:
         "analysis": {"description": "Unsafely concatenated SQL query."},
         "remediation": {"recommendation": "Use parameterized queries."},
     }
+
+
+def _finding_variant(
+    *,
+    finding_id: str,
+    line_start: int = 12,
+    severity: str = "high",
+) -> dict:
+    finding = json.loads(json.dumps(_finding_dict()))
+    finding["id"] = finding_id
+    finding["location"]["line_start"] = line_start
+    finding["classification"]["severity"] = severity
+    return finding
 
 
 def _write_config(project_root: Path, *, transport_kind: str = "fixture") -> None:
@@ -485,3 +499,108 @@ def test_composed_provider_scan_workflow_claude_primary_codex_challenger(
     assert result["challenger_results"][0]["reconciliations"][0]["primary_provider"] == (
         "claude"
     )
+
+
+def test_parallel_provider_scan_workflow_reconciles_agreed_findings(
+    tmp_path: Path,
+) -> None:
+    _write_composed_config(
+        tmp_path,
+        primary_provider="claude",
+        challenger_provider="codex",
+    )
+
+    result = run_parallel_provider_scan_workflow(
+        engine=_engine(),
+        project_root=tmp_path,
+        participants=[
+            {"provider": "claude", "transport": "fixture", "execution": "fixture"},
+            {"provider": "codex", "transport": "fixture", "execution": "fixture"},
+        ],
+        run_id="parallel-run",
+        session_id="parallel-session",
+        agents=["sqli"],
+        target=_target(tmp_path),
+        fixture_findings_by_provider={
+            "claude": [_finding_variant(finding_id="claude-sqli-001")],
+            "codex": [_finding_variant(finding_id="codex-sqli-001")],
+        },
+    )
+
+    assert result["mode"]["type"] == "parallel"
+    assert len(result["primary_scan_results"]) == 2
+    assert result["provider_findings"]["claude"][0]["id"] == "claude-sqli-001"
+    assert result["provider_findings"]["codex"][0]["id"] == "codex-sqli-001"
+    assert result["reconciliations"][0]["status"] == "agreed"
+    assert result["reconciliations"][0]["participant_providers"] == [
+        "claude",
+        "codex",
+    ]
+    assert result["reconciliations"][0]["finding_ids"] == [
+        "claude-sqli-001",
+        "codex-sqli-001",
+    ]
+
+
+def test_parallel_provider_scan_workflow_marks_unique_findings(
+    tmp_path: Path,
+) -> None:
+    _write_composed_config(
+        tmp_path,
+        primary_provider="claude",
+        challenger_provider="codex",
+    )
+
+    result = run_parallel_provider_scan_workflow(
+        engine=_engine(),
+        project_root=tmp_path,
+        participants=[
+            {"provider": "claude", "transport": "fixture", "execution": "fixture"},
+            {"provider": "codex", "transport": "fixture", "execution": "fixture"},
+        ],
+        run_id="parallel-run",
+        session_id="parallel-session",
+        agents=["sqli"],
+        target=_target(tmp_path),
+        fixture_findings_by_provider={
+            "claude": [_finding_variant(finding_id="claude-sqli-001", line_start=12)],
+            "codex": [_finding_variant(finding_id="codex-sqli-002", line_start=42)],
+        },
+    )
+
+    assert [item["status"] for item in result["reconciliations"]] == [
+        "unique",
+        "unique",
+    ]
+    assert result["reconciliations"][0]["participant_providers"] == ["claude"]
+    assert result["reconciliations"][1]["participant_providers"] == ["codex"]
+
+
+def test_parallel_provider_scan_workflow_marks_severity_disputes(
+    tmp_path: Path,
+) -> None:
+    _write_composed_config(
+        tmp_path,
+        primary_provider="claude",
+        challenger_provider="codex",
+    )
+
+    result = run_parallel_provider_scan_workflow(
+        engine=_engine(),
+        project_root=tmp_path,
+        participants=[
+            {"provider": "claude", "transport": "fixture", "execution": "fixture"},
+            {"provider": "codex", "transport": "fixture", "execution": "fixture"},
+        ],
+        run_id="parallel-run",
+        session_id="parallel-session",
+        agents=["sqli"],
+        target=_target(tmp_path),
+        fixture_findings_by_provider={
+            "claude": [_finding_variant(finding_id="claude-sqli-001", severity="high")],
+            "codex": [_finding_variant(finding_id="codex-sqli-001", severity="medium")],
+        },
+    )
+
+    assert result["reconciliations"][0]["status"] == "disputed"
+    assert result["reconciliations"][0]["agreed_severity"] is None

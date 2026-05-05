@@ -86,6 +86,9 @@ Implemented today:
 - Backend composed primary-plus-challenger workflow that runs a configured
   provider primary scan, finalizes findings, and attaches configured challenger
   review through the normal report path.
+- Backend parallel primary scan workflow that runs independent provider scans
+  and returns provider-keyed findings plus agreed/disputed/unique
+  reconciliation summaries.
 - Fixture-mode manual validation for `provider-scan` and `run_provider_scan`
   using a temporary `/tmp` end-user project.
 - Live Codex and Claude CLI provider-scan validation on a real MLflow MoreFixes
@@ -398,10 +401,11 @@ Upcoming:
   - Provider-neutral scan input assembly, backend CLI primary scanner runner
     plumbing, production Claude/Codex output normalization, `provider-scan`,
     MCP `run_provider_scan`, optional provider-scan report finalization, and
-    backend composed primary-plus-challenger workflow are implemented; one live
-    Codex/Claude vulnerable/patched benchmark round trip is recorded, while
-    live composed-mode validation and universal `/screw:scan`
-    primary-provider UX remain pending before Phase 5 closure.
+    backend composed primary-plus-challenger and parallel primary
+    reconciliation workflows are implemented; one live Codex/Claude
+    vulnerable/patched benchmark round trip is recorded, while live
+    composed/parallel validation and universal `/screw:scan` primary-provider
+    UX remain pending before Phase 5 closure.
   - Provider-neutral adapters so Gemini, local LLMs, or future assistants can
     be added without changing agent YAML.
   - Transport choice per provider: subscription-backed CLI/local execution or

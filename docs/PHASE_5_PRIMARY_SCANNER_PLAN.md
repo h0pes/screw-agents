@@ -9,8 +9,10 @@
 > package CLI plus `run_provider_scan` MCP tool expose fixture and opt-in CLI
 > primary scan execution. Provider-scan can optionally finalize returned
 > findings into normal `.screw/findings/` reports. The backend composed
-> primary-plus-challenger workflow is implemented for configured modes.
-> Fixture-mode and one live Codex/Claude benchmark round-trip validation are recorded in
+> primary-plus-challenger workflow is implemented for configured modes. The
+> backend parallel primary scan workflow is implemented for independent
+> provider scans with agreed/disputed/unique reconciliation. Fixture-mode and
+> one live Codex/Claude benchmark round-trip validation are recorded in
 > `docs/PHASE_5_MANUAL_VALIDATION.md`.
 > Phase 5 is not closure-ready until this gap is closed or explicitly
 > re-scoped.
@@ -72,9 +74,9 @@ context.
 | Codex as first-pass scanner from YAML agent knowledge | Public CLI/MCP path implemented; one live vulnerable/patched benchmark round trip passed |
 | Claude as first-pass scanner from YAML agent knowledge through provider-scan | Public CLI/MCP path implemented; production adapter extracts Claude `structured_output.findings`; one live vulnerable/patched benchmark round trip passed |
 | Backend composed primary-plus-challenger workflow | Implemented for configured provider primary scan plus challenger finalization |
+| Parallel independent first-pass scans with reconciliation | Backend workflow implemented with fixture coverage |
 | Gemini/local as first-pass scanner from YAML agent knowledge | Pending adapter |
 | Provider-neutral primary selection in universal `/screw:scan` UX | Pending |
-| Parallel independent first-pass scans with reconciliation | Pending |
 | Manual round-trip validation of all Phase 5 modes | Pending |
 
 ## Required Architecture
@@ -224,11 +226,14 @@ provider produced or disputed each finding.
 
 ### P5-P5 - Parallel Scan Reconciliation
 
-- Status: pending.
-- Run multiple primary providers independently.
-- Normalize findings.
-- Reconcile agreed/disputed/unique results.
-- Preserve provider provenance in JSON/SARIF/Markdown.
+- Status: backend workflow implemented.
+- Runs multiple primary providers independently using the same YAML-derived
+  primary scan input assembly.
+- Returns provider-keyed findings plus agreed/disputed/unique reconciliation
+  summaries.
+- Preserves provider provenance in the backend result object. Report-format
+  integration remains a follow-up if needed by live validation or web-app
+  ingestion.
 
 ### P5-P6 - Manual Round-Trip Validation
 
@@ -240,8 +245,10 @@ provider produced or disputed each finding.
 - Backend composed primary-plus-challenger workflow is implemented with fixture
   coverage for Codex-primary/Claude-challenger and
   Claude-primary/Codex-challenger directions.
+- Backend parallel primary reconciliation workflow is implemented with fixture
+  coverage for agreed, unique, and severity-disputed findings.
 - Remaining manual validation covers live composed primary-plus-challenger
-  flows, parallel independent scans with reconciliation, and the final
+  flows, live parallel independent scans with reconciliation, and the final
   assistant command UX for selecting a primary provider.
 - Record results in the Phase 5 closure readiness document.
 

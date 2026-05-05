@@ -5,8 +5,9 @@
 > vulnerable/patched benchmark round trip; the Claude structured-output
 > adapter behavior discovered during that run is now implemented in the
 > production runner. Backend composed primary-plus-challenger workflow has
-> fixture coverage; live composed challenger and parallel mode validation
-> remain pending.
+> fixture coverage; backend parallel primary reconciliation has fixture
+> coverage for agreed, unique, and severity-disputed findings. Live composed
+> challenger and parallel mode validation remain pending.
 > Last updated: 2026-05-05.
 
 ## Scope
@@ -283,7 +284,7 @@ provider invocation.
 | Claude CLI primary scan live run | Passed | MLflow MoreFixes vulnerable/patched SSTI case; production runner now extracts the validated `structured_output.findings` shape |
 | Provider scan result accumulation/finalization | Passed | Fixture, Codex live, and Claude live outputs wrote `.screw/findings/` reports |
 | Primary plus challenger public round trip | Pending | Requires accumulation/finalization or explicit orchestration |
-| Parallel independent primary scans | Pending | P5-P5 |
+| Parallel independent primary scans | Backend fixture coverage passed | Live validation pending |
 | `/screw:scan` provider-neutral primary UX | Pending | Backend exists; universal assistant command UX still needs provider-primary selection |
 
 ## Decision
@@ -293,7 +294,9 @@ public package CLI and MCP surfaces. Live Codex and Claude CLI primary scanning
 is validated on one real benchmark vulnerable/patched pair, including report
 finalization. Backend composed primary plus challenger flow is covered for both
 Codex-primary/Claude-challenger and Claude-primary/Codex-challenger fixture
-directions. Phase 5 is still not closure-ready because live composed primary
-plus challenger flows, parallel independent scan reconciliation, additional
-provider adapters, and the universal `/screw:scan` provider-primary UX have not
-been completed and manually validated.
+directions. Backend parallel independent scan reconciliation is covered for
+agreed, unique, and severity-disputed fixture findings. Phase 5 is still not
+closure-ready because live composed primary plus challenger flows, live
+parallel independent scan reconciliation, additional provider adapters, and the
+universal `/screw:scan` provider-primary UX have not been completed and
+manually validated.
