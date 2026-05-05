@@ -827,16 +827,16 @@ Scope: ~30 LOC engine logic + 5-8 tests. The `code_snippet` field already exists
 **Trigger:** Phase 4 autoresearch implementation, OR when Task 20's MCP tool gets a second consumer that needs different tuning.
 **Suggested fix:** Add `*, scope: Literal["project", "global"] = "project", top_n: int | None = None, min_count: int | None = None, max_reasons: int | None = None` kwargs — defaults fall through to the module constants.
 
-### T-PLUGIN-M1 — Marketplace packaging: publish `screw-agents` to PyPI + plugin-scoped `.mcp.json`
+### T-PLUGIN-M1 — External marketplace packaging: publish `screw-agents` to PyPI + switch plugin MCP to `uvx`
 **Source:** Phase 3a PR#2 plugin-namespace restructure (commit `31bac3a`)
-**File:** `pyproject.toml`, `plugins/screw/.mcp.json` (to be created), `.mcp.json` (at repo root, project-scoped — may be removed once plugin-scoped path is live)
+**File:** `pyproject.toml`, `plugins/screw/.mcp.json`, `.mcp.json` (at repo root, project-scoped — may be removed once external marketplace packaging is live)
 **Phase-4 readiness:** `nice-to-have` — marketplace packaging; blocks external distribution not Phase 4
-**Why deferred:** Today `.mcp.json` at repo root declares the MCP server as `uv run screw-agents serve --transport stdio`. That command only works when `pyproject.toml` is reachable (i.e., when Claude Code's cwd is the repo root). For marketplace distribution, Claude Code copies the plugin to `~/.claude/plugins/cache/...`, which does NOT include `pyproject.toml` — the server command would fail. The fix requires publishing `screw-agents` to PyPI and rewriting the MCP command to use `uvx screw-agents serve`, which works from anywhere.
+**Why deferred:** Repo-local Claude Code and Codex plugin development is now covered by the shared `plugins/screw` package and repo-local MCP configs. External marketplace distribution still needs a PyPI-published package because copied plugin installs do NOT include `pyproject.toml`. The external-distribution fix requires publishing `screw-agents` to PyPI and rewriting the plugin-scoped MCP command to use `uvx screw-agents serve`, which works from anywhere.
 **Trigger:** Before the first marketplace submission (Phase 7+ typical timing, but earlier if someone wants external users to install the plugin without cloning the repo).
 **Suggested fix:**
 1. Polish `pyproject.toml` for PyPI: add classifiers, long_description (point at README), fix any missing metadata.
 2. Run `uv build` and `uv publish` (or `twine upload`) to push screw-agents to PyPI.
-3. Add `plugins/screw/.mcp.json` with `{"mcpServers": {"screw-agents": {"command": "uvx", "args": ["screw-agents", "serve", "--transport", "stdio"]}}}`.
+3. Replace the repo-local `plugins/screw/.mcp.json` command with `{"mcpServers": {"screw-agents": {"command": "uvx", "args": ["screw-agents", "serve", "--transport", "stdio"]}}}`.
 4. Optionally drop the project-scoped `.mcp.json` at repo root (or keep for editable-install dev mode).
 5. Update `CONTRIBUTING.md` to document: "for marketplace install, plugin MCP uses the PyPI-published CLI."
 

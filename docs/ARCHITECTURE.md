@@ -239,16 +239,22 @@ Reusable `IngestBase` abstract class with 8 dataset-specific subclasses. Each in
 ### Assistant Command Integration (`plugins/screw/`)
 
 Thin orchestration wrappers calling MCP tools. The current implementation is a
-Claude Code plugin, but the slash-command names, agent roles, skills, and MCP
-tool workflows define a portable assistant command contract. Future Codex,
-Gemini, local assistant, editor, or web-worker integrations should preserve the
-same command semantics and map host-specific UX onto the same backend tools.
+shared assistant plugin directory with Claude Code metadata
+(`.claude-plugin/plugin.json`) and Codex metadata
+(`.codex-plugin/plugin.json`, `.agents/plugins/marketplace.json`). The
+slash-command names, agent roles, skills, and MCP tool workflows define a
+portable assistant command contract. Future Gemini, local assistant, editor, or
+web-worker integrations should preserve the same command semantics and map
+host-specific UX onto the same backend tools.
 
 - **Subagents** (`agents/`): `screw-scan.md` (universal scan runner; T-SCAN-REFACTOR collapsed 5 per-vuln + per-domain subagents into this one), `screw-script-reviewer.md` (adaptive review chain), `screw-learning-analyst.md` (learning mode). Main session orchestrates dispatch (chain-subagents architecture).
 - **Skills** (`skills/`): Auto-invocation triggers
 - **Slash commands**: User-facing entry points (for example `/screw:scan`,
   `/screw:learn-report`, and `/screw:adaptive-cleanup`; see "Tool & Subagent
   Inventory" above)
+- **MCP config**: repo-root `.mcp.json` for project-scoped Claude Code
+  development, plus plugin-scoped `plugins/screw/.mcp.json` for repo-local
+  Codex marketplace development.
 
 ### Project-Level State (`.screw/`)
 

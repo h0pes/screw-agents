@@ -1,0 +1,4 @@
+interface:
+  display_name: "screw-agents"
+  short_description: "Provider-neutral secure code review agents"
+  default_prompt: "Use screw-agents for provider-neutral secure code review through /screw:scan and the screw-agents MCP tools."

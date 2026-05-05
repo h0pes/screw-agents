@@ -39,6 +39,12 @@ exclusion operations, challenger/provider modes, and future workflows should be
 available through equivalent parameters and result shapes from any supported
 assistant or integration host.
 
+The shared `plugins/screw` package now carries both Claude Code and Codex
+plugin metadata. Claude Code uses `.claude-plugin/plugin.json` plus
+`--plugin-dir`; Codex uses `.codex-plugin/plugin.json` plus the repo-local
+`.agents/plugins/marketplace.json` descriptor. Both hosts reuse the same
+`commands/`, `agents/`, `skills/`, and MCP backend contract.
+
 Today, the provider-neutral backend and package CLI can execute Claude and
 Codex first-pass scans from YAML knowledge through configured CLI transports,
 and `/screw:scan` exposes explicit provider-primary and parallel-provider
@@ -82,6 +88,7 @@ context.
 | Parallel independent first-pass scans with reconciliation | Backend workflow implemented with fixture coverage |
 | Gemini/local as first-pass scanner from YAML agent knowledge | Pending adapter |
 | Provider-neutral primary selection in universal `/screw:scan` UX | Implemented; route-equivalent fixture validation passed |
+| Repo-local Codex plugin metadata for shared `/screw:*` commands | Implemented |
 | Manual round-trip validation of all Phase 5 modes | Pending |
 
 ## Required Architecture
