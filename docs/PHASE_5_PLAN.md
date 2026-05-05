@@ -17,9 +17,10 @@
 > finalization is implemented; backend composed primary-plus-challenger
 > workflow and backend parallel primary reconciliation workflow are
 > implemented; universal assistant command provider-primary and parallel flags
-> are implemented; fixture-mode manual validation is recorded; one live
-> Codex/Claude benchmark round trip is recorded; live composed/parallel mode
-> validation remains pending; see
+> are implemented; route-equivalent fixture validation passed for single
+> provider-primary, primary-plus-challenger, and parallel-provider paths; one
+> live Codex/Claude benchmark round trip is recorded; live composed/parallel
+> mode validation remains pending; see
 > `docs/PHASE_5_PRIMARY_SCANNER_PLAN.md`.
 > Last updated: 2026-05-05.
 
@@ -429,8 +430,10 @@ parallel workflow now runs independent provider primary scans and reconciles
 provider-keyed findings as agreed, disputed, or unique. One Codex/Claude live
 benchmark round trip has passed for the MLflow MoreFixes SSTI
 vulnerable/patched pair. Universal `/screw:scan` primary-provider and parallel
-flags are implemented. Live composed/parallel validation and additional
-provider adapters are still pending.
+flags are implemented, and route-equivalent fixture validation has passed for
+single provider-primary, primary-plus-challenger, and parallel-provider paths.
+Live composed/parallel validation and additional provider adapters are still
+pending.
 
 Required outcomes:
 

@@ -403,9 +403,10 @@ Upcoming:
     MCP `run_provider_scan`, optional provider-scan report finalization,
     backend composed primary-plus-challenger and parallel primary
     reconciliation workflows, and universal `/screw:scan` provider-primary
-    command flags are implemented; one live Codex/Claude vulnerable/patched
-    benchmark round trip is recorded, while live composed/parallel validation
-    remains pending before Phase 5 closure.
+    command flags are implemented; route-equivalent fixture validation and one
+    live Codex/Claude vulnerable/patched benchmark round trip are recorded,
+    while live composed/parallel validation remains pending before Phase 5
+    closure.
   - Provider-neutral adapters so Gemini, local LLMs, or future assistants can
     be added without changing agent YAML.
   - Transport choice per provider: subscription-backed CLI/local execution or
