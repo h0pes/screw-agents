@@ -13,7 +13,9 @@
 > backend parallel primary scan workflow is implemented for independent
 > provider scans with agreed/disputed/unique reconciliation. Fixture-mode and
 > one live Codex/Claude benchmark round-trip validation are recorded in
-> `docs/PHASE_5_MANUAL_VALIDATION.md`.
+> `docs/PHASE_5_MANUAL_VALIDATION.md`. Universal `/screw:scan`
+> provider-primary and parallel flags are implemented and route to the provider
+> scan MCP tools.
 > Phase 5 is not closure-ready until this gap is closed or explicitly
 > re-scoped.
 
@@ -36,11 +38,13 @@ exclusion operations, challenger/provider modes, and future workflows should be
 available through equivalent parameters and result shapes from any supported
 assistant or integration host.
 
-Today, Claude Code is the implemented primary scan UX. It uses the MCP backend,
-target resolver, YAML agent knowledge, accumulation, and report finalization.
-Codex, Gemini, and local models do not yet have an equivalent live first-pass
-scan runner that consumes the same YAML agent knowledge and emits `Finding`
-JSON. The backend contract for such runners now exists in
+Today, the provider-neutral backend and package CLI can execute Claude and
+Codex first-pass scans from YAML knowledge through configured CLI transports,
+and `/screw:scan` exposes explicit provider-primary and parallel-provider
+selection as the universal assistant-facing command contract. Gemini and local
+models do not yet have equivalent adapters that consume the same YAML agent
+knowledge and emit `Finding` JSON. The backend contract for such runners exists
+in
 `src/screw_agents/primary_scan/`, and `ScanEngine.assemble_primary_scan_input`
 packages selected YAML agent prompts, resolved source chunks, target metadata,
 and the shared `Finding` output schema without invoking a provider. The
@@ -76,7 +80,7 @@ context.
 | Backend composed primary-plus-challenger workflow | Implemented for configured provider primary scan plus challenger finalization |
 | Parallel independent first-pass scans with reconciliation | Backend workflow implemented with fixture coverage |
 | Gemini/local as first-pass scanner from YAML agent knowledge | Pending adapter |
-| Provider-neutral primary selection in universal `/screw:scan` UX | Pending |
+| Provider-neutral primary selection in universal `/screw:scan` UX | Implemented, manual validation pending |
 | Manual round-trip validation of all Phase 5 modes | Pending |
 
 ## Required Architecture
@@ -215,6 +219,8 @@ provider produced or disputed each finding.
 - Status: implemented.
 - Added `screw-agents provider-scan`.
 - Added MCP tool `run_provider_scan`.
+- Added MCP tools `run_composed_provider_scan` and
+  `run_parallel_provider_scan`.
 - Public surface supports fixture execution and opt-in configured CLI
   transports. API/local transports are still rejected until adapters exist.
 - Public surface can optionally accumulate returned findings and finalize
@@ -223,6 +229,9 @@ provider produced or disputed each finding.
   Claude-only frontend. The current Claude Code plugin is one implementation;
   future Codex, Gemini, local assistant, and web-app worker integrations should
   use the same MCP/backend semantics.
+- `/screw:scan` now exposes explicit `--primary-provider`,
+  `--primary-transport`, `--primary-execution`, and `--parallel-providers`
+  flags that route to these provider scan MCP tools.
 
 ### P5-P5 - Parallel Scan Reconciliation
 
@@ -248,8 +257,8 @@ provider produced or disputed each finding.
 - Backend parallel primary reconciliation workflow is implemented with fixture
   coverage for agreed, unique, and severity-disputed findings.
 - Remaining manual validation covers live composed primary-plus-challenger
-  flows, live parallel independent scans with reconciliation, and the final
-  assistant command UX for selecting a primary provider.
+  flows, live parallel independent scans with reconciliation, and the new
+  assistant command routes for selecting a primary provider.
 - Record results in the Phase 5 closure readiness document.
 
 ## Phase 5 Closure Dependencies
@@ -265,7 +274,8 @@ Phase 5 closure must wait for:
   - parallel independent scans with reconciliation.
 - Manual round-trip checklist recorded.
 - Provider-specific CLI output adapters implemented without temporary wrappers.
-- `/screw:scan` or an adjacent assistant command exposes provider-neutral
-  primary scanner selection across supported assistant hosts.
+- `/screw:scan` provider-neutral primary scanner selection is manually
+  validated across supported assistant hosts or equivalent command-contract
+  fixtures.
 - API/local provider adapter deferrals explicitly documented.
 - Phase 5.5 handoff surfaces documented for web application integration.

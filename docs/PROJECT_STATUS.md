@@ -414,10 +414,11 @@ is tracked in `docs/PHASE_4_CLOSURE_READINESS.md`.
   tools `challenger_dry_run` and `challenger_run`. Report formatting preserves
   supplied challenger run metadata in JSON, Markdown, and SARIF while keeping
   CSV finding-only. `finalize_scan_results` can explicitly run and attach a
-  configured challenger mode after merge/exclusion filtering. The current
-  Claude Code implementation of the universal `/screw:scan` command exposes
-  this as explicit `--challenger <mode> --challenger-execution dry_run|cli`
-  flags; API/local provider execution is still pending. Provider-neutral primary scan contracts,
+  configured challenger mode after merge/exclusion filtering. The universal
+  `/screw:scan` command exposes this as explicit
+  `--challenger <mode> --challenger-execution dry_run|cli` flags; the current
+  implementation lives in the Claude Code plugin package. API/local provider
+  execution is still pending. Provider-neutral primary scan contracts,
   fixture validation, scan input assembly from YAML agent knowledge, backend
   generic/Claude/Codex CLI primary scanner runner plumbing, `screw-agents
   provider-scan`, and MCP `run_provider_scan` now exist. The primary CLI
@@ -429,9 +430,11 @@ is tracked in `docs/PHASE_4_CLOSURE_READINESS.md`.
   vulnerable/patched case. Backend composed primary-plus-challenger workflow is
   implemented with fixture coverage for both Claude/Codex directions. Backend
   parallel primary reconciliation is implemented with fixture coverage for
-  agreed, unique, and severity-disputed findings. Live composed/parallel
-  validation, additional provider adapters, and universal `/screw:scan`
-  provider-primary UX remain pending before Phase 5 closure. See
+  agreed, unique, and severity-disputed findings. The universal `/screw:scan`
+  command contract now exposes provider-primary, primary-plus-challenger, and
+  parallel-provider flags through MCP provider scan tools. Live
+  composed/parallel validation and additional provider adapters remain pending
+  before Phase 5 closure. See
   `docs/PHASE_5_PRIMARY_SCANNER_PLAN.md`.
 - Tool-agnostic command surface invariant: Claude Code is the first shipped
   plugin host, but the `/screw:*` commands, agents, skills, MCP tools, package
@@ -816,7 +819,7 @@ Structured as a dependency graph with three parallel tracks converging at smoke 
 | Phase 3b | Adaptive Analysis & Learning Refinement | **Complete** — PR #4 (#10) 2026-04-18, PR #5 (#11) 2026-04-20, PR #6 (#12) 2026-04-23, Phase 3b-C2 2026-04-24, BACKLOG-PR6-22 (#14) 2026-04-24, T19-M D7 (#15) 2026-04-24, T-SCAN-REFACTOR final 2026-04-25 |
 | Phase 3c | Sandbox hardening sweep (seccomp filter + thread-safety + dedup) | **Deferred** — see `docs/DEFERRED_BACKLOG.md` §"Phase 3c (sandbox hardening follow-ups)" |
 | Phase 4 | Autoresearch & Self-Improvement | **Complete** — D-01 merged; D-02 calibration workflow, guardrails, failure payloads, accepted inclusions/exclusions, Wave C representative validation, focused runtime validation, and final signoff are recorded |
-| Phase 5 | Multi-LLM Challenger System | In progress — challenger config/model contracts, reconciliation, provider runner interface, fixture/generic/Claude/Codex CLI runners, required-mode orchestration, CLI/MCP challenger execution surfaces, report integration, finalize-time attachment, `/screw:scan` challenger flags, primary scan contracts, fixture validation, scan input assembly, backend primary CLI runners, production Claude/Codex primary output normalization, `provider-scan`, MCP `run_provider_scan`, optional provider-scan finalization, backend composed primary-plus-challenger workflow, and backend parallel primary reconciliation are implemented; fixture-mode provider scan validation, composed workflow fixture coverage, parallel reconciliation fixture coverage, and one live Codex/Claude MLflow MoreFixes SSTI vulnerable/patched benchmark round trip are recorded; additional provider adapters, live composed/parallel validation, and universal `/screw:scan` provider-primary UX remain pending before Phase 5 closure |
+| Phase 5 | Multi-LLM Challenger System | In progress — challenger config/model contracts, reconciliation, provider runner interface, fixture/generic/Claude/Codex CLI runners, required-mode orchestration, CLI/MCP challenger execution surfaces, report integration, finalize-time attachment, `/screw:scan` challenger flags, primary scan contracts, fixture validation, scan input assembly, backend primary CLI runners, production Claude/Codex primary output normalization, `provider-scan`, MCP `run_provider_scan`, optional provider-scan finalization, backend composed primary-plus-challenger workflow, backend parallel primary reconciliation, and universal `/screw:scan` provider-primary/parallel flags are implemented; fixture-mode provider scan validation, composed workflow fixture coverage, parallel reconciliation fixture coverage, and one live Codex/Claude MLflow MoreFixes SSTI vulnerable/patched benchmark round trip are recorded; additional provider adapters and live composed/parallel validation remain pending before Phase 5 closure |
 | Phase 5.5 | Web application integration pilot | Pending — first external product integration target after Phase 5; start with the existing four accepted agents and wire orchestration/correlation/triage before broad agent expansion |
 | Phase 6 | Agent Expansion & Ecosystem | Pending — add CWE-1400 agents in small reviewed batches using Phase 4 calibration infrastructure, not a full-catalog big bang |
 | Phase 7 | screw.nvim Integration (scan commands, review-before-import, exclusions) | Pending — editor-native workflow after the web-app integration pilot unless product priority changes |

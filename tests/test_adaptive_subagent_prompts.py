@@ -51,6 +51,9 @@ _ADAPTIVE_MCP_TOOLS_REQUIRED_ON_SCAN_MD = [
     "mcp__screw-agents__execute_adaptive_script",
     "mcp__screw-agents__accumulate_findings",
     "mcp__screw-agents__finalize_scan_results",
+    "mcp__screw-agents__run_provider_scan",
+    "mcp__screw-agents__run_composed_provider_scan",
+    "mcp__screw-agents__run_parallel_provider_scan",
     "mcp__screw-agents__list_domains",
     "mcp__screw-agents__scan_agents",
     "mcp__screw-agents__resolve_scope",
@@ -126,6 +129,39 @@ def test_scan_md_challenger_help_lists_non_api_execution_choices() -> None:
     assert "--challenger-execution <kind>" in help_block
     assert "dry_run or cli" in help_block
     assert "api" not in help_block.lower()
+
+
+def test_scan_command_documents_provider_primary_flags() -> None:
+    """Phase 5: /screw:scan exposes provider-neutral primary selection."""
+    _, body = _parse_subagent_file(_SCAN_COMMAND_FILE)
+
+    for text in [
+        "--primary-provider",
+        "--primary-transport",
+        "--primary-execution",
+        "--parallel-providers",
+        "run_provider_scan",
+        "run_composed_provider_scan",
+        "run_parallel_provider_scan",
+    ]:
+        assert text in body
+    assert "Provider-neutral first-pass scanner provider" in body
+    assert "provider:transport:execution" in body
+
+
+def test_scan_md_provider_primary_validation_is_explicit() -> None:
+    """Provider-primary modes must not be inferred or default to live execution."""
+    _, body = _parse_subagent_file(_SCAN_COMMAND_FILE)
+
+    assert (
+        "`--primary-provider`, `--primary-transport`, and "
+        "`--primary-execution` must be provided together"
+    ) in body
+    assert "`--primary-execution` must be `fixture` or `cli`" in body
+    assert "Primary flags are mutually exclusive with `--adaptive`" in body
+    assert "`--parallel-providers` is mutually exclusive" in body
+    assert "Do NOT infer parallel providers from config" in body
+    assert "Do NOT default to live CLI" in body
 
 
 # ---- C2: scan.md main-session orchestrator assertions ----------------------
