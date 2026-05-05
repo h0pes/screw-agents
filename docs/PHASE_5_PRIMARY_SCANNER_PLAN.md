@@ -4,11 +4,13 @@
 > and the provider-neutral primary scan contract, fixture runner, and scan
 > input assembly from YAML agent knowledge are implemented. Primary scanner
 > CLI runner plumbing is implemented for configured Claude/Codex/generic CLI
-> transports, and the `provider-scan` package CLI plus `run_provider_scan` MCP
-> tool expose fixture and opt-in CLI primary scan execution. Provider-scan can
-> optionally finalize returned findings into normal `.screw/findings/` reports.
-> Fixture-mode and one live Codex/Claude benchmark round-trip validation are
-> recorded in `docs/PHASE_5_MANUAL_VALIDATION.md`.
+> transports, including production output normalization for Claude's JSON
+> envelope and Codex structured/JSONL output shapes. The `provider-scan`
+> package CLI plus `run_provider_scan` MCP tool expose fixture and opt-in CLI
+> primary scan execution. Provider-scan can optionally finalize returned
+> findings into normal `.screw/findings/` reports. Fixture-mode and one live
+> Codex/Claude benchmark round-trip validation are recorded in
+> `docs/PHASE_5_MANUAL_VALIDATION.md`.
 > Phase 5 is not closure-ready until this gap is closed or explicitly
 > re-scoped.
 
@@ -67,7 +69,7 @@ context.
 | Fixture manual validation for provider-neutral primary scan surfaces | Passed |
 | Codex primary review participant over supplied findings | Implemented at challenger-orchestrator level |
 | Codex as first-pass scanner from YAML agent knowledge | Public CLI/MCP path implemented; one live vulnerable/patched benchmark round trip passed |
-| Claude as first-pass scanner from YAML agent knowledge through provider-scan | Public CLI/MCP path implemented; one live vulnerable/patched benchmark round trip passed with temporary output-normalization adapter |
+| Claude as first-pass scanner from YAML agent knowledge through provider-scan | Public CLI/MCP path implemented; production adapter extracts Claude `structured_output.findings`; one live vulnerable/patched benchmark round trip passed |
 | Gemini/local as first-pass scanner from YAML agent knowledge | Pending adapter |
 | Provider-neutral primary selection in universal `/screw:scan` UX | Pending |
 | Parallel independent first-pass scans with reconciliation | Pending |
@@ -196,12 +198,13 @@ provider produced or disputed each finding.
 - Added generic `CliPrimaryScanRunner`.
 - Added Codex and Claude CLI primary scan wrappers that strip `OPENAI_API_KEY`
   and `ANTHROPIC_API_KEY` respectively for subscription-backed CLI use.
-- Command invocation is shell-free and provider output is parsed through the
+- Command invocation is shell-free. Generic CLI output remains strict JSON;
+  Claude and Codex runners normalize known provider envelopes before using the
   shared `parse_primary_scan_output` validator.
 - Live/manual CLI validation passed for one MLflow MoreFixes vulnerable/patched
   SSTI benchmark round trip with both Codex and Claude. Codex used strict
-  structured output from `codex exec`; Claude required a temporary adapter that
-  extracted `structured_output.findings` from the Claude CLI JSON envelope.
+  structured output from `codex exec`; Claude emitted findings under
+  `structured_output.findings`, which is now production runner behavior.
 
 ### P5-P4 - MCP/CLI Surface
 

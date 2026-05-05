@@ -381,8 +381,9 @@ findings and writes normal `.screw/findings/` reports through
 Manual live validation has passed for Codex and Claude CLI primary scans on one
 MLflow MoreFixes SSTI vulnerable/patched benchmark pair. Codex can satisfy the
 contract through strict structured output from `codex exec`; Claude CLI can
-produce the required structured findings, but production use needs a provider
-adapter that extracts `structured_output.findings` from Claude's JSON envelope.
+produce the required structured findings under `structured_output.findings`,
+which the production Claude CLI primary runner now extracts from Claude's JSON
+envelope.
 
 `provider-scan` is the backend/package CLI surface for provider-neutral primary
 scanning. `/screw:scan` is the universal assistant-facing scan command and

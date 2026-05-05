@@ -11,14 +11,14 @@
 > expose both execution surfaces to clients. Provider-neutral primary scan
 > contracts, fixture validation, and scan input assembly from YAML agent
 > knowledge are implemented; backend generic/Claude/Codex CLI primary scanner
-> runner plumbing is implemented; `screw-agents provider-scan` and MCP
-> `run_provider_scan` expose fixture and opt-in CLI primary scan execution;
-> optional provider-scan report finalization is implemented; fixture-mode
-> manual validation is recorded; one live Codex/Claude benchmark round trip is
-> recorded; composed-mode validation and universal assistant command
-> primary-provider UX remain pending; see
+> runner plumbing plus production Claude/Codex output normalization are
+> implemented; `screw-agents provider-scan` and MCP `run_provider_scan` expose
+> fixture and opt-in CLI primary scan execution; optional provider-scan report
+> finalization is implemented; fixture-mode manual validation is recorded; one
+> live Codex/Claude benchmark round trip is recorded; composed-mode validation
+> and universal assistant command primary-provider UX remain pending; see
 > `docs/PHASE_5_PRIMARY_SCANNER_PLAN.md`.
-> Last updated: 2026-05-04.
+> Last updated: 2026-05-05.
 
 Phase 5 adds multi-LLM secure-code-review execution without making Claude,
 Codex, Anthropic, or OpenAI permanent architectural assumptions. The durable
@@ -414,15 +414,15 @@ assistant hosts.
 
 Implemented so far: provider-neutral primary scan contracts, fixture scanner,
 provider output validation, `ScanEngine.assemble_primary_scan_input`, which
-packages selected YAML agent knowledge and resolved source chunks, and backend
-generic/Claude/Codex CLI primary scanner runner plumbing. `screw-agents
-provider-scan` and MCP `run_provider_scan` expose fixture and opt-in CLI
-execution, with optional accumulation/finalization into normal
-`.screw/findings/` reports. One Codex/Claude live benchmark round trip has
-passed for the MLflow MoreFixes SSTI vulnerable/patched pair. Parallel
-reconciliation, composed primary-plus-challenger validation, production
-provider adapters, and universal `/screw:scan` primary-provider UX are still
-pending.
+packages selected YAML agent knowledge and resolved source chunks, backend
+generic/Claude/Codex CLI primary scanner runner plumbing, and production
+Claude/Codex output normalization. `screw-agents provider-scan` and MCP
+`run_provider_scan` expose fixture and opt-in CLI execution, with optional
+accumulation/finalization into normal `.screw/findings/` reports. One
+Codex/Claude live benchmark round trip has passed for the MLflow MoreFixes SSTI
+vulnerable/patched pair. Parallel reconciliation, composed
+primary-plus-challenger validation, additional provider adapters, and universal
+`/screw:scan` primary-provider UX are still pending.
 
 Required outcomes:
 

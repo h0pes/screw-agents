@@ -2,9 +2,11 @@
 
 > Status: in progress. Fixture-mode provider-neutral primary scan validation is
 > recorded. Live Codex and Claude CLI primary scan validation passed on one
-> vulnerable/patched benchmark round trip. Composed challenger and parallel
-> mode validation remain pending.
-> Last updated: 2026-05-04.
+> vulnerable/patched benchmark round trip; the Claude structured-output
+> adapter behavior discovered during that run is now implemented in the
+> production runner. Composed challenger and parallel mode validation remain
+> pending.
+> Last updated: 2026-05-05.
 
 ## Scope
 
@@ -125,9 +127,9 @@ Conclusion: passed.
 
 The first direct Claude command returned a Claude JSON envelope whose `result`
 field was prose rather than the raw `{"findings": [...]}` object expected by
-the generic primary runner. A temporary adapter was used for validation to
-extract `structured_output.findings`, which is the production adapter behavior
-Phase 5 should implement for Claude CLI.
+the generic primary runner. A temporary adapter was used during this validation
+to extract `structured_output.findings`; the production Claude CLI primary
+runner now implements that same output-normalization behavior.
 
 Command shape:
 
@@ -158,7 +160,8 @@ Result:
 - CWE: `CWE-1336`
 - Finding location: `CardTab.to_html` in the vulnerable MLflow file.
 
-Conclusion: passed with a temporary Claude output-normalization adapter.
+Conclusion: passed; this temporary validation adapter was later promoted into
+the production Claude CLI primary runner.
 
 ### Claude CLI Primary Scan - Patched Target
 
@@ -173,15 +176,17 @@ Result:
 - Returned finding count: `0`
 - Finalized active finding count: `0`
 
-Conclusion: passed with a temporary Claude output-normalization adapter.
+Conclusion: passed; this temporary validation adapter was later promoted into
+the production Claude CLI primary runner.
 
 ## Live Validation Lessons
 
 - Codex CLI can satisfy the primary scan contract through structured output
   when configured with a strict schema accepted by `codex exec`.
-- Claude CLI can produce the required structured finding payload, but the
-  provider adapter must read `structured_output.findings` from the Claude JSON
-  envelope rather than expecting the top-level `result` field to be raw JSON.
+- Claude CLI can produce the required structured finding payload, but provider
+  adapters must read `structured_output.findings` from the Claude JSON envelope
+  rather than expecting the top-level `result` field to be raw JSON. The
+  production Claude CLI primary runner now does this.
 - `provider-scan --finalize` correctly accumulates and writes normal
   `.screw/findings/` JSON/Markdown reports for live provider output.
 - The benchmark vulnerable/patched pair gives a useful acceptance shape:
@@ -274,7 +279,7 @@ provider invocation.
 | API transport rejection | Passed | No provider invocation |
 | Local transport rejection | Pending | Requires local transport config fixture |
 | Codex CLI primary scan live run | Passed | MLflow MoreFixes vulnerable/patched SSTI case |
-| Claude CLI primary scan live run | Passed | MLflow MoreFixes vulnerable/patched SSTI case; temporary adapter extracted `structured_output.findings` |
+| Claude CLI primary scan live run | Passed | MLflow MoreFixes vulnerable/patched SSTI case; production runner now extracts the validated `structured_output.findings` shape |
 | Provider scan result accumulation/finalization | Passed | Fixture, Codex live, and Claude live outputs wrote `.screw/findings/` reports |
 | Primary plus challenger public round trip | Pending | Requires accumulation/finalization or explicit orchestration |
 | Parallel independent primary scans | Pending | P5-P5 |

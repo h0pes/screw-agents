@@ -8,7 +8,7 @@ import shlex
 import subprocess
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 from screw_agents.challenger.models import ChallengerTransportConfig
 from screw_agents.models import Finding
@@ -129,12 +129,7 @@ class CliPrimaryScanRunner:
         if command_result.returncode != 0:
             return self._failed_result(scan_input, command_result)
 
-        result = parse_primary_scan_output(
-            command_result.stdout,
-            run_id=scan_input.run_id,
-            participant=self._participant,
-            transport_kind="cli",
-        )
+        result = self._successful_result(scan_input, command_result)
         result.provider_metadata.setdefault(self._participant.provider, {})
         result.provider_metadata[self._participant.provider].update(
             {
@@ -149,6 +144,18 @@ class CliPrimaryScanRunner:
             }
         )
         return result
+
+    def _successful_result(
+        self,
+        scan_input: PrimaryScanInput,
+        command_result: CliPrimaryScanCommandResult,
+    ) -> PrimaryScanResult:
+        return parse_primary_scan_output(
+            command_result.stdout,
+            run_id=scan_input.run_id,
+            participant=self._participant,
+            transport_kind="cli",
+        )
 
     def _execution_env(self) -> dict[str, str]:
         env = dict(self._base_env)
@@ -203,6 +210,19 @@ class ClaudeCliPrimaryScanRunner(CliPrimaryScanRunner):
             unset_env_vars=("ANTHROPIC_API_KEY",),
         )
 
+    def _successful_result(
+        self,
+        scan_input: PrimaryScanInput,
+        command_result: CliPrimaryScanCommandResult,
+    ) -> PrimaryScanResult:
+        payload = _provider_primary_payload(command_result.stdout)
+        return parse_primary_scan_output(
+            _claude_primary_payload(payload),
+            run_id=scan_input.run_id,
+            participant=self._participant,
+            transport_kind="cli",
+        )
+
 
 class CodexCliPrimaryScanRunner(CliPrimaryScanRunner):
     """Codex CLI primary scanner that avoids OpenAI API-key billing by default."""
@@ -223,6 +243,19 @@ class CodexCliPrimaryScanRunner(CliPrimaryScanRunner):
             timeout_seconds=timeout_seconds,
             env=env,
             unset_env_vars=("OPENAI_API_KEY",),
+        )
+
+    def _successful_result(
+        self,
+        scan_input: PrimaryScanInput,
+        command_result: CliPrimaryScanCommandResult,
+    ) -> PrimaryScanResult:
+        payload = _provider_primary_payload(command_result.stdout)
+        return parse_primary_scan_output(
+            _codex_primary_payload(payload),
+            run_id=scan_input.run_id,
+            participant=self._participant,
+            transport_kind="cli",
         )
 
 
@@ -270,3 +303,142 @@ def _failure_reason(command_result: CliPrimaryScanCommandResult) -> str:
     stdout = command_result.stdout.strip()
     detail = stderr or stdout or "no output"
     return f"CLI primary scanner exited with {command_result.returncode}: {detail}"
+
+
+def _provider_primary_payload(stdout: str) -> Any:
+    """Parse provider CLI stdout, including JSONL event streams.
+
+    The neutral CLI runner requires one JSON result object. Provider CLIs are
+    less uniform: Claude wraps structured output in a JSON envelope, while
+    Codex may be configured either for strict JSON output or JSONL events.
+    """
+    if not stdout.strip():
+        return {}
+    try:
+        return json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        jsonl_events = _jsonl_events(stdout)
+        if jsonl_events:
+            return jsonl_events
+        raise ValueError("primary scan provider output must be JSON") from exc
+
+
+def _jsonl_events(stdout: str) -> list[Any]:
+    events: list[Any] = []
+    for line in stdout.splitlines():
+        if not line.strip():
+            continue
+        try:
+            events.append(json.loads(line))
+        except json.JSONDecodeError as exc:
+            raise ValueError("primary scan provider output must be JSON") from exc
+    return events
+
+
+def _claude_primary_payload(payload: Any) -> Any:
+    if isinstance(payload, dict):
+        structured_output = payload.get("structured_output")
+        if isinstance(structured_output, dict):
+            return _with_provider_envelope_metadata(
+                structured_output,
+                provider="claude",
+                envelope=payload,
+            )
+        if isinstance(structured_output, list):
+            return _with_provider_envelope_metadata(
+                {"findings": structured_output},
+                provider="claude",
+                envelope=payload,
+            )
+        if isinstance(structured_output, str) and structured_output.strip():
+            return _with_provider_envelope_metadata(
+                _provider_primary_payload(structured_output),
+                provider="claude",
+                envelope=payload,
+            )
+
+        result = payload.get("result")
+        if isinstance(result, str) and result.strip():
+            try:
+                return _with_provider_envelope_metadata(
+                    _provider_primary_payload(result),
+                    provider="claude",
+                    envelope=payload,
+                )
+            except ValueError:
+                pass
+
+    return payload
+
+
+def _codex_primary_payload(payload: Any) -> Any:
+    if isinstance(payload, list):
+        for event in reversed(payload):
+            normalized = _payload_from_event(event)
+            if normalized is not None:
+                return normalized
+    return payload
+
+
+def _payload_from_event(event: Any) -> Any | None:
+    if not isinstance(event, dict):
+        return None
+    if "findings" in event:
+        return event
+    structured_output = event.get("structured_output")
+    if isinstance(structured_output, dict) and "findings" in structured_output:
+        return structured_output
+    if isinstance(structured_output, list):
+        return {"findings": structured_output}
+
+    for key in ("result", "message", "content", "text", "output"):
+        value = event.get(key)
+        if isinstance(value, str) and value.strip():
+            try:
+                return _provider_primary_payload(value)
+            except ValueError:
+                continue
+        if isinstance(value, dict):
+            normalized = _payload_from_event(value)
+            if normalized is not None:
+                return normalized
+        if isinstance(value, list):
+            for item in reversed(value):
+                normalized = _payload_from_event(item)
+                if normalized is not None:
+                    return normalized
+    return None
+
+
+def _with_provider_envelope_metadata(
+    payload: Any,
+    *,
+    provider: str,
+    envelope: Mapping[str, Any],
+) -> Any:
+    if not isinstance(payload, dict):
+        return payload
+    provider_metadata = dict(payload.get("provider_metadata") or {})
+    provider_data = dict(provider_metadata.get(provider) or {})
+    envelope_metadata = _provider_envelope_metadata(envelope)
+    if envelope_metadata:
+        provider_data["envelope"] = envelope_metadata
+    if provider_data:
+        provider_metadata[provider] = provider_data
+        payload = {**payload, "provider_metadata": provider_metadata}
+    return payload
+
+
+def _provider_envelope_metadata(envelope: Mapping[str, Any]) -> dict[str, Any]:
+    metadata_keys = (
+        "type",
+        "subtype",
+        "is_error",
+        "session_id",
+        "duration_ms",
+        "duration_api_ms",
+        "num_turns",
+        "stop_reason",
+        "total_cost_usd",
+    )
+    return {key: envelope[key] for key in metadata_keys if key in envelope}
