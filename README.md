@@ -42,8 +42,8 @@ Core goals:
 Implemented today:
 
 - Python MCP server with stdio and streamable HTTP transports.
-- Claude Code implementation of the portable assistant command/plugin surface
-  under `plugins/screw`.
+- Claude Code and Codex plugin metadata for the portable assistant
+  command/plugin surface under `plugins/screw`.
 - Universal assistant command contract for scan, learning, adaptive cleanup,
   challenger/provider modes, and future commands.
 - Universal `/screw:scan` command.
@@ -98,10 +98,8 @@ Not yet implemented:
 
 - Additional provider-specific primary CLI adapters beyond the implemented
   generic, Claude, and Codex runners.
-- Universal `/screw:scan` UX for choosing a provider-neutral primary scanner.
-  `/screw:scan` challenger attachment is implemented in the current Claude Code
-  plugin; provider primary selection is still backend/package-CLI first and
-  must be exposed consistently by future assistant integrations.
+- Live composed/parallel provider scan validation through the assistant command
+  UX.
 - API/local primary scanner transports for Gemini, local models, or future
   assistants.
 - API/local challenger transports in `/screw:scan`.
@@ -117,7 +115,7 @@ See [PROJECT_STATUS.md](docs/PROJECT_STATUS.md) for the current roadmap.
 |---|---|
 | `src/screw_agents/` | Python MCP server, scan engine, formatter, trust, learning, adaptive execution, autoresearch support |
 | `domains/` | CWE-1400 domain folders and YAML agent definitions |
-| `plugins/screw/` | Current Claude Code implementation of portable assistant commands, agents, skills, and plugin manifest |
+| `plugins/screw/` | Shared Claude Code and Codex implementation of portable assistant commands, agents, skills, plugin manifests, and local MCP config |
 | `benchmarks/` | CWE-1400-native benchmark runner, ingest scripts, autoresearch planning/execution scripts |
 | `docs/` | Architecture, product plan, agent authoring, catalog, decisions, benchmark and phase records |
 | `tests/` | Core unit/integration tests |
@@ -162,9 +160,9 @@ The HTTP MCP endpoint is exposed at `/mcp` and binds to `127.0.0.1` by
 default. Use `--host 0.0.0.0` only when intentionally exposing the MCP server
 outside localhost.
 
-## Claude Code Plugin Usage
+## Assistant Plugin Usage
 
-During development, load the local plugin directory:
+During development, Claude Code can load the local plugin directory directly:
 
 ```bash
 claude --plugin-dir ./plugins/screw
@@ -183,7 +181,18 @@ The repo root `.mcp.json` starts the MCP server with:
 }
 ```
 
-Run a scan from Claude Code:
+Codex can load the same `plugins/screw` command, skill, and MCP assets through
+the repo-local marketplace descriptor:
+
+```bash
+codex plugin marketplace add /path/to/screw-agents
+codex mcp add screw-agents -- uv run --directory /path/to/screw-agents screw-agents serve --transport stdio
+```
+
+The explicit `codex mcp add` command remains useful during local development
+because it makes the MCP server registration visible with `codex mcp list`.
+
+Run a scan from a supported assistant host:
 
 ```text
 /screw:scan sqli src/

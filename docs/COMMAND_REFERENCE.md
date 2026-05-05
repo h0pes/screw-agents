@@ -219,9 +219,10 @@ Options:
 ## Assistant Plugin Commands
 
 These command names, agent roles, skills, and tool workflows are the
-assistant-facing command contract for `screw-agents`. The currently shipped
-plugin implementation lives under `plugins/screw/` and is loaded by Claude Code
-today, but the semantics are intended to stay portable across Codex, Gemini,
+assistant-facing command contract for `screw-agents`. The shared plugin
+implementation lives under `plugins/screw/` and now carries both Claude Code
+and Codex metadata while reusing the same command, agent, skill, and MCP assets.
+The semantics are intended to stay portable across Claude Code, Codex, Gemini,
 local assistants, editor integrations, web workers, or future plugin hosts that
 can call the same MCP/backend tools. This portability applies to all
 `/screw:*` commands, not only `/screw:scan`: scan, learning reports, adaptive
@@ -229,11 +230,22 @@ cleanup, trust/exclusion flows, challenger/provider modes, and future commands
 should expose equivalent inputs, options, and result shapes wherever the host
 can support them.
 
-Load the plugin locally:
+Load the plugin locally in Claude Code:
 
 ```bash
 claude --plugin-dir ./plugins/screw
 ```
+
+Register the repo-local Codex marketplace entry and MCP server:
+
+```bash
+codex plugin marketplace add /path/to/screw-agents
+codex mcp add screw-agents -- uv run --directory /path/to/screw-agents screw-agents serve --transport stdio
+```
+
+Use `codex mcp list` and `codex mcp get screw-agents` to verify the backend
+registration. Codex plugin commands are loaded from `plugins/screw/commands/`
+through the repo-local marketplace entry in `.agents/plugins/marketplace.json`.
 
 ### `/screw:scan`
 
@@ -619,3 +631,17 @@ claude plugin validate ./plugins/screw
 
 After editing plugin commands, agents, or skills, run `/reload-plugins` inside
 Claude Code.
+
+Current Codex plugin development:
+
+```bash
+codex plugin marketplace add /path/to/screw-agents
+codex mcp list
+codex mcp get screw-agents
+```
+
+The repo-local Codex plugin manifest is
+`plugins/screw/.codex-plugin/plugin.json`; its local marketplace entry is
+`.agents/plugins/marketplace.json`. Local marketplace entries are read from
+their configured root path; `codex plugin marketplace upgrade` is for Git-backed
+marketplaces, not this repo-local path.

@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "screw-agents": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "../..",
+        "screw-agents",
+        "serve",
+        "--transport",
+        "stdio"
+      ],
+      "note": "Repo-local development MCP server. The plugin lives at plugins/screw, so ../.. resolves to the repository root when launched from the plugin directory. PyPI/marketplace distribution should switch this to uvx screw-agents serve."
+    }
+  }
+}

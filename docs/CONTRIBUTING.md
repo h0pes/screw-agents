@@ -6,7 +6,7 @@ For YAML agent authoring, see `docs/AGENT_AUTHORING.md`.
 
 ## Development workflow
 
-### Loading screw-agents as a Claude Code plugin (recommended)
+### Loading screw-agents as an assistant plugin
 
 screw-agents ships as a Claude Code plugin with manifest at
 `plugins/screw/.claude-plugin/plugin.json`. During development, load it via
@@ -31,6 +31,21 @@ Claude Code to pick up changes without restarting.
 
 Multiple `--plugin-dir` flags can be stacked if you're testing more than
 one plugin at a time.
+
+screw-agents also ships Codex plugin metadata at
+`plugins/screw/.codex-plugin/plugin.json` and a repo-local marketplace
+descriptor at `.agents/plugins/marketplace.json`. Register the local
+marketplace and MCP server during development with:
+
+```bash
+codex plugin marketplace add /path/to/screw-agents
+codex mcp add screw-agents -- uv run --directory /path/to/screw-agents screw-agents serve --transport stdio
+```
+
+Because this is a local marketplace entry, Codex reads the configured root
+path directly; restart Codex after editing plugin metadata, commands, agents,
+or skills. Use `codex mcp list` and `codex mcp get screw-agents` to verify the
+backend registration.
 
 ### Why `--plugin-dir` instead of `.claude/commands/` symlinks
 
@@ -58,9 +73,10 @@ namespace cleanup. If your local main checkout still has leftover
 
 The `.mcp.json` at the repo root declares the screw-agents MCP server
 (project-scoped). Claude Code starts it automatically when launched in
-this project, regardless of `--plugin-dir`. For a future marketplace
-distribution, we'll need to publish `screw-agents` to PyPI and ship a
-plugin-scoped `.mcp.json` using `uvx screw-agents serve`. See the
+this project, regardless of `--plugin-dir`. The Codex plugin also includes a
+repo-local `plugins/screw/.mcp.json` for local marketplace development. For
+external marketplace distribution, we'll need to publish `screw-agents` to PyPI
+and switch the plugin-scoped MCP command to `uvx screw-agents serve`. See the
 DEFERRED_BACKLOG entry `T-PLUGIN-M1` for details.
 
 ### Running tests
@@ -78,3 +94,4 @@ uv run pytest tests/test_aggregation.py -v   # single module, verbose
 | List loaded agents | `/agents` inside Claude Code |
 | See raw plugin-loading errors | `claude --debug --plugin-dir ./plugins/screw` |
 | Validate plugin manifest syntax | `claude plugin validate ./plugins/screw` |
+| Register local Codex marketplace | `codex plugin marketplace add /path/to/screw-agents` |

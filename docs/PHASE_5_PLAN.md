@@ -17,10 +17,11 @@
 > finalization is implemented; backend composed primary-plus-challenger
 > workflow and backend parallel primary reconciliation workflow are
 > implemented; universal assistant command provider-primary and parallel flags
-> are implemented; route-equivalent fixture validation passed for single
-> provider-primary, primary-plus-challenger, and parallel-provider paths; one
-> live Codex/Claude benchmark round trip is recorded; live composed/parallel
-> mode validation remains pending; see
+> are implemented; repo-local Codex plugin metadata is implemented;
+> route-equivalent fixture validation passed for single provider-primary,
+> primary-plus-challenger, and parallel-provider paths; one live Codex/Claude
+> benchmark round trip is recorded; live composed/parallel mode validation
+> remains pending; see
 > `docs/PHASE_5_PRIMARY_SCANNER_PLAN.md`.
 > Last updated: 2026-05-05.
 

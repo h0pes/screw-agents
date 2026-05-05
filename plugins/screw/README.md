@@ -1,6 +1,17 @@
 # screw-agents plugin
 
-Universal security scanning for Claude Code via the `screw-agents` MCP server.
+Universal security scanning for Claude Code and Codex via the `screw-agents`
+MCP server.
+
+## Plugin Manifests
+
+- Claude Code: `.claude-plugin/plugin.json`
+- Codex: `.codex-plugin/plugin.json`
+- Repo-local Codex marketplace: `../../.agents/plugins/marketplace.json`
+- Repo-local MCP config: `.mcp.json`
+
+The same `commands/`, `agents/`, and `skills/` files are shared across
+assistant hosts.
 
 ## Slash command: `/screw:scan`
 
@@ -21,6 +32,9 @@ Universal security scanning for Claude Code via the `screw-agents` MCP server.
 - `--no-confirm` — skip pre-execution confirmation (CI mode)
 - `--thoroughness standard|deep` — scan depth (default `standard`)
 - `--format json|markdown|csv|sarif` — single format; default emits `json+markdown+csv`
+- `--primary-provider PROVIDER --primary-transport TRANSPORT --primary-execution fixture|cli` — provider-neutral first-pass scanner
+- `--parallel-providers provider:transport:execution,...` — independent provider scans with reconciliation
+- `--challenger MODE --challenger-execution dry_run|cli` — explicit challenger review
 - `--help` — print grammar + flags + discovery + examples and exit
 
 ### Discovery

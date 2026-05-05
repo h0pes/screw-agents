@@ -1,0 +1,44 @@
+{
+  "name": "screw",
+  "version": "0.1.0",
+  "description": "Provider-neutral secure code review commands, agents, skills, and MCP tools.",
+  "author": {
+    "name": "h0pes",
+    "url": "https://github.com/h0pes"
+  },
+  "homepage": "https://github.com/h0pes/screw-agents",
+  "repository": "https://github.com/h0pes/screw-agents",
+  "license": "MIT",
+  "keywords": [
+    "security",
+    "code-review",
+    "mcp",
+    "cwe",
+    "sast",
+    "appsec"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "screw-agents",
+    "shortDescription": "Provider-neutral secure code review agents",
+    "longDescription": "screw-agents packages curated vulnerability-specific review knowledge, portable assistant commands, and MCP tools for provider-neutral secure code review. Use it to run SQL injection, command injection, SSTI, and XSS scans; review false-positive learning; clean adaptive analysis artifacts; and exercise Phase 5 provider-primary, challenger, and parallel scan modes.",
+    "developerName": "h0pes",
+    "category": "Engineering",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/h0pes/screw-agents",
+    "privacyPolicyURL": "https://github.com/h0pes/screw-agents",
+    "termsOfServiceURL": "https://github.com/h0pes/screw-agents",
+    "defaultPrompt": [
+      "Run /screw:scan sqli src/",
+      "List screw-agents domains and agents",
+      "Review screw-agents learning reports"
+    ],
+    "brandColor": "#0F766E",
+    "screenshots": []
+  }
+}
