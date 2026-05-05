@@ -9,6 +9,7 @@ import yaml
 from screw_agents.cli import main
 from screw_agents.engine import ScanEngine
 from screw_agents.primary_scan.execution import (
+    run_composed_provider_scan_workflow,
     run_provider_scan,
     run_provider_scan_workflow,
 )
@@ -84,6 +85,75 @@ def _write_config(project_root: Path, *, transport_kind: str = "fixture") -> Non
                             "assistant": "codex",
                             "transports": {transport_kind: transport},
                             "default_transport": transport_kind,
+                        }
+                    },
+                },
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+
+def _write_composed_config(
+    project_root: Path,
+    *,
+    primary_provider: str,
+    challenger_provider: str,
+    mode_name: str = "primary_challenger",
+) -> None:
+    screw_dir = project_root / ".screw"
+    screw_dir.mkdir()
+    (screw_dir / "config.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "version": 1,
+                "challenger": {
+                    "enabled": True,
+                    "consent": {
+                        "cost_acknowledged": True,
+                        "privacy_acknowledged": True,
+                        "source_sharing_allowed": True,
+                    },
+                    "providers": {
+                        "claude": {
+                            "assistant": "claude",
+                            "transports": {
+                                "fixture": {
+                                    "kind": "fixture",
+                                    "enabled": True,
+                                    "sends_source_externally": False,
+                                }
+                            },
+                            "default_transport": "fixture",
+                        },
+                        "codex": {
+                            "assistant": "codex",
+                            "transports": {
+                                "fixture": {
+                                    "kind": "fixture",
+                                    "enabled": True,
+                                    "sends_source_externally": False,
+                                }
+                            },
+                            "default_transport": "fixture",
+                        },
+                    },
+                    "modes": {
+                        mode_name: {
+                            "enabled": True,
+                            "participants": [
+                                {
+                                    "provider": primary_provider,
+                                    "transport": "fixture",
+                                    "role": "primary",
+                                },
+                                {
+                                    "provider": challenger_provider,
+                                    "transport": "fixture",
+                                    "role": "challenger",
+                                },
+                            ],
                         }
                     },
                 },
@@ -344,3 +414,74 @@ def test_provider_scan_cli_finalize_outputs_report_paths(
     assert payload["primary_scan_result"]["findings"][0]["id"] == "sqli-001"
     assert payload["finalize_result"]["summary"]["total"] == 1
     assert Path(payload["finalize_result"]["files_written"]["json"]).exists()
+
+
+def test_composed_provider_scan_workflow_codex_primary_claude_challenger(
+    tmp_path: Path,
+) -> None:
+    _write_composed_config(
+        tmp_path,
+        primary_provider="codex",
+        challenger_provider="claude",
+    )
+
+    result = run_composed_provider_scan_workflow(
+        engine=_engine(),
+        project_root=tmp_path,
+        primary_provider="codex",
+        primary_transport="fixture",
+        primary_execution="fixture",
+        challenger_mode="primary_challenger",
+        challenger_execution="dry_run",
+        run_id="run-1",
+        session_id="session-1",
+        agents=["sqli"],
+        target=_target(tmp_path),
+        fixture_findings=[_finding_dict()],
+        formats=["json", "markdown"],
+    )
+
+    assert result["mode"]["primary"]["provider"] == "codex"
+    assert result["mode"]["challenger"]["mode"] == "primary_challenger"
+    assert result["primary_scan_result"]["findings"][0]["id"] == "sqli-001"
+    assert result["finalize_result"]["summary"]["total"] == 1
+    assert result["challenger_results"][0]["mode"] == "primary_challenger"
+    assert result["challenger_results"][0]["reconciliations"][0]["finding_ids"] == [
+        "sqli-001"
+    ]
+
+    report_path = Path(result["finalize_result"]["files_written"]["json"])
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["challenger_results"][0]["mode"] == "primary_challenger"
+
+
+def test_composed_provider_scan_workflow_claude_primary_codex_challenger(
+    tmp_path: Path,
+) -> None:
+    _write_composed_config(
+        tmp_path,
+        primary_provider="claude",
+        challenger_provider="codex",
+    )
+
+    result = run_composed_provider_scan_workflow(
+        engine=_engine(),
+        project_root=tmp_path,
+        primary_provider="claude",
+        primary_transport="fixture",
+        primary_execution="fixture",
+        challenger_mode="primary_challenger",
+        challenger_execution="dry_run",
+        run_id="run-1",
+        session_id="session-1",
+        agents=["sqli"],
+        target=_target(tmp_path),
+        fixture_findings=[_finding_dict()],
+        formats=["json"],
+    )
+
+    assert result["mode"]["primary"]["provider"] == "claude"
+    assert result["primary_scan_result"]["provider"] == "claude"
+    assert result["challenger_results"][0]["reconciliations"][0]["primary_provider"] == (
+        "claude"
+    )

@@ -83,6 +83,9 @@ Implemented today:
   fixture and opt-in CLI provider-neutral primary scan execution.
 - Optional provider-scan finalization path that accumulates returned findings
   and writes normal `.screw/findings/` reports.
+- Backend composed primary-plus-challenger workflow that runs a configured
+  provider primary scan, finalizes findings, and attaches configured challenger
+  review through the normal report path.
 - Fixture-mode manual validation for `provider-scan` and `run_provider_scan`
   using a temporary `/tmp` end-user project.
 - Live Codex and Claude CLI provider-scan validation on a real MLflow MoreFixes
@@ -394,9 +397,10 @@ Upcoming:
     `--challenger <mode> --challenger-execution dry_run|cli`.
   - Provider-neutral scan input assembly, backend CLI primary scanner runner
     plumbing, production Claude/Codex output normalization, `provider-scan`,
-    MCP `run_provider_scan`, and optional provider-scan report finalization are
-    implemented; one live Codex/Claude vulnerable/patched benchmark round trip
-    is recorded, while composed-mode validation and universal `/screw:scan`
+    MCP `run_provider_scan`, optional provider-scan report finalization, and
+    backend composed primary-plus-challenger workflow are implemented; one live
+    Codex/Claude vulnerable/patched benchmark round trip is recorded, while
+    live composed-mode validation and universal `/screw:scan`
     primary-provider UX remain pending before Phase 5 closure.
   - Provider-neutral adapters so Gemini, local LLMs, or future assistants can
     be added without changing agent YAML.

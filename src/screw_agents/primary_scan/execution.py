@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -151,6 +152,104 @@ def run_provider_scan_workflow(
     }
 
 
+def run_composed_provider_scan_workflow(
+    *,
+    engine: ScanEngine,
+    project_root: Path,
+    primary_provider: str,
+    primary_transport: str,
+    primary_execution: str,
+    challenger_mode: str,
+    challenger_execution: str,
+    run_id: str,
+    session_id: str,
+    agents: list[str],
+    target: dict[str, Any],
+    thoroughness: str = "standard",
+    primary_timeout_seconds: int = 120,
+    challenger_timeout_seconds: int = 120,
+    fixture_findings: list[dict[str, Any]] | None = None,
+    primary_command_runner: CliPrimaryScanCommandRunner | None = None,
+    env: Mapping[str, str] | None = None,
+    formats: list[str] | None = None,
+    challenger_prompt: str | None = None,
+) -> dict[str, Any]:
+    """Run provider-neutral primary scanning and configured challenger review.
+
+    This is the backend composition for Phase 5 primary/challenger modes:
+    one configured provider acts as first-pass scanner from YAML agent
+    knowledge, the findings are accumulated/finalized through the normal
+    reporting path, and finalization attaches a configured challenger mode.
+    """
+    scan_result = run_provider_scan(
+        engine=engine,
+        project_root=project_root,
+        provider=primary_provider,
+        transport=primary_transport,
+        execution=primary_execution,
+        run_id=run_id,
+        session_id=session_id,
+        agents=agents,
+        target=target,
+        thoroughness=thoroughness,
+        timeout_seconds=primary_timeout_seconds,
+        fixture_findings=fixture_findings,
+        command_runner=primary_command_runner,
+        env=env,
+    )
+    findings = [finding.model_dump(mode="json") for finding in scan_result.findings]
+    accumulate_result = engine.accumulate_findings(
+        project_root=project_root,
+        findings_chunk=findings,
+        session_id=session_id,
+    )
+    finalize_result = engine.finalize_scan_results(
+        project_root=project_root,
+        session_id=accumulate_result["session_id"],
+        agent_names=agents,
+        scan_metadata={
+            "target": target,
+            "provider_scan": {
+                "provider": primary_provider,
+                "transport": primary_transport,
+                "execution": primary_execution,
+                "run_id": run_id,
+            },
+            "phase5_mode": {
+                "type": "primary_challenger",
+                "challenger_mode": challenger_mode,
+                "challenger_execution": challenger_execution,
+            },
+        },
+        formats=formats,
+        challenger_mode=challenger_mode,
+        challenger_execution=challenger_execution,
+        challenger_prompt=challenger_prompt,
+        challenger_target=target,
+        challenger_timeout_seconds=challenger_timeout_seconds,
+    )
+    return {
+        "mode": {
+            "type": "primary_challenger",
+            "primary": {
+                "provider": primary_provider,
+                "transport": primary_transport,
+                "execution": primary_execution,
+            },
+            "challenger": {
+                "mode": challenger_mode,
+                "execution": challenger_execution,
+            },
+        },
+        "primary_scan_result": scan_result.model_dump(mode="json"),
+        "accumulate_result": accumulate_result,
+        "finalize_result": finalize_result,
+        "challenger_results": _challenger_results_from_finalize_result(
+            finalize_result
+        ),
+    }
+
+
 def _enabled_transport(
     config: ChallengerConfig,
     provider: str,
@@ -219,3 +318,22 @@ def _cli_runner_for(
         timeout_seconds=timeout_seconds,
         env=env,
     )
+
+
+def _challenger_results_from_finalize_result(
+    finalize_result: dict[str, Any],
+) -> list[dict[str, Any]]:
+    json_path = finalize_result.get("files_written", {}).get("json")
+    if not json_path:
+        return []
+    try:
+        payload = json.loads(Path(json_path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    challenger_results = payload.get("challenger_results", [])
+    if isinstance(challenger_results, list):
+        return [
+            item for item in challenger_results
+            if isinstance(item, dict)
+        ]
+    return []
