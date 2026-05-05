@@ -15,7 +15,8 @@
 > one live Codex/Claude benchmark round-trip validation are recorded in
 > `docs/PHASE_5_MANUAL_VALIDATION.md`. Universal `/screw:scan`
 > provider-primary and parallel flags are implemented and route to the provider
-> scan MCP tools.
+> scan MCP tools; route-equivalent fixture validation has passed for all three
+> provider-primary command paths.
 > Phase 5 is not closure-ready until this gap is closed or explicitly
 > re-scoped.
 
@@ -80,7 +81,7 @@ context.
 | Backend composed primary-plus-challenger workflow | Implemented for configured provider primary scan plus challenger finalization |
 | Parallel independent first-pass scans with reconciliation | Backend workflow implemented with fixture coverage |
 | Gemini/local as first-pass scanner from YAML agent knowledge | Pending adapter |
-| Provider-neutral primary selection in universal `/screw:scan` UX | Implemented, manual validation pending |
+| Provider-neutral primary selection in universal `/screw:scan` UX | Implemented; route-equivalent fixture validation passed |
 | Manual round-trip validation of all Phase 5 modes | Pending |
 
 ## Required Architecture
@@ -256,9 +257,12 @@ provider produced or disputed each finding.
   Claude-primary/Codex-challenger directions.
 - Backend parallel primary reconciliation workflow is implemented with fixture
   coverage for agreed, unique, and severity-disputed findings.
+- Route-equivalent fixture validation for the new assistant command routes is
+  recorded for single provider-primary, primary-plus-challenger, and
+  parallel-provider paths.
 - Remaining manual validation covers live composed primary-plus-challenger
-  flows, live parallel independent scans with reconciliation, and the new
-  assistant command routes for selecting a primary provider.
+  flows, live parallel independent scans with reconciliation, and live host
+  validation of the new assistant command routes.
 - Record results in the Phase 5 closure readiness document.
 
 ## Phase 5 Closure Dependencies

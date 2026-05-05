@@ -7,7 +7,9 @@
 > production runner. Backend composed primary-plus-challenger workflow has
 > fixture coverage; backend parallel primary reconciliation has fixture
 > coverage for agreed, unique, and severity-disputed findings. The universal
-> `/screw:scan` provider-primary command contract is implemented. Live composed
+> `/screw:scan` provider-primary command contract is implemented and
+> route-equivalent fixture validation passed for single provider-primary,
+> primary-plus-challenger, and parallel-provider paths. Live composed
 > challenger and parallel mode validation remain pending.
 > Last updated: 2026-05-05.
 
@@ -35,6 +37,83 @@ The temporary project contained a configured `codex` provider with:
 - enabled `api` transport used only to verify rejection behavior;
 - `api_billing_allowed: false`;
 - no configured CLI transport for this fixture-only validation.
+
+## `/screw:scan` Provider Route Fixture Validation
+
+The universal `/screw:scan` provider-primary flags route to MCP provider scan
+tools after scope resolution. This validation exercised the same resolved
+scope, target, provider, transport, execution, session, finalization, and
+reconciliation arguments that the command contract now maps to those tools,
+without invoking live providers.
+
+Environment:
+
+- Repository worktree: `.worktrees/phase5-scan-ux-validation`
+- Temporary end-user project:
+  `/tmp/screw-agents-phase5-scan-ux-fixture`
+- Target:
+  `/tmp/screw-agents-phase5-scan-ux-fixture/src/app.py`
+- Project config:
+  `/tmp/screw-agents-phase5-scan-ux-fixture/.screw/config.yaml`
+- Configured providers: `claude` and `codex`
+- Configured transports: fixture only
+- Live provider invocation: none
+- API keys required: none
+
+The project config enabled these fixture modes:
+
+- `codex_primary_claude_challenger`
+- `claude_primary_codex_challenger`
+
+Command:
+
+```bash
+uv run python /tmp/screw-agents-phase5-scan-ux-fixture/validate_scan_routes.py
+```
+
+Result:
+
+```json
+{
+  "composed": {
+    "active": 1,
+    "challenger_count": 1,
+    "mode_type": "primary_challenger",
+    "primary_provider": "codex"
+  },
+  "parallel": {
+    "mode_type": "parallel",
+    "provider_count": 2,
+    "reconciliation_statuses": ["disputed"]
+  },
+  "scope_agents": ["sqli"],
+  "single_provider": {
+    "active": 1,
+    "provider": "codex"
+  }
+}
+```
+
+Validated route mappings:
+
+- `/screw:scan sqli ... --primary-provider codex --primary-transport fixture
+  --primary-execution fixture` maps to `run_provider_scan` with
+  `finalize=true`; result finalized one active finding and wrote JSON/Markdown
+  reports.
+- `/screw:scan sqli ... --primary-provider codex --primary-transport fixture
+  --primary-execution fixture --challenger codex_primary_claude_challenger
+  --challenger-execution dry_run` maps to `run_composed_provider_scan`; result
+  produced one primary finding, one challenger result, and one active finalized
+  finding.
+- `/screw:scan sqli ... --parallel-providers
+  claude:fixture:fixture,codex:fixture:fixture` maps to
+  `run_parallel_provider_scan`; result ran two independent fixture primary
+  scans and returned one severity-disputed reconciliation.
+
+Conclusion: passed for route-equivalent fixture validation. This proves the
+new command contract can reach all three provider-primary MCP workflows without
+provider/API execution. Live provider validation for composed and parallel
+paths remains pending.
 
 ## Live Benchmark Round Trip
 
@@ -282,9 +361,9 @@ provider invocation.
 | Codex CLI primary scan live run | Passed | MLflow MoreFixes vulnerable/patched SSTI case |
 | Claude CLI primary scan live run | Passed | MLflow MoreFixes vulnerable/patched SSTI case; production runner now extracts the validated `structured_output.findings` shape |
 | Provider scan result accumulation/finalization | Passed | Fixture, Codex live, and Claude live outputs wrote `.screw/findings/` reports |
-| Primary plus challenger public round trip | Pending | Requires accumulation/finalization or explicit orchestration |
-| Parallel independent primary scans | Backend fixture coverage passed | Live validation pending |
-| `/screw:scan` provider-neutral primary UX | Implemented, validation pending | Universal assistant command contract now exposes provider-primary, primary-plus-challenger, and parallel-provider flags through MCP provider scan tools |
+| Primary plus challenger public round trip | Fixture route passed, live pending | `/screw:scan` route-equivalent fixture validation reached `run_composed_provider_scan`; live Codex/Claude validation pending |
+| Parallel independent primary scans | Fixture route passed, live pending | `/screw:scan` route-equivalent fixture validation reached `run_parallel_provider_scan`; live validation pending |
+| `/screw:scan` provider-neutral primary UX | Route-equivalent fixture validation passed | Universal assistant command contract exposes provider-primary, primary-plus-challenger, and parallel-provider flags through MCP provider scan tools; live host validation pending |
 
 ## Decision
 
@@ -295,8 +374,10 @@ finalization. Backend composed primary plus challenger flow is covered for both
 Codex-primary/Claude-challenger and Claude-primary/Codex-challenger fixture
 directions. Backend parallel independent scan reconciliation is covered for
 agreed, unique, and severity-disputed fixture findings. The universal
-`/screw:scan` provider-primary command contract is implemented. Phase 5 is
-still not closure-ready because live composed primary plus challenger flows,
-live parallel independent scan reconciliation, additional provider adapters,
-and the new `/screw:scan` provider-primary/parallel routes have not been
-manually validated.
+`/screw:scan` provider-primary command contract is implemented, and
+route-equivalent fixture validation passed for single provider-primary,
+primary-plus-challenger, and parallel-provider paths. Phase 5 is still not
+closure-ready because live composed primary plus challenger flows, live
+parallel independent scan reconciliation, additional provider adapters, and
+live host validation for the new `/screw:scan` provider-primary/parallel routes
+remain pending.
