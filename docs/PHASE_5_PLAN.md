@@ -1,6 +1,6 @@
 # Phase 5 Plan - Multi-LLM Challenger System
 
-> Status: in progress. P5-1 challenger config/model contracts are merged;
+> Status: complete. P5-1 challenger config/model contracts are merged;
 > P5-2 reconciliation engine is implemented; P5-3 provider runner interface
 > and fixture runner are implemented; P5-4 required-mode orchestration is
 > implemented with fixture-backed runners; subscription-backed CLI runner
@@ -19,10 +19,11 @@
 > implemented; universal assistant command provider-primary and parallel flags
 > are implemented; repo-local Codex plugin metadata is implemented;
 > route-equivalent fixture validation passed for single provider-primary,
-> primary-plus-challenger, and parallel-provider paths; one live Codex/Claude
-> benchmark round trip is recorded; live composed validation passed in both
-> Claude/Codex directions; live parallel mode validation passed; see
-> `docs/PHASE_5_PRIMARY_SCANNER_PLAN.md`.
+> primary-plus-challenger, and parallel-provider paths; real Claude Code and
+> Codex host-route fixture validation passed; one live Codex/Claude benchmark
+> round trip is recorded; live composed validation passed in both Claude/Codex
+> directions; live parallel mode validation passed; signoff is recorded in
+> `docs/PHASE_5_CLOSURE_READINESS.md`.
 > Last updated: 2026-05-06.
 
 Phase 5 adds multi-LLM secure-code-review execution without making Claude,
@@ -30,13 +31,13 @@ Codex, Anthropic, or OpenAI permanent architectural assumptions. The durable
 asset remains provider-neutral YAML agent knowledge in `domains/**/*.yaml`;
 provider runners are replaceable execution adapters.
 
-Important status distinction: current Phase 5 challenger work can review and
+Important status distinction: Phase 5 challenger work can review and
 reconcile supplied findings, and `/screw:scan` now exposes both the legacy
 subagent scan route and explicit provider-primary routes. Provider-neutral
 primary scan contracts, fixture runner, scan input assembler, CLI primary
 scanner runner, package CLI, MCP tools, and command flags now exist. Phase 5 is
-not closure-ready until the remaining host-validation and adapter-deferral
-decisions in `docs/PHASE_5_CLOSURE_READINESS.md` are resolved.
+signed off for the validated Claude/Codex provider-neutral core; API/local and
+additional-provider adapters are accepted deferrals.
 
 Fixture-mode public provider scan validation and one live Codex/Claude CLI
 vulnerable/patched benchmark round trip are recorded in
@@ -497,4 +498,5 @@ The web application pilot needs machine-readable outputs, background execution,
 triage, and learning feedback. Phase 5 should therefore keep result objects
 stable, JSON-friendly, and independent of Claude Code plugin assumptions. The
 web app should be able to choose the same provider/transport configuration
-without a bespoke REST API.
+without a bespoke REST API. The Phase 5.5 entry handoff is
+`docs/PHASE_5_5_WEB_APP_INTEGRATION.md`.

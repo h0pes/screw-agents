@@ -441,8 +441,9 @@ is tracked in `docs/PHASE_4_CLOSURE_READINESS.md`.
   Claude Code and Codex host-route fixture validation passed for
   provider-primary, primary-plus-challenger, and parallel-provider paths and
   writes mode-aware reports. Live parallel validation passed for the MLflow
-  MoreFixes SSTI vulnerable/patched pair; additional provider adapters remain
-  pending before Phase 5 closure. See
+  MoreFixes SSTI vulnerable/patched pair. Phase 5 is signed off for the
+  validated Claude/Codex provider-neutral core; additional provider adapters
+  are accepted deferrals. See
   `docs/PHASE_5_PRIMARY_SCANNER_PLAN.md` and
   `docs/PHASE_5_CLOSURE_READINESS.md`.
 - Tool-agnostic command surface invariant: Claude Code is the first shipped
@@ -834,8 +835,8 @@ Structured as a dependency graph with three parallel tracks converging at smoke 
 | Phase 3b | Adaptive Analysis & Learning Refinement | **Complete** — PR #4 (#10) 2026-04-18, PR #5 (#11) 2026-04-20, PR #6 (#12) 2026-04-23, Phase 3b-C2 2026-04-24, BACKLOG-PR6-22 (#14) 2026-04-24, T19-M D7 (#15) 2026-04-24, T-SCAN-REFACTOR final 2026-04-25 |
 | Phase 3c | Sandbox hardening sweep (seccomp filter + thread-safety + dedup) | **Deferred** — see `docs/DEFERRED_BACKLOG.md` §"Phase 3c (sandbox hardening follow-ups)" |
 | Phase 4 | Autoresearch & Self-Improvement | **Complete** — D-01 merged; D-02 calibration workflow, guardrails, failure payloads, accepted inclusions/exclusions, Wave C representative validation, focused runtime validation, and final signoff are recorded |
-| Phase 5 | Multi-LLM Challenger System | In progress — challenger config/model contracts, reconciliation, provider runner interface, fixture/generic/Claude/Codex CLI runners, required-mode orchestration, CLI/MCP challenger execution surfaces, report integration, finalize-time attachment, `/screw:scan` challenger flags, primary scan contracts, fixture validation, scan input assembly, backend primary CLI runners, production Claude/Codex primary output normalization, `provider-scan`, MCP `run_provider_scan`, optional provider-scan finalization, backend composed primary-plus-challenger workflow, backend parallel primary reconciliation/finalization, mode-aware provider report filenames/metadata, universal `/screw:scan` provider-primary/parallel flags, repo-local Codex plugin metadata, and Codex skills for command-equivalent scan/learning/adaptive workflows are implemented; fixture-mode provider scan validation, composed workflow fixture coverage, live composed Codex-primary/Claude-challenger and Claude-primary/Codex-challenger validation, parallel reconciliation fixture coverage, live parallel Claude/Codex validation, route-equivalent `/screw:scan` provider-primary fixture validation, real Claude Code and Codex host-route fixture validation, and one live Codex/Claude MLflow MoreFixes SSTI vulnerable/patched benchmark round trip are recorded; Codex CLI literal `/screw:*` autocomplete remains a tracked host-adapter gap, additional provider adapters remain pending, and closure decisions are tracked in `docs/PHASE_5_CLOSURE_READINESS.md` |
-| Phase 5.5 | Web application integration pilot | Pending — first external product integration target after Phase 5; start with the existing four accepted agents and wire orchestration/correlation/triage before broad agent expansion |
+| Phase 5 | Multi-LLM Challenger System | **Complete** — challenger config/model contracts, reconciliation, provider runner interface, fixture/generic/Claude/Codex CLI runners, required-mode orchestration, CLI/MCP challenger execution surfaces, report integration, finalize-time attachment, `/screw:scan` challenger flags, primary scan contracts, fixture validation, scan input assembly, backend primary CLI runners, production Claude/Codex primary output normalization, `provider-scan`, MCP `run_provider_scan`, optional provider-scan finalization, backend composed primary-plus-challenger workflow, backend parallel primary reconciliation/finalization, mode-aware provider report filenames/metadata, universal `/screw:scan` provider-primary/parallel flags, repo-local Codex plugin metadata, and Codex skills for command-equivalent scan/learning/adaptive workflows are implemented; fixture-mode provider scan validation, composed workflow fixture coverage, live composed Codex-primary/Claude-challenger and Claude-primary/Codex-challenger validation, parallel reconciliation fixture coverage, live parallel Claude/Codex validation, route-equivalent `/screw:scan` provider-primary fixture validation, real Claude Code and Codex host-route fixture validation, and one live Codex/Claude MLflow MoreFixes SSTI vulnerable/patched benchmark round trip are recorded; Codex CLI literal `/screw:*` autocomplete remains a tracked host-adapter gap, API/local/additional provider adapters are accepted deferrals, and signoff is recorded in `docs/PHASE_5_CLOSURE_READINESS.md` |
+| Phase 5.5 | Web application integration pilot | **Next** — first external product integration target after Phase 5; start with the existing four accepted agents and wire orchestration/correlation/triage before broad agent expansion; handoff is in `docs/PHASE_5_5_WEB_APP_INTEGRATION.md` |
 | Phase 6 | Agent Expansion & Ecosystem | Pending — add CWE-1400 agents in small reviewed batches using Phase 4 calibration infrastructure, not a full-catalog big bang |
 | Phase 7 | screw.nvim Integration (scan commands, review-before-import, exclusions) | Pending — editor-native workflow after the web-app integration pilot unless product priority changes |
 
@@ -851,28 +852,21 @@ concrete failure-input payloads can be generated from controlled run output.
 
 ## Next Roadmap Priorities
 
-1. **Phase 5 — closure decision.** Provider-neutral primary scanning and the
-   three required Claude/Codex modes are implemented and live validated. Real
-   Claude Code and Codex host-route fixture validation is now recorded. Review
-   `docs/PHASE_5_CLOSURE_READINESS.md` to decide whether the remaining explicit
-   deferrals can move to Phase 5.x/backlog.
-   Preserve opt-in cost/privacy controls and provider-agnostic interfaces for
-   future LLMs. Provider configuration must allow future
-   assistants such as Gemini or local LLMs, and each provider should support
-   the user's available transport where possible: subscription-backed CLI/local
-   execution for Pro-plan users without API credits, or API execution for users
-   who explicitly allow API billing. Keep documentation aligned in the same PR
-   as each Phase 5 code change; see `docs/PHASE_5_PLAN.md` for the required
-   documentation-alignment checklist.
-2. **Phase 5 adapter deferrals.** Explicitly classify API/local/additional
-   provider adapters before Phase 5.5 so Gemini, opencode, local LLM, and API
-   work remains visible without blocking the validated Claude/Codex core.
-3. **Phase 5.5 — web application integration pilot.** Treat the AppSec
-   orchestration/correlation web app as the first external product integration
-   target immediately after Phase 5. Start with the current four accepted
-   agents so scan submission, background execution, result ingestion, triage,
+1. **Phase 5.5 — web application integration pilot.** Start from
+   `docs/PHASE_5_5_WEB_APP_INTEGRATION.md`. Planning can happen in this
+   repository, but implementation should run Codex from the web application
+   repository and reference this checkout through MCP/package boundaries.
+   Treat the AppSec orchestration/correlation web app as the first external
+   product integration target. Start with the current four accepted agents so
+   scan submission, background execution, result ingestion, triage,
    learning/exclusions, and correlation can be validated before adding more
    vulnerability domains.
+2. **Phase 5 adapter deferrals.** Keep API/local/additional provider adapters
+   visible for Phase 5.x/backlog so Gemini, opencode, local LLM, and API work
+   can build on the validated Claude/Codex core without blocking Phase 5.5.
+3. **Phase 3c sandbox hardening.** Treat sandbox hardening as a production-like
+   deployment blocker, especially before exposing adaptive scripts through the
+   web app.
 4. **Phase 6 — small-batch agent expansion.** Add new CWE-1400 agents in
    narrow, high-value batches. Reuse Phase 4's calibration workflow rather than
    repeating a full Phase 4 for every agent.

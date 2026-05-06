@@ -443,7 +443,8 @@ Upcoming:
     be added without changing agent YAML.
   - Transport choice per provider: subscription-backed CLI/local execution or
     API-backed execution, with API billing explicitly opt-in.
-- Phase 5.5: web application integration pilot using the four current agents.
+- Phase 5.5: web application integration pilot using the four current agents
+  (`docs/PHASE_5_5_WEB_APP_INTEGRATION.md`).
 - Phase 6: small-batch CWE-1400 agent expansion.
 - Phase 7: screw.nvim integration.
 - Cross-cutting: Phase 3c sandbox hardening and deferred backlog review before
