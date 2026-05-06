@@ -21,9 +21,9 @@
 > route-equivalent fixture validation passed for single provider-primary,
 > primary-plus-challenger, and parallel-provider paths; one live Codex/Claude
 > benchmark round trip is recorded; live composed validation passed in both
-> Claude/Codex directions; live parallel mode validation remains pending; see
+> Claude/Codex directions; live parallel mode validation passed; see
 > `docs/PHASE_5_PRIMARY_SCANNER_PLAN.md`.
-> Last updated: 2026-05-05.
+> Last updated: 2026-05-06.
 
 Phase 5 adds multi-LLM secure-code-review execution without making Claude,
 Codex, Anthropic, or OpenAI permanent architectural assumptions. The durable
@@ -42,8 +42,8 @@ vulnerable/patched benchmark round trip are recorded in
 `docs/PHASE_5_MANUAL_VALIDATION.md`. Production Claude/Codex output adapters,
 backend composed primary-plus-challenger plus parallel primary reconciliation
 workflows, and the portable assistant command/plugin UX for provider-neutral
-primary selection are implemented. Live composed/parallel validation remains
-pending.
+primary selection are implemented. Live composed and parallel provider
+validation are recorded.
 
 ## Goals
 
@@ -439,14 +439,20 @@ review step; the primary participant is recorded as provenance, not re-run as a
 reviewer. CLI challenger prompts include the finalized findings payload so the
 reviewing provider assesses the actual finding records. A backend
 parallel workflow now runs independent provider primary scans and reconciles
-provider-keyed findings as agreed, disputed, or unique. One Codex/Claude live
+provider-keyed findings as agreed, disputed, or unique. Parallel
+reconciliation tolerates near-line provider anchor differences for the same
+file/CWE so live providers can agree on the same sink even when they report
+slightly different source spans. One Codex/Claude live
 benchmark round trip has passed for the MLflow MoreFixes SSTI
 vulnerable/patched pair, and live composed validation has passed in both
 directions: Codex primary with Claude challenger and Claude primary with Codex
-challenger. Universal `/screw:scan` primary-provider and parallel flags are
+challenger. Live parallel validation has also passed: Claude and Codex each
+reported the vulnerable SSTI independently and reconciled as agreed, while the
+patched target produced zero findings from both providers. Universal
+`/screw:scan` primary-provider and parallel flags are
 implemented, and route-equivalent fixture validation has passed for single
-provider-primary, primary-plus-challenger, and parallel-provider paths. Live
-parallel validation and additional provider adapters are still pending.
+provider-primary, primary-plus-challenger, and parallel-provider paths.
+Additional provider adapters are still pending.
 
 Required outcomes:
 

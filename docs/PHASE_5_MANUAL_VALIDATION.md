@@ -7,13 +7,13 @@
 > production runner. Backend composed primary-plus-challenger workflow has
 > fixture coverage and live Claude/Codex validation in both directions;
 > backend parallel primary reconciliation has fixture
-> coverage for agreed, unique, and severity-disputed findings. The universal
+> coverage for agreed, unique, and severity-disputed findings plus live
+> Claude/Codex validation on the MLflow SSTI vulnerable/patched pair. The universal
 > `/screw:scan` provider-primary command contract is implemented and
 > route-equivalent fixture validation passed for single provider-primary,
-> primary-plus-challenger, and parallel-provider paths. Live parallel mode
-> validation remains pending. Codex plugin skill
+> primary-plus-challenger, and parallel-provider paths. Codex plugin skill
 > validation has passed for the MCP-backed YAML scan route.
-> Last updated: 2026-05-05.
+> Last updated: 2026-05-06.
 
 ## Scope
 
@@ -114,8 +114,7 @@ Validated route mappings:
 
 Conclusion: passed for route-equivalent fixture validation. This proves the
 new command contract can reach all three provider-primary MCP workflows without
-provider/API execution. Live provider validation for composed and parallel
-paths remains pending.
+provider/API execution.
 
 ## Live Benchmark Round Trip
 
@@ -351,6 +350,62 @@ scan/finalization. The Codex scan skill now explicitly instructs Codex not to
 run shell/Python introspection for screw-agents schemas from the scanned
 project; MCP tool contracts are the authoritative interface.
 
+## Live Parallel Provider Validation
+
+The live parallel validation used a separate temporary end-user project:
+
+- Temporary end-user project:
+  `/tmp/screw-agents-phase5-live-parallel`
+- Benchmark case:
+  `benchmarks/external/morefixes/morefixes-CVE-2023-6709-https_____github.com__mlflow__mlflow`
+- Vulnerable target:
+  `/tmp/screw-agents-phase5-live-parallel/vulnerable/__init__.py`
+- Patched target:
+  `/tmp/screw-agents-phase5-live-parallel/patched/__init__.py`
+- Configured providers: `claude` and `codex`
+- Configured transport: subscription-backed CLI for both providers
+- API keys required: none
+- `ANTHROPIC_API_KEY`: explicitly unset for the run
+
+Command:
+
+```bash
+env -u ANTHROPIC_API_KEY \
+  uv run python /tmp/screw-agents-phase5-live-parallel/run_parallel.py vulnerable
+```
+
+Result:
+
+- Claude primary scan returned one high-confidence `CWE-1336` SSTI finding at
+  `vulnerable/__init__.py:109-115`.
+- Codex primary scan returned one high-confidence `CWE-1336` SSTI finding at
+  `/tmp/screw-agents-phase5-live-parallel/vulnerable/__init__.py:125-126`.
+- Parallel reconciliation returned one `agreed` reconciliation containing both
+  provider finding IDs:
+  `ssti-cardtab-from-string-001` and
+  `ssti-vulnerable-init-cardtab-template-125`.
+- The live run validated that provider anchor differences are expected: Claude
+  anchored on the class/source flow, while Codex anchored on the concrete
+  `Environment.from_string(self.template)` sink. The backend now reconciles
+  near-line findings for the same file/CWE as the same finding cluster.
+
+Patched command:
+
+```bash
+env -u ANTHROPIC_API_KEY \
+  uv run python /tmp/screw-agents-phase5-live-parallel/run_parallel.py patched
+```
+
+Patched result:
+
+- Claude primary scan returned zero findings.
+- Codex primary scan returned zero findings.
+- `provider_findings` was empty for both providers.
+- `reconciliations` was empty.
+
+Conclusion: passed. Live parallel independent scans with reconciliation are
+validated for the MLflow MoreFixes SSTI vulnerable/patched pair.
+
 ## Fixture Provider-Scan CLI Round Trip
 
 Command:
@@ -432,7 +487,7 @@ provider invocation.
 | Claude CLI primary scan live run | Passed | MLflow MoreFixes vulnerable/patched SSTI case; production runner now extracts the validated `structured_output.findings` shape |
 | Provider scan result accumulation/finalization | Passed | Fixture, Codex live, and Claude live outputs wrote `.screw/findings/` reports |
 | Primary plus challenger public round trip | Passed | Fixture route passed; live Codex-primary/Claude-challenger and Claude-primary/Codex-challenger validation passed on the MLflow MoreFixes SSTI vulnerable/patched pair |
-| Parallel independent primary scans | Fixture route passed, live pending | `/screw:scan` route-equivalent fixture validation reached `run_parallel_provider_scan`; live validation pending |
+| Parallel independent primary scans | Passed | Fixture route passed; live Claude/Codex parallel validation reconciled the vulnerable SSTI as agreed and returned zero findings on patched |
 | Codex plugin YAML/MCP scan skill | Passed | `screw:screw-scan` routed command-shaped input through MCP scan/finalize tools and wrote JSON |
 | `/screw:scan` provider-neutral primary UX | Route-equivalent fixture validation passed | Universal assistant command contract exposes provider-primary, primary-plus-challenger, and parallel-provider flags through MCP provider scan tools; live provider-mode host validation pending |
 
@@ -448,11 +503,11 @@ provider reported one high-confidence SSTI finding and the configured
 challenger agreed; in the patched runs, both primary providers returned zero
 findings and no challenger review was invoked. Backend parallel independent
 scan reconciliation is covered for agreed, unique, and severity-disputed
-fixture findings. The universal
+fixture findings, and live parallel validation passed on the MLflow MoreFixes
+SSTI vulnerable/patched pair. The universal
 `/screw:scan` provider-primary command contract is implemented, and
 route-equivalent fixture validation passed for single provider-primary,
 primary-plus-challenger, and parallel-provider paths. Codex plugin skill
 validation passed for the normal YAML/MCP scan route. Phase 5 is still not
-closure-ready because live parallel independent scan reconciliation, additional
-provider adapters, and live host validation for provider-primary/parallel
-routes remain pending.
+closure-ready because additional provider adapters and live host validation
+for provider-primary/parallel routes remain pending.
