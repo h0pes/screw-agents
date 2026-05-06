@@ -23,6 +23,8 @@ from screw_agents.primary_scan.providers import (
 )
 from screw_agents.trust import load_config
 
+_PARALLEL_LINE_MATCH_WINDOW = 20
+
 
 def run_provider_scan(
     *,
@@ -432,29 +434,30 @@ def _participant_field(participant: dict[str, str], field_name: str) -> str:
 def _reconcile_parallel_findings(
     provider_findings: Mapping[str, list[dict[str, Any]]],
 ) -> list[ChallengerReconciliation]:
-    buckets: dict[str, list[tuple[str, dict[str, Any]]]] = {}
-    key_order: list[str] = []
+    buckets: list[tuple[str, list[tuple[str, dict[str, Any]]]]] = []
     for provider, findings in provider_findings.items():
         for finding in findings:
             key = _parallel_finding_key(finding)
-            if key not in buckets:
-                buckets[key] = []
-                key_order.append(key)
-            buckets[key].append((provider, finding))
+            bucket = _matching_parallel_bucket(buckets, provider, finding)
+            if bucket is None:
+                bucket = (key, [])
+                buckets.append(bucket)
+            bucket[1].append((provider, finding))
 
     reconciliations: list[ChallengerReconciliation] = []
-    for key in key_order:
-        entries = buckets[key]
+    for key, entries in buckets:
         providers = _ordered_unique([provider for provider, _finding in entries])
         status = "agreed" if len(providers) > 1 else "unique"
-        severities = _ordered_unique(
-            [
-                str((finding.get("classification") or {}).get("severity"))
-                for _provider, finding in entries
-                if (finding.get("classification") or {}).get("severity") is not None
-            ]
+        severity_values = [
+            str((finding.get("classification") or {}).get("severity"))
+            for _provider, finding in entries
+            if (finding.get("classification") or {}).get("severity") is not None
+        ]
+        severities = _ordered_unique(severity_values)
+        normalized_severities = _ordered_unique(
+            [severity.casefold() for severity in severity_values]
         )
-        if status == "agreed" and len(severities) > 1:
+        if status == "agreed" and len(normalized_severities) > 1:
             status = "disputed"
         reconciliations.append(
             ChallengerReconciliation(
@@ -471,6 +474,40 @@ def _reconcile_parallel_findings(
     return reconciliations
 
 
+def _matching_parallel_bucket(
+    buckets: list[tuple[str, list[tuple[str, dict[str, Any]]]]],
+    provider: str,
+    finding: dict[str, Any],
+) -> tuple[str, list[tuple[str, dict[str, Any]]]] | None:
+    candidate_key = _parallel_finding_key(finding)
+    for bucket in buckets:
+        _bucket_key, entries = bucket
+        providers = {entry_provider for entry_provider, _entry_finding in entries}
+        for _entry_provider, entry_finding in entries:
+            if candidate_key == _parallel_finding_key(entry_finding):
+                return bucket
+            if provider in providers:
+                continue
+            if _parallel_findings_match(entry_finding, finding):
+                return bucket
+    return None
+
+
+def _parallel_findings_match(
+    left: dict[str, Any],
+    right: dict[str, Any],
+) -> bool:
+    left_location = left.get("location") or {}
+    right_location = right.get("location") or {}
+    left_classification = left.get("classification") or {}
+    right_classification = right.get("classification") or {}
+    if left_classification.get("cwe") != right_classification.get("cwe"):
+        return False
+    if not _parallel_same_file(left_location.get("file"), right_location.get("file")):
+        return False
+    return _parallel_lines_near(left_location, right_location)
+
+
 def _parallel_finding_key(finding: dict[str, Any]) -> str:
     location = finding.get("location") or {}
     classification = finding.get("classification") or {}
@@ -480,6 +517,38 @@ def _parallel_finding_key(finding: dict[str, Any]) -> str:
     if file_path is not None and line_start is not None and cwe is not None:
         return f"{file_path}:{line_start}:{cwe}"
     return _finding_id(finding, fallback_key="unknown")
+
+
+def _parallel_same_file(left_file: Any, right_file: Any) -> bool:
+    if left_file is None or right_file is None:
+        return False
+    left = str(left_file).replace("\\", "/").strip("/")
+    right = str(right_file).replace("\\", "/").strip("/")
+    return left == right or left.endswith(f"/{right}") or right.endswith(f"/{left}")
+
+
+def _parallel_lines_near(
+    left_location: dict[str, Any],
+    right_location: dict[str, Any],
+) -> bool:
+    left_start = _line_number(left_location.get("line_start"))
+    right_start = _line_number(right_location.get("line_start"))
+    if left_start is None or right_start is None:
+        return False
+    left_end = _line_number(left_location.get("line_end")) or left_start
+    right_end = _line_number(right_location.get("line_end")) or right_start
+    return (
+        left_start <= right_end + _PARALLEL_LINE_MATCH_WINDOW
+        and right_start <= left_end + _PARALLEL_LINE_MATCH_WINDOW
+    )
+
+
+def _line_number(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    return None
 
 
 def _finding_id(finding: dict[str, Any], *, fallback_key: str) -> str:

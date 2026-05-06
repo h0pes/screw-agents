@@ -16,9 +16,10 @@
 > `docs/PHASE_5_MANUAL_VALIDATION.md`. Universal `/screw:scan`
 > provider-primary and parallel flags are implemented and route to the provider
 > scan MCP tools; route-equivalent fixture validation has passed for all three
-> provider-primary command paths.
-> Phase 5 is not closure-ready until this gap is closed or explicitly
-> re-scoped.
+> provider-primary command paths. Live parallel validation passed for the
+> Claude/Codex MLflow MoreFixes SSTI vulnerable/patched pair.
+> Phase 5 is not closure-ready until remaining host-validation and adapter
+> closure decisions are completed or explicitly re-scoped.
 
 ## Why This Exists
 
@@ -267,11 +268,15 @@ provider produced or disputed each finding.
   MLflow MoreFixes SSTI vulnerable/patched pair.
 - Backend parallel primary reconciliation workflow is implemented with fixture
   coverage for agreed, unique, and severity-disputed findings.
+- Live parallel validation is recorded for the MLflow MoreFixes SSTI
+  vulnerable/patched pair: Claude and Codex independently reported the
+  vulnerable SSTI and reconciled as agreed; both returned zero findings for
+  the patched target.
 - Route-equivalent fixture validation for the new assistant command routes is
   recorded for single provider-primary, primary-plus-challenger, and
   parallel-provider paths.
-- Remaining manual validation covers live parallel independent scans with
-  reconciliation and live host validation of the new assistant command routes.
+- Remaining manual validation covers live host validation of the new assistant
+  command routes.
 - Record results in the Phase 5 closure readiness document.
 
 ## Phase 5 Closure Dependencies
@@ -284,8 +289,8 @@ Phase 5 closure must wait for:
 - All three required modes validated:
   - Claude primary, Codex challenger. Passed in live CLI validation.
   - Codex primary, Claude challenger. Passed in live CLI validation.
-  - parallel independent scans with reconciliation. Fixture coverage passed;
-    live validation remains pending.
+  - parallel independent scans with reconciliation. Fixture and live CLI
+    validation passed.
 - Manual round-trip checklist recorded.
 - Provider-specific CLI output adapters implemented without temporary wrappers.
 - `/screw:scan` provider-neutral primary scanner selection is manually

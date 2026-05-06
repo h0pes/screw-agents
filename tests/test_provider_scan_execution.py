@@ -590,6 +590,53 @@ def test_parallel_provider_scan_workflow_marks_unique_findings(
     assert result["reconciliations"][1]["participant_providers"] == ["codex"]
 
 
+def test_parallel_provider_scan_workflow_reconciles_nearby_live_anchors(
+    tmp_path: Path,
+) -> None:
+    _write_composed_config(
+        tmp_path,
+        primary_provider="claude",
+        challenger_provider="codex",
+    )
+
+    result = run_parallel_provider_scan_workflow(
+        engine=_engine(),
+        project_root=tmp_path,
+        participants=[
+            {"provider": "claude", "transport": "fixture", "execution": "fixture"},
+            {"provider": "codex", "transport": "fixture", "execution": "fixture"},
+        ],
+        run_id="parallel-run",
+        session_id="parallel-session",
+        agents=["sqli"],
+        target=_target(tmp_path),
+        fixture_findings_by_provider={
+            "claude": [
+                _finding_variant(
+                    finding_id="claude-sqli-001",
+                    line_start=109,
+                    severity="High",
+                )
+            ],
+            "codex": [
+                _finding_variant(
+                    finding_id="codex-sqli-001",
+                    line_start=120,
+                    severity="high",
+                )
+            ],
+        },
+    )
+
+    assert len(result["reconciliations"]) == 1
+    assert result["reconciliations"][0]["status"] == "agreed"
+    assert result["reconciliations"][0]["participant_providers"] == [
+        "claude",
+        "codex",
+    ]
+    assert result["reconciliations"][0]["agreed_severity"] == "High"
+
+
 def test_parallel_provider_scan_workflow_marks_severity_disputes(
     tmp_path: Path,
 ) -> None:

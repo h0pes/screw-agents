@@ -427,7 +427,8 @@ Upcoming:
     live Codex/Claude vulnerable/patched benchmark round trip are recorded.
     Live composed primary-plus-challenger validation is recorded in both
     directions on the same MLflow SSTI vulnerable/patched pair; live parallel
-    validation remains pending before Phase 5 closure.
+    validation is recorded with the vulnerable SSTI reconciled as agreed and
+    the patched target returning zero findings from both providers.
   - Provider-neutral adapters so Gemini, local LLMs, or future assistants can
     be added without changing agent YAML.
   - Transport choice per provider: subscription-backed CLI/local execution or
