@@ -87,10 +87,12 @@ context.
 | Claude as first-pass scanner from YAML agent knowledge through provider-scan | Public CLI/MCP path implemented; production adapter extracts Claude `structured_output.findings`; one live vulnerable/patched benchmark round trip passed |
 | Backend composed primary-plus-challenger workflow | Implemented for configured provider primary scan plus challenger finalization |
 | Parallel independent first-pass scans with reconciliation | Backend workflow implemented with fixture coverage |
+| Parallel independent first-pass scans with live Claude/Codex reconciliation | Passed |
 | Gemini/local as first-pass scanner from YAML agent knowledge | Pending adapter |
 | Provider-neutral primary selection in universal `/screw:scan` UX | Implemented; route-equivalent fixture validation passed |
 | Repo-local Codex plugin metadata for shared `/screw:*` commands | Implemented |
-| Manual round-trip validation of all Phase 5 modes | Pending |
+| Manual round-trip validation of all Phase 5 backend modes | Passed |
+| Live host-route validation for provider-primary/composed/parallel flags | Pending decision |
 
 ## Required Architecture
 
@@ -277,7 +279,7 @@ provider produced or disputed each finding.
   parallel-provider paths.
 - Remaining manual validation covers live host validation of the new assistant
   command routes.
-- Record results in the Phase 5 closure readiness document.
+- Record results in `docs/PHASE_5_CLOSURE_READINESS.md`.
 
 ## Phase 5 Closure Dependencies
 
@@ -298,3 +300,4 @@ Phase 5 closure must wait for:
   fixtures.
 - API/local provider adapter deferrals explicitly documented.
 - Phase 5.5 handoff surfaces documented for web application integration.
+- Closure decision recorded in `docs/PHASE_5_CLOSURE_READINESS.md`.

@@ -35,7 +35,8 @@ reconcile supplied findings, and `/screw:scan` now exposes both the legacy
 subagent scan route and explicit provider-primary routes. Provider-neutral
 primary scan contracts, fixture runner, scan input assembler, CLI primary
 scanner runner, package CLI, MCP tools, and command flags now exist. Phase 5 is
-not closure-ready until these primary scanner paths are manually validated.
+not closure-ready until the remaining host-validation and adapter-deferral
+decisions in `docs/PHASE_5_CLOSURE_READINESS.md` are resolved.
 
 Fixture-mode public provider scan validation and one live Codex/Claude CLI
 vulnerable/patched benchmark round trip are recorded in
@@ -44,6 +45,8 @@ backend composed primary-plus-challenger plus parallel primary reconciliation
 workflows, and the portable assistant command/plugin UX for provider-neutral
 primary selection are implemented. Live composed and parallel provider
 validation are recorded.
+Closure readiness and remaining deferral decisions are tracked in
+`docs/PHASE_5_CLOSURE_READINESS.md`.
 
 ## Goals
 
