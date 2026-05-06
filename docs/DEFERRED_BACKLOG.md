@@ -9,7 +9,7 @@
 ### BACKLOG-P5-CODEX-SLASH-PARITY — Codex CLI literal `/screw:*` autocomplete/execution adapter
 **Phase-5 readiness:** `tracked gap` — does not block backend provider-neutral scan execution, but must be resolved or explicitly accepted before claiming full Codex command UX parity
 **Source:** Phase 5 manual Codex plugin validation, 2026-05-05
-**Files:** `plugins/screw/commands/*.md`, `plugins/screw/skills/**/SKILL.md`, Codex plugin metadata
+**Files:** `plugins/screw/commands/*.md`, `plugins/screw/codex-skills/**/SKILL.md`, Codex plugin metadata
 
 **Why deferred:** Manual validation on Codex CLI v0.128.0 confirmed that the
 repo-local plugin installs, skills load, and the `screw-agents` MCP server
@@ -739,7 +739,7 @@ Scope: ~30 LOC engine logic + 5-8 tests. The `code_snippet` field already exists
   expansion scoped to Phase 6
 - ADR-T-SCAN-REFACTOR breaks ADR-001..016 sequential numbering (named per Marco-approved EQ3)
 - CONTRIBUTING.md:24 compressed grammar omits `--thoroughness`/`--format`
-- PRD.md:390 stale path `.claude/skills/screw-review/` (actual `plugins/screw/skills/screw-review/`)
+- PRD.md:390 stale path `.claude/skills/screw-review/` (current Codex skill path `plugins/screw/codex-skills/screw-review/`)
 - PRD.md:1364-1366 aspirational `autoresearch.md`, `challenge.md` slash commands not in `plugins/screw/commands/`
 - PRD.md:328 `scan_agents` description loose: "code pages with per-agent prompts" — prompts NOT returned by default; subagent fetches via `get_agent_prompt`
 - PROJECT_STATUS.md:443 stale T-FULL-P1 guidance in Phase-4 prep instructions
@@ -857,25 +857,25 @@ Scope: ~30 LOC engine logic + 5-8 tests. The `code_snippet` field already exists
 
 ### T-PLUGIN-M1 — External marketplace packaging: publish `screw-agents` to PyPI + switch plugin MCP to `uvx`
 **Source:** Phase 3a PR#2 plugin-namespace restructure (commit `31bac3a`)
-**File:** `pyproject.toml`, `plugins/screw/.mcp.json`, `.mcp.json` (at repo root, project-scoped — may be removed once external marketplace packaging is live)
+**File:** `pyproject.toml`, `plugins/screw/codex-mcp.json`, `.mcp.json` (at repo root, project-scoped — may be removed once external marketplace packaging is live)
 **Phase-4 readiness:** `nice-to-have` — marketplace packaging; blocks external distribution not Phase 4
 **Why deferred:** Repo-local Claude Code and Codex plugin development is now covered by the shared `plugins/screw` package and repo-local MCP configs. External marketplace distribution still needs a PyPI-published package because copied plugin installs do NOT include `pyproject.toml`. The external-distribution fix requires publishing `screw-agents` to PyPI and rewriting the plugin-scoped MCP command to use `uvx screw-agents serve`, which works from anywhere.
 **Trigger:** Before the first marketplace submission (Phase 7+ typical timing, but earlier if someone wants external users to install the plugin without cloning the repo).
 **Suggested fix:**
 1. Polish `pyproject.toml` for PyPI: add classifiers, long_description (point at README), fix any missing metadata.
 2. Run `uv build` and `uv publish` (or `twine upload`) to push screw-agents to PyPI.
-3. Replace the repo-local `plugins/screw/.mcp.json` command with `{"mcpServers": {"screw-agents": {"command": "uvx", "args": ["screw-agents", "serve", "--transport", "stdio"]}}}`.
+3. Replace the repo-local `plugins/screw/codex-mcp.json` command with `{"mcpServers": {"screw-agents": {"command": "uvx", "args": ["screw-agents", "serve", "--transport", "stdio"]}}}`.
 4. Optionally drop the project-scoped `.mcp.json` at repo root (or keep for editable-install dev mode).
 5. Update `CONTRIBUTING.md` to document: "for marketplace install, plugin MCP uses the PyPI-published CLI."
 
 ### T-PLUGIN-M2 — Rename `screw-research` / `screw-review` skills to drop the redundant `screw-` prefix
 **Source:** Phase 3a PR#2 plugin-namespace restructure (audit)
-**File:** `plugins/screw/skills/screw-research/SKILL.md`, `plugins/screw/skills/screw-review/SKILL.md`, plus 33 files referencing these names (domains/*.yaml fixtures, docs, plans).
+**File:** `plugins/screw/codex-skills/screw-research/SKILL.md`, `plugins/screw/codex-skills/screw-review/SKILL.md`, plus files referencing these names (domains/*.yaml fixtures, docs, plans).
 **Phase-4 readiness:** `nice-to-have` — skill-name prefix cleanup; cosmetic
 **Why deferred:** After the plugin-namespace fix, skill invocations are `/screw:screw-research` and `/screw:screw-review` — the `screw-` prefix is redundant because the plugin namespace already provides it. Renaming to `/screw:research` and `/screw:review` is cleaner, but the skill names appear in ~33 tracked files (domain YAMLs, plans, PRD, PHASE_*.md, DECISIONS.md, KNOWLEDGE_SOURCES.md, benchmark fixtures). Out of scope for PR#2's namespace cleanup; deserves a dedicated rename commit with its own audit pass.
 **Trigger:** Any of: (a) a dedicated polish commit before the first marketplace submission, (b) a user-visible redundancy complaint, (c) alongside T-PLUGIN-M1.
 **Suggested fix:**
-1. `git mv plugins/screw/skills/screw-research plugins/screw/skills/research`; same for screw-review.
+1. `git mv plugins/screw/codex-skills/screw-research plugins/screw/codex-skills/research`; same for screw-review.
 2. Update SKILL.md frontmatter `name:` fields if they reference the dirname.
 3. Bulk find-replace: `screw-research` → `research`, `screw-review` → `review` across all tracked files. Careful: `screw-review` appears as a substring in other contexts — do a scoped replacement with per-file review.
 4. Verify benchmark fixtures still reference the right skill (they're consumed by other tooling, not invoked as slash commands; likely no change needed).

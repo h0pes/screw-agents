@@ -26,6 +26,31 @@ from screw_agents.trust import load_config
 _PARALLEL_LINE_MATCH_WINDOW = 20
 
 
+def _normalize_target_for_project_root(
+    target: dict[str, Any],
+    project_root: Path,
+) -> dict[str, Any]:
+    """Resolve provider-scan relative filesystem targets against project_root."""
+    normalized = dict(target)
+    target_type = normalized.get("type")
+    if target_type == "file" and isinstance(normalized.get("path"), str):
+        normalized["path"] = _project_path(normalized["path"], project_root)
+    elif target_type == "lines" and isinstance(normalized.get("file"), str):
+        normalized["file"] = _project_path(normalized["file"], project_root)
+    elif target_type in {"function", "class"} and isinstance(normalized.get("file"), str):
+        normalized["file"] = _project_path(normalized["file"], project_root)
+    elif target_type == "codebase" and isinstance(normalized.get("root"), str):
+        normalized["root"] = _project_path(normalized["root"], project_root)
+    return normalized
+
+
+def _project_path(path: str, project_root: Path) -> str:
+    candidate = Path(path)
+    if candidate.is_absolute():
+        return str(candidate)
+    return str(project_root / candidate)
+
+
 def run_provider_scan(
     *,
     engine: ScanEngine,
@@ -47,6 +72,7 @@ def run_provider_scan(
     if execution not in {"fixture", "cli"}:
         raise ValueError("execution must be one of: 'fixture', 'cli'")
 
+    target = _normalize_target_for_project_root(target, project_root)
     config = load_config(project_root).challenger
     transport_config = _enabled_transport(config, provider, transport)
     if transport_config.kind != execution:
@@ -110,6 +136,7 @@ def run_provider_scan_workflow(
     formats: list[str] | None = None,
 ) -> dict[str, Any]:
     """Run provider scan and optionally finalize findings into reports."""
+    target = _normalize_target_for_project_root(target, project_root)
     scan_result = run_provider_scan(
         engine=engine,
         project_root=project_root,
@@ -185,6 +212,7 @@ def run_composed_provider_scan_workflow(
     knowledge, the findings are accumulated/finalized through the normal
     reporting path, and finalization attaches a configured challenger mode.
     """
+    target = _normalize_target_for_project_root(target, project_root)
     scan_result = run_provider_scan(
         engine=engine,
         project_root=project_root,
@@ -275,6 +303,7 @@ def run_parallel_provider_scan_workflow(
     if len(participants) < 2:
         raise ValueError("parallel provider scans require at least two participants")
 
+    target = _normalize_target_for_project_root(target, project_root)
     scan_results: list[PrimaryScanResult] = []
     for participant in participants:
         provider = _participant_field(participant, "provider")

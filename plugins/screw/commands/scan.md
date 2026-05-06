@@ -239,7 +239,7 @@ scope_text = " ".join(scope_tokens)  # passed to resolve_scope MCP tool
 
 - `--parallel-providers` is mutually exclusive with `--primary-provider`, `--primary-transport`, `--primary-execution`, `--challenger`, `--challenger-execution`, and `--adaptive`.
 - Parse the value as comma-separated `provider:transport:execution` entries. There MUST be at least two entries. Each `execution` MUST be `fixture` or `cli`.
-- If validation passes, route to `mcp__screw-agents__run_parallel_provider_scan`.
+- If validation passes, route to `mcp__screw-agents__run_parallel_provider_scan` with `finalize=true`.
 - Do NOT infer parallel providers from config. Do NOT default to live CLI. API/local transports are not exposed by `/screw:scan` yet.
 
 ### Step 2: Resolve scope via the `resolve_scope` MCP tool
@@ -259,7 +259,21 @@ If the call raises (`ValueError` / `ScopeResolutionError` on parse/resolve error
 
 ### Step 2b: Provider-primary route selection
 
-If provider-primary or parallel flags are present, use the resolved `agents` from Step 2 and the parsed `target`, then call the provider-neutral MCP tools below. These routes skip the legacy `scan_agents` init-page/subagent path because the provider-primary backend assembles source chunks and YAML agent knowledge itself.
+If provider-primary or parallel flags are present, use the resolved `agents`
+from Step 2 and the parsed `target`, then call the provider-neutral MCP tools
+below. These routes skip the legacy `scan_agents` init-page/subagent path
+because the provider-primary backend assembles source chunks and YAML agent
+knowledge itself.
+
+For provider-primary routes, normalize path targets before the MCP call:
+
+- `project_root` MUST be the current project/session root as an absolute path.
+- If the user supplied a relative path target such as `src/app.py`, convert
+  `target.path` to an absolute path under `project_root` before calling
+  `run_provider_scan`, `run_composed_provider_scan`, or
+  `run_parallel_provider_scan`.
+- Keep the user-facing summary in the user's original form if helpful, but the
+  MCP payload must use the absolute path so the backend does not need a retry.
 
 **Single provider primary, no challenger:**
 
@@ -311,7 +325,9 @@ mcp__screw-agents__run_parallel_provider_scan({
   "session_id": <generated session id>,
   "agents": <agents from Step 2>,
   "target": <parsed target>,
-  "thoroughness": <standard|deep>
+  "thoroughness": <standard|deep>,
+  "finalize": true,
+  "formats": <formats or null>
 })
 ```
 

@@ -43,8 +43,12 @@ assistant or integration host.
 The shared `plugins/screw` package now carries both Claude Code and Codex
 plugin metadata. Claude Code uses `.claude-plugin/plugin.json` plus
 `--plugin-dir`; Codex uses `.codex-plugin/plugin.json` plus the repo-local
-`.agents/plugins/marketplace.json` descriptor. Both hosts reuse the same
-`commands/`, `agents/`, `skills/`, and MCP backend contract.
+`.agents/plugins/marketplace.json` descriptor. Claude hosts load
+`commands/`, `agents/`, and the Claude-native `skills/screw-review` and
+`skills/screw-research` helpers; Codex hosts load `codex-skills/` and the
+Codex MCP descriptor. Both hosts map to the same command semantics and MCP
+backend contract without exposing duplicate Claude slash completions for
+scan/learning/adaptive command workflows.
 
 Today, the provider-neutral backend and package CLI can execute Claude and
 Codex first-pass scans from YAML knowledge through configured CLI transports,
