@@ -1,9 +1,8 @@
-# Phase 5 Closure Readiness
+# Phase 5 Closure Signoff
 
-> Status: draft for Marco review. This document consolidates the Phase 5
-> implementation and validation evidence into one closure decision checklist.
-> It is intentionally decision-oriented: each remaining item is classified as
-> closure blocker, explicit deferral, or follow-up candidate.
+> Status: signed off. Phase 5 is complete for the validated Claude/Codex
+> provider-neutral core. Remaining items below are accepted deferrals, not
+> Phase 5 blockers.
 > Last updated: 2026-05-06.
 
 ## Purpose
@@ -14,9 +13,8 @@ drive first-pass scans and challenger review across supported assistants and
 transports, with explicit privacy and cost controls.
 
 This document does not replace the detailed implementation plans or validation
-logs. It is the single page to use when deciding whether Phase 5 can be signed
-off and whether remaining work moves to Phase 5.5, a Phase 5.x hardening pass,
-or the deferred backlog.
+logs. It records the final Phase 5 signoff decision and the work that moves to
+Phase 5.5, a Phase 5.x adapter/hardening pass, or the deferred backlog.
 
 Primary references:
 
@@ -73,22 +71,24 @@ Primary references:
 | Phase 5.5 web app integration handoff | Architecture surfaced, not yet implemented | Not a Phase 5 blocker; next phase entry criterion | Phase 5.5 starts after provider-neutral execution is stable enough to integrate. |
 | Phase 3c sandbox hardening | Deferred | Not a Phase 5 blocker, but production-like deployment blocker | Keep visible before production-like deployments, especially for adaptive scripts. |
 
-## Proposed Closure Gate
+## Closure Decision
 
-The strict closure path has now been run for current supported hosts:
+Phase 5 is signed off as complete for the validated Claude/Codex
+provider-neutral core.
+
+The strict closure path was run for current supported hosts:
 
 - Claude Code invoked `/screw:scan` provider-primary, composed challenger, and
   parallel-provider fixture routes.
 - Codex invoked the equivalent `screw:screw-scan` skill routes.
 - Both hosts used the same MCP backend and wrote normal mode-aware reports.
 
-Phase 5 can be marked closure-ready once Marco accepts the explicit deferrals
-below as post-Phase-5 work:
+The following are accepted post-Phase-5 deferrals:
 
 - Codex literal `/screw:*` slash autocomplete parity.
 - API-backed provider transports.
 - Additional provider adapters such as Gemini/opencode/local LLMs.
-- Phase 5.5 web application integration.
+- Phase 5.5 web application integration implementation.
 - Phase 3c sandbox hardening before production-like deployment.
 
 ## Exit Criteria Checklist
@@ -100,12 +100,14 @@ below as post-Phase-5 work:
 | Provider-neutral primary scan runner validates output through shared `Finding` models | Green |
 | Privacy/cost controls are explicit and opt-in | Green |
 | Reports identify whether they came from provider-primary, primary-plus-challenger, or parallel mode | Green |
-| Docs are aligned with code and validation reality | Green for current PR, keep current |
+| Docs are aligned with code and validation reality | Green |
 | Host-route provider-primary/composed/parallel validation decision made | Green |
-| API/local/additional-provider adapter deferrals explicitly accepted | Yellow |
-| Phase 5.5 handoff surfaces confirmed | Yellow |
+| API/local/additional-provider adapter deferrals explicitly accepted | Green |
+| Phase 5.5 handoff surfaces confirmed | Green |
 
 ## Recommended Next Step
 
-Review and merge the host-route validation PR, then make the final Phase 5
-closure decision against the remaining explicit deferrals above.
+Start Phase 5.5 web application integration planning from
+`docs/PHASE_5_5_WEB_APP_INTEGRATION.md`. Implementation work should happen from
+the web application repository, with this `screw-agents` repository referenced
+explicitly as the MCP/package integration boundary.

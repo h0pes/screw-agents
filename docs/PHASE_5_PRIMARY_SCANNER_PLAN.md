@@ -1,6 +1,6 @@
 # Phase 5 Primary Scanner Plan
 
-> Status: required Phase 5 work. The challenger/orchestration layer exists,
+> Status: complete. The challenger/orchestration layer exists,
 > and the provider-neutral primary scan contract, fixture runner, and scan
 > input assembly from YAML agent knowledge are implemented. Primary scanner
 > CLI runner plumbing is implemented for configured Claude/Codex/generic CLI
@@ -17,9 +17,11 @@
 > provider-primary and parallel flags are implemented and route to the provider
 > scan MCP tools; route-equivalent fixture validation has passed for all three
 > provider-primary command paths. Live parallel validation passed for the
-> Claude/Codex MLflow MoreFixes SSTI vulnerable/patched pair.
-> Phase 5 is not closure-ready until remaining host-validation and adapter
-> closure decisions are completed or explicitly re-scoped.
+> Claude/Codex MLflow MoreFixes SSTI vulnerable/patched pair. Real Claude Code
+> and Codex host-route fixture validation passed for provider-primary,
+> primary-plus-challenger, and parallel-provider paths. API/local/additional
+> provider adapters are accepted post-Phase-5 deferrals; signoff is recorded in
+> `docs/PHASE_5_CLOSURE_READINESS.md`.
 
 ## Why This Exists
 
@@ -285,13 +287,13 @@ provider produced or disputed each finding.
 - Route-equivalent fixture validation for the new assistant command routes is
   recorded for single provider-primary, primary-plus-challenger, and
   parallel-provider paths.
-- Remaining manual validation covers live host validation of the new assistant
-  command routes.
-- Record results in `docs/PHASE_5_CLOSURE_READINESS.md`.
+- Real Claude Code and Codex host-route fixture validation is recorded for
+  provider-primary, primary-plus-challenger, and parallel-provider paths.
+- Record final signoff in `docs/PHASE_5_CLOSURE_READINESS.md`.
 
 ## Phase 5 Closure Dependencies
 
-Phase 5 closure must wait for:
+Phase 5 closure has been signed off with these outcomes:
 
 - Provider-neutral primary scan runner implemented.
 - Codex and Claude first-pass scans from YAML knowledge validated beyond the
@@ -304,8 +306,9 @@ Phase 5 closure must wait for:
 - Manual round-trip checklist recorded.
 - Provider-specific CLI output adapters implemented without temporary wrappers.
 - `/screw:scan` provider-neutral primary scanner selection is manually
-  validated across supported assistant hosts or equivalent command-contract
-  fixtures.
-- API/local provider adapter deferrals explicitly documented.
-- Phase 5.5 handoff surfaces documented for web application integration.
+  validated across Claude Code, with the equivalent Codex skill route
+  validated through `screw:screw-scan`.
+- API/local/additional provider adapter deferrals explicitly documented.
+- Phase 5.5 handoff surfaces documented for web application integration in
+  `docs/PHASE_5_5_WEB_APP_INTEGRATION.md`.
 - Closure decision recorded in `docs/PHASE_5_CLOSURE_READINESS.md`.
