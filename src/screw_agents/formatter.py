@@ -158,14 +158,13 @@ def _format_json(findings: list[Finding], metadata: dict[str, Any]) -> str:
     """Serialize findings as a JSON array using Pydantic model_dump."""
     data = [f.model_dump() for f in findings]
     challenger_results = _challenger_results(metadata)
-    if challenger_results:
-        return json.dumps(
-            {
-                "findings": data,
-                "challenger_results": challenger_results,
-            },
-            indent=2,
-        )
+    if challenger_results or _is_phase5_report(metadata):
+        payload: dict[str, Any] = {"findings": data}
+        if _is_phase5_report(metadata):
+            payload["scan_metadata"] = metadata
+        if challenger_results:
+            payload["challenger_results"] = challenger_results
+        return json.dumps(payload, indent=2)
     return json.dumps(data, indent=2)
 
 
@@ -207,10 +206,13 @@ def _format_sarif(
             }
         ],
     }
+    properties: dict[str, Any] = {}
+    if _is_phase5_report(metadata):
+        properties["scanMetadata"] = metadata
     if challenger_results:
-        doc["runs"][0]["properties"] = {
-            "challengerResults": challenger_results,
-        }
+        properties["challengerResults"] = challenger_results
+    if properties:
+        doc["runs"][0]["properties"] = properties
     return json.dumps(doc, indent=2)
 
 
@@ -310,6 +312,18 @@ def _challenger_results(metadata: dict[str, Any]) -> list[dict[str, Any]]:
     return []
 
 
+def _is_phase5_report(metadata: dict[str, Any]) -> bool:
+    return any(
+        key in metadata
+        for key in (
+            "report",
+            "provider_scan",
+            "phase5_mode",
+            "parallel_reconciliations",
+        )
+    )
+
+
 def _challenger_reconciliations_by_finding(
     challenger_results: list[dict[str, Any]],
 ) -> dict[str, dict[str, Any]]:
@@ -403,8 +417,19 @@ def _format_markdown(
     target = metadata.get("target", "")
     agents = metadata.get("agents", [])
     timestamp = metadata.get("timestamp", "")
+    report = metadata.get("report")
 
-    if target or agents or timestamp:
+    if target or agents or timestamp or isinstance(report, dict):
+        if isinstance(report, dict):
+            mode_name = report.get("mode")
+            providers = report.get("providers")
+            if mode_name:
+                lines.append(f"**Mode:** `{mode_name}`")
+            if isinstance(providers, list) and providers:
+                lines.append(
+                    "**Providers:** "
+                    + ", ".join(f"`{provider}`" for provider in providers)
+                )
         if target:
             lines.append(f"**Target:** `{target}`")
         if agents:

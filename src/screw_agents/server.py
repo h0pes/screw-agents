@@ -359,6 +359,8 @@ def _dispatch_tool(
             thoroughness=args.get("thoroughness", "standard"),
             timeout_seconds=args.get("timeout_seconds", 120),
             fixture_findings_by_provider=args.get("fixture_findings_by_provider"),
+            finalize=args.get("finalize", False),
+            formats=args.get("formats"),
         )
 
     # --- Phase 3b T16: adaptive coverage-gap E2E ---

@@ -82,7 +82,8 @@ Implemented today:
 - Public `provider-scan` package CLI and `run_provider_scan` MCP tool for
   fixture and opt-in CLI provider-neutral primary scan execution.
 - Optional provider-scan finalization path that accumulates returned findings
-  and writes normal `.screw/findings/` reports.
+  and writes normal `.screw/findings/` reports with mode-aware filenames and
+  metadata.
 - Backend composed primary-plus-challenger workflow that runs a configured
   provider primary scan, finalizes findings, and attaches configured challenger
   review through the normal report path.
@@ -91,7 +92,7 @@ Implemented today:
   challenger.
 - Backend parallel primary scan workflow that runs independent provider scans
   and returns provider-keyed findings plus agreed/disputed/unique
-  reconciliation summaries.
+  reconciliation summaries, with optional normal report finalization.
 - Fixture-mode manual validation for `provider-scan` and `run_provider_scan`
   using a temporary `/tmp` end-user project.
 - Live Codex and Claude CLI provider-scan validation on a real MLflow MoreFixes
@@ -301,7 +302,7 @@ Scan and learning artifacts are stored under the scanned project:
 
 | Path | Purpose |
 |---|---|
-| `.screw/findings/` | JSON, Markdown, CSV, and SARIF scan reports; JSON/Markdown/SARIF can include challenger run metadata when present |
+| `.screw/findings/` | JSON, Markdown, CSV, and SARIF scan reports; provider-primary, primary-plus-challenger, and parallel modes use mode-aware filenames, and JSON/Markdown/SARIF can include provider/challenger metadata when present |
 | `.screw/learning/exclusions.yaml` | Signed false-positive exclusions |
 | `.screw/config.yaml` | Project trust and adaptive-analysis configuration |
 | `.screw/custom-scripts/` | Approved adaptive analysis scripts |

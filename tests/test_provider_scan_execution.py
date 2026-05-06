@@ -360,7 +360,11 @@ def test_run_provider_scan_workflow_finalize_writes_reports(tmp_path: Path) -> N
     assert result["finalize_result"]["summary"]["total"] == 1
     assert "json" in result["finalize_result"]["files_written"]
     assert "markdown" in result["finalize_result"]["files_written"]
-    assert Path(result["finalize_result"]["files_written"]["json"]).exists()
+    report_path = Path(result["finalize_result"]["files_written"]["json"])
+    assert report_path.exists()
+    assert "/sqli-codex-primary-" in str(report_path)
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["scan_metadata"]["report"]["mode"] == "provider_primary"
 
 
 def test_run_provider_scan_mcp_tool_finalize_fixture(tmp_path: Path) -> None:
@@ -468,7 +472,10 @@ def test_composed_provider_scan_workflow_codex_primary_claude_challenger(
     ]
 
     report_path = Path(result["finalize_result"]["files_written"]["json"])
+    assert "/sqli-codex-primary-claude-challenger-" in str(report_path)
     report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["scan_metadata"]["report"]["providers"] == ["codex", "claude"]
+    assert report["scan_metadata"]["phase5_mode"]["type"] == "primary_challenger"
     assert report["challenger_results"][0]["mode"] == "primary_challenger"
 
 
@@ -510,6 +517,8 @@ def test_composed_provider_scan_workflow_claude_primary_codex_challenger(
 
     assert result["mode"]["primary"]["provider"] == "claude"
     assert result["primary_scan_result"]["provider"] == "claude"
+    report_path = result["finalize_result"]["files_written"]["json"]
+    assert "/sqli-claude-primary-codex-challenger-" in report_path
     assert result["challenger_results"][0]["reconciliations"][0]["primary_provider"] == (
         "claude"
     )
@@ -665,6 +674,45 @@ def test_parallel_provider_scan_workflow_marks_severity_disputes(
 
     assert result["reconciliations"][0]["status"] == "disputed"
     assert result["reconciliations"][0]["agreed_severity"] is None
+
+
+def test_parallel_provider_scan_workflow_can_finalize_mode_named_report(
+    tmp_path: Path,
+) -> None:
+    _write_composed_config(
+        tmp_path,
+        primary_provider="claude",
+        challenger_provider="codex",
+    )
+
+    result = run_parallel_provider_scan_workflow(
+        engine=_engine(),
+        project_root=tmp_path,
+        participants=[
+            {"provider": "claude", "transport": "fixture", "execution": "fixture"},
+            {"provider": "codex", "transport": "fixture", "execution": "fixture"},
+        ],
+        run_id="parallel-run",
+        session_id="parallel-session",
+        agents=["sqli"],
+        target=_target(tmp_path),
+        fixture_findings_by_provider={
+            "claude": [_finding_variant(finding_id="claude-sqli-001")],
+            "codex": [_finding_variant(finding_id="codex-sqli-001")],
+        },
+        finalize=True,
+        formats=["json", "markdown"],
+    )
+
+    report_path = Path(result["finalize_result"]["files_written"]["json"])
+    assert "/sqli-parallel-claude-codex-" in str(report_path)
+    assert result["finalize_result"]["summary"]["total"] == 1
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["scan_metadata"]["report"]["mode"] == "parallel"
+    assert report["scan_metadata"]["parallel_reconciliations"][0]["status"] == "agreed"
+    markdown = Path(result["finalize_result"]["files_written"]["markdown"]).read_text()
+    assert "**Mode:** `parallel`" in markdown
+    assert "**Providers:** `claude`, `codex`" in markdown
 
 
 def test_composed_provider_scan_mcp_tool_fixture(tmp_path: Path) -> None:
