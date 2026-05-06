@@ -484,6 +484,7 @@ The current full-suite baseline after PR #119 is:
 | [PHASE_5_PLAN.md](docs/PHASE_5_PLAN.md) | Multi-LLM challenger plan, provider/transport architecture, required modes |
 | [PHASE_5_PRIMARY_SCANNER_PLAN.md](docs/PHASE_5_PRIMARY_SCANNER_PLAN.md) | Required Phase 5 plan for provider-neutral primary scanning beyond Claude Code |
 | [PHASE_5_MANUAL_VALIDATION.md](docs/PHASE_5_MANUAL_VALIDATION.md) | Manual round-trip validation evidence for Phase 5 provider surfaces |
+| [PHASE_5_CLOSURE_READINESS.md](docs/PHASE_5_CLOSURE_READINESS.md) | Decision checklist for Phase 5 signoff versus explicit deferrals |
 | [AGENT_CATALOG.md](docs/AGENT_CATALOG.md) | Planned CWE-1400 agent inventory |
 | [AGENT_AUTHORING.md](docs/AGENT_AUTHORING.md) | How to write new agent YAML |
 | [DECISIONS.md](docs/DECISIONS.md) | Architecture decision records |

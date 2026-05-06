@@ -280,7 +280,8 @@ the production Claude CLI primary runner.
   the universal scan command contract that should be exposed consistently by
   Claude Code, Codex, Gemini, local assistants, or future plugin hosts. The new
   Codex skill route is validated for normal YAML/MCP scanning. Provider-mode
-  assistant routes still need live round-trip validation before Phase 5 closure.
+  assistant routes still need a closure decision; see
+  `docs/PHASE_5_CLOSURE_READINESS.md`.
 
 ## Codex Plugin Skill Round Trip
 
@@ -510,4 +511,5 @@ route-equivalent fixture validation passed for single provider-primary,
 primary-plus-challenger, and parallel-provider paths. Codex plugin skill
 validation passed for the normal YAML/MCP scan route. Phase 5 is still not
 closure-ready because additional provider adapters and live host validation
-for provider-primary/parallel routes remain pending.
+for provider-primary/parallel routes remain pending as closure decisions; see
+`docs/PHASE_5_CLOSURE_READINESS.md`.
