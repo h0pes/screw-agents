@@ -43,20 +43,29 @@ and execute the same MCP-backed workflow.
 
 ## Execution Routes
 
+For provider-primary, provider-primary-plus-challenger, and parallel-provider
+routes, resolve path targets before calling MCP tools. If the user supplied a
+relative path such as `src/app.py`, pass an absolute `target.path` under the
+current project root in the MCP payload. Keep user-facing summaries readable,
+but do not make the backend retry relative paths.
+
 ### Provider Primary
 
 If `--primary-provider`, `--primary-transport`, or `--primary-execution` is
 present and `--challenger` is not present, call `run_provider_scan` with
-`finalize=true`.
+`finalize=true` and pass any requested output formats.
 
 ### Provider Primary Plus Challenger
 
 If provider-primary flags and `--challenger` are present, call
-`run_composed_provider_scan`.
+`run_composed_provider_scan`. This route finalizes normal `.screw/findings/`
+reports and attaches configured challenger review.
 
 ### Parallel Providers
 
-If `--parallel-providers` is present, call `run_parallel_provider_scan`.
+If `--parallel-providers` is present, call `run_parallel_provider_scan` with
+`finalize=true` and pass any requested output formats so the parallel route
+writes normal `.screw/findings/` reports with reconciliation metadata.
 
 ### YAML/MCP Scan
 

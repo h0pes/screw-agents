@@ -6,13 +6,12 @@
 > adapter behavior discovered during that run is now implemented in the
 > production runner. Backend composed primary-plus-challenger workflow has
 > fixture coverage and live Claude/Codex validation in both directions;
-> backend parallel primary reconciliation has fixture
-> coverage for agreed, unique, and severity-disputed findings plus live
-> Claude/Codex validation on the MLflow SSTI vulnerable/patched pair. The universal
-> `/screw:scan` provider-primary command contract is implemented and
-> route-equivalent fixture validation passed for single provider-primary,
-> primary-plus-challenger, and parallel-provider paths. Codex plugin skill
-> validation has passed for the MCP-backed YAML scan route.
+> backend parallel primary reconciliation has fixture coverage for agreed,
+> unique, and severity-disputed findings plus live Claude/Codex validation on
+> the MLflow SSTI vulnerable/patched pair. The universal `/screw:scan`
+> provider-primary command contract is implemented. Real Claude Code and Codex
+> host-route fixture validation passed for provider-primary,
+> primary-plus-challenger, and parallel-provider paths.
 > Last updated: 2026-05-06.
 
 ## Scope
@@ -20,6 +19,159 @@
 This document records manual round-trip validation for Phase 5 public provider
 surfaces. These checks simulate an end user running `screw-agents` from a
 separate project directory, not from repository internals.
+
+## Host-Route Fixture Validation
+
+This strict host-route validation used the current plugin/skill/MCP surfaces
+from assistant sessions, not only backend helper scripts.
+
+Environment:
+
+- Repository worktree: `.worktrees/phase5-host-route-validation`
+- Temporary end-user project:
+  `/tmp/screw-agents-phase5-host-routes`
+- Target:
+  `/tmp/screw-agents-phase5-host-routes/src/app.py`
+- Project config:
+  `/tmp/screw-agents-phase5-host-routes/.screw/config.yaml`
+- Configured providers: `claude` and `codex`
+- Configured transports: fixture only
+- Live provider invocation: none
+- API keys required: none
+
+The target came from the SSTI fixture
+`benchmarks/fixtures/ssti/vulnerable/python_jinja2_from_string.py`. Fixture
+execution intentionally returns empty provider findings; these checks validate
+host command routing, MCP payload shape, finalization, report naming, and
+coverage-gap propagation without sending source to live providers.
+
+### Claude Code Host Surface
+
+Claude was launched from the temporary project with:
+
+```bash
+cd /tmp/screw-agents-phase5-host-routes
+env -u ANTHROPIC_API_KEY claude \
+  --plugin-dir /home/marco/Programming/AI/screw-agents/.worktrees/phase5-host-route-validation/plugins/screw \
+  --mcp-config /tmp/screw-agents-phase5-host-routes/.mcp.json
+```
+
+Plugin/MCP discovery:
+
+- `/mcp` showed one connected `screw-agents` server with 28 tools.
+- `/plugins` showed:
+  - commands: `learn-report`, `scan`, `adaptive-cleanup`;
+  - agents: `screw-scan`, `screw-script-reviewer`,
+    `screw-learning-analyst`;
+  - skills: `screw-review`, `screw-research`.
+- `/scr` autocomplete showed the expected command/skill entries:
+  `/screw:scan`, `/screw:learn-report`, `/screw:adaptive-cleanup`,
+  `/screw-review`, and `/screw-research`.
+- The earlier duplicate entries `/screw-scan`, `/screw-learn-report`, and
+  `/screw-adaptive-cleanup` were removed by moving Codex workflow skills under
+  `plugins/screw/codex-skills/`.
+- The earlier failed duplicate `plugin:screw:screw-agents` MCP server was
+  removed by moving the Codex plugin MCP descriptor to
+  `plugins/screw/codex-mcp.json`.
+
+Validated Claude commands:
+
+```text
+/screw:scan ssti src/app.py --primary-provider codex --primary-transport fixture --primary-execution fixture --format json
+```
+
+- Routed to `run_provider_scan` with `finalize=true`.
+- Wrote JSON:
+  `/tmp/screw-agents-phase5-host-routes/.screw/findings/ssti-codex-primary-2026-05-06T08-47-42.json`
+- Summary: zero findings, clean trust status, one expected unresolved-sink
+  coverage gap at `src/app.py:20`.
+
+```text
+/screw:scan ssti src/app.py --primary-provider codex --primary-transport fixture --primary-execution fixture --challenger codex_primary_claude_challenger --challenger-execution dry_run --format json
+```
+
+- Routed to `run_composed_provider_scan`.
+- Wrote JSON:
+  `/tmp/screw-agents-phase5-host-routes/.screw/findings/ssti-codex-primary-claude-challenger-2026-05-06T08-50-51.json`
+- Summary: zero findings; challenger results empty because fixture primary
+  produced no findings.
+
+```text
+/screw:scan ssti src/app.py --parallel-providers claude:fixture:fixture,codex:fixture:fixture --format json
+```
+
+- Routed to `run_parallel_provider_scan` with `finalize=true`.
+- Wrote JSON:
+  `/tmp/screw-agents-phase5-host-routes/.screw/findings/ssti-parallel-claude-codex-2026-05-06T08-52-08.json`
+- Summary: zero findings from both fixture providers; reconciliation empty.
+
+### Codex Host Surface
+
+Codex used the same temporary project and current worktree:
+
+```bash
+codex mcp add screw-agents -- \
+  uv run --directory /home/marco/Programming/AI/screw-agents/.worktrees/phase5-host-route-validation \
+  screw-agents serve --transport stdio
+
+codex plugin marketplace add \
+  /home/marco/Programming/AI/screw-agents/.worktrees/phase5-host-route-validation
+
+codex -C /tmp/screw-agents-phase5-host-routes \
+  --sandbox workspace-write \
+  --ask-for-approval on-request
+```
+
+Codex MCP registration was run from a screw-agents checkout/worktree; running
+the same `codex mcp add` command from an unrelated directory produced a Codex
+configuration load error during validation.
+
+Plugin/MCP discovery:
+
+- `/plugins` showed the installed `screw-agents` plugin with Codex skills:
+  `screw:screw-adaptive-cleanup`, `screw:screw-learn-report`,
+  `screw:screw-research`, `screw:screw-review`, and `screw:screw-scan`.
+- `/mcp` showed `screw-agents` connected to the worktree server.
+
+Validated Codex skill prompts:
+
+```text
+Use the screw:screw-scan skill to run: screw:scan ssti src/app.py --primary-provider codex --primary-transport fixture --primary-execution fixture --format json
+```
+
+- Routed to `run_provider_scan` with `finalize=true`.
+- Wrote JSON:
+  `/tmp/screw-agents-phase5-host-routes/.screw/findings/ssti-codex-primary-2026-05-06T09-34-35.json`
+- Summary: zero findings, clean trust status, one expected unresolved-sink
+  coverage gap at `src/app.py:20`.
+- Regression found and fixed: the backend now normalizes relative provider
+  scan targets such as `src/app.py` against `project_root`; after restart,
+  Codex passed `target: {"type":"file","path":"src/app.py"}` and no absolute
+  path retry was needed.
+
+```text
+Use the screw:screw-scan skill to run: screw:scan ssti src/app.py --primary-provider codex --primary-transport fixture --primary-execution fixture --challenger codex_primary_claude_challenger --challenger-execution dry_run --format json
+```
+
+- Routed to `run_composed_provider_scan`.
+- Wrote JSON:
+  `/tmp/screw-agents-phase5-host-routes/.screw/findings/ssti-codex-primary-claude-challenger-2026-05-06T09-35-51.json`
+- Summary: zero findings; challenger results empty because fixture primary
+  produced no findings.
+
+```text
+Use the screw:screw-scan skill to run: screw:scan ssti src/app.py --parallel-providers claude:fixture:fixture,codex:fixture:fixture --format json
+```
+
+- Routed to `run_parallel_provider_scan` with `finalize=true`.
+- Wrote JSON:
+  `/tmp/screw-agents-phase5-host-routes/.screw/findings/ssti-parallel-claude-codex-2026-05-06T09-36-50.json`
+- Summary: zero findings from both fixture providers; reconciliation empty.
+
+Conclusion: passed. Claude and Codex host routes both reached the provider
+primary, primary-plus-challenger, and parallel provider MCP workflows and wrote
+mode-aware reports from an end-user project without API keys or live provider
+execution.
 
 ## Environment
 
@@ -279,9 +431,8 @@ the production Claude CLI primary runner.
   execution. `/screw:scan` now exposes provider-neutral primary selection as
   the universal scan command contract that should be exposed consistently by
   Claude Code, Codex, Gemini, local assistants, or future plugin hosts. The new
-  Codex skill route is validated for normal YAML/MCP scanning. Provider-mode
-  assistant routes still need a closure decision; see
-  `docs/PHASE_5_CLOSURE_READINESS.md`.
+  Codex skill route is validated for normal YAML/MCP scanning and
+  provider-mode fixture routes.
 
 ## Codex Plugin Skill Round Trip
 
@@ -302,6 +453,11 @@ Codex v0.128.0 did not expose plugin `commands/` files as literal
 `/screw:*` slash-completion entries during validation. It did load packaged
 skills and MCP tools. OpenAI Codex docs mark custom prompts as deprecated in
 favor of skills, so this validation exercised the Codex-supported skill path.
+Codex workflow skills are packaged under `plugins/screw/codex-skills/` so
+Claude Code does not expose duplicate slash completions for scan,
+learning-report, or adaptive-cleanup workflows. Claude's historical
+`screw-review` and `screw-research` skills remain under
+`plugins/screw/skills/`.
 
 Setup checks:
 
@@ -491,7 +647,8 @@ provider invocation.
 | Primary plus challenger public round trip | Passed | Fixture route passed; live Codex-primary/Claude-challenger and Claude-primary/Codex-challenger validation passed on the MLflow MoreFixes SSTI vulnerable/patched pair |
 | Parallel independent primary scans | Passed | Fixture route passed; live Claude/Codex parallel validation reconciled the vulnerable SSTI as agreed and returned zero findings on patched |
 | Codex plugin YAML/MCP scan skill | Passed | `screw:screw-scan` routed command-shaped input through MCP scan/finalize tools and wrote JSON |
-| `/screw:scan` provider-neutral primary UX | Route-equivalent fixture validation passed | Universal assistant command contract exposes provider-primary, primary-plus-challenger, and parallel-provider flags through MCP provider scan tools; live provider-mode host validation pending |
+| Claude `/screw:scan` provider-neutral primary UX | Passed | Manual Claude Code host route reached provider-primary, composed, and parallel MCP workflows and wrote mode-aware reports |
+| Codex `screw:screw-scan` provider-neutral skill UX | Passed | Manual Codex host route reached provider-primary, composed, and parallel MCP workflows and wrote mode-aware reports |
 
 ## Decision
 
@@ -511,8 +668,9 @@ unique, and severity-disputed fixture findings, and live parallel validation
 passed on the MLflow MoreFixes SSTI vulnerable/patched pair. The universal
 `/screw:scan` provider-primary command contract is implemented, and
 route-equivalent fixture validation passed for single provider-primary,
+primary-plus-challenger, and parallel-provider paths. Real Claude Code and
+Codex host-route fixture validation also passed for single provider-primary,
 primary-plus-challenger, and parallel-provider paths. Codex plugin skill
-validation passed for the normal YAML/MCP scan route. Phase 5 is still not
-closure-ready because additional provider adapters and live host validation
-for provider-primary/parallel routes remain pending as closure decisions; see
+validation passed for the normal YAML/MCP scan route and provider-mode routes.
+Additional provider adapters remain deferred closure decisions; see
 `docs/PHASE_5_CLOSURE_READINESS.md`.

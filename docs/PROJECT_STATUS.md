@@ -1,6 +1,6 @@
 # Project Status — screw-agents
 
-> Last updated: 2026-05-05
+> Last updated: 2026-05-06
 
 ## Deferred Obligations
 
@@ -437,21 +437,26 @@ is tracked in `docs/PHASE_4_CLOSURE_READINESS.md`.
   agreed, unique, and severity-disputed findings. The universal `/screw:scan`
   command contract now exposes provider-primary, primary-plus-challenger, and
   parallel-provider flags through MCP provider scan tools, with
-  route-equivalent fixture validation recorded for all three paths. Live
-  parallel validation passed for the MLflow MoreFixes SSTI vulnerable/patched
-  pair; additional provider adapters remain pending before Phase 5 closure. See
+  route-equivalent fixture validation recorded for all three paths. Real
+  Claude Code and Codex host-route fixture validation passed for
+  provider-primary, primary-plus-challenger, and parallel-provider paths and
+  writes mode-aware reports. Live parallel validation passed for the MLflow
+  MoreFixes SSTI vulnerable/patched pair; additional provider adapters remain
+  pending before Phase 5 closure. See
   `docs/PHASE_5_PRIMARY_SCANNER_PLAN.md` and
   `docs/PHASE_5_CLOSURE_READINESS.md`.
 - Tool-agnostic command surface invariant: Claude Code is the first shipped
-  plugin host, but the `/screw:*` commands, agents, skills, MCP tools, package
-  CLI surfaces, adaptive flows, trust/exclusion operations, and
+  plugin host, but the `/screw:*` commands, agents, host-specific skills, MCP
+  tools, package CLI surfaces, adaptive flows, trust/exclusion operations, and
   challenger/provider modes are intended to be portable across Codex, Gemini,
   local assistants, web app workers, editor integrations, CI, and future hosts
   with equivalent parameters and result shapes. Current Codex CLI validation
-  loads skills and MCP tools, but literal `/screw:*` slash autocomplete was not
-  exposed from plugin command files; Codex-supported workflow coverage is
-  therefore carried through skills while literal slash-command parity remains
-  tracked in `docs/DEFERRED_BACKLOG.md`.
+  loads Codex skills and MCP tools, but literal `/screw:*` slash autocomplete
+  was not exposed from plugin command files; Codex-supported workflow coverage
+  is therefore carried through `codex-skills/` while literal slash-command
+  parity remains tracked in `docs/DEFERRED_BACKLOG.md`. Claude keeps
+  `/screw:*` slash commands plus the historical `screw-review` and
+  `screw-research` skills.
 - `docs/` structure in place (PRD, DECISIONS, CONTRIBUTING, KNOWLEDGE_SOURCES, AGENT_AUTHORING)
 
 **Phase 0 — Knowledge Research Sprint (complete for all 4 Phase 1 agents):**
@@ -829,7 +834,7 @@ Structured as a dependency graph with three parallel tracks converging at smoke 
 | Phase 3b | Adaptive Analysis & Learning Refinement | **Complete** — PR #4 (#10) 2026-04-18, PR #5 (#11) 2026-04-20, PR #6 (#12) 2026-04-23, Phase 3b-C2 2026-04-24, BACKLOG-PR6-22 (#14) 2026-04-24, T19-M D7 (#15) 2026-04-24, T-SCAN-REFACTOR final 2026-04-25 |
 | Phase 3c | Sandbox hardening sweep (seccomp filter + thread-safety + dedup) | **Deferred** — see `docs/DEFERRED_BACKLOG.md` §"Phase 3c (sandbox hardening follow-ups)" |
 | Phase 4 | Autoresearch & Self-Improvement | **Complete** — D-01 merged; D-02 calibration workflow, guardrails, failure payloads, accepted inclusions/exclusions, Wave C representative validation, focused runtime validation, and final signoff are recorded |
-| Phase 5 | Multi-LLM Challenger System | In progress — challenger config/model contracts, reconciliation, provider runner interface, fixture/generic/Claude/Codex CLI runners, required-mode orchestration, CLI/MCP challenger execution surfaces, report integration, finalize-time attachment, `/screw:scan` challenger flags, primary scan contracts, fixture validation, scan input assembly, backend primary CLI runners, production Claude/Codex primary output normalization, `provider-scan`, MCP `run_provider_scan`, optional provider-scan finalization, backend composed primary-plus-challenger workflow, backend parallel primary reconciliation/finalization, mode-aware provider report filenames/metadata, universal `/screw:scan` provider-primary/parallel flags, repo-local Codex plugin metadata, and Codex skills for command-equivalent scan/learning/adaptive workflows are implemented; fixture-mode provider scan validation, composed workflow fixture coverage, live composed Codex-primary/Claude-challenger and Claude-primary/Codex-challenger validation, parallel reconciliation fixture coverage, live parallel Claude/Codex validation, route-equivalent `/screw:scan` provider-primary fixture validation, and one live Codex/Claude MLflow MoreFixes SSTI vulnerable/patched benchmark round trip are recorded; Codex CLI literal `/screw:*` autocomplete remains a tracked host-adapter gap, additional provider adapters remain pending, and closure decisions are tracked in `docs/PHASE_5_CLOSURE_READINESS.md` |
+| Phase 5 | Multi-LLM Challenger System | In progress — challenger config/model contracts, reconciliation, provider runner interface, fixture/generic/Claude/Codex CLI runners, required-mode orchestration, CLI/MCP challenger execution surfaces, report integration, finalize-time attachment, `/screw:scan` challenger flags, primary scan contracts, fixture validation, scan input assembly, backend primary CLI runners, production Claude/Codex primary output normalization, `provider-scan`, MCP `run_provider_scan`, optional provider-scan finalization, backend composed primary-plus-challenger workflow, backend parallel primary reconciliation/finalization, mode-aware provider report filenames/metadata, universal `/screw:scan` provider-primary/parallel flags, repo-local Codex plugin metadata, and Codex skills for command-equivalent scan/learning/adaptive workflows are implemented; fixture-mode provider scan validation, composed workflow fixture coverage, live composed Codex-primary/Claude-challenger and Claude-primary/Codex-challenger validation, parallel reconciliation fixture coverage, live parallel Claude/Codex validation, route-equivalent `/screw:scan` provider-primary fixture validation, real Claude Code and Codex host-route fixture validation, and one live Codex/Claude MLflow MoreFixes SSTI vulnerable/patched benchmark round trip are recorded; Codex CLI literal `/screw:*` autocomplete remains a tracked host-adapter gap, additional provider adapters remain pending, and closure decisions are tracked in `docs/PHASE_5_CLOSURE_READINESS.md` |
 | Phase 5.5 | Web application integration pilot | Pending — first external product integration target after Phase 5; start with the existing four accepted agents and wire orchestration/correlation/triage before broad agent expansion |
 | Phase 6 | Agent Expansion & Ecosystem | Pending — add CWE-1400 agents in small reviewed batches using Phase 4 calibration infrastructure, not a full-catalog big bang |
 | Phase 7 | screw.nvim Integration (scan commands, review-before-import, exclusions) | Pending — editor-native workflow after the web-app integration pilot unless product priority changes |
@@ -847,10 +852,10 @@ concrete failure-input payloads can be generated from controlled run output.
 ## Next Roadmap Priorities
 
 1. **Phase 5 — closure decision.** Provider-neutral primary scanning and the
-   three required Claude/Codex modes are implemented and live validated. Review
-   `docs/PHASE_5_CLOSURE_READINESS.md` to decide whether the remaining
-   host-route validation is required before signoff or can move to a Phase 5.x
-   host-adapter follow-up.
+   three required Claude/Codex modes are implemented and live validated. Real
+   Claude Code and Codex host-route fixture validation is now recorded. Review
+   `docs/PHASE_5_CLOSURE_READINESS.md` to decide whether the remaining explicit
+   deferrals can move to Phase 5.x/backlog.
    Preserve opt-in cost/privacy controls and provider-agnostic interfaces for
    future LLMs. Provider configuration must allow future
    assistants such as Gemini or local LLMs, and each provider should support

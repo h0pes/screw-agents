@@ -81,7 +81,9 @@ namespace cleanup. If your local main checkout still has leftover
 The `.mcp.json` at the repo root declares the screw-agents MCP server
 (project-scoped). Claude Code starts it automatically when launched in
 this project, regardless of `--plugin-dir`. The Codex plugin also includes a
-repo-local `plugins/screw/.mcp.json` for local marketplace development. For
+repo-local `plugins/screw/codex-mcp.json` for local marketplace development.
+That file is intentionally not named `.mcp.json`, so Claude Code does not
+auto-load a second plugin-scoped server when `--plugin-dir` is used. For
 external marketplace distribution, we'll need to publish `screw-agents` to PyPI
 and switch the plugin-scoped MCP command to `uvx screw-agents serve`. See the
 DEFERRED_BACKLOG entry `T-PLUGIN-M1` for details.

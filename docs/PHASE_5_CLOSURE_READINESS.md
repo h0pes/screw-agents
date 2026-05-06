@@ -39,7 +39,7 @@ Primary references:
 | Normal report integration for provider findings | Green | Provider-scan, composed, and parallel finalization write normal `.screw/findings/` reports with mode-aware filenames and metadata |
 | Provider privacy/cost controls | Green | CLI execution requires explicit consent; API billing remains opt-in and rejected without consent |
 | Provider-neutral command contract | Green | `/screw:scan` flags for provider-primary, composed, and parallel routes are documented and route-equivalent fixture validated |
-| Host-agnostic project direction beyond `/screw:scan` | Green as architecture, yellow as host UX | Shared MCP/package/skill surfaces exist; per-host command affordances still vary |
+| Host-agnostic project direction beyond `/screw:scan` | Green as architecture, yellow as host UX | Shared MCP/package/skill surfaces exist and are documented; per-host command affordances still vary |
 
 ## Validation Evidence
 
@@ -55,14 +55,16 @@ Primary references:
 | Codex primary plus Claude challenger | Passed | Live composed validation |
 | Parallel Claude/Codex scan reconciliation | Passed | Live parallel validation |
 | Codex MCP-backed YAML scan skill | Passed | `screw:screw-scan` executed MCP scan/finalize flow and wrote JSON |
-| Claude Code plugin command discovery | Passed for current Claude host | `/screw:scan` command and MCP tools visible in manual host validation |
+| Claude Code plugin command discovery | Passed for current Claude host | `/screw:scan`, `/screw:learn-report`, `/screw:adaptive-cleanup`, `/screw-review`, `/screw-research`, and MCP tools visible in manual host validation |
+| Claude Code provider command host routes | Passed | `/screw:scan` reached provider-primary, composed, and parallel MCP workflows and wrote mode-aware JSON reports |
+| Codex provider skill host routes | Passed | `screw:screw-scan` reached provider-primary, composed, and parallel MCP workflows and wrote mode-aware JSON reports |
 | Route-equivalent provider command validation | Passed | Fixture validation reached all provider-primary MCP workflows |
 
 ## Remaining Decisions
 
 | Item | Current state | Recommended closure classification | Rationale |
 |---|---|---|---|
-| Live host validation for provider-primary `/screw:scan` routes | Not yet recorded end-to-end from assistant command UX | Closure blocker unless explicitly accepted as covered by route-equivalent fixture validation | The backend and command contract are implemented, but we have not yet recorded a live host session invoking provider-primary/composed/parallel flags through the assistant-facing command path. |
+| Host validation for provider-primary routes | Recorded for Claude Code slash commands and Codex skills using fixture execution | Closed for Phase 5 | The backend was live in assistant sessions, both hosts invoked the public command/skill surfaces, and all three provider workflows wrote normal reports. Live provider execution is already validated through backend CLI paths. |
 | Codex literal `/screw:*` autocomplete | Host limitation tracked | Not a Phase 5 closure blocker; document as host-adapter backlog | Codex currently exposes plugin skills and MCP tools, but not Claude-style slash command autocomplete. The universal command contract still exists through skills/MCP/package surfaces. |
 | Additional provider adapters: Gemini, opencode, local LLMs | Not implemented | Not a Phase 5 closure blocker; defer to Phase 5.x or later adapter work | Phase 5 created the provider-neutral contracts and proved Claude/Codex. Adding every future provider is open-ended and should not block closure. |
 | API transports for Claude/Codex primary scan | Explicitly not implemented for live provider scan | Not a Phase 5 closure blocker; defer with privacy/cost controls preserved | Marco's current workflow uses Pro subscriptions and no API credits. API transports should remain opt-in future adapters. |
@@ -73,20 +75,21 @@ Primary references:
 
 ## Proposed Closure Gate
 
-Phase 5 can be marked complete when Marco accepts one of these two options:
+The strict closure path has now been run for current supported hosts:
 
-1. **Strict closure path.** Run one final manual host-route validation that
-   invokes provider-primary, composed, and parallel scan routes from supported
-   assistant hosts using the current plugin/skill/MCP surfaces, then update
-   this document from draft to closure-ready.
-2. **Pragmatic closure path.** Accept route-equivalent fixture validation plus
-   direct live backend validation as sufficient for Phase 5, and explicitly
-   defer host-specific UX polish and additional provider adapters to Phase 5.x
-   or the backlog.
+- Claude Code invoked `/screw:scan` provider-primary, composed challenger, and
+  parallel-provider fixture routes.
+- Codex invoked the equivalent `screw:screw-scan` skill routes.
+- Both hosts used the same MCP backend and wrote normal mode-aware reports.
 
-Recommended path: **strict closure path**. The remaining work is mostly
-validation/documentation rather than new architecture, and it reduces ambiguity
-before Phase 5.5 web application integration.
+Phase 5 can be marked closure-ready once Marco accepts the explicit deferrals
+below as post-Phase-5 work:
+
+- Codex literal `/screw:*` slash autocomplete parity.
+- API-backed provider transports.
+- Additional provider adapters such as Gemini/opencode/local LLMs.
+- Phase 5.5 web application integration.
+- Phase 3c sandbox hardening before production-like deployment.
 
 ## Exit Criteria Checklist
 
@@ -98,17 +101,11 @@ before Phase 5.5 web application integration.
 | Privacy/cost controls are explicit and opt-in | Green |
 | Reports identify whether they came from provider-primary, primary-plus-challenger, or parallel mode | Green |
 | Docs are aligned with code and validation reality | Green for current PR, keep current |
-| Host-route provider-primary/composed/parallel validation decision made | Yellow |
+| Host-route provider-primary/composed/parallel validation decision made | Green |
 | API/local/additional-provider adapter deferrals explicitly accepted | Yellow |
 | Phase 5.5 handoff surfaces confirmed | Yellow |
 
 ## Recommended Next Step
 
-After this document is reviewed, decide whether to run the strict host-route
-validation PR or accept the pragmatic closure path. If strict validation is
-chosen, the next PR should record:
-
-- Claude Code host route for provider-primary/composed/parallel flags.
-- Codex skill/MCP route for equivalent provider-primary/composed/parallel
-  flows, with the literal `/screw:*` autocomplete limitation called out.
-- Confirmation that no API keys are required for subscription-backed CLI paths.
+Review and merge the host-route validation PR, then make the final Phase 5
+closure decision against the remaining explicit deferrals above.

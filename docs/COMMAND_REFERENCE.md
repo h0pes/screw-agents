@@ -231,15 +231,38 @@ Options:
 
 These command names, agent roles, skills, and tool workflows are the
 assistant-facing command contract for `screw-agents`. The shared plugin
-implementation lives under `plugins/screw/` and now carries both Claude Code
-and Codex metadata while reusing the same command, agent, skill, and MCP assets.
-The semantics are intended to stay portable across Claude Code, Codex, Gemini,
-local assistants, editor integrations, web workers, or future plugin hosts that
-can call the same MCP/backend tools. This portability applies to all
-`/screw:*` commands, not only `/screw:scan`: scan, learning reports, adaptive
-cleanup, trust/exclusion flows, challenger/provider modes, and future commands
-should expose equivalent inputs, options, and result shapes wherever the host
-can support them.
+implementation lives under `plugins/screw/` and carries both Claude Code and
+Codex metadata, but each host has different UX primitives. The semantics are
+intended to stay portable across Claude Code, Codex, Gemini, local assistants,
+editor integrations, web workers, or future plugin hosts that can call the same
+MCP/backend tools. This portability applies to all scan, learning, adaptive,
+trust/exclusion, challenger/provider, and future workflows: equivalent inputs,
+options, and result shapes should exist wherever the host can support them.
+
+### Host Surface Map
+
+The names are intentionally similar but not interchangeable:
+
+| Surface | Host | Path | User-visible form | Purpose |
+|---|---|---|---|---|
+| Slash commands | Claude-compatible plugin hosts | `plugins/screw/commands/` | `/screw:scan`, `/screw:learn-report`, `/screw:adaptive-cleanup` | Explicit user commands |
+| Claude skills | Claude-compatible plugin hosts | `plugins/screw/skills/` | `screw-review`, `screw-research`; Claude may show these as `/screw-review`, `/screw-research` in autocomplete | Auto-invocation helpers for review/research intents |
+| Claude agents/subagents | Claude-compatible plugin hosts | `plugins/screw/agents/` | `screw-scan`, `screw-script-reviewer`, `screw-learning-analyst` | Internal worker roles dispatched by commands/skills |
+| Codex skills | Codex plugin hosts | `plugins/screw/codex-skills/` | `screw:screw-scan`, `screw:screw-learn-report`, `screw:screw-adaptive-cleanup`, `screw:screw-review`, `screw:screw-research` | Codex-supported reusable workflows |
+| MCP tools | Any MCP-capable host | Python server | `scan_agents`, `run_provider_scan`, `finalize_scan_results`, etc. | Shared backend operations |
+| Package CLI | Any shell/CI | `screw-agents ...` | `screw-agents provider-scan`, `screw-agents challenger-run`, etc. | Scriptable backend entry points |
+
+`/screw:scan` and `screw-scan` are different things. `/screw:scan` is the
+Claude user-facing slash command. `screw-scan` is the internal Claude
+agent/subagent that the command can dispatch for normal YAML/MCP scans. Codex
+also has a `screw:screw-scan` skill that implements the same scan workflow
+through Codex's supported skill mechanism.
+
+Codex-only scan, learning-report, and adaptive-cleanup workflow skills live
+under `codex-skills/` instead of Claude's top-level `skills/` directory so
+Claude does not show duplicate slash completions such as `/screw-scan` beside
+`/screw:scan`. Claude's historical `screw-review` and `screw-research` skills
+remain in `plugins/screw/skills/`.
 
 Load the plugin locally in Claude Code:
 
@@ -255,12 +278,85 @@ codex mcp add screw-agents -- uv run --directory /path/to/screw-agents screw-age
 ```
 
 Use `codex mcp list` and `codex mcp get screw-agents` to verify the backend
-registration. Current Codex releases use skills, not custom prompts, for
-reusable workflows; the repo-local plugin packages Codex skills for scan,
-learning-report, and adaptive-cleanup workflows. Those skills use the same MCP
-tools and command grammar as the slash-command files.
+registration. Run the `codex mcp add` command from a screw-agents checkout or
+worktree during local development; current Codex CLI versions may fail to load
+configuration when run from an arbitrary `/tmp` project. Current Codex releases
+use skills, not custom prompts, for reusable workflows; the repo-local plugin
+packages Codex skills for scan, learning-report, adaptive-cleanup, review, and
+research workflows. Those skills use the same MCP tools and command grammar as
+the slash-command files.
 After adding the marketplace, open `/plugins` in Codex and enable the
 `screw-agents` plugin so Codex loads the packaged skills and MCP server config.
+
+### Which Surface Should I Use?
+
+Use the highest-level surface your host supports:
+
+| You are... | Use this | Why |
+|---|---|---|
+| In Claude Code and you want to scan | `/screw:scan` | User-facing command that orchestrates scope parsing, MCP calls, subagent dispatch, finalization, adaptive mode, provider-primary mode, challenger mode, and parallel mode |
+| In Claude Code and you want learning summaries | `/screw:learn-report` | User-facing command for false-positive learning/exclusion insights |
+| In Claude Code and you want to inspect/remove adaptive artifacts | `/screw:adaptive-cleanup` | User-facing command for adaptive script/staging hygiene |
+| In Claude Code and you ask generally for a security review | `screw-review` skill, usually auto-invoked | Intent router that decides whether to dispatch scan workflows or explain available agents |
+| In Claude Code and you are authoring/researching new agent knowledge | `screw-research` skill, usually auto-invoked | Guides the research -> synthesize -> validate process for YAML agent definitions |
+| In Codex and you want any screw-agents workflow | Codex skills, e.g. `screw:screw-scan` or command-shaped text such as `screw:scan ssti src/` | Codex currently supports reusable workflows through skills rather than Claude-style custom slash commands |
+| In CI, scripts, or a shell | `screw-agents ...` package CLI | Stable scriptable entry points without assistant UX |
+| You are building another client or web app | MCP tools | Lowest-level integration boundary for orchestration, background workers, or custom UIs |
+| You are inside Claude internals/skill prompt authoring | Claude agents/subagents such as `screw-scan` | Worker roles dispatched by commands/skills; users normally do not invoke these directly |
+
+### Claude Agents/Subagents
+
+Claude agents/subagents are specialized worker prompts packaged under
+`plugins/screw/agents/`. They exist because a single user-facing command often
+needs delegated work with a narrower role and tool set. For example,
+`/screw:scan` is a main-session orchestrator: it parses flags, resolves scope,
+handles provider routes, controls adaptive review, and finalizes reports. For
+normal YAML/MCP scans, it can dispatch the `screw-scan` agent/subagent to walk
+paginated `scan_agents` results, fetch agent prompts, analyze code chunks, and
+accumulate findings. The user should choose `/screw:scan`; the command chooses
+when to use `screw-scan`.
+
+Current Claude agents/subagents:
+
+| Agent/subagent | Invoked by | Use case |
+|---|---|---|
+| `screw-scan` | `/screw:scan` and `screw-review` | Internal scan worker for normal YAML/MCP scans; not the same as `/screw:scan` |
+| `screw-script-reviewer` | `/screw:scan --adaptive` | Reviews proposed adaptive analysis scripts before promotion/execution |
+| `screw-learning-analyst` | `/screw:learn-report` | Analyzes project learning/exclusion evidence for reporting |
+
+### Claude Skills
+
+Claude skills are auto-invocation helpers. They are useful when the user asks
+in natural language rather than typing a slash command. Claude may also expose
+installed skills in slash autocomplete as `/screw-review` and
+`/screw-research`; those are skill entry points, not the same class of
+workflow as the explicit `/screw:*` command files.
+
+| Skill | Use case | Prefer instead |
+|---|---|---|
+| `screw-review` | User asks for a security review, vulnerability scan, audit, SQLi/XSS/CmdI/SSTI check, or broad secure-code review | Use `/screw:scan` directly when you already know the exact scope/flags |
+| `screw-research` | User is researching or authoring new vulnerability agent knowledge | Use package/docs workflows directly when doing scripted benchmark or registry work |
+
+### Codex Skills
+
+Codex skills are the Codex-host equivalent of reusable workflows. They live
+under `plugins/screw/codex-skills/` and route to the same MCP backend.
+
+| Codex skill | Use case | Equivalent Claude/user command |
+|---|---|---|
+| `screw:screw-scan` | Run command-shaped scan requests, provider-primary scans, challenger scans, parallel scans, adaptive scans, and output-format selection | `/screw:scan` |
+| `screw:screw-learn-report` | Summarize false-positive learning and exclusions | `/screw:learn-report` |
+| `screw:screw-adaptive-cleanup` | Inspect/remove adaptive scripts and staging artifacts | `/screw:adaptive-cleanup` |
+| `screw:screw-review` | Natural-language security review routing | Claude `screw-review` skill |
+| `screw:screw-research` | Vulnerability-agent research and authoring workflow | Claude `screw-research` skill |
+
+### MCP Tools Versus Commands
+
+MCP tools are lower-level operations. Assistant commands and skills call them
+for you. Use MCP tools directly when building another integration, debugging a
+route, writing tests, or needing precise orchestration. Prefer assistant
+commands/skills for normal interactive use because they handle validation,
+target normalization, finalization, trust summaries, and user-facing reporting.
 
 ### `/screw:scan`
 

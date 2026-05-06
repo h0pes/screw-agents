@@ -32,8 +32,10 @@ import yaml
 _REPO_ROOT = Path(__file__).parent.parent
 _AGENTS_DIR = _REPO_ROOT / "plugins" / "screw" / "agents"
 _COMMANDS_DIR = _REPO_ROOT / "plugins" / "screw" / "commands"
+_CODEX_SKILLS_DIR = _REPO_ROOT / "plugins" / "screw" / "codex-skills"
 
 _SCAN_COMMAND_FILE = _COMMANDS_DIR / "scan.md"
+_SCAN_SKILL_FILE = _CODEX_SKILLS_DIR / "screw-scan" / "SKILL.md"
 
 # Tools required on scan.md (main session orchestrator) — main session owns
 # the post-generation MCP surface (stage/promote/reject/execute) plus
@@ -162,6 +164,42 @@ def test_scan_md_provider_primary_validation_is_explicit() -> None:
     assert "`--parallel-providers` is mutually exclusive" in body
     assert "Do NOT infer parallel providers from config" in body
     assert "Do NOT default to live CLI" in body
+
+
+def test_scan_md_provider_routes_finalize_reports() -> None:
+    """Assistant-facing provider routes must write normal scan reports."""
+    _, body = _parse_subagent_file(_SCAN_COMMAND_FILE)
+
+    assert '"finalize": true' in body
+    assert '"formats": <formats or null>' in body
+    assert "run_provider_scan` with `finalize=true" in body
+    assert "run_parallel_provider_scan` with `finalize=true" in body
+
+
+def test_scan_md_provider_routes_normalize_relative_targets() -> None:
+    """Host command instructions should avoid backend retries for relative paths."""
+    _, body = _parse_subagent_file(_SCAN_COMMAND_FILE)
+
+    assert "project_root` MUST be the current project/session root as an absolute path" in body
+    assert "convert\n  `target.path` to an absolute path under `project_root`" in body
+    assert "the\n  MCP payload must use the absolute path" in body
+
+
+def test_codex_scan_skill_provider_routes_finalize_reports() -> None:
+    """Codex skill route must preserve the same report finalization semantics."""
+    body = _SCAN_SKILL_FILE.read_text(encoding="utf-8")
+
+    assert "call `run_provider_scan` with\n`finalize=true`" in body
+    assert "call `run_parallel_provider_scan` with\n`finalize=true`" in body
+    assert "writes normal `.screw/findings/` reports" in body
+
+
+def test_codex_scan_skill_provider_routes_normalize_relative_targets() -> None:
+    """Codex skill instructions should avoid backend retries for relative paths."""
+    body = _SCAN_SKILL_FILE.read_text(encoding="utf-8")
+
+    assert "pass an absolute `target.path` under the\ncurrent project root" in body
+    assert "do not make the backend retry relative paths" in body
 
 
 # ---- C2: scan.md main-session orchestrator assertions ----------------------

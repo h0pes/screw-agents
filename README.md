@@ -194,12 +194,15 @@ codex mcp add screw-agents -- uv run --directory /path/to/screw-agents screw-age
 
 The explicit `codex mcp add` command remains useful during local development
 because it makes the MCP server registration visible with `codex mcp list`.
+Run it from a screw-agents checkout or worktree; current Codex CLI versions may
+fail to load configuration when registration is attempted from an arbitrary
+temporary project directory.
 After adding the marketplace, open `/plugins` inside Codex and enable the
 `screw-agents` plugin so Codex loads the packaged skills and MCP server config.
 Current Codex releases use skills, not custom prompts, for reusable workflow
 instructions. The plugin therefore includes Codex skills for scan, learning
-report, and adaptive-cleanup workflows, backed by the same MCP tools and command
-grammar as the slash-command files.
+report, adaptive-cleanup, review, and research workflows, backed by the same MCP
+tools and command grammar as the slash-command files.
 
 Run a scan from a supported assistant host:
 
@@ -222,6 +225,12 @@ Useful plugin commands:
 
 In Codex, invoke the corresponding skills with natural command text such as
 `screw:scan sqli src/` or `run a screw-agents full scan of . --no-confirm`.
+
+Claude and Codex expose different host UX primitives. Claude uses `/screw:*`
+slash commands plus Claude skills (`screw-review`, `screw-research`) and
+internal agents such as `screw-scan`. Codex uses `screw:*` skills from
+`codex-skills/`. The backend behavior is the same MCP/package surface; see the
+host surface map in the command reference for the exact naming split.
 
 For all command forms and options, see
 [COMMAND_REFERENCE.md](docs/COMMAND_REFERENCE.md).

@@ -17,8 +17,8 @@
     "sast",
     "appsec"
   ],
-  "skills": "./skills/",
-  "mcpServers": "./.mcp.json",
+  "skills": "./codex-skills/",
+  "mcpServers": "./codex-mcp.json",
   "interface": {
     "displayName": "screw-agents",
     "shortDescription": "Provider-neutral secure code review agents",

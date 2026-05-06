@@ -242,19 +242,24 @@ Thin orchestration wrappers calling MCP tools. The current implementation is a
 shared assistant plugin directory with Claude Code metadata
 (`.claude-plugin/plugin.json`) and Codex metadata
 (`.codex-plugin/plugin.json`, `.agents/plugins/marketplace.json`). The
-slash-command names, agent roles, skills, and MCP tool workflows define a
+slash-command names, agent roles, host skills, and MCP tool workflows define a
 portable assistant command contract. Future Gemini, local assistant, editor, or
 web-worker integrations should preserve the same command semantics and map
 host-specific UX onto the same backend tools.
 
 - **Subagents** (`agents/`): `screw-scan.md` (universal scan runner; T-SCAN-REFACTOR collapsed 5 per-vuln + per-domain subagents into this one), `screw-script-reviewer.md` (adaptive review chain), `screw-learning-analyst.md` (learning mode). Main session orchestrates dispatch (chain-subagents architecture).
-- **Skills** (`skills/`): Auto-invocation triggers
+- **Claude skills** (`skills/`): Claude-native auto-invocation helpers for
+  review and research workflows.
+- **Codex skills** (`codex-skills/`): Codex workflow skills. Codex-only
+  scan/learn/adaptive skills live outside the top-level `skills/` directory so
+  Claude Code does not expose duplicate slash completions for command
+  workflows.
 - **Slash commands**: User-facing entry points (for example `/screw:scan`,
   `/screw:learn-report`, and `/screw:adaptive-cleanup`; see "Tool & Subagent
   Inventory" above)
 - **MCP config**: repo-root `.mcp.json` for project-scoped Claude Code
-  development, plus plugin-scoped `plugins/screw/.mcp.json` for repo-local
-  Codex marketplace development.
+  development, plus plugin-scoped `plugins/screw/codex-mcp.json` for
+  repo-local Codex marketplace development.
 
 ### Project-Level State (`.screw/`)
 

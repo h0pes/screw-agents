@@ -231,6 +231,54 @@ def test_run_provider_scan_fixture_returns_validated_result(tmp_path: Path) -> N
     assert result.guardrails == {"fixture_runner": True}
 
 
+def test_run_provider_scan_normalizes_relative_file_target(tmp_path: Path) -> None:
+    _write_config(tmp_path, transport_kind="fixture")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "app.py").write_text("print('ok')\n", encoding="utf-8")
+
+    result = run_provider_scan(
+        engine=_engine(),
+        project_root=tmp_path,
+        provider="codex",
+        transport="fixture",
+        execution="fixture",
+        run_id="run-1",
+        session_id="session-1",
+        agents=["sqli"],
+        target={"type": "file", "path": "src/app.py"},
+        fixture_findings=[_finding_dict()],
+    )
+
+    assert result.findings[0].id == "sqli-001"
+
+
+def test_run_provider_scan_workflow_metadata_uses_normalized_target(
+    tmp_path: Path,
+) -> None:
+    _write_config(tmp_path, transport_kind="fixture")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "app.py").write_text("print('ok')\n", encoding="utf-8")
+
+    result = run_provider_scan_workflow(
+        engine=_engine(),
+        project_root=tmp_path,
+        provider="codex",
+        transport="fixture",
+        execution="fixture",
+        run_id="run-1",
+        session_id="session-1",
+        agents=["sqli"],
+        target={"type": "file", "path": "src/app.py"},
+        fixture_findings=[_finding_dict()],
+        finalize=True,
+        formats=["json"],
+    )
+
+    report_path = Path(result["finalize_result"]["files_written"]["json"])
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["scan_metadata"]["target"]["path"] == str(tmp_path / "src" / "app.py")
+
+
 def test_run_provider_scan_cli_uses_injected_runner(tmp_path: Path) -> None:
     _write_config(tmp_path, transport_kind="cli")
     command_runner = RecordingCommandRunner()

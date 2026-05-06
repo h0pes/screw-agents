@@ -8,11 +8,18 @@ MCP server.
 - Claude Code: `.claude-plugin/plugin.json`
 - Codex: `.codex-plugin/plugin.json`
 - Repo-local Codex marketplace: `../../.agents/plugins/marketplace.json`
-- Repo-local MCP config: `.mcp.json`
+- Codex repo-local MCP config: `codex-mcp.json`
 
 The same command semantics are shared across assistant hosts. Claude-compatible
-hosts load `commands/` slash-command files. Codex-compatible hosts load
-`skills/` workflow files, backed by the same `screw-agents` MCP tools.
+hosts load `commands/` slash-command files plus the Claude-native
+`skills/screw-review` and `skills/screw-research` helpers. Codex-compatible
+hosts load `codex-skills/` workflow files, backed by the same `screw-agents`
+MCP tools. Codex-only scan/learn/adaptive workflow skills intentionally live
+outside the top-level `skills/` directory so Claude Code does not expose
+duplicate slash completions such as `/screw-scan` beside `/screw:scan`.
+Claude may still show the review/research skills as `/screw-review` and
+`/screw-research` in autocomplete; those are skill entry points, not duplicate
+scan/learn/adaptive commands.
 
 ## Slash command: `/screw:scan`
 
