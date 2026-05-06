@@ -285,11 +285,11 @@ def render_and_write(
     # Determine file prefix
     agent_set = set(agent_names)
     if len(agent_set) == 1:
-        prefix = agent_names[0]
+        base_prefix = agent_names[0]
     elif agent_set == {"sqli", "cmdi", "ssti", "xss"}:
-        prefix = "injection"
+        base_prefix = "injection"
     else:
-        prefix = "scan"
+        base_prefix = "scan"
 
     # Build summary inputs before formatting so explicit challenger execution
     # can review the finalized active findings and still be rendered into
@@ -302,6 +302,7 @@ def render_and_write(
     meta = dict(scan_metadata or {})
     meta.setdefault("agents", agent_names)
     meta.setdefault("timestamp", now.strftime("%Y-%m-%dT%H:%M:%SZ"))
+    prefix = _report_prefix(base_prefix, meta)
     if challenger_results_provider is not None:
         challenger_results = challenger_results_provider(active_findings)
         if challenger_results:
@@ -366,3 +367,27 @@ def render_and_write(
         "exclusions_applied": exclusions_applied,
         "trust_status": trust_status,
     }
+
+
+def _report_prefix(base_prefix: str, metadata: dict[str, Any]) -> str:
+    report = metadata.get("report")
+    if not isinstance(report, dict):
+        return base_prefix
+    label = report.get("label")
+    if not isinstance(label, str) or not label:
+        return base_prefix
+    return f"{base_prefix}-{_slug(label)}"
+
+
+def _slug(value: str) -> str:
+    chars: list[str] = []
+    previous_dash = False
+    for char in value.casefold():
+        if char.isalnum():
+            chars.append(char)
+            previous_dash = False
+        elif not previous_dash:
+            chars.append("-")
+            previous_dash = True
+    slug = "".join(chars).strip("-")
+    return slug or "report"

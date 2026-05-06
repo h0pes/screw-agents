@@ -251,9 +251,13 @@ provider produced or disputed each finding.
   primary scan input assembly.
 - Returns provider-keyed findings plus agreed/disputed/unique reconciliation
   summaries.
-- Preserves provider provenance in the backend result object. Report-format
-  integration remains a follow-up if needed by live validation or web-app
-  ingestion.
+- Preserves provider provenance in the backend result object and, when
+  finalization is requested, writes normal `.screw/findings/` reports with
+  parallel reconciliation metadata.
+- Provider-primary, primary-plus-challenger, and parallel finalized reports use
+  mode-aware filename prefixes such as `sqli-codex-primary-*`,
+  `sqli-codex-primary-claude-challenger-*`, and
+  `sqli-parallel-claude-codex-*`.
 
 ### P5-P6 - Manual Round-Trip Validation
 

@@ -140,15 +140,13 @@ def run_provider_scan_workflow(
         project_root=project_root,
         session_id=accumulate_result["session_id"],
         agent_names=agents,
-        scan_metadata={
-            "target": target,
-            "provider_scan": {
-                "provider": provider,
-                "transport": transport,
-                "execution": execution,
-                "run_id": run_id,
-            },
-        },
+        scan_metadata=_provider_scan_metadata(
+            target=target,
+            provider=provider,
+            transport=transport,
+            execution=execution,
+            run_id=run_id,
+        ),
         formats=formats,
     )
     return {
@@ -204,6 +202,10 @@ def run_composed_provider_scan_workflow(
         env=env,
     )
     findings = [finding.model_dump(mode="json") for finding in scan_result.findings]
+    challenger_provider = _challenger_provider(
+        project_root=project_root,
+        mode_name=challenger_mode,
+    )
     accumulate_result = engine.accumulate_findings(
         project_root=project_root,
         findings_chunk=findings,
@@ -213,20 +215,16 @@ def run_composed_provider_scan_workflow(
         project_root=project_root,
         session_id=accumulate_result["session_id"],
         agent_names=agents,
-        scan_metadata={
-            "target": target,
-            "provider_scan": {
-                "provider": primary_provider,
-                "transport": primary_transport,
-                "execution": primary_execution,
-                "run_id": run_id,
-            },
-            "phase5_mode": {
-                "type": "primary_challenger",
-                "challenger_mode": challenger_mode,
-                "challenger_execution": challenger_execution,
-            },
-        },
+        scan_metadata=_composed_scan_metadata(
+            target=target,
+            primary_provider=primary_provider,
+            primary_transport=primary_transport,
+            primary_execution=primary_execution,
+            challenger_provider=challenger_provider,
+            challenger_mode=challenger_mode,
+            challenger_execution=challenger_execution,
+            run_id=run_id,
+        ),
         formats=formats,
         challenger_mode=challenger_mode,
         challenger_execution=challenger_execution,
@@ -270,6 +268,8 @@ def run_parallel_provider_scan_workflow(
     fixture_findings_by_provider: Mapping[str, list[dict[str, Any]]] | None = None,
     command_runners_by_provider: Mapping[str, CliPrimaryScanCommandRunner] | None = None,
     env: Mapping[str, str] | None = None,
+    finalize: bool = False,
+    formats: list[str] | None = None,
 ) -> dict[str, Any]:
     """Run independent provider primary scans and reconcile their findings."""
     if len(participants) < 2:
@@ -305,7 +305,11 @@ def run_parallel_provider_scan_workflow(
         ]
         for result in scan_results
     }
-    return {
+    reconciliations = [
+        reconciliation.model_dump(mode="json")
+        for reconciliation in _reconcile_parallel_findings(provider_findings)
+    ]
+    result: dict[str, Any] = {
         "mode": {
             "type": "parallel",
             "participants": [
@@ -326,11 +330,31 @@ def run_parallel_provider_scan_workflow(
             for findings in provider_findings.values()
             for finding in findings
         ],
-        "reconciliations": [
-            reconciliation.model_dump(mode="json")
-            for reconciliation in _reconcile_parallel_findings(provider_findings)
-        ],
+        "reconciliations": reconciliations,
     }
+    if not finalize:
+        return result
+
+    accumulate_result = engine.accumulate_findings(
+        project_root=project_root,
+        findings_chunk=result["findings"],
+        session_id=session_id,
+    )
+    finalize_result = engine.finalize_scan_results(
+        project_root=project_root,
+        session_id=accumulate_result["session_id"],
+        agent_names=agents,
+        scan_metadata=_parallel_scan_metadata(
+            target=target,
+            participants=participants,
+            run_id=run_id,
+            reconciliations=reconciliations,
+        ),
+        formats=formats,
+    )
+    result["accumulate_result"] = accumulate_result
+    result["finalize_result"] = finalize_result
+    return result
 
 
 def _enabled_transport(
@@ -429,6 +453,105 @@ def _participant_field(participant: dict[str, str], field_name: str) -> str:
     if not value:
         raise ValueError(f"parallel participant requires {field_name!r}")
     return value
+
+
+def _provider_scan_metadata(
+    *,
+    target: dict[str, Any],
+    provider: str,
+    transport: str,
+    execution: str,
+    run_id: str,
+) -> dict[str, Any]:
+    return {
+        "target": target,
+        "report": {
+            "label": f"{provider}-primary",
+            "mode": "provider_primary",
+            "providers": [provider],
+        },
+        "provider_scan": {
+            "provider": provider,
+            "transport": transport,
+            "execution": execution,
+            "run_id": run_id,
+        },
+    }
+
+
+def _composed_scan_metadata(
+    *,
+    target: dict[str, Any],
+    primary_provider: str,
+    primary_transport: str,
+    primary_execution: str,
+    challenger_provider: str | None,
+    challenger_mode: str,
+    challenger_execution: str,
+    run_id: str,
+) -> dict[str, Any]:
+    label_parts = [primary_provider, "primary"]
+    providers = [primary_provider]
+    if challenger_provider:
+        label_parts.extend([challenger_provider, "challenger"])
+        providers.append(challenger_provider)
+    else:
+        label_parts.append(challenger_mode)
+    return {
+        "target": target,
+        "report": {
+            "label": "-".join(label_parts),
+            "mode": "primary_challenger",
+            "providers": providers,
+        },
+        "provider_scan": {
+            "provider": primary_provider,
+            "transport": primary_transport,
+            "execution": primary_execution,
+            "run_id": run_id,
+        },
+        "phase5_mode": {
+            "type": "primary_challenger",
+            "primary_provider": primary_provider,
+            "challenger_provider": challenger_provider,
+            "challenger_mode": challenger_mode,
+            "challenger_execution": challenger_execution,
+        },
+    }
+
+
+def _parallel_scan_metadata(
+    *,
+    target: dict[str, Any],
+    participants: list[dict[str, str]],
+    run_id: str,
+    reconciliations: list[dict[str, Any]],
+) -> dict[str, Any]:
+    providers = [_participant_field(participant, "provider") for participant in participants]
+    return {
+        "target": target,
+        "report": {
+            "label": "parallel-" + "-".join(providers),
+            "mode": "parallel",
+            "providers": providers,
+        },
+        "phase5_mode": {
+            "type": "parallel",
+            "participants": participants,
+            "run_id": run_id,
+        },
+        "parallel_reconciliations": reconciliations,
+    }
+
+
+def _challenger_provider(*, project_root: Path, mode_name: str) -> str | None:
+    mode = load_config(project_root).challenger.modes.get(mode_name)
+    if mode is None:
+        return None
+    for participant in mode.participants:
+        if participant.role == "challenger":
+            return participant.provider
+    return None
 
 
 def _reconcile_parallel_findings(

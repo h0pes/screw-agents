@@ -487,6 +487,7 @@ provider invocation.
 | Codex CLI primary scan live run | Passed | MLflow MoreFixes vulnerable/patched SSTI case |
 | Claude CLI primary scan live run | Passed | MLflow MoreFixes vulnerable/patched SSTI case; production runner now extracts the validated `structured_output.findings` shape |
 | Provider scan result accumulation/finalization | Passed | Fixture, Codex live, and Claude live outputs wrote `.screw/findings/` reports |
+| Mode-aware provider report naming/metadata | Passed | Provider-primary, primary-plus-challenger, and parallel reports distinguish scan mode/provider in filenames and JSON/Markdown/SARIF metadata |
 | Primary plus challenger public round trip | Passed | Fixture route passed; live Codex-primary/Claude-challenger and Claude-primary/Codex-challenger validation passed on the MLflow MoreFixes SSTI vulnerable/patched pair |
 | Parallel independent primary scans | Passed | Fixture route passed; live Claude/Codex parallel validation reconciled the vulnerable SSTI as agreed and returned zero findings on patched |
 | Codex plugin YAML/MCP scan skill | Passed | `screw:screw-scan` routed command-shaped input through MCP scan/finalize tools and wrote JSON |
@@ -497,15 +498,17 @@ provider invocation.
 Fixture-mode provider-neutral primary scan execution is validated for the new
 public package CLI and MCP surfaces. Live Codex and Claude CLI primary scanning
 is validated on one real benchmark vulnerable/patched pair, including report
-finalization. Backend composed primary plus challenger flow is covered for both
-Codex-primary/Claude-challenger and Claude-primary/Codex-challenger fixture
-directions and live CLI directions. In the live vulnerable runs, the primary
-provider reported one high-confidence SSTI finding and the configured
-challenger agreed; in the patched runs, both primary providers returned zero
-findings and no challenger review was invoked. Backend parallel independent
-scan reconciliation is covered for agreed, unique, and severity-disputed
-fixture findings, and live parallel validation passed on the MLflow MoreFixes
-SSTI vulnerable/patched pair. The universal
+finalization. Finalized provider-primary, primary-plus-challenger, and
+parallel reports now carry mode/provider labels in filenames and
+JSON/Markdown/SARIF metadata. Backend composed primary plus challenger flow is
+covered for both Codex-primary/Claude-challenger and
+Claude-primary/Codex-challenger fixture directions and live CLI directions. In
+the live vulnerable runs, the primary provider reported one high-confidence
+SSTI finding and the configured challenger agreed; in the patched runs, both
+primary providers returned zero findings and no challenger review was invoked.
+Backend parallel independent scan reconciliation is covered for agreed,
+unique, and severity-disputed fixture findings, and live parallel validation
+passed on the MLflow MoreFixes SSTI vulnerable/patched pair. The universal
 `/screw:scan` provider-primary command contract is implemented, and
 route-equivalent fixture validation passed for single provider-primary,
 primary-plus-challenger, and parallel-provider paths. Codex plugin skill

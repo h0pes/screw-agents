@@ -364,7 +364,7 @@ The MCP server exposes these tools to clients.
 | `scan_domain` | Convenience wrapper for all agents in one domain | `domain`, `target`, `project_root?`, `cursor?`, `page_size?`, `thoroughness?` |
 | `run_provider_scan` | Provider-neutral first-pass scan execution through fixture or opt-in CLI transports | `project_root`, `provider`, `transport`, `execution`, `run_id`, `session_id`, `agents`, `target`, `thoroughness?`, `timeout_seconds?`, `fixture_findings?`, `finalize?`, `formats?` |
 | `run_composed_provider_scan` | Provider-neutral primary scan followed by configured challenger review/finalization | `project_root`, `primary_provider`, `primary_transport`, `primary_execution`, `challenger_mode`, `challenger_execution`, `run_id`, `session_id`, `agents`, `target`, `thoroughness?`, `primary_timeout_seconds?`, `challenger_timeout_seconds?`, `fixture_findings?`, `formats?` |
-| `run_parallel_provider_scan` | Independent provider-neutral primary scans with agreed/disputed/unique reconciliation | `project_root`, `participants`, `run_id`, `session_id`, `agents`, `target`, `thoroughness?`, `timeout_seconds?`, `fixture_findings_by_provider?` |
+| `run_parallel_provider_scan` | Independent provider-neutral primary scans with agreed/disputed/unique reconciliation | `project_root`, `participants`, `run_id`, `session_id`, `agents`, `target`, `thoroughness?`, `timeout_seconds?`, `fixture_findings_by_provider?`, `finalize?`, `formats?` |
 
 Retired scan tools:
 
@@ -395,8 +395,13 @@ exclusion filtering, before JSON/Markdown/SARIF reports are written.
 
 When `scan_metadata.challenger_results` is provided, JSON, Markdown, and SARIF
 outputs include the challenger run envelope and finding-level reconciliation
-summaries. Existing JSON array output is preserved when no challenger metadata
-is supplied. CSV remains finding-only.
+summaries. When `scan_metadata.report` or other Phase 5 provider metadata is
+provided, report filenames include the mode/provider label and JSON,
+Markdown, and SARIF include the scan metadata. Examples include
+`sqli-codex-primary-*`, `sqli-codex-primary-claude-challenger-*`, and
+`sqli-parallel-claude-codex-*`. Existing JSON array output is preserved when
+no challenger or Phase 5 provider metadata is supplied. CSV remains
+finding-only.
 
 ### Challenger Execution
 
@@ -416,7 +421,7 @@ result envelope as the package CLI commands.
 |---|---|---|
 | `run_provider_scan` | Run a provider-neutral primary scan and return `PrimaryScanResult` JSON | `project_root`, `provider`, `transport`, `execution`, `run_id`, `session_id`, `agents`, `target` |
 | `run_composed_provider_scan` | Run provider-neutral primary scanning, accumulate/finalize findings, and attach challenger review | `project_root`, `primary_provider`, `primary_transport`, `primary_execution`, `challenger_mode`, `challenger_execution`, `run_id`, `session_id`, `agents`, `target` |
-| `run_parallel_provider_scan` | Run multiple provider-neutral primary scans and return reconciliation metadata | `project_root`, `participants`, `run_id`, `session_id`, `agents`, `target` |
+| `run_parallel_provider_scan` | Run multiple provider-neutral primary scans and optionally finalize mode-aware reports | `project_root`, `participants`, `run_id`, `session_id`, `agents`, `target`, `finalize?`, `formats?` |
 
 `run_provider_scan` supports `execution: "fixture"` and opt-in
 `execution: "cli"` only. It rejects API/local transports until adapters exist.
@@ -430,6 +435,9 @@ directions through configured modes, for example Codex primary with Claude
 challenger and Claude primary with Codex challenger. `run_parallel_provider_scan`
 requires at least two participants, runs them independently from the same
 YAML-derived scan input, and reports agreed, disputed, and unique findings.
+When `finalize: true`, parallel mode also writes normal `.screw/findings/`
+reports with the parallel provider list and reconciliation metadata embedded
+in JSON/Markdown/SARIF output.
 
 Manual live validation has passed for Codex and Claude CLI primary scans on one
 MLflow MoreFixes SSTI vulnerable/patched benchmark pair. Codex can satisfy the

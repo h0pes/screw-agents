@@ -36,7 +36,7 @@ Primary references:
 | Claude primary, Codex challenger | Green | Live composed validation: vulnerable finding agreed, patched zero findings |
 | Codex primary, Claude challenger | Green | Live composed validation: vulnerable finding agreed, patched zero findings |
 | Parallel Claude/Codex independent scans and reconciliation | Green | Live parallel validation: vulnerable finding reconciled as `agreed`, patched zero findings |
-| Normal report integration for provider findings | Green | Provider-scan finalization writes normal `.screw/findings/` reports |
+| Normal report integration for provider findings | Green | Provider-scan, composed, and parallel finalization write normal `.screw/findings/` reports with mode-aware filenames and metadata |
 | Provider privacy/cost controls | Green | CLI execution requires explicit consent; API billing remains opt-in and rejected without consent |
 | Provider-neutral command contract | Green | `/screw:scan` flags for provider-primary, composed, and parallel routes are documented and route-equivalent fixture validated |
 | Host-agnostic project direction beyond `/screw:scan` | Green as architecture, yellow as host UX | Shared MCP/package/skill surfaces exist; per-host command affordances still vary |
@@ -48,6 +48,7 @@ Primary references:
 | Fixture provider-scan package CLI | Passed | Validated from `/tmp` project |
 | MCP `run_provider_scan` fixture path | Passed | Dispatcher validation recorded |
 | Provider-scan accumulation/finalization | Passed | Fixture and live provider outputs wrote reports |
+| Mode-aware report naming and metadata | Passed | Provider-primary, primary-plus-challenger, and parallel reports include provider/mode labels in filenames and JSON/Markdown/SARIF metadata |
 | Claude live primary scan | Passed | MLflow MoreFixes SSTI vulnerable/patched pair |
 | Codex live primary scan | Passed | MLflow MoreFixes SSTI vulnerable/patched pair |
 | Claude primary plus Codex challenger | Passed | Live composed validation |
@@ -95,6 +96,7 @@ before Phase 5.5 web application integration.
 | All three required modes live validated with Claude/Codex | Green |
 | Provider-neutral primary scan runner validates output through shared `Finding` models | Green |
 | Privacy/cost controls are explicit and opt-in | Green |
+| Reports identify whether they came from provider-primary, primary-plus-challenger, or parallel mode | Green |
 | Docs are aligned with code and validation reality | Green for current PR, keep current |
 | Host-route provider-primary/composed/parallel validation decision made | Yellow |
 | API/local/additional-provider adapter deferrals explicitly accepted | Yellow |

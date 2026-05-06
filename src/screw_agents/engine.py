@@ -4117,6 +4117,24 @@ def _parallel_provider_scan_schema() -> dict[str, Any]:
                 },
                 "description": "Optional fixture findings keyed by provider.",
             },
+            "finalize": {
+                "type": "boolean",
+                "default": False,
+                "description": (
+                    "When true, accumulate flattened provider findings and "
+                    "write normal .screw/findings reports with parallel "
+                    "reconciliation metadata."
+                ),
+            },
+            "formats": {
+                "type": ["array", "null"],
+                "items": {
+                    "type": "string",
+                    "enum": ["json", "markdown", "sarif", "csv"],
+                },
+                "uniqueItems": True,
+                "description": "Optional report formats when finalize=true.",
+            },
         },
         "required": [
             "project_root",

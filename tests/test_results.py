@@ -9,10 +9,10 @@ I/O without the staging round-trip (covered separately in
 """
 
 import json
+from pathlib import Path
 
 import pytest
 import yaml
-from pathlib import Path
 
 from screw_agents.models import Finding, MergedSource
 from screw_agents.results import _merge_findings_augmentatively, render_and_write
@@ -69,7 +69,7 @@ def finding_sqli_line30():
 
 class TestRenderAndWrite:
     def test_creates_screw_directory_structure(self, tmp_path, finding_sqli):
-        result = render_and_write(
+        render_and_write(
             project_root=tmp_path,
             findings_raw=[finding_sqli],
             agent_names=["sqli"],
@@ -141,6 +141,41 @@ class TestRenderAndWrite:
         )
         json_file = result["files_written"]["json"]
         assert "/injection-" in json_file
+
+    def test_filename_prefix_includes_phase5_report_label(
+        self,
+        tmp_path,
+        finding_sqli,
+    ):
+        result = render_and_write(
+            project_root=tmp_path,
+            findings_raw=[finding_sqli],
+            agent_names=["sqli"],
+            scan_metadata={
+                "report": {
+                    "label": "Codex Primary",
+                    "mode": "provider_primary",
+                    "providers": ["codex"],
+                }
+            },
+            formats=["json", "markdown", "sarif"],
+        )
+
+        json_file = result["files_written"]["json"]
+        assert "/sqli-codex-primary-" in json_file
+
+        json_content = json.loads(Path(json_file).read_text())
+        assert json_content["scan_metadata"]["report"]["mode"] == "provider_primary"
+
+        markdown = Path(result["files_written"]["markdown"]).read_text()
+        assert "**Mode:** `provider_primary`" in markdown
+        assert "**Providers:** `codex`" in markdown
+
+        sarif = json.loads(Path(result["files_written"]["sarif"]).read_text())
+        assert (
+            sarif["runs"][0]["properties"]["scanMetadata"]["report"]["label"]
+            == "Codex Primary"
+        )
 
     def test_summary_counts(self, tmp_path, finding_sqli, finding_sqli_line30):
         result = render_and_write(
