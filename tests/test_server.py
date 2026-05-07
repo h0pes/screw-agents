@@ -36,6 +36,20 @@ def test_create_http_app(domains_dir):
     assert app is not None
 
 
+def test_http_app_mounts_mcp_as_asgi_app(domains_dir):
+    """The streamable HTTP manager is an ASGI app, not a request handler."""
+    from starlette.testclient import TestClient
+
+    from screw_agents.server import create_http_app
+
+    app = create_http_app(domains_dir)
+    with TestClient(app) as client:
+        response = client.get("/mcp")
+
+    assert response.status_code == 406
+    assert "Client must accept text/event-stream" in response.text
+
+
 def test_run_http_binds_localhost_by_default() -> None:
     from screw_agents.server import run_http
 

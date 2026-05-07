@@ -473,7 +473,7 @@ def create_http_app(
     """
     from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
     from starlette.applications import Starlette
-    from starlette.routing import Route
+    from starlette.routing import Mount
 
     server, _ = create_server(domains_dir)
 
@@ -486,7 +486,7 @@ def create_http_app(
         await session_manager.handle_request(scope, receive, send)
 
     app = Starlette(
-        routes=[Route(path, endpoint=handle_mcp)],
+        routes=[Mount(path, app=handle_mcp)],
         lifespan=lambda _app: session_manager.run(),
     )
     return app
